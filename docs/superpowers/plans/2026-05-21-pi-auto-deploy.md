@@ -752,7 +752,7 @@ RELEASE_JSON="$(curl -sSfL \
 # 3. Pick the most recently uploaded asset. GitHub returns assets in
 # alphabetical-by-name order; sorting by created_at picks the artifact
 # CI just published rather than pinning to the lexicographically
-# smallest SHA prefix (see the spec for the KalmarOS bug we're avoiding).
+# smallest SHA prefix (the asset-ordering bug the spec warns about).
 LATEST_ASSET="$(echo "$RELEASE_JSON" | jq '[.assets[]] | sort_by(.created_at) | last')"
 ASSET_URL="$(echo "$LATEST_ASSET" | jq -r '.url // ""')"
 ASSET_NAME="$(echo "$LATEST_ASSET" | jq -r '.name // ""')"
