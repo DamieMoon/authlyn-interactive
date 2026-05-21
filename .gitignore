@@ -11,6 +11,8 @@ target/
 # Local env / secrets
 .env
 .env.local
+deploy/.env
+deploy/.github_token
 
 # macOS
 .DS_Store
