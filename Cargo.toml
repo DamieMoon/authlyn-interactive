@@ -14,21 +14,41 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
-axum = { version = "0.8.0", optional = true }
+axum = { version = "0.8.0", optional = true, features = ["multipart"] }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 leptos_meta = { version = "0.8.0" }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
 
-# SurrealDB client (ssr-only; never compiled into the WASM bundle)
-surrealdb = { version = "2", features = ["protocol-ws"], optional = true }
+# SurrealDB client (ssr-only; never compiled into the WASM bundle).
+# Pinned to the 3.x line so the on-machine `surreal` binary 3.x and the
+# Rust SDK speak the same WebSocket subprotocol. There is no stable 3.x
+# crate yet, so we ride the latest beta.
+surrealdb = { version = "=3.1.0-beta.3", features = ["protocol-ws"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }
 
 # End-to-end encryption: Signal-style Double Ratchet via vodozemac.
 # Compiled into both ssr (server keying) and hydrate (client sessions).
-vodozemac = "0.9"
+# `libolm-compat` gives us `to_libolm_pickle` / `from_libolm_pickle` (AES-CBC
+# + HMAC-SHA256), which we use for at-rest encryption of the device Account.
+vodozemac = { version = "0.9", features = ["libolm-compat"] }
+
+# Crypto helpers used by both the server (routing) and the client (E2EE).
+base64    = "0.22"
+hex       = "0.4"
+aes       = "0.8"
+ctr       = "0.9"
+sha2      = "0.10"
+rand      = "0.8"
+thiserror = "1"
+
+# Server-only helpers (ssr feature)
+tower-http         = { version = "0.6", features = ["limit"], optional = true }
+bytes              = { version = "1", optional = true }
+tracing            = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 # vodozemac transitively pulls getrandom 0.2 for chacha20poly1305 / aead;
 # the WASM target needs the "js" feature so it can borrow the browser's
@@ -48,6 +68,10 @@ ssr = [
     "dep:leptos_axum",
     "dep:surrealdb",
     "dep:serde_json",
+    "dep:tower-http",
+    "dep:bytes",
+    "dep:tracing",
+    "dep:tracing-subscriber",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

@@ -2,6 +2,7 @@
 #[tokio::main]
 async fn main() {
     use authlyn_interactive::app::*;
+    use authlyn_interactive::db;
     use axum::Router;
     use leptos::logging::log;
     use leptos::prelude::*;
@@ -10,6 +11,18 @@ async fn main() {
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
+
+    // Connect to SurrealDB and apply the schema before serving traffic.
+    // The handle is held in main's scope so the connection outlives the
+    // request handlers; AppState wiring lands in step 3 of the plan.
+    let _surreal = db::connect()
+        .await
+        .expect("SurrealDB connect failed (is `./scripts/dev-db.sh` running?)");
+    db::apply_schema(&_surreal)
+        .await
+        .expect("SurrealDB schema apply failed");
+    log!("SurrealDB schema applied");
+
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
 
