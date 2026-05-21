@@ -951,6 +951,13 @@ if ! id -u surrealdb >/dev/null 2>&1; then
     log "creating surrealdb user"
     useradd --system --no-create-home --shell /usr/sbin/nologin surrealdb
 fi
+# The puller runs as `damien` per authlyn-updater.service but needs to
+# traverse /opt/authlyn (mode 0750 authlyn:authlyn) to exec pi-updater.sh.
+# Adding damien to the authlyn group is idempotent (usermod -aG = append).
+if id -u damien >/dev/null 2>&1 && ! id -nG damien | tr ' ' '\n' | grep -qx authlyn; then
+    log "adding damien to the authlyn group (puller traversal)"
+    usermod -aG authlyn damien
+fi
 
 # 5. Directories.
 log "creating /opt/authlyn{,/media} and /var/lib/surrealdb"
