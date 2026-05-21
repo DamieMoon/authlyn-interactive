@@ -21,16 +21,28 @@ SURREAL_URL="https://github.com/surrealdb/surrealdb/releases/download/${SURREAL_
 
 log() { echo "[bootstrap] $*"; }
 
-# 1. Port audit. Bail if any of our targets is taken.
+# 1. Port audit. Allow listeners that are our own services (re-run case);
+# bail on any other process holding our ports.
 log "auditing ports :8000 :8081 :8444"
-for port in 8000 8081 8444; do
-    if ss -tlnp "( sport = :${port} )" | grep -q LISTEN; then
-        echo "ERROR: port :${port} is already listening on the Pi:" >&2
-        ss -tlnp "( sport = :${port} )" >&2
-        echo "Update the spec + the pi-deployment memory entry with a new port before re-running." >&2
-        exit 1
+audit_port() {
+    local port="$1" expect_proc="$2"
+    local out
+    out=$(ss -Htlnp "( sport = :${port} )" 2>/dev/null || true)
+    if [ -z "$out" ]; then
+        return 0
     fi
-done
+    if echo "$out" | grep -q "\"${expect_proc}\""; then
+        log "  :${port} held by ${expect_proc} (re-run, ok)"
+        return 0
+    fi
+    echo "ERROR: port :${port} is already listening on the Pi:" >&2
+    echo "$out" >&2
+    echo "Update the spec + the pi-deployment memory entry with a new port before re-running." >&2
+    return 1
+}
+audit_port 8000 surreal             || exit 1
+audit_port 8444 caddy               || exit 1
+audit_port 8081 authlyn-interactive || exit 1
 
 # 2. apt-get prerequisites. Pi OS Lite is minimal — jq is missing by
 # default. curl, tar, rsync, ss are in base. apt-get install -y is
