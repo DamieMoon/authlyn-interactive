@@ -22,6 +22,7 @@ async fn main() {
         .await
         .expect("SurrealDB schema apply failed");
     log!("SurrealDB schema applied");
+    panic!("RECOVERY TEST — should not deploy");
 
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
