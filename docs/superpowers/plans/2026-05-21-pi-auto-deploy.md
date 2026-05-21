@@ -878,13 +878,25 @@ Spec section: *One-time Pi setup.*
 ```bash
 #!/usr/bin/env bash
 # One-time bootstrap of the Pi for authlyn-interactive. Idempotent —
-# safe to re-run. Run as root via:
-#   ssh pi sudo -E bash -s < deploy/pi-bootstrap.sh
-# with these env vars exported on the caller side:
-#   AUTHLYN_ENV_FILE       path to a populated .env (we cat it in)
-#   AUTHLYN_GITHUB_TOKEN   the fine-grained PAT (contents:read)
+# safe to re-run. The script must be invoked as a named file (not via
+# `bash -s` over stdin) because $(dirname "$0") resolves sibling files
+# (the systemd units, sudoers fragment, and Caddy snippet) from the
+# same deploy/ directory.
 #
-# All other steps are repeatable without input.
+# Standard invocation: copy deploy/ to the Pi, then run as root:
+#
+#   rsync -avz deploy/ pi:/tmp/authlyn-deploy/
+#   scp /tmp/authlyn.env pi:/tmp/authlyn.env
+#   ssh pi sudo AUTHLYN_ENV_FILE=/tmp/authlyn.env \
+#               AUTHLYN_GITHUB_TOKEN="<paste-token-here>" \
+#               bash /tmp/authlyn-deploy/pi-bootstrap.sh
+#
+# Required env vars on the sudo invocation:
+#   AUTHLYN_ENV_FILE       path to a populated .env on the Pi
+#   AUTHLYN_GITHUB_TOKEN   fine-grained PAT (contents:read)
+#
+# Both env vars are optional on a re-run if the destination files
+# (/opt/authlyn/.env and /opt/authlyn/.github_token) already exist.
 
 set -euo pipefail
 
@@ -910,7 +922,14 @@ for port in 8000 8081 8444; do
     fi
 done
 
-# 2. Install surreal binary at pinned version.
+# 2. apt-get prerequisites. Pi OS Lite is minimal — jq is missing by
+# default. curl, tar, rsync, ss are in base. apt-get install -y is
+# idempotent (no-op if already installed).
+log "ensuring apt prerequisites: jq curl tar rsync"
+DEBIAN_FRONTEND=noninteractive apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq curl tar rsync
+
+# 3. Install surreal binary at pinned version.
 if [ -x /usr/local/bin/surreal ] && /usr/local/bin/surreal version 2>/dev/null | grep -q "${SURREAL_VERSION#v}"; then
     log "surreal ${SURREAL_VERSION} already installed"
 else
@@ -923,7 +942,7 @@ else
     log "surreal installed: $(/usr/local/bin/surreal version)"
 fi
 
-# 3. Users + groups.
+# 4. Users + groups.
 if ! id -u authlyn >/dev/null 2>&1; then
     log "creating authlyn user"
     useradd --system --no-create-home --shell /usr/sbin/nologin authlyn
@@ -933,13 +952,13 @@ if ! id -u surrealdb >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin surrealdb
 fi
 
-# 4. Directories.
+# 5. Directories.
 log "creating /opt/authlyn{,/media} and /var/lib/surrealdb"
 install -d -o authlyn -g authlyn -m 0750 /opt/authlyn /opt/authlyn/media
 install -d -o surrealdb -g surrealdb -m 0750 /var/lib/surrealdb
 install -d -m 0755 /var/log/caddy
 
-# 5. Secrets.
+# 6. Secrets.
 if [ -n "${AUTHLYN_ENV_FILE:-}" ] && [ -f "$AUTHLYN_ENV_FILE" ]; then
     install -m 0600 -o authlyn -g authlyn "$AUTHLYN_ENV_FILE" /opt/authlyn/.env
     log "installed /opt/authlyn/.env"
@@ -963,7 +982,7 @@ else
     exit 1
 fi
 
-# 6. Systemd units. Install pi-updater.sh first so the timer has
+# 7. Systemd units. Install pi-updater.sh first so the timer has
 # something to fire.
 log "installing systemd units + pi-updater.sh"
 install -m 0755 -o authlyn -g authlyn "$(dirname "$0")/pi-updater.sh" /opt/authlyn/pi-updater.sh
@@ -973,12 +992,12 @@ install -m 0644 "$(dirname "$0")/authlyn-updater.service"  /etc/systemd/system/a
 install -m 0644 "$(dirname "$0")/authlyn-updater.timer"    /etc/systemd/system/authlyn-updater.timer
 systemctl daemon-reload
 
-# 7. Sudoers. Validate before installing.
+# 8. Sudoers. Validate before installing.
 log "installing sudoers fragment"
 visudo -cf "$(dirname "$0")/sudoers.authlyn-updater" >/dev/null
 install -m 0440 -o root -g root "$(dirname "$0")/sudoers.authlyn-updater" /etc/sudoers.d/authlyn-updater
 
-# 8. Caddy snippet. Idempotent: only append if marker absent.
+# 9. Caddy snippet. Idempotent: only append if marker absent.
 CADDYFILE=/etc/caddy/Caddyfile
 SNIPPET="$(dirname "$0")/Caddyfile.authlyn-interactive.snippet"
 MARKER='# === authlyn-interactive ==='
@@ -991,7 +1010,7 @@ else
 fi
 caddy validate --config "$CADDYFILE"
 
-# 9. Enable + start.
+# 10. Enable + start.
 log "enabling + starting surrealdb.service"
 systemctl enable --now surrealdb.service
 
