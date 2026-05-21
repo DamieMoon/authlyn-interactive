@@ -1097,7 +1097,7 @@ Spec section: *Build & release pipeline.*
 # Build strategy: split into two steps because cargo-zigbuild only
 # works as a cargo subcommand (no linker wrapper for cargo-leptos to
 # call into). `cargo zigbuild` cross-compiles the server binary with
-# zig handling glibc version compat; `cargo leptos build --lib-only`
+# zig handling glibc version compat; `cargo leptos build --frontend-only`
 # produces the WASM/CSS bundle (target-agnostic). Outputs are merged
 # in the stage/ dir.
 
@@ -1153,8 +1153,8 @@ jobs:
             --target aarch64-unknown-linux-gnu \
             --bin authlyn-interactive
 
-      - name: Build WASM/CSS bundle (cargo-leptos --lib-only)
-        run: cargo leptos build --release --lib-only
+      - name: Build WASM/CSS bundle (cargo-leptos --frontend-only)
+        run: cargo leptos build --release --frontend-only
 
       - name: Compute build metadata
         id: meta
