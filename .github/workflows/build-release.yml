@@ -51,11 +51,10 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Install cargo-zigbuild
-        run: cargo install --locked cargo-zigbuild
-
-      - name: Install cargo-leptos
-        run: cargo install --locked cargo-leptos
+      - name: Install cargo-zigbuild + cargo-leptos (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild,cargo-leptos
 
       - name: Cross-compile server binary (cargo-zigbuild)
         run: |
