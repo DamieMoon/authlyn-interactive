@@ -1,0 +1,11 @@
+[Unit]
+Description=authlyn-interactive auto-deploy updater (every 5 minutes)
+Documentation=https://github.com/DamieMoon/authlyn-interactive
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
