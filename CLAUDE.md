@@ -31,18 +31,18 @@ cargo leptos watch         # terminal 2 — app on 127.0.0.1:3000
 
 ## Deployment target
 
-Self-hosted on a Raspberry Pi 4B (8GB), publicly reachable over HTTPS via a TP-Link DDNS hostname; the router forwards ports to the Pi via UPnP. See `CLAUDE.local.md` for the LAN IP, DDNS hostname, username, and SSH key (gitignored).
+Self-hosted on a Raspberry Pi 4B (8GB), publicly reachable over HTTPS via a TP-Link DDNS hostname; the router forwards ports to the Pi via UPnP. The Pi runs aarch64 Linux, so production binaries cross-compile from macOS (also aarch64) to `aarch64-unknown-linux-gnu`. Deploy story is not built yet.
 
-The Pi runs aarch64 Linux, so production binaries cross-compile from macOS (also aarch64) to `aarch64-unknown-linux-gnu`. Deploy story is not built yet.
+Pi-specific machine state (LAN IP, DDNS hostname, SSH alias, port-collision rules, currently chosen ports) lives in the project memory entry [`pi-deployment`](../../.claude/projects/-Users-damien-Developer-authlyn-interactive/memory/pi-deployment.md) and is loaded automatically at session start via `MEMORY.md`.
 
 ### Port-collision rule (hard constraint)
 
-The Pi already runs other services that bind public ports: **xray-core** (proxy, typically 443/80/high) and a **Discord activity** (HTTPS). authlyn-interactive must pick ports that don't collide with anything already in use on the Pi. Before binding a new public port:
+The Pi already runs other services that bind public ports (xray-core, a Discord activity). Before binding a new public port:
 
 1. SSH to the Pi and check `sudo ss -tlnp` for what's already listening.
-2. Update `CLAUDE.local.md` with the port chosen and what it's for.
+2. Update the `pi-deployment` memory entry with the port chosen and what it's for.
 
-Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB) are loopback-only and don't conflict, so they stay as the dev defaults. Production ports for the Pi are a separate decision to be made at deploy time.
+Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB) are loopback-only and don't conflict, so they stay as the dev defaults. Production ports are a separate decision at deploy time.
 
 ## Out of scope (Damien to design)
 
