@@ -66,7 +66,13 @@ fi
 log "creating /opt/authlyn{,/media} and /var/lib/surrealdb"
 install -d -o authlyn -g authlyn -m 0750 /opt/authlyn /opt/authlyn/media
 install -d -o surrealdb -g surrealdb -m 0750 /var/lib/surrealdb
-install -d -m 0755 /var/log/caddy
+install -d -o caddy -g caddy -m 0755 /var/log/caddy
+
+# Pre-create Caddy's authlyn access log owned by caddy:caddy so the
+# reload that loads our new site block can open it. (On some setups
+# the file ends up root-owned, which then blocks Caddy from opening
+# it; pre-creating with the right owner avoids that race.)
+install -o caddy -g caddy -m 0640 /dev/null /var/log/caddy/authlyn-interactive.log
 
 # 6. Secrets.
 if [ -n "${AUTHLYN_ENV_FILE:-}" ] && [ -f "$AUTHLYN_ENV_FILE" ]; then
