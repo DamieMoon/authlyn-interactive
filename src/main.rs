@@ -15,9 +15,9 @@ async fn main() {
     // Connect to SurrealDB and apply the schema before serving traffic.
     // The handle is held in main's scope so the connection outlives the
     // request handlers; AppState wiring lands in step 3 of the plan.
-    let _surreal = db::connect()
+    let _surreal = db::connect_with_retries()
         .await
-        .expect("SurrealDB connect failed (is `./scripts/dev-db.sh` running?)");
+        .expect("SurrealDB connect failed after 10 retries (is `./scripts/dev-db.sh` running locally, or `surrealdb.service` on the Pi?)");
     db::apply_schema(&_surreal)
         .await
         .expect("SurrealDB schema apply failed");
