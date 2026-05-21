@@ -1,7 +1,0 @@
-# Cross-compile to aarch64-unknown-linux-gnu via cargo-zigbuild so CI
-# can build the Pi binary on Ubuntu without an aarch64 host. zig acts
-# as the linker for that target only; the host (Mac aarch64 / Ubuntu
-# x86_64) keeps its default linker.
-
-[target.aarch64-unknown-linux-gnu]
-linker = "cargo-zigbuild"

@@ -249,47 +249,11 @@ EOF
 
 ---
 
-## Task 2: Cross-compile linker config
+## Task 2: (skipped — no `.cargo/config.toml` needed)
 
-Spec section: *Build & release pipeline → step 7.*
+**Background:** an earlier draft of this plan created `.cargo/config.toml` with `linker = "cargo-zigbuild"`. That's wrong — `cargo-zigbuild` ships as a cargo subcommand only (no linker wrapper binary exists), confirmed by the upstream README. The file was created at commit `3a52e91` and reverted at the commit recording this plan revision. **Skip this task** — no equivalent file needs to land; Task 12 invokes `cargo zigbuild` directly for the server-bin step (see its updated body below).
 
-**Files:**
-- Create: `.cargo/config.toml`
-
-- [ ] **Step 1: Create `.cargo/config.toml`**
-
-```toml
-# Cross-compile to aarch64-unknown-linux-gnu via cargo-zigbuild so CI
-# can build the Pi binary on Ubuntu without an aarch64 host. zig acts
-# as the linker for that target only; the host (Mac aarch64 / Ubuntu
-# x86_64) keeps its default linker.
-
-[target.aarch64-unknown-linux-gnu]
-linker = "cargo-zigbuild"
-```
-
-- [ ] **Step 2: Verify cargo still builds for the host target**
-
-```
-cargo check --features ssr --no-default-features
-```
-
-Expected: `Finished ... 0.XXs`. (No actual cross-compile here — we're just confirming the config doesn't break host builds.)
-
-- [ ] **Step 3: Commit**
-
-```
-git add .cargo/config.toml
-git commit -m "$(cat <<'EOF'
-Pin cargo-zigbuild as the linker for aarch64-unknown-linux-gnu
-
-CI uses zigbuild to cross-compile the Pi binary from Ubuntu. The
-config is target-scoped so the host build is untouched.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
+No commit needed for this task (the file was already deleted in the plan-revision commit).
 
 ---
 
@@ -1101,11 +1065,18 @@ Spec section: *Build & release pipeline.*
 
 ```yaml
 # Cross-compiles authlyn-interactive for aarch64-unknown-linux-gnu on
-# every push to `release`, packages the binary + site/ + build.json
-# into a tar.gz, and updates a rolling `latest` GitHub Release. A
-# Pi-side systemd timer (deploy/authlyn-updater.timer) polls and
-# atomically swaps on SHA change. See
+# every push to `release`, packages the server binary + site/ +
+# build.json into a tar.gz, and updates a rolling `latest` GitHub
+# Release. A Pi-side systemd timer (deploy/authlyn-updater.timer)
+# polls and atomically swaps on SHA change. See
 # docs/superpowers/specs/2026-05-21-pi-auto-deploy-design.md.
+#
+# Build strategy: split into two steps because cargo-zigbuild only
+# works as a cargo subcommand (no linker wrapper for cargo-leptos to
+# call into). `cargo zigbuild` cross-compiles the server binary with
+# zig handling glibc version compat; `cargo leptos build --lib-only`
+# produces the WASM/CSS bundle (target-agnostic). Outputs are merged
+# in the stage/ dir.
 
 name: Build and publish rolling release
 
@@ -1136,7 +1107,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-unknown-linux-gnu
+          targets: aarch64-unknown-linux-gnu, wasm32-unknown-unknown
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
@@ -1152,10 +1123,15 @@ jobs:
       - name: Install cargo-leptos
         run: cargo install --locked cargo-leptos
 
-      - name: Cross-compile via cargo-leptos
+      - name: Cross-compile server binary (cargo-zigbuild)
         run: |
-          cargo leptos build --release \
-            --bin-target-triple aarch64-unknown-linux-gnu
+          cargo zigbuild --release \
+            --features ssr --no-default-features \
+            --target aarch64-unknown-linux-gnu \
+            --bin authlyn-interactive
+
+      - name: Build WASM/CSS bundle (cargo-leptos --lib-only)
+        run: cargo leptos build --release --lib-only
 
       - name: Compute build metadata
         id: meta
