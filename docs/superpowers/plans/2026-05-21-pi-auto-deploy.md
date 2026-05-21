@@ -819,7 +819,9 @@ sudo install -m 0644 -o authlyn -g authlyn "$EXTRACT_DIR/build.json" "$INSTALL_D
 log "restarting $SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 sleep 3
-if ! sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+# systemctl is-active doesn't need root, and the --quiet flag would
+# not match the sudoers rule (which scopes the exact arg list).
+if ! systemctl is-active --quiet "$SERVICE_NAME"; then
     log "ERROR: service is not active after restart; check journalctl -u $SERVICE_NAME"
     exit 1
 fi
