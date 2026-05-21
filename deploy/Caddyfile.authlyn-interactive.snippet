@@ -1,0 +1,24 @@
+# === authlyn-interactive ===
+# Appended to /etc/caddy/Caddyfile by deploy/pi-bootstrap.sh.
+# Detected by the leading marker comment so re-runs are idempotent.
+
+authlyn.tplinkdns.com:8444 {
+    encode zstd gzip
+
+    # axum binds 127.0.0.1:8081 (see LEPTOS_SITE_ADDR in /opt/authlyn/.env).
+    # Caddy terminates TLS on :8444 and reverse-proxies in.
+    reverse_proxy 127.0.0.1:8081
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+
+    log {
+        output file /var/log/caddy/authlyn-interactive.log
+        format console
+    }
+}
+# === /authlyn-interactive ===
