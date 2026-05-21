@@ -44,6 +44,14 @@ The Pi already runs other services that bind public ports (xray-core, a Discord 
 
 Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB) are loopback-only and don't conflict, so they stay as the dev defaults. Production ports are a separate decision at deploy time.
 
+## Branching and auto-deploy
+
+- `main` is the working branch. Commits land here freely; nothing deploys.
+- `release` is the deploy target. Promote with `git push origin main:release` when a batch of commits is ready to ship.
+- CI (`.github/workflows/build-release.yml`) builds on every push to `release` and updates the rolling `latest` GitHub Release. The Pi-side timer (`deploy/authlyn-updater.timer`) polls every 5 minutes and atomic-swaps + restarts on SHA change.
+- Rolling back a bad ship: `git push origin <good-sha>:release --force-with-lease`. CI re-runs against the good commit and the puller picks it up on the next tick.
+- Pi-side machine state (chosen ports, install layout) lives in the project memory entry `pi-deployment`.
+
 ## Out of scope (Damien to design)
 
 - Chat schema in SurrealDB
