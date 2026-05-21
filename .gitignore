@@ -1,0 +1,19 @@
+# Cargo build artefacts
+debug/
+target/
+
+# rustfmt backup files
+**/*.rs.bk
+
+# MSVC Windows builds
+*.pdb
+
+# Local env / secrets
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Per-machine Claude notes (deployment IPs, SSH key names, etc.)
+CLAUDE.local.md
