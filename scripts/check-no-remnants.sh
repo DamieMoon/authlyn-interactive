@@ -5,9 +5,11 @@
 set -euo pipefail
 
 PATTERN='kalmaros|KalmarOS|kalmaroS|ku-chronicles'
-EXCLUDE_PATH='docs/superpowers/'
 
-if git grep -in -E "$PATTERN" -- ":!$EXCLUDE_PATH" > /tmp/authlyn-remnants.$$ 2>/dev/null; then
+if git grep -in -E "$PATTERN" -- \
+    ':!docs/superpowers/' \
+    ':!scripts/check-no-remnants.sh' \
+    > /tmp/authlyn-remnants.$$ 2>/dev/null; then
     echo "KalmarOS-derived names leaked into the codebase:" >&2
     cat /tmp/authlyn-remnants.$$ >&2
     rm -f /tmp/authlyn-remnants.$$
