@@ -1,0 +1,10 @@
+# /etc/sudoers.d/authlyn-updater
+# Installed mode 0440 by pi-bootstrap.sh; validated with `visudo -c`.
+# Scopes damien's NOPASSWD privileges to exactly the operations
+# /opt/authlyn/pi-updater.sh performs.
+
+Cmnd_Alias AUTHLYN_INSTALL = /usr/bin/install, /usr/bin/mv, /usr/bin/rsync, /usr/bin/chown
+Cmnd_Alias AUTHLYN_SVC     = /usr/bin/systemctl restart authlyn, /usr/bin/systemctl is-active authlyn
+Cmnd_Alias AUTHLYN_TOKEN   = /usr/bin/cat /opt/authlyn/.github_token, /usr/bin/test -f /opt/authlyn/.github_token
+
+damien ALL=(root) NOPASSWD: AUTHLYN_INSTALL, AUTHLYN_SVC, AUTHLYN_TOKEN
