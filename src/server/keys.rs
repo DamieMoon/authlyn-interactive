@@ -38,6 +38,7 @@ use crate::crypto::{PreKeyBundle, PreKeyError, SignedPreKey};
 use crate::protocol::{
     ClaimKeyResponse, ClaimKind, ErrorBody, UploadKeysRequest, UploadKeysResponse,
 };
+use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
 
 /// Header carrying the calling device's ID in the v1 auth stub.
@@ -128,7 +129,7 @@ fn json_rejection_response(rej: JsonRejection) -> Response {
     error_response(StatusCode::BAD_REQUEST, reason)
 }
 
-fn extract_device_id(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn extract_device_id(headers: &HeaderMap) -> Option<String> {
     headers
         .get(DEVICE_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -437,81 +438,6 @@ async fn load_fallback(
 
 fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-// ---------------------------------------------------------------------------
-// SurrealDB write-conflict retry
-// ---------------------------------------------------------------------------
-
-/// Cap on how many times we'll re-issue a SurrealDB statement that got
-/// rejected with a retryable write conflict. 5 attempts gives us linear
-/// backoff up to ~25ms + jitter — well under any meaningful client
-/// timeout, but enough headroom for the contention windows we've seen
-/// in concurrent claims (a fraction of a millisecond each).
-const MAX_WRITE_CONFLICT_ATTEMPTS: u32 = 5;
-
-/// Base unit of the backoff schedule. Attempt `n` waits
-/// `BASE_BACKOFF_MS * n + jitter` ms before retrying.
-const BASE_BACKOFF_MS: u64 = 5;
-
-/// Run `op`, retrying when SurrealDB tells us the transaction lost an
-/// MVCC race. Other errors propagate immediately.
-///
-/// The closure is invoked up to [`MAX_WRITE_CONFLICT_ATTEMPTS`] times.
-/// Backoff is linear in attempt number plus a small jitter so concurrent
-/// retriers desynchronise instead of stampeding the next slot together.
-async fn with_write_conflict_retry<F, Fut, T>(mut op: F) -> surrealdb::Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = surrealdb::Result<T>>,
-{
-    let mut last_err: Option<surrealdb::Error> = None;
-    for attempt in 1..=MAX_WRITE_CONFLICT_ATTEMPTS {
-        match op().await {
-            Ok(v) => return Ok(v),
-            Err(e) if is_write_conflict(&e) && attempt < MAX_WRITE_CONFLICT_ATTEMPTS => {
-                // `rand::random::<u64>()` is good enough for jitter; we
-                // don't need a cryptographic source here.
-                let jitter = rand::random::<u64>() % 20;
-                let backoff_ms = BASE_BACKOFF_MS * attempt as u64 + jitter;
-                tracing::debug!(
-                    attempt,
-                    backoff_ms,
-                    error = %e,
-                    "SurrealDB write conflict, retrying"
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                last_err = Some(e);
-                continue;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    // We only fall through here if every attempt was a write conflict;
-    // surface the last one so the caller can map it to 5xx.
-    Err(last_err.expect("loop body always sets last_err before falling through"))
-}
-
-/// Identify SurrealDB write-conflict errors via their Display string. The
-/// SDK exposes them as plain `surrealdb::Error` values rather than a typed
-/// variant, so substring matching is the cheapest reliable test. Both the
-/// "Write conflict" and the "retry the transaction" markers appear in the
-/// 3.x error text we've observed in production (the full message reads
-/// `"Query not executed: Transaction conflict: Write conflict, retry the
-/// transaction. This transaction can be retried"`).
-///
-/// Exposed (`pub`, not `pub(crate)`) so the
-/// `is_write_conflict_matches_real_surrealdb_conflict` regression test in
-/// `tests/keys.rs` can call it directly. Integration tests are compiled as
-/// a separate crate, so `pub(crate)` would not be reachable. That test
-/// synthesizes a real MVCC conflict against the dev DB and asserts this
-/// predicate still fires. The canary is here because rooms/Megolm in
-/// steps 5+6 will copy the same retry pattern, and a silent SurrealDB
-/// rename of either substring would disable the retry loop everywhere
-/// without any compile-time signal.
-pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
-    let s = err.to_string();
-    s.contains("Write conflict") || s.contains("retry the transaction")
 }
 
 // Plumbing so `PreKeyError` flows naturally if we want to surface a more

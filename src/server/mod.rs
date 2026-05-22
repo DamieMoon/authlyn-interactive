@@ -1,41 +1,46 @@
-//! Server-side axum bits: shared [`AppState`] and the route table that
-//! `main.rs` mounts (plus the test harness consumes via `make_router`).
+//! Server-side axum bits: shared [`AppState`], shared infrastructure
+//! ([`retry`]), and the route table that `main.rs` mounts (plus the test
+//! harness consumes via `make_router`).
 
 pub mod keys;
+pub mod keyshare;
+pub mod retry;
 pub mod state;
 
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
 
 pub use self::state::AppState;
 
-/// Hard cap on the size of any request body the `/keys/*` routes will
-/// accept. A normal bundle is ~150 B per OTK + a fixed header overhead,
-/// so 64 KiB comfortably covers `MAX_OTKS_PER_PUBLISH = 200` OTKs while
-/// still bounding what an adversarial client can push at us.
-const KEYS_BODY_LIMIT_BYTES: usize = 64 * 1024;
+/// Hard cap on the size of any request body the routes below will accept.
+/// A normal pre-key bundle is ~150 B per OTK + fixed header overhead, so
+/// 64 KiB comfortably covers `MAX_OTKS_PER_PUBLISH = 200` OTKs while still
+/// bounding what an adversarial client can push at us. Keyshare deposits
+/// are a few hundred bytes each (one Olm envelope per POST), so they sit
+/// well inside the same cap.
+const REQUEST_BODY_LIMIT_BYTES: usize = 64 * 1024;
 
-/// Build the keys subrouter (just the `/keys/*` routes plus the shared
-/// body-size limit). Used internally by both [`make_router`] and
+/// Build the API subrouter (everything outside the Leptos handlers) plus
+/// the shared body-size limit. Used internally by both [`make_router`] and
 /// [`api_router`] so the layer can't drift between the two entry points.
-fn keys_routes() -> Router<AppState> {
+fn api_routes() -> Router<AppState> {
     Router::new()
         // axum 0.8 uses `{param}` braces, not `:param` colons.
         .route("/keys/upload", post(keys::upload_keys))
         .route("/keys/claim/{user}/{device}", post(keys::claim_key))
-        .layer(RequestBodyLimitLayer::new(KEYS_BODY_LIMIT_BYTES))
+        .route("/rooms/{id}/keyshare", post(keyshare::deposit_keyshare))
+        .route("/rooms/{id}/keyshare/inbox", get(keyshare::drain_inbox))
+        .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 
-/// Build the application-specific routes (everything outside the Leptos
-/// handlers) bound to the given [`AppState`].
+/// Build the application-specific routes bound to the given [`AppState`].
 ///
 /// Returns a `Router<()>`: `.with_state(state)` has already been applied,
 /// so this is ready to drop into `axum::serve` as-is. Tests rely on this
-/// shape so they can call `Router::oneshot` without a separate state
-/// argument.
+/// shape so they can call `Router::oneshot` without a separate state arg.
 pub fn make_router(state: AppState) -> Router {
-    keys_routes().with_state(state)
+    api_routes().with_state(state)
 }
 
 /// Same routes as [`make_router`] but stays `Router<AppState>` so the
@@ -43,5 +48,5 @@ pub fn make_router(state: AppState) -> Router {
 ///
 /// Used by `main.rs` — tests don't need it.
 pub fn api_router() -> Router<AppState> {
-    keys_routes()
+    api_routes()
 }

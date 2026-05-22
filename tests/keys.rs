@@ -22,7 +22,7 @@ use surrealdb::Surreal;
 use tower::ServiceExt;
 
 use authlyn_interactive::crypto::{prekey::PreKeyBundleBuilder, DeviceAccount};
-use authlyn_interactive::server::keys::is_write_conflict;
+use authlyn_interactive::server::retry::is_write_conflict;
 use authlyn_interactive::server::{make_router, AppState};
 use authlyn_interactive::storage;
 
@@ -696,7 +696,7 @@ async fn concurrent_claims_each_get_distinct_otk() {
 }
 
 /// Test 9: Lock the
-/// [`is_write_conflict`](authlyn_interactive::server::keys::is_write_conflict)
+/// [`is_write_conflict`](authlyn_interactive::server::retry::is_write_conflict)
 /// substring matcher against a *real* SurrealDB write-conflict error.
 ///
 /// **What this catches:** the retry helper distinguishes "retryable
@@ -816,9 +816,9 @@ async fn is_write_conflict_matches_real_surrealdb_conflict() {
         "is_write_conflict() returned false for a real SurrealDB write \
          conflict. The error's Display string was: '{conflict_err}'. \
          SurrealDB likely renamed its error text; update both substrings \
-         in src/server/keys.rs::is_write_conflict to match (and audit \
-         every caller of with_write_conflict_retry — keys.rs today, \
-         rooms/Megolm in steps 5+6)."
+         in src/server/retry.rs::is_write_conflict to match (and audit \
+         every caller of with_write_conflict_retry — keys.rs + \
+         keyshare.rs today, Megolm in step 6)."
     );
 }
 
