@@ -5,16 +5,16 @@
 //! collide.
 //!
 //! Driving the axum `Router` through `tower::ServiceExt::oneshot` avoids
-//! binding a TCP port for each test.
+//! binding a TCP port for each test. Shared harness (`Arena`, `test_db`,
+//! `post_json`, `random_id`) lives in `tests/common/`; only the
+//! crypto-touching `build_bundle` helper stays inline here.
 
 #![cfg(feature = "ssr")]
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{header, Method, Request, StatusCode};
-use axum::Router;
-use rand::RngCore;
 use serde_json::{json, Value};
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
@@ -22,106 +22,14 @@ use surrealdb::Surreal;
 use tower::ServiceExt;
 
 use authlyn_interactive::crypto::{prekey::PreKeyBundleBuilder, DeviceAccount};
-use authlyn_interactive::server::retry::is_write_conflict;
-use authlyn_interactive::server::{make_router, AppState};
-use authlyn_interactive::storage;
+use authlyn_interactive::server::retry::{is_unique_violation, is_write_conflict};
+
+mod common;
+use common::{arena, post_json, random_id, NS_COUNTER};
 
 // ---------------------------------------------------------------------------
-// Test harness
+// Crypto-touching helper (kept inline)
 // ---------------------------------------------------------------------------
-
-/// Monotonic counter so concurrent `cargo test` workers each get distinct
-/// SurrealDB namespaces, in addition to the process-PID prefix.
-static NS_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// One isolated test arena: a SurrealDB namespace+database that owns its
-/// schema, plus the axum `Router` wired against it.
-struct Arena {
-    router: Router,
-}
-
-async fn arena() -> Arena {
-    let db = test_db().await;
-    let state = AppState::new(db);
-    let router = make_router(state);
-    Arena { router }
-}
-
-async fn test_db() -> Surreal<Client> {
-    let host = std::env::var("SURREAL_URL")
-        .unwrap_or_else(|_| "127.0.0.1:8000".into())
-        .trim_start_matches("ws://")
-        .trim_start_matches("wss://")
-        .to_string();
-    let user = std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".into());
-    let pass = std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".into());
-
-    let db = Surreal::new::<Ws>(host)
-        .await
-        .expect("connect to SurrealDB — is ./scripts/dev-db.sh running?");
-    db.signin(Root {
-        username: user,
-        password: pass,
-    })
-    .await
-    .expect("signin");
-
-    let pid = std::process::id();
-    let seq = NS_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let ns = format!("test_keys_{}_{}", pid, seq);
-    let db_name = format!("test_keys_{}_{}", pid, seq);
-    db.use_ns(&ns).use_db(&db_name).await.expect("use ns/db");
-
-    db.query(storage::SCHEMA)
-        .await
-        .expect("apply schema")
-        .check()
-        .expect("apply schema check");
-    db
-}
-
-/// Free-form 16-byte hex string used as device/user identifier in v1.
-/// Spec calls these "ULIDs", but the auth stub treats them as opaque strings,
-/// so a random hex value is sufficient and avoids pulling in a ulid crate.
-fn random_id() -> String {
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    hex::encode(bytes)
-}
-
-/// Hit the router with a JSON request. Returns (status, parsed body).
-async fn post_json(
-    router: &Router,
-    path: &str,
-    headers: &[(&str, &str)],
-    body: &Value,
-) -> (StatusCode, Value) {
-    let mut req_builder = Request::builder()
-        .method(Method::POST)
-        .uri(path)
-        .header(header::CONTENT_TYPE, "application/json");
-    for (k, v) in headers {
-        req_builder = req_builder.header(*k, *v);
-    }
-    let req = req_builder
-        .body(Body::from(serde_json::to_vec(body).unwrap()))
-        .unwrap();
-
-    let res = router.clone().oneshot(req).await.expect("oneshot");
-    let status = res.status();
-    let bytes = to_bytes(res.into_body(), 1 << 20).await.expect("read body");
-    let parsed: Value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "body parse failed: {e}, raw: {:?}",
-                String::from_utf8_lossy(&bytes)
-            )
-        })
-    };
-    (status, parsed)
-}
 
 /// Build a fresh `PreKeyBundle` carrying `otk_count` OTKs + one fallback key.
 fn build_bundle(device: &mut DeviceAccount, otk_count: usize) -> Value {
@@ -724,7 +632,16 @@ async fn concurrent_claims_each_get_distinct_otk() {
 /// (the synth is wrong) or it doesn't surface a retryable error (the
 /// matcher is moot because the retry path is unreachable). Either way the
 /// test failure is informative.
-#[tokio::test]
+// Multi-thread runtime so the two `tokio::spawn`-ed transaction futures
+// can run on separate worker threads — `#[tokio::test]`'s default
+// `current_thread` flavour serialises spawned tasks onto one OS thread,
+// which under the load of 13+ peer tests in the binary shrinks the
+// per-round contention window enough that SurrealDB occasionally
+// processes both transactions sequentially and no write conflict is
+// surfaced. (Pre-step-7 the binary had 12 tests and 50 attempts always
+// caught it; step 7's tests/common extraction + the new UNIQUE canary
+// pushed scheduler pressure higher and started flaking the cap.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn is_write_conflict_matches_real_surrealdb_conflict() {
     use std::sync::Arc;
 
@@ -770,39 +687,43 @@ async fn is_write_conflict_matches_real_surrealdb_conflict() {
         .check()
         .expect("seed row check");
 
-    let d1 = Arc::new(fresh_conn(&ns, &db_name).await);
-    let d2 = Arc::new(fresh_conn(&ns, &db_name).await);
+    // Open `fanout` parallel connections per attempt and fire all of them
+    // at the same row in parallel. Each attempt either commits one and
+    // surfaces a write conflict on the rest, OR (rarely, when scheduling
+    // serialises them) commits all `fanout` in sequence. Fanning out wider
+    // than 2 cheaply re-amortises that scheduling risk: 10 racers means
+    // we need all 10 to serialise to miss a conflict, and the binary's
+    // peer tests would have to monopolise the runtime for the entire
+    // attempt to get that. Raised from 2-wide × 50 attempts in step 7
+    // after the tests/common extraction + UNIQUE canary increased
+    // scheduler pressure on the multi-thread runtime.
+    const FANOUT: usize = 10;
+    let mut conns: Vec<Arc<Surreal<Client>>> = Vec::with_capacity(FANOUT);
+    for _ in 0..FANOUT {
+        conns.push(Arc::new(fresh_conn(&ns, &db_name).await));
+    }
 
-    // Up to 50 attempts: scheduling can rob us of contention on any single
-    // round, but never on all 50 (the probe caught it on attempt 0). If the
-    // loop falls through, that's a real failure: see the test doc-comment.
     let conflict_err: surrealdb::Error = 'find: {
         for _attempt in 0..50 {
             let q = "BEGIN TRANSACTION; UPDATE type::record('conflict_canary', '1') SET v = $v; COMMIT TRANSACTION;";
-            let f1 = {
-                let d = d1.clone();
-                tokio::spawn(
-                    async move { d.query(q).bind(("v", 1i64)).await.and_then(|r| r.check()) },
-                )
-            };
-            let f2 = {
-                let d = d2.clone();
-                tokio::spawn(
-                    async move { d.query(q).bind(("v", 2i64)).await.and_then(|r| r.check()) },
-                )
-            };
-            let r1 = f1.await.expect("d1 join");
-            let r2 = f2.await.expect("d2 join");
-            if let Err(e) = r1 {
-                break 'find e;
+            let mut handles = Vec::with_capacity(FANOUT);
+            for (i, conn) in conns.iter().enumerate() {
+                let d = conn.clone();
+                let v = (i + 1) as i64;
+                handles.push(tokio::spawn(async move {
+                    d.query(q).bind(("v", v)).await.and_then(|r| r.check())
+                }));
             }
-            if let Err(e) = r2 {
-                break 'find e;
+            for h in handles {
+                let r = h.await.expect("racer join");
+                if let Err(e) = r {
+                    break 'find e;
+                }
             }
         }
         panic!(
-            "SurrealDB no longer synthesizes a write conflict for two concurrent \
-             transactions updating the same row in 50 attempts — the conflict \
+            "SurrealDB no longer synthesizes a write conflict across 50 attempts of \
+             {FANOUT} parallel transactions updating the same row — the conflict \
              synth pattern is broken, which means the canary cannot guard the \
              matcher anymore. Investigate before shipping."
         );
@@ -889,5 +810,128 @@ async fn claim_with_wrong_user_path_is_not_found() {
         "wrong-user 404 must use the disambiguating error message so \
          tracing can tell it apart from the generic device-missing 404, \
          got body: {body}"
+    );
+}
+
+/// Test 11 (step 7 canary): Lock the
+/// [`is_unique_violation`](authlyn_interactive::server::retry::is_unique_violation)
+/// substring matcher against a *real* SurrealDB UNIQUE-index violation.
+///
+/// **What this catches:** step 7's `POST /rooms/{id}/join` translates a
+/// concurrent-inviter race that loses on the `room_member_pair (room, user)
+/// UNIQUE` index into HTTP `409 "user is already a member"` by inspecting
+/// the residual SurrealDB error with `is_unique_violation`. SurrealDB 3.x
+/// surfaces UNIQUE violations as plain `surrealdb::Error` values whose
+/// `Display` contains the substring `"already contains"` — a future point
+/// release could rename that text and silently degrade the 409 path to
+/// 500 without any compile-time signal. This canary fires the regression.
+///
+/// **How the violation is synthesized:** two `CREATE prekey_otk` statements
+/// against the same `(device, kid)` tuple, the second issued *after* the
+/// first commits, on the same connection. That's the simplest path that
+/// guarantees a UNIQUE violation (not a write conflict, which races early
+/// and is retryable). The schema's `otk_lookup` index on `prekey_otk`
+/// already enforces the constraint — no per-test schema setup needed.
+///
+/// Paired with [`is_write_conflict_matches_real_surrealdb_conflict`]:
+/// together they cover both error classes the step-7 retry-then-map
+/// pipeline distinguishes (`is_write_conflict` → retry; `is_unique_violation`
+/// → 409). The two predicate substrings are disjoint by inspection
+/// (`"Write conflict"` / `"retry the transaction"` vs `"already contains"`);
+/// if a future SurrealDB release ever has the two error texts overlap,
+/// these two canaries will both fail, which is the right signal: the
+/// predicates need to be reworked together.
+#[tokio::test]
+async fn is_unique_violation_matches_real_surrealdb_violation() {
+    let arena = arena().await;
+
+    // Seed a device row so the UNIQUE-bearing prekey_otk CREATEs have a
+    // valid `device` FK. Using raw CREATE here (not `/keys/upload`)
+    // because we want both insertions to share the same `(device, kid)`
+    // tuple — the upload handler would replace the OTK pool, defeating
+    // the test.
+    let device_id = random_id();
+    let user_id = random_id();
+    arena
+        .db
+        .query(
+            "CREATE type::record('user', $user_id) SET display_name = '';
+             CREATE type::record('device', $device_id)
+                 SET user = type::record('user', $user_id),
+                     identity_curve25519 = $hex,
+                     identity_ed25519    = $hex;",
+        )
+        .bind(("user_id", user_id))
+        .bind(("device_id", device_id.clone()))
+        .bind(("hex", "00".repeat(32)))
+        .await
+        .expect("seed device")
+        .check()
+        .expect("seed device check");
+
+    // First CREATE — should succeed.
+    arena
+        .db
+        .query(
+            "CREATE prekey_otk SET
+                device     = type::record('device', $device_id),
+                kid        = 'canary_kid',
+                public_key = 'pk1',
+                signature  = 'sig1';",
+        )
+        .bind(("device_id", device_id.clone()))
+        .await
+        .expect("first insert")
+        .check()
+        .expect("first insert check");
+
+    // Second CREATE with the same (device, kid) — must surface a UNIQUE
+    // violation that `is_unique_violation` recognises.
+    let second = arena
+        .db
+        .query(
+            "CREATE prekey_otk SET
+                device     = type::record('device', $device_id),
+                kid        = 'canary_kid',
+                public_key = 'pk2',
+                signature  = 'sig2';",
+        )
+        .bind(("device_id", device_id))
+        .await
+        .expect("send query")
+        .check();
+    let err = match second {
+        Ok(_) => panic!(
+            "second CREATE with the same (device, kid) succeeded — \
+             SurrealDB no longer enforces the UNIQUE index, OR the schema \
+             has drifted. The canary cannot guard the matcher anymore; \
+             investigate before shipping."
+        ),
+        Err(e) => e,
+    };
+
+    // Surface the error string in the failure message so the next
+    // release's renamed text is immediately visible instead of just
+    // "false != true".
+    assert!(
+        is_unique_violation(&err),
+        "is_unique_violation() returned false for a real SurrealDB UNIQUE \
+         index violation. The error's Display string was: '{err}'. \
+         SurrealDB likely renamed its error text; update the substring in \
+         src/server/retry.rs::is_unique_violation to match (and audit \
+         every caller — POST /rooms/{{id}}/join's 409 mapping in \
+         server::rooms is the only one today)."
+    );
+
+    // Cross-check: the write-conflict matcher must NOT also fire on a
+    // UNIQUE error, otherwise the retry loop would retry an unretryable
+    // error and the 409 path would never be reached.
+    assert!(
+        !is_write_conflict(&err),
+        "is_write_conflict() falsely fired on a UNIQUE-index violation: \
+         '{err}'. The two predicate substrings are no longer disjoint — \
+         this would cause server::rooms::join_room to retry an \
+         unretryable error and eventually return 500 instead of 409. \
+         Audit src/server/retry.rs and rework both predicates together."
     );
 }

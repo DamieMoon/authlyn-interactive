@@ -74,3 +74,45 @@ pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
     let s = err.to_string();
     s.contains("Write conflict") || s.contains("retry the transaction")
 }
+
+/// Identify SurrealDB UNIQUE-index violation errors via their Display
+/// string. SurrealDB 3.1.0-beta.3 surfaces these as plain
+/// [`surrealdb::Error`] values whose message is shaped like
+/// `"Database index `<index_name>` already contains <key_tuple>, with
+/// record `<table>:<existing_id>`"` — empirically captured against
+/// `prekey_otk` (`otk_lookup` index, `(device, kid)` UNIQUE) when issuing
+/// two CREATEs with the same key tuple from the same connection. The
+/// `"already contains"` substring is the load-bearing marker.
+///
+/// Step 7's `POST /rooms/{id}/join` handler maps this to `409 "user is
+/// already a member"` for the concurrent-inviter race: two inviters racing
+/// to add the same target survive their respective pre-checks (the row
+/// genuinely doesn't exist yet from either snapshot's point of view), then
+/// MVCC arbitrates. Under the canary probe one racer surfaces a
+/// [`is_write_conflict`] which retries against a fresh snapshot, observes
+/// the winner's row, and surfaces this UNIQUE violation. The two
+/// predicates' substrings are disjoint by inspection (`"Write conflict"` /
+/// `"retry the transaction"` vs `"already contains"`), so neither matcher
+/// fires on the other's error.
+///
+/// Exposed as `pub` so the `is_unique_violation_matches_real_surrealdb_violation`
+/// canary in `tests/keys.rs` can call it. Integration tests compile as a
+/// separate crate, so `pub(crate)` would not reach. The canary synthesises
+/// a real UNIQUE collision against the dev DB and asserts this predicate
+/// still fires; if SurrealDB renames the message in a future release the
+/// 409 path silently degrades to a 500 (the retry loop would surface the
+/// raw error), so the canary is mandatory.
+///
+/// Mapping happens *outside* [`with_write_conflict_retry`] — UNIQUE
+/// violations are not retryable: re-issuing the same CREATE against the
+/// same key tuple just fails the same way. The handler runs the retry,
+/// then inspects the residual error.
+pub fn is_unique_violation(err: &surrealdb::Error) -> bool {
+    // `surrealdb::Error` in 3.1.0-beta.3 does NOT expose a structured
+    // `IndexExists` variant on the public client-side enum — `Debug` of a
+    // real UNIQUE error showed `Error { code: -32000, message: "...", details:
+    // Internal, cause: None }`, no enum discriminator we can match on
+    // without going through `error::Db` (which lives behind the embedded
+    // engine, not the WS client we use). Substring on `Display` it is.
+    err.to_string().contains("already contains")
+}

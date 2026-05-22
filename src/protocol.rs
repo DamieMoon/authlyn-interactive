@@ -125,6 +125,55 @@ pub struct KeyshareInbox {
 }
 
 // ---------------------------------------------------------------------------
+// Rooms (POST /rooms, /rooms/{id}/join, /rooms/{id}/leave)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /rooms`.
+///
+/// The creator's identity comes from the `X-Device-Id` header (resolved
+/// server-side to the owning user) — never from this body, matching the
+/// keyshare-deposit pattern.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateRoomRequest {
+    /// Human-readable display name for the room. Bounded server-side
+    /// (`room name must not be empty` / `room name too long`); the cap is
+    /// enforced as `chars().count() <= 200` so multi-byte characters
+    /// count once each rather than by byte.
+    pub name: String,
+}
+
+/// Successful response from `POST /rooms`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateRoomResponse {
+    /// Opaque id of the new `room` row.
+    pub id: String,
+    /// Opaque id of the bootstrapping `room_event{event_type='create'}`
+    /// row. The convention is that the actor of the `'create'` event is
+    /// the initial sole member — no redundant `'join'` event is emitted.
+    pub room_event_id: String,
+}
+
+/// Body of `POST /rooms/{id}/join`.
+///
+/// The caller's identity (the inviter) comes from the `X-Device-Id`
+/// header; this body names only the invitee. Self-invitation is rejected
+/// with 400 `"cannot invite yourself"`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JoinRoomRequest {
+    /// Target user id to invite. Server resolves to a `user` record.
+    pub user: String,
+}
+
+/// Successful response from either `POST /rooms/{id}/join` or
+/// `POST /rooms/{id}/leave`. Both emit a `room_event` row; the client's
+/// LIVE SELECT subscription (step 8) is the primary consumer.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoomEventResponse {
+    /// Opaque id of the newly-appended `room_event` row.
+    pub room_event_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 

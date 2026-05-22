@@ -1,0 +1,160 @@
+//! Shared test harness for the integration suites.
+//!
+//! Step 7 hoists what used to be inline copies in `tests/keys.rs` and
+//! `tests/keyshare.rs` into one place because a third test binary
+//! (`tests/rooms.rs`) needs the same primitives. The pattern Cargo
+//! understands is `tests/common/mod.rs` (a `mod.rs` inside a sub-directory
+//! is NOT treated as its own test binary, so we don't double-run anything;
+//! see <https://doc.rust-lang.org/book/ch11-03-test-organization.html>).
+//!
+//! Each test binary brings this in with `mod common;` and uses a subset of
+//! the exports; `#![allow(dead_code)]` keeps the unused-warning noise down
+//! for items a given binary doesn't touch.
+//!
+//! What's deliberately NOT here: `build_bundle` and `publish_device` —
+//! those depend on `crate::crypto`, and only the crypto-touching tests
+//! (`tests/keys.rs` and `tests/keyshare.rs`) need them. `tests/rooms.rs`
+//! is pure server-surface and brings its own inline `create_test_user_and_device`
+//! that issues raw CREATE statements.
+
+#![allow(dead_code)]
+#![cfg(feature = "ssr")]
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use axum::body::{to_bytes, Body};
+use axum::http::{header, Method, Request, StatusCode};
+use axum::Router;
+use rand::RngCore;
+use serde_json::Value;
+use surrealdb::engine::remote::ws::{Client, Ws};
+use surrealdb::opt::auth::Root;
+use surrealdb::Surreal;
+use tower::ServiceExt;
+
+use authlyn_interactive::server::{make_router, AppState};
+use authlyn_interactive::storage;
+
+/// Monotonic counter so concurrent `cargo test` workers each get distinct
+/// SurrealDB namespaces, in addition to the process-PID prefix.
+pub static NS_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// One isolated test arena: a SurrealDB namespace+database that owns its
+/// schema, plus the axum `Router` wired against it. `db` is exposed so
+/// tests that need to inspect persisted state (count rows, assert
+/// post-conditions) can issue queries directly.
+pub struct Arena {
+    pub router: Router,
+    pub db: Surreal<Client>,
+}
+
+pub async fn arena() -> Arena {
+    let db = test_db().await;
+    let state = AppState::new(db.clone());
+    let router = make_router(state);
+    Arena { router, db }
+}
+
+pub async fn test_db() -> Surreal<Client> {
+    let host = std::env::var("SURREAL_URL")
+        .unwrap_or_else(|_| "127.0.0.1:8000".into())
+        .trim_start_matches("ws://")
+        .trim_start_matches("wss://")
+        .to_string();
+    let user = std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".into());
+    let pass = std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".into());
+
+    let db = Surreal::new::<Ws>(host)
+        .await
+        .expect("connect to SurrealDB — is ./scripts/dev-db.sh running?");
+    db.signin(Root {
+        username: user,
+        password: pass,
+    })
+    .await
+    .expect("signin");
+
+    let pid = std::process::id();
+    let seq = NS_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let ns = format!("test_{}_{}", pid, seq);
+    let db_name = format!("test_{}_{}", pid, seq);
+    db.use_ns(&ns).use_db(&db_name).await.expect("use ns/db");
+
+    db.query(storage::SCHEMA)
+        .await
+        .expect("apply schema")
+        .check()
+        .expect("apply schema check");
+    db
+}
+
+/// Free-form 16-byte hex string used as device/user/room identifier in v1.
+/// Spec calls these "ULIDs", but the v1 auth stub treats them as opaque
+/// strings, so random hex is sufficient and avoids pulling in a ulid crate.
+pub fn random_id() -> String {
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+/// Hit the router with a JSON request. Returns (status, parsed body).
+pub async fn post_json(
+    router: &Router,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &Value,
+) -> (StatusCode, Value) {
+    let mut req_builder = Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json");
+    for (k, v) in headers {
+        req_builder = req_builder.header(*k, *v);
+    }
+    let req = req_builder
+        .body(Body::from(serde_json::to_vec(body).unwrap()))
+        .unwrap();
+
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.expect("read body");
+    let parsed: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            panic!(
+                "body parse failed: {e}, raw: {:?}",
+                String::from_utf8_lossy(&bytes)
+            )
+        })
+    };
+    (status, parsed)
+}
+
+/// Hit the router with a GET. Returns (status, parsed body).
+pub async fn get_json(
+    router: &Router,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> (StatusCode, Value) {
+    let mut req_builder = Request::builder().method(Method::GET).uri(path);
+    for (k, v) in headers {
+        req_builder = req_builder.header(*k, *v);
+    }
+    let req = req_builder.body(Body::empty()).unwrap();
+
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.expect("read body");
+    let parsed: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+            panic!(
+                "body parse failed: {e}, raw: {:?}",
+                String::from_utf8_lossy(&bytes)
+            )
+        })
+    };
+    (status, parsed)
+}

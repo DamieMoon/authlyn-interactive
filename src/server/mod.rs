@@ -5,6 +5,7 @@
 pub mod keys;
 pub mod keyshare;
 pub mod retry;
+pub mod rooms;
 pub mod state;
 
 use axum::routing::{get, post};
@@ -29,6 +30,9 @@ fn api_routes() -> Router<AppState> {
         // axum 0.8 uses `{param}` braces, not `:param` colons.
         .route("/keys/upload", post(keys::upload_keys))
         .route("/keys/claim/{user}/{device}", post(keys::claim_key))
+        .route("/rooms", post(rooms::create_room))
+        .route("/rooms/{id}/join", post(rooms::join_room))
+        .route("/rooms/{id}/leave", post(rooms::leave_room))
         .route("/rooms/{id}/keyshare", post(keyshare::deposit_keyshare))
         .route("/rooms/{id}/keyshare/inbox", get(keyshare::drain_inbox))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
