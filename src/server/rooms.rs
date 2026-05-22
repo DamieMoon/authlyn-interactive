@@ -145,11 +145,17 @@ enum CreateRoomOutcome {
 /// All three CREATEs sit inside a single `BEGIN/COMMIT` block so a
 /// crash / cancellation between them can't leave a half-initialised room
 /// (e.g. a `room` row with no member, which `/join` would happily try to
-/// dispatch into). The whole closure goes through
-/// [`with_write_conflict_retry`] because a concurrent CREATE on the same
-/// generated id is *technically* possible (SurrealDB's id generator picks
-/// from a 160-bit space, so the collision odds are vanishing — but the
-/// retry is free and symmetric with the other handlers).
+/// dispatch into).
+///
+/// The [`with_write_conflict_retry`] wrapper is retained for symmetry
+/// with [`do_join_write`]. No contention surface exists for this code
+/// path on the current schema: the `room` table has no UNIQUE constraint
+/// (so a freshly-generated id can't race anyone), `room_event` is
+/// append-only with no constraints, and the new `room_member` row's
+/// `(room, user)` tuple is fresh — only this transaction can touch it.
+/// The wrapper is a no-op in practice here; it stays as defensive
+/// insurance against schema or load patterns we can't synthesize in
+/// tests.
 async fn persist_create_room(
     state: &AppState,
     caller_user: &str,
@@ -538,6 +544,14 @@ async fn leave_prechecks(
 /// twice", and step 8's LIVE SELECT consumers can de-dupe at the
 /// application layer if it matters. The closure deliberately does not
 /// re-check membership inside the transaction.
+///
+/// The [`with_write_conflict_retry`] wrapper is retained for symmetry
+/// with [`do_join_write`]. No contention surface exists for this code
+/// path on the current schema: the `room_member` DELETE targets a single
+/// `(room, user)` key that only the leaver controls, and `room_event`
+/// is append-only with no constraints. The wrapper is a no-op in
+/// practice here; it stays as defensive insurance against schema or
+/// load patterns we can't synthesize in tests.
 async fn do_leave_write(
     state: &AppState,
     room_id: &str,

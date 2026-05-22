@@ -20,11 +20,13 @@
 
 #![cfg(feature = "ssr")]
 
-use axum::http::StatusCode;
-use serde_json::json;
+use axum::body::{to_bytes, Body};
+use axum::http::{header, Method, Request, StatusCode};
+use serde_json::{json, Value};
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::types::SurrealValue;
 use surrealdb::Surreal;
+use tower::ServiceExt;
 
 mod common;
 use common::{arena, post_json, random_id};
@@ -378,6 +380,85 @@ async fn create_missing_device_id_returns_401() {
     assert_eq!(
         body.get("error").and_then(|v| v.as_str()),
         Some("missing X-Device-Id header"),
+        "{body}"
+    );
+}
+
+/// Test 4b: POST /rooms with a well-formed but unknown X-Device-Id → 401
+/// typed body `"unknown caller device"`. Distinct from test 4
+/// (`extract_device_id` returns `None` for the *missing header* branch);
+/// this exercises the `load_caller_user` `Ok(None)` branch where the
+/// device row simply doesn't exist. Mirrors `tests/keyshare.rs`'s
+/// `deposit_from_unknown_sender_is_unauthorized`.
+///
+/// Discriminating assertion: no `room` row was created. This catches a
+/// re-ordering mutation that would somehow commit the CREATE before the
+/// 401 reply (`load_caller_user` runs strictly before `persist_create_room`,
+/// so this is a fail-before-side-effect property — see the
+/// `validate-before-side-effect` memory).
+#[tokio::test]
+async fn create_unknown_caller_device_returns_401() {
+    let arena = arena().await;
+
+    // Note: we deliberately do NOT call `create_test_user_and_device` —
+    // no device row exists for the id we send.
+    let bogus_device = random_id();
+    let (status, body) = post_json(
+        &arena.router,
+        "/rooms",
+        &[("X-Device-Id", &bogus_device)],
+        &json!({ "name": "test" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(
+        body.get("error").and_then(|v| v.as_str()),
+        Some("unknown caller device"),
+        "{body}"
+    );
+
+    // Fail-before-side-effect: zero `room` rows in this arena's DB.
+    let mut resp = arena
+        .db
+        .query("SELECT count() AS n FROM room GROUP ALL;")
+        .await
+        .expect("count rooms query")
+        .check()
+        .expect("count rooms check");
+    let row: Option<CountRow> = resp.take(0).expect("count rooms take");
+    assert_eq!(
+        row.map(|r| r.n).unwrap_or(0),
+        0,
+        "unknown-caller 401 must NOT create a room row"
+    );
+}
+
+/// Test 4c: POST /rooms with a malformed JSON body (syntactically invalid)
+/// → 400 typed body `"malformed JSON"`. Covers the `JsonRejection::JsonSyntaxError`
+/// arm of `json_rejection_response`. Mirrors `tests/keys.rs`'s
+/// `malformed_upload_body_returns_typed_400` but with a stricter
+/// equality check on the body string (the typed-400 reason is the
+/// observable contract for the client).
+#[tokio::test]
+async fn create_malformed_json_returns_typed_400() {
+    let arena = arena().await;
+    let (_alice_user, alice_device) = create_test_user_and_device(&arena.db).await;
+
+    // Raw text isn't valid JSON — triggers `JsonRejection::JsonSyntaxError`.
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/rooms")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("X-Device-Id", &alice_device)
+        .body(Body::from("not json at all"))
+        .unwrap();
+    let res = arena.router.clone().oneshot(req).await.expect("oneshot");
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.expect("read body");
+    let body: Value = serde_json::from_slice(&bytes).expect("typed body");
+    assert_eq!(
+        body.get("error").and_then(|v| v.as_str()),
+        Some("malformed JSON"),
         "{body}"
     );
 }
@@ -947,11 +1028,23 @@ async fn concurrent_invites_yield_single_join_one_409() {
 /// concurrently Alice invites Charlie AND Bob leaves. Both
 /// transactions commit cleanly; the final state is consistent.
 ///
+/// Disjoint-row concurrent transactions (join target=Charlie writes one
+/// `room_member`; leave actor=Bob deletes a different `room_member`)
+/// don't actually contend at the MVCC layer — both transactions write
+/// to different keys. This test verifies the weaker but still
+/// load-bearing invariant: **the handler emits exactly one of each
+/// side-effect row, not duplicate or missing rows, when join and leave
+/// commit in parallel.** Mutations caught: drop the DELETE in
+/// `do_leave_write`, drop the leave-event CREATE, drop the join-event
+/// CREATE, or any swallowed-error 200 with no DB write. NOT a
+/// contention-arbitration test — that'd require same-row races (out of
+/// scope for v1; see "Out of scope — Leave-double-tap row pollution" in
+/// the step-7 plan).
+///
 /// **DB-state invariant.** Final membership = {Alice, Charlie} exactly
 /// (Bob is gone). Both `room_event` rows are recorded: one
 /// `'join' actor=alice target=charlie`, one `'leave' actor=bob target=bob`.
-/// No duplicate or torn rows — torn meaning, e.g., Bob's leave landed
-/// but Alice's join didn't because the two transactions interfered.
+/// No duplicate or missing rows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_join_and_leave_no_torn_state() {
     let arena = arena().await;
