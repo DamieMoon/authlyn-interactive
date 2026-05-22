@@ -27,7 +27,9 @@ wasm-bindgen = { version = "0.2.106", optional = true }
 # crate yet, so we ride the latest beta.
 surrealdb = { version = "=3.1.0-beta.3", features = ["protocol-ws"], optional = true }
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", optional = true }
+# `protocol.rs` is shared between ssr and hydrate, and the DTOs there are
+# wire-format JSON, so `serde_json` lives in the always-on dependency block.
+serde_json = "1"
 
 # End-to-end encryption: Signal-style Double Ratchet via vodozemac.
 # Compiled into both ssr (server keying) and hydrate (client sessions).
@@ -56,6 +58,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
+# Test-only helpers. Integration tests in `tests/` exercise the axum router
+# via `tower::ServiceExt::oneshot` without binding a real port.
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
 [features]
 hydrate = [
     "leptos/hydrate",
@@ -67,7 +74,6 @@ ssr = [
     "dep:tokio",
     "dep:leptos_axum",
     "dep:surrealdb",
-    "dep:serde_json",
     "dep:tower-http",
     "dep:bytes",
     "dep:tracing",

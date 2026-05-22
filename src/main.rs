@@ -3,7 +3,7 @@
 async fn main() {
     use authlyn_interactive::app::*;
     use authlyn_interactive::db;
-    use axum::Router;
+    use authlyn_interactive::server::{self, AppState};
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
@@ -13,29 +13,33 @@ async fn main() {
     let leptos_options = conf.leptos_options;
 
     // Connect to SurrealDB and apply the schema before serving traffic.
-    // The handle is held in main's scope so the connection outlives the
-    // request handlers; AppState wiring lands in step 3 of the plan.
-    let _surreal = db::connect_with_retries()
+    let surreal = db::connect_with_retries()
         .await
         .expect("SurrealDB connect failed after 10 retries (is `./scripts/dev-db.sh` running locally, or `surrealdb.service` on the Pi?)");
-    db::apply_schema(&_surreal)
+    db::apply_schema(&surreal)
         .await
         .expect("SurrealDB schema apply failed");
     log!("SurrealDB schema applied");
 
-    // Generate the list of routes in your Leptos App
+    // Combine the SurrealDB handle and Leptos config in one application
+    // state. `FromRef<AppState> for LeptosOptions` lets us keep using the
+    // Leptos-provided routing helpers.
+    let state = AppState::with_leptos(surreal, leptos_options.clone());
+
+    // Generate the list of Leptos SSR routes.
     let routes = generate_route_list(App);
 
-    let app = Router::new()
-        .leptos_routes(&leptos_options, routes, {
+    // Build the merged router: the application-specific HTTP API
+    // (`server::api_router`) plus the Leptos handlers, all sharing the
+    // single `AppState`.
+    let app = server::api_router()
+        .leptos_routes(&state, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
         })
-        .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(leptos_options);
+        .fallback(leptos_axum::file_and_error_handler::<AppState, _>(shell))
+        .with_state(state);
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
     log!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app.into_make_service())

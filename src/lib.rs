@@ -1,8 +1,12 @@
 pub mod app;
 pub mod crypto;
+pub mod protocol;
 
 #[cfg(feature = "ssr")]
 pub mod db;
+
+#[cfg(feature = "ssr")]
+pub mod server;
 
 #[cfg(feature = "ssr")]
 pub mod storage;

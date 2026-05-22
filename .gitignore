@@ -17,5 +17,8 @@ deploy/.github_token
 # macOS
 .DS_Store
 
+# SurrealDB CLI command-history file (dropped where the CLI was invoked).
+history.txt
+
 # Per-machine Claude notes (deployment IPs, SSH key names, etc.)
 CLAUDE.local.md

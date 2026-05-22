@@ -6,7 +6,7 @@
 
 use thiserror::Error;
 use vodozemac::olm::{Account, IdentityKeys};
-use vodozemac::LibolmPickleError;
+use vodozemac::{Curve25519PublicKey, Ed25519Signature, KeyId, LibolmPickleError};
 
 use super::pickle::PickleKey;
 
@@ -42,6 +42,44 @@ impl DeviceAccount {
     pub fn from_pickle(pickle: &str, key: &PickleKey) -> Result<Self, DeviceError> {
         let account = Account::from_libolm_pickle(pickle, key.as_bytes())?;
         Ok(Self { account })
+    }
+
+    /// Mint `count` fresh one-time keys.
+    ///
+    /// They are appended to the account's unpublished set; the caller is
+    /// expected to publish them and then call [`Self::mark_keys_as_published`].
+    pub fn generate_one_time_keys(&mut self, count: usize) {
+        let _ = self.account.generate_one_time_keys(count);
+    }
+
+    /// Mint a fresh fallback key, displacing the previous one.
+    pub fn generate_fallback_key(&mut self) {
+        let _ = self.account.generate_fallback_key();
+    }
+
+    /// Sign an arbitrary message with the device's identity Ed25519 key.
+    pub fn sign(&self, message: &[u8]) -> Ed25519Signature {
+        self.account.sign(message)
+    }
+
+    /// Snapshot of OTKs that have been generated locally but not yet
+    /// marked as published. Returned as `(KeyId, public_key)` pairs.
+    pub fn unpublished_one_time_keys(&self) -> Vec<(KeyId, Curve25519PublicKey)> {
+        self.account.one_time_keys().into_iter().collect()
+    }
+
+    /// The currently unpublished fallback key, if any. Returns `None` once
+    /// it's been marked as published.
+    pub fn unpublished_fallback_key(&self) -> Option<(KeyId, Curve25519PublicKey)> {
+        self.account.fallback_key().into_iter().next()
+    }
+
+    /// Tell the underlying account that everything in the unpublished set
+    /// has now been sent to the server. After this, [`Self::unpublished_one_time_keys`]
+    /// and [`Self::unpublished_fallback_key`] return empty until new keys
+    /// are generated.
+    pub fn mark_keys_as_published(&mut self) {
+        self.account.mark_keys_as_published();
     }
 }
 
