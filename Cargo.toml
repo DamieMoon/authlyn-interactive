@@ -62,6 +62,13 @@ getrandom = { version = "0.2", features = ["js"] }
 # via `tower::ServiceExt::oneshot` without binding a real port.
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# Step 8's `tests/messages.rs` consumes SurrealDB LIVE-SELECT notifications via
+# `QueryStream<Notification<R>>`, which implements `futures::Stream`. Calling
+# `.next()` on that stream requires `futures::StreamExt`; `surrealdb` uses
+# `futures` internally but does not re-export `StreamExt` from its crate root,
+# so we depend on it directly here. Keeping it under `[dev-dependencies]` only
+# preserves the no-extra-runtime-deps invariant for the shipping binary.
+futures = "0.3"
 
 [features]
 hydrate = [

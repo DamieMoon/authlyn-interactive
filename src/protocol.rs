@@ -174,6 +174,94 @@ pub struct RoomEventResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Messages (POST /rooms/{id}/messages, GET /rooms/{id}/messages)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /rooms/{id}/messages`.
+///
+/// All sender-side metadata is omitted by design:
+/// - `sender_device` is derived from the `X-Device-Id` header (the
+///   keyshare/rooms convention — never trust the body).
+/// - `sent_at` is server-set via the `message` table's `DEFAULT time::now()`
+///   (the cursor key has to come from a single clock).
+/// - `tier` is server-set to `'default'` for v1 (forward-compat slot for the
+///   AI-visible/private split lives on the response, not the request).
+///
+/// Authorship time is part of the *encrypted* `ciphertext` payload; the
+/// server's `sent_at` is just the routing-layer "when did we accept this"
+/// timestamp.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendMessageRequest {
+    /// The Megolm session id the ciphertext is encrypted under. Routing
+    /// metadata only — receivers use it to pick the right `InboundGroupSession`.
+    pub megolm_session_id: String,
+    /// Wire-level Megolm message index (sender's outbound ratchet position at
+    /// encrypt time). Same shape as
+    /// [`crate::crypto::MegolmCiphertext::message_index`].
+    pub message_index: u32,
+    /// The base64-encoded Megolm ciphertext (standard alphabet, padded).
+    /// Server validates well-formedness only — it has no key material to
+    /// decrypt with.
+    pub ciphertext: String,
+}
+
+/// Successful response from `POST /rooms/{id}/messages`.
+///
+/// The returned `id` is the **client's dedup key** under dumb-relay
+/// semantics: the server does NOT enforce a UNIQUE constraint on the
+/// `message` table (see `src/storage/schema.surql:70-79` — only a
+/// non-unique `(room, sent_at)` lookup index exists). A retried POST with
+/// the same body produces a second row with a fresh `id`. Clients dedup
+/// in-memory keyed on this `id`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendMessageResponse {
+    /// Opaque id of the new `message` row.
+    pub id: String,
+}
+
+/// One envelope as returned by `GET /rooms/{id}/messages`.
+///
+/// `sent_at` is RFC 3339 (the same on-the-wire format
+/// `keyshare::InboxEnvelope` uses). Keeping it as a `String` rather than a
+/// `chrono::DateTime` is deliberate — `protocol.rs` is wasm-bound and we
+/// avoid pulling datetime libraries into the hydrate bundle. Receivers
+/// parse it on demand if they need ordering richer than the server's
+/// already-sorted output.
+///
+/// `tier` is included here (forward-compat) even though v1 always emits
+/// `'default'`; clients who don't care can ignore it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageEnvelope {
+    /// Opaque id of the `message` row. This is the client's dedup key for
+    /// catch-up GETs intersecting with LIVE-SELECT notifications.
+    pub id: String,
+    /// Sender device id (the poster's `X-Device-Id`).
+    pub sender_device: String,
+    /// Megolm session id the ciphertext is encrypted under.
+    pub megolm_session_id: String,
+    /// Wire-level Megolm message index.
+    pub message_index: u32,
+    /// Base64-encoded Megolm ciphertext.
+    pub ciphertext: String,
+    /// AI-visible/private split. Always `"default"` in v1.
+    pub tier: String,
+    /// RFC 3339 server-side timestamp. Forms the primary key of the
+    /// composite cursor (`sent_at`, `id`) used by `?since=&after_id=`.
+    pub sent_at: String,
+}
+
+/// Successful response from `GET /rooms/{id}/messages`.
+///
+/// Envelopes are ordered ASC by `(sent_at, id)` — the composite cursor
+/// `?since=&after_id=` resumes from the boundary of the last received row.
+/// The response is capped at 100 envelopes per call in v1; callers that
+/// want more iterate with the cursor.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListMessagesResponse {
+    pub messages: Vec<MessageEnvelope>,
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 

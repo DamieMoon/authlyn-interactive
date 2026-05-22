@@ -276,6 +276,7 @@ dependencies = [
  "bytes",
  "console_error_panic_hook",
  "ctr",
+ "futures",
  "getrandom 0.2.17",
  "hex",
  "leptos",

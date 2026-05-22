@@ -4,6 +4,7 @@
 
 pub mod keys;
 pub mod keyshare;
+pub mod messages;
 pub mod retry;
 pub mod rooms;
 pub mod state;
@@ -35,6 +36,10 @@ fn api_routes() -> Router<AppState> {
         .route("/rooms/{id}/leave", post(rooms::leave_room))
         .route("/rooms/{id}/keyshare", post(keyshare::deposit_keyshare))
         .route("/rooms/{id}/keyshare/inbox", get(keyshare::drain_inbox))
+        .route(
+            "/rooms/{id}/messages",
+            post(messages::post_message).get(messages::list_messages),
+        )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 
