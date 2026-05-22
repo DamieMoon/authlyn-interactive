@@ -81,6 +81,20 @@ impl DeviceAccount {
     pub fn mark_keys_as_published(&mut self) {
         self.account.mark_keys_as_published();
     }
+
+    /// Borrow the inner vodozemac account. Kept crate-private so the
+    /// vodozemac surface doesn't leak into downstream crates; the only
+    /// in-crate callers today are the Olm/Megolm session wrappers in
+    /// sibling modules.
+    pub(crate) fn account(&self) -> &Account {
+        &self.account
+    }
+
+    /// Mutable borrow of the inner vodozemac account. Same `pub(crate)`
+    /// gate as [`Self::account`].
+    pub(crate) fn account_mut(&mut self) -> &mut Account {
+        &mut self.account
+    }
 }
 
 impl Default for DeviceAccount {

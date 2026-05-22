@@ -7,13 +7,17 @@
 //! - [`identity`]: per-device Olm `Account` wrapped as `DeviceAccount`.
 //! - [`pickle`]: at-rest encryption keys for serialized session state.
 //! - [`prekey`]: wire-format pre-key bundles (publish + verify).
+//! - [`olm`]: pairwise Olm sessions (Double Ratchet, used to carry Megolm
+//!   group-session keys between two devices).
 //!
-//! Coming next: `olm`, `megolm`, `attachment`.
+//! Coming next: `megolm`, `attachment`.
 
 pub mod identity;
+pub mod olm;
 pub mod pickle;
 pub mod prekey;
 
 pub use identity::{DeviceAccount, DeviceError};
+pub use olm::{OlmEnvelope, OlmSession, OlmSessionError};
 pub use pickle::PickleKey;
 pub use prekey::{PreKeyBundle, PreKeyError, SignedPreKey};
