@@ -282,14 +282,23 @@ impl MegolmInbound {
         self.session.session_id()
     }
 
-    /// Decrypt a wire ciphertext. Returns plaintext + the encrypter's
-    /// message-index on success. Vodozemac verifies the message signature
-    /// against the session's Ed25519 public key (cached at bootstrap) and
-    /// the per-message MAC against the derived chain key before unsealing
-    /// the AES ciphertext; if either fails the call returns
-    /// [`MegolmError::Decrypt`] and the session's skip-ahead cache is
-    /// unaffected (`InboundGroupSession::decrypt` only mutates state on
-    /// success).
+    /// Decrypt a wire envelope.
+    ///
+    /// Signature verification happens first
+    /// (`vodozemac-0.9.0/src/megolm/inbound_group_session.rs:365`); a
+    /// signature failure leaves ratchet state untouched, which is what
+    /// protects the skip-ahead cache against the corruption test. A failure
+    /// that surfaces after signature verification (MAC mismatch on a
+    /// well-signed envelope, cipher rejection) may have already advanced
+    /// `latest_ratchet` via the internal `find_ratchet` call — vodozemac
+    /// does not roll that back, so callers should not assume "failed
+    /// decrypt = no state change" in general. Test 8 covers the
+    /// signature-failure path; the post-signature paths are unreachable in
+    /// practice without a vodozemac-internal bug.
+    ///
+    /// Takes `&mut self` because successful decrypt advances
+    /// `latest_ratchet` and may populate the skip-ahead cache for
+    /// intermediate indices.
     pub fn decrypt(&mut self, wire: &MegolmCiphertext) -> Result<DecryptedMessage, MegolmError> {
         let msg = wire.into_megolm_message()?;
         self.session
@@ -297,10 +306,16 @@ impl MegolmInbound {
             .map_err(|source| MegolmError::Decrypt { source })
     }
 
-    /// Export the session at the given message index for catch-up sharing
-    /// with another recipient. Returns `None` if the session has already
-    /// been ratcheted past `index` and the chain key for that point is
-    /// gone — vodozemac's `InboundGroupSession::export_at` is forward-only.
+    /// Export an [`ExportedSessionKey`] at the given message index,
+    /// base64-encoded. Returns `None` if `index` is below this session's
+    /// `first_known_index` (the chain key for that point is gone —
+    /// vodozemac's `InboundGroupSession::export_at` is forward-only).
+    ///
+    /// Side effect: advances the inbound ratchet up to `index` via
+    /// `find_ratchet`. Idempotent at the same index — repeated calls
+    /// return the same key without further advancement. The forward-only
+    /// contract means an exported key at index N lets the recipient
+    /// decrypt `message_index >= N` but not earlier messages.
     pub fn export_at_base64(&mut self, index: u32) -> Option<String> {
         self.session.export_at(index).map(|k| k.to_base64())
     }
