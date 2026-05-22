@@ -9,15 +9,18 @@
 //! - [`prekey`]: wire-format pre-key bundles (publish + verify).
 //! - [`olm`]: pairwise Olm sessions (Double Ratchet, used to carry Megolm
 //!   group-session keys between two devices).
+//! - [`megolm`]: group sessions (sender-keys ratchet) for room messages.
 //!
-//! Coming next: `megolm`, `attachment`.
+//! Coming next: `attachment`.
 
 pub mod identity;
+pub mod megolm;
 pub mod olm;
 pub mod pickle;
 pub mod prekey;
 
 pub use identity::{DeviceAccount, DeviceError};
+pub use megolm::{MegolmCiphertext, MegolmError, MegolmInbound, MegolmOutbound};
 pub use olm::{OlmEnvelope, OlmSession, OlmSessionError};
 pub use pickle::PickleKey;
 pub use prekey::{PreKeyBundle, PreKeyError, SignedPreKey};
