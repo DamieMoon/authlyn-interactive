@@ -558,18 +558,33 @@ mod tests {
         assert_eq!(d1.message_index, 1);
     }
 
-    /// Test 6 — inbound pickle preserves ratchet position (chain keys /
-    /// skip-ahead state). Bob decrypts m0, m1; pickle Bob's inbound, drop,
-    /// restore; restored inbound decrypts m2 (which Alice encrypts after
-    /// the pickle) at `message_index = 2`. If the pickle had lost the
-    /// derived chain keys, the restored session would have to re-derive
-    /// from the initial ratchet — which is still possible for index 2 in
-    /// this exact shape, so the failure mode would be subtler. The
-    /// load-bearing check is that decrypt *succeeds at all* on a fresh
-    /// later index against a session that's previously been advanced and
-    /// then pickled.
+    /// Test 6 — inbound pickle round-trip preserves enough state to keep
+    /// decrypting messages produced after the pickle point. Bob decrypts
+    /// m0, m1; pickle Bob's inbound, drop, restore; restored inbound
+    /// decrypts m2 (which Alice encrypts after the pickle) at
+    /// `message_index = 2`, and `session_id()` survives the round-trip.
+    ///
+    /// What this proves: pickle preserves `signing_key` and the
+    /// `initial_ratchet`, which together are enough to authenticate and
+    /// decrypt any message at or after the restore point. A pickle that
+    /// dropped `signing_key` or mangled `initial_ratchet` would fail at
+    /// the m2 decrypt; a pickle that fabricated a fresh session entirely
+    /// would fail the `session_id()` equality check.
+    ///
+    /// What this does NOT prove (and why): vodozemac-0.9.0's
+    /// `InboundGroupSession` pickle (`src/megolm/inbound_group_session.rs`
+    /// lines 496-503) deliberately serializes only `initial_ratchet`;
+    /// `From<InboundGroupSessionPickle> for InboundGroupSession` then
+    /// resets `latest_ratchet = initial_ratchet.clone()` on restore. The
+    /// "skip-ahead" / latest-ratchet cache is a perf optimization (lets
+    /// repeated in-order decrypts skip re-ratcheting from index 0), not a
+    /// security property. It is also not observable from the public API,
+    /// so any test claiming to assert cache preservation would be
+    /// unprovable. We assert only the invariant that is both real and
+    /// observable: round-tripped sessions still decrypt subsequent
+    /// messages under the same session id.
     #[test]
-    fn inbound_pickle_round_trip_preserves_ratchet_position() {
+    fn inbound_pickle_round_trip_decrypts_subsequent_messages() {
         let key = PickleKey::from_bytes([0x77; 32]);
         let mut alice = MegolmOutbound::new();
         let mut bob = MegolmInbound::from_session_key_base64(&alice.session_key_base64()).unwrap();
