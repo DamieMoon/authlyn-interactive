@@ -78,6 +78,18 @@ jobs:
           mkdir -p stage
           cp target/aarch64-unknown-linux-gnu/release/authlyn-interactive stage/
           cp -r target/site stage/site
+          # cargo-leptos copies the wasm-bindgen output as
+          # `<name>.wasm` (no `_bg` suffix), but leptos_axum's
+          # HydrationScripts still asks for `<name>_bg.wasm`. Without
+          # this alias the browser fetches the SPA fallback HTML for
+          # the wasm URL, X-Content-Type-Options: nosniff rejects it,
+          # and hydration silently fails (interactive elements don't
+          # react to events).
+          if [ -f stage/site/pkg/authlyn-interactive.wasm ] \
+             && [ ! -e stage/site/pkg/authlyn-interactive_bg.wasm ]; then
+            cp stage/site/pkg/authlyn-interactive.wasm \
+               stage/site/pkg/authlyn-interactive_bg.wasm
+          fi
           cat > stage/build.json <<EOF
           {
             "sha": "${GITHUB_SHA}",
