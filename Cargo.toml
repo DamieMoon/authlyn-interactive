@@ -21,6 +21,15 @@ leptos_meta = { version = "0.8.0" }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
 
+# Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
+# for the REST calls in `src/client/api.rs`; gloo-storage persists the device
+# snapshot to localStorage; gloo-timers drives the message poll loop. All three
+# are wasm-only and must never enter the ssr dependency graph — hence optional,
+# enabled solely by the `hydrate` feature below.
+gloo-net = { version = "0.6", optional = true, default-features = false, features = ["http", "json"] }
+gloo-storage = { version = "0.3", optional = true }
+gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
+
 # SurrealDB client (ssr-only; never compiled into the WASM bundle).
 # Pinned to the 3.x line so the on-machine `surreal` binary 3.x and the
 # Rust SDK speak the same WebSocket subprotocol. There is no stable 3.x
@@ -83,6 +92,9 @@ hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
+    "dep:gloo-net",
+    "dep:gloo-storage",
+    "dep:gloo-timers",
 ]
 ssr = [
     "dep:axum",
