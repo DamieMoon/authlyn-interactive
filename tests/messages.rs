@@ -694,9 +694,12 @@ async fn get_no_cursor_returns_latest_messages_asc() {
         .expect("messages array");
     assert_eq!(messages.len(), 5, "expected 5 envelopes: {body}");
 
-    // ASC by sent_at: time::now() is microsecond-resolution so back-to-back
-    // POSTs almost certainly have distinct sent_at values, and asserting
-    // monotonicity on the wire timestamp is cheap.
+    // ASC by sent_at: lex compare matches chronological compare because
+    // the server emits sent_at as a fixed 9-digit RFC 3339 string (see
+    // `server::datetime::to_rfc3339_fixed`). `time::now()` resolution is
+    // also high enough that back-to-back POSTs nearly always have
+    // distinct sent_at values, so the `<=` rather than `<` is just for
+    // the (theoretical) clock-tie case.
     let mut prev: Option<&str> = None;
     for (idx, m) in messages.iter().enumerate() {
         let sent_at = m.get("sent_at").and_then(|v| v.as_str()).expect("sent_at");
@@ -855,10 +858,9 @@ async fn get_composite_cursor_resumes_at_boundary() {
 /// rows are returned in the seeded order, with id prefixes `m-000..=m-099`.
 ///
 /// **Timestamp scheme.** Whole-second spacing (`12:00:00Z` ... `12:01:40Z`).
-/// Whole-second values stringify uniformly through the SELECT's
-/// `<string>sent_at` cast, so lexicographic and chronological order
-/// coincide for the ORDER BY alias (the future-self caveat the reviewer
-/// flagged on test 14 applies here too).
+/// The server now ORDERs by raw `datetime` semantics so any seeding
+/// scheme would suffice for ordering correctness; whole-second values
+/// remain easy to read in failure messages.
 #[tokio::test]
 async fn get_limit_caps_response_at_100_rows() {
     let arena = arena().await;
@@ -967,6 +969,100 @@ async fn get_cursor_past_last_row_returns_empty_messages() {
         messages.len(),
         0,
         "cursor past last row must return an empty messages array"
+    );
+}
+
+/// Test 15d: GET orders messages chronologically across timestamps that
+/// straddle chrono's `SecondsFormat::AutoSi` format-class boundaries.
+///
+/// **Why this exists.** SurrealDB's `Datetime::Display` (the implementation
+/// the `<string>sent_at` cast invokes per-row) uses
+/// `to_rfc3339_opts(SecondsFormat::AutoSi, true)`. `AutoSi` emits
+/// VARIABLE-LENGTH sub-second suffixes per row: `Z` (zero nanos), `.NNNZ`
+/// (millis-aligned), `.NNNNNNZ` (micros-aligned), `.NNNNNNNNNZ` (otherwise).
+/// ASCII ordering: `.` (46) < digit (48-57) < `Z` (90). So chronologically
+/// `12:00:00Z < 12:00:00.123Z`, but lex `"12:00:00.123Z" < "12:00:00Z"`.
+/// Ordering on the projected string flips at format-class boundaries.
+///
+/// **Discriminating-ness.** Each seeded row's `message_index` is its
+/// chronological rank. If `ORDER BY <projected-string>` is in effect, the
+/// returned `message_index` sequence is permuted (not strictly increasing).
+/// The assertion is `returned_indices == [0, 1, 2, 3, 4]` — fails iff the
+/// server emitted rows in the lexicographic-mis-ordered sequence.
+///
+/// Sabotage-verification: re-introducing `<string>sent_at AS sent_at`
+/// (along with corresponding `MessageRow.sent_at: String` and removing the
+/// envelope conversion) MUST flip this assertion to fail.
+///
+/// The verification is on `message_index`, not on the `sent_at` string —
+/// the wire `sent_at` shape itself is allowed to evolve (e.g. fixed
+/// 9-digit) without re-flipping the test.
+#[tokio::test]
+async fn get_orders_format_class_spanning_timestamps_chronologically() {
+    let arena = arena().await;
+    let (_user, device) = seed_user_and_device(&arena.db).await;
+    let room_id = create_room_via_http(&arena.router, &device, "r").await;
+
+    // Five chronologically-increasing timestamps, one per AutoSi format
+    // class. Order index 0..4 == chronological order. ALL five have the
+    // same wall-clock second so the format-class suffix is the ONLY
+    // discriminator — without that constraint a "seconds" boundary would
+    // dominate and mask the AutoSi bug.
+    let seeds = [
+        (0u32, "2026-05-22T12:00:00Z"),           // zero nanos
+        (1u32, "2026-05-22T12:00:00.123Z"),       // millis
+        (2u32, "2026-05-22T12:00:00.123456Z"),    // micros
+        (3u32, "2026-05-22T12:00:00.123456789Z"), // 9-digit nanos
+        // A partial-9-digit value that AutoSi normalises into the
+        // 9-digit class (trailing zeros forced because the next non-zero
+        // sub-second sits past the SI break). Chronologically after #3.
+        (4u32, "2026-05-22T12:00:00.999999999Z"),
+    ];
+    let suffix = random_id();
+    for (idx, sent_at) in seeds.iter() {
+        // Ids sorted lexically by chronological rank so that any ORDER
+        // BY id_key tie-break wouldn't accidentally rescue the test.
+        let id = format!("m-{idx}-{suffix}");
+        seed_message_with_sent_at(
+            &arena.db,
+            &id,
+            &room_id,
+            &device,
+            "s",
+            i64::from(*idx),
+            "YQ==",
+            sent_at,
+        )
+        .await;
+    }
+
+    let (status, body) = get_json(
+        &arena.router,
+        &format!("/rooms/{room_id}/messages"),
+        &[("X-Device-Id", &device)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let messages = body
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .expect("messages array");
+    assert_eq!(messages.len(), 5, "expected 5 envelopes: {body}");
+
+    // The chronological rank (== seeded message_index) is the
+    // bug-discriminator. Lex-on-AutoSi-projection permutes this.
+    let returned_indices: Vec<u64> = messages
+        .iter()
+        .map(|m| {
+            m.get("message_index")
+                .and_then(|v| v.as_u64())
+                .expect("message_index")
+        })
+        .collect();
+    assert_eq!(
+        returned_indices,
+        vec![0, 1, 2, 3, 4],
+        "GET must order by datetime semantics, not lex-on-string-projection: {body}"
     );
 }
 

@@ -55,22 +55,33 @@
 //!    `m1.sent_at` returns both m1 AND m2 instead of m2 only). Wrapping in
 //!    `type::datetime($since)` restores datetime semantics. Without this
 //!    cast the cursor would silently re-deliver the boundary row on every
-//!    page.
+//!    page. The cast applies to the parameter side only — the column
+//!    stays raw `datetime`.
 //!
-//! 2. **`<string>sent_at AS sent_at` cast is mandatory.** `#[derive(SurrealValue)]`
-//!    on a struct with `sent_at: String` does NOT accept a raw `datetime`
-//!    column; the take surfaces `"Expected string, got datetime"`.
-//!    Projecting `<string>sent_at AS sent_at` in SQL casts at the DB layer.
-//!    This mirrors `server::keyshare::drain`'s `<string>created_at AS
-//!    created_at` (`keyshare.rs:344`).
+//! 2. **The `sent_at` column is projected RAW; no `<string>` cast.** The
+//!    historic convention was `<string>sent_at AS sent_at`, which routed
+//!    the column through SurrealDB's `Datetime::Display`. That `Display`
+//!    impl uses chrono's `to_rfc3339_opts(SecondsFormat::AutoSi, true)`
+//!    — variable-length sub-second suffixes per row (`Z`, `.NNNZ`,
+//!    `.NNNNNNZ`, `.NNNNNNNNNZ`). ASCII collation orders `.` < digit <
+//!    `Z`, so lex `"…12:00:00.123Z" < "…12:00:00Z"` even though
+//!    `12:00:00Z < 12:00:00.123Z` chronologically. `ORDER BY` over the
+//!    lex-projected alias inherited that flip and silently re-ordered
+//!    cursor pages at format-class boundaries. The fix: project the raw
+//!    `datetime` column, let SurrealDB sort by datetime semantics,
+//!    deserialize into Rust as `surrealdb::types::Datetime`, convert to
+//!    a fixed 9-digit RFC 3339 string at envelope-build via
+//!    [`to_rfc3339_fixed`]. Same convention applied in
+//!    `server::keyshare::drain`.
 //!
 //! 3. **ORDER BY must reference projected idioms.** SurrealDB 3.1.0-beta.3
 //!    rejects `ORDER BY meta::id(id) ASC` (or `ORDER BY id ASC` when `id`
 //!    is not in the SELECT) with `"Parse error: Missing order idiom … in
 //!    statement selection"`. The fix is to alias the ordered idiom in the
-//!    SELECT (`<string>sent_at AS sent_at`, `meta::id(id) AS id_key`) and
-//!    `ORDER BY <alias> ASC` against the alias. This applies to every
-//!    composite-cursor SELECT in this module.
+//!    SELECT (`meta::id(id) AS id_key`) and `ORDER BY <alias> ASC` against
+//!    the alias. (`sent_at` is also in the SELECT now — bare, no cast —
+//!    so `ORDER BY sent_at` resolves through the SELECTed idiom too.)
+//!    This applies to every composite-cursor SELECT in this module.
 //!
 //! ## Privacy 404s
 //!
@@ -84,11 +95,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
-use surrealdb::types::SurrealValue;
+use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
     ErrorBody, ListMessagesResponse, MessageEnvelope, SendMessageRequest, SendMessageResponse,
 };
+use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::keys::extract_device_id;
 use crate::server::state::AppState;
 
@@ -305,10 +317,10 @@ pub struct ListMessagesQuery {
 /// out as a 500.
 ///
 /// The empirical SurrealQL workarounds the SELECT depends on
-/// (`type::datetime($since)` cast, `<string>sent_at AS sent_at` projection,
-/// ORDER BY alias requirement) are documented in the module doc's
-/// "Composite cursor empirical findings" section (`messages.rs:44-73`) and
-/// applied in [`load_messages`].
+/// (`type::datetime($since)` cast on the parameter, raw-`datetime`
+/// projection of the `sent_at` column, ORDER BY alias requirement) are
+/// documented in the module doc's "Composite cursor empirical findings"
+/// section and applied in [`load_messages`].
 #[tracing::instrument(skip_all, fields(caller_device, caller_user, room = %room_id))]
 pub async fn list_messages(
     State(state): State<AppState>,
@@ -430,7 +442,10 @@ struct MessageRow {
     message_index: i64,
     ciphertext: String,
     tier: String,
-    sent_at: String,
+    // Raw `datetime` from the projected column — see the module doc's
+    // "Empirical SurrealDB findings" section #2. Converted to a fixed
+    // 9-digit RFC 3339 string at envelope build via `to_rfc3339_fixed`.
+    sent_at: Datetime,
 }
 
 impl MessageRow {
@@ -448,7 +463,7 @@ impl MessageRow {
             message_index,
             ciphertext: self.ciphertext,
             tier: self.tier,
-            sent_at: self.sent_at,
+            sent_at: to_rfc3339_fixed(self.sent_at),
         })
     }
 }
@@ -458,6 +473,12 @@ impl MessageRow {
 /// (`sent_at` and `id_key`) — see the empirical finding #3 in the module
 /// doc — and ties on equal `sent_at` are broken by `meta::id(id) >
 /// $after_id`. `type::datetime($since)` is mandatory (finding #1).
+///
+/// The `sent_at` column is projected RAW (no `<string>` cast). That keeps
+/// `ORDER BY sent_at ASC` under SurrealDB's native datetime semantics —
+/// see finding #2 for why the historic cast was the bug. The Rust row
+/// struct receives a `Datetime`; conversion to the wire `String` happens
+/// at envelope build via [`to_rfc3339_fixed`].
 async fn load_messages(
     state: &AppState,
     room_id: &str,
@@ -473,7 +494,7 @@ async fn load_messages(
                 message_index,
                 ciphertext,
                 tier,
-                <string>sent_at           AS sent_at
+                sent_at
             FROM message
             WHERE room = type::record("room", $room_id)
             ORDER BY sent_at ASC, id_key ASC
@@ -489,7 +510,7 @@ async fn load_messages(
                 message_index,
                 ciphertext,
                 tier,
-                <string>sent_at           AS sent_at
+                sent_at
             FROM message
             WHERE room = type::record("room", $room_id)
               AND (

@@ -103,6 +103,47 @@ async fn count_keyshare_envelopes(db: &Surreal<Client>) -> usize {
     rows.len()
 }
 
+/// Insert a `keyshare_envelope` row directly via the DB with a chosen
+/// `created_at`. Bypasses the HTTP `POST /keyshare` path because
+/// `DEFAULT time::now()` would never produce a chosen sub-second value at
+/// the resolution this regression test needs.
+///
+/// `olm_message` does NOT have to be valid base64 here — the deposit's
+/// validation gate is the HTTP path; the schema column is a bare
+/// `TYPE string`. Tests addressing the drain side only need
+/// distinguishable bytes.
+async fn seed_keyshare_envelope_with_created_at(
+    db: &Surreal<Client>,
+    envelope_id: &str,
+    recipient_device_id: &str,
+    sender_device_id: &str,
+    room_id: &str,
+    olm_message: &str,
+    olm_message_type: i64,
+    created_at_rfc3339: &str,
+) {
+    db.query(
+        "CREATE type::record('keyshare_envelope', $envelope_id) SET
+            recipient_device = type::record('device', $recipient_id),
+            sender_device    = type::record('device', $sender_id),
+            room             = type::record('room', $room_id),
+            olm_message      = $olm_message,
+            olm_message_type = $msg_type,
+            created_at       = type::datetime($created_at);",
+    )
+    .bind(("envelope_id", envelope_id.to_string()))
+    .bind(("recipient_id", recipient_device_id.to_string()))
+    .bind(("sender_id", sender_device_id.to_string()))
+    .bind(("room_id", room_id.to_string()))
+    .bind(("olm_message", olm_message.to_string()))
+    .bind(("msg_type", olm_message_type))
+    .bind(("created_at", created_at_rfc3339.to_string()))
+    .await
+    .expect("seed keyshare envelope")
+    .check()
+    .expect("seed keyshare envelope check");
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -837,5 +878,103 @@ async fn parallel_post_and_get_no_loss_no_duplicate() {
     assert_eq!(
         returned_set, expected,
         "envelope set mismatch after parallel POST+GET"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Datetime-ordering regression
+// ---------------------------------------------------------------------------
+
+/// Test 16 (Delta-added): `drain_inbox` orders envelopes chronologically
+/// across `created_at` timestamps that straddle chrono's
+/// `SecondsFormat::AutoSi` format-class boundaries.
+///
+/// **Why this exists.** Same root cause as
+/// `tests/messages.rs::get_orders_format_class_spanning_timestamps_chronologically`.
+/// SurrealDB's `Datetime::Display` (invoked by the `<string>created_at`
+/// cast) uses `to_rfc3339_opts(SecondsFormat::AutoSi, true)`. `AutoSi`
+/// emits VARIABLE-LENGTH sub-second suffixes per row (`Z`, `.NNNZ`,
+/// `.NNNNNNZ`, `.NNNNNNNNNZ`). ASCII ordering: `.` < digit < `Z`. Two
+/// rows at the same wall-clock second but different format classes invert
+/// when ORDER BY is run on the lex-projected string.
+///
+/// **Discriminating-ness.** Each row's `olm_message` ciphertext doubles as
+/// its chronological rank (`ct-0` … `ct-4`). If the drain's `ORDER BY` is
+/// in effect against the lex projection, the returned ciphertext sequence
+/// is permuted away from `[ct-0, ct-1, ct-2, ct-3, ct-4]` at format-class
+/// boundaries. The assertion compares the decoded ciphertext sequence.
+///
+/// Sabotage-verification: re-introducing the `<string>created_at AS
+/// created_at` cast in `keyshare::drain`'s SELECT MUST flip this assertion
+/// to fail.
+///
+/// Note: `drain_inbox` is delete-on-read, so seeding directly via
+/// `arena.db` is necessary (the test 1-style HTTP deposit path would
+/// drain on the GET and we'd have nothing to assert against).
+#[tokio::test]
+async fn drain_inbox_orders_format_class_spanning_timestamps_chronologically() {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+
+    let arena = arena().await;
+    let mut alice_account = DeviceAccount::new();
+    let mut bob_account = DeviceAccount::new();
+    let (alice_user_id, alice_device_id) =
+        publish_device(&arena.router, &mut alice_account, 1).await;
+    let (_, bob_device_id) = publish_device(&arena.router, &mut bob_account, 1).await;
+    create_room(&arena.db, "test", &alice_user_id).await;
+
+    // Five chronologically-increasing timestamps, one per AutoSi format
+    // class, all sharing the same wall-clock second so the suffix is the
+    // sole order-discriminator.
+    let seeds = [
+        ("ct-0", "2026-05-22T12:00:00Z"),
+        ("ct-1", "2026-05-22T12:00:00.123Z"),
+        ("ct-2", "2026-05-22T12:00:00.123456Z"),
+        ("ct-3", "2026-05-22T12:00:00.123456789Z"),
+        ("ct-4", "2026-05-22T12:00:00.999999999Z"),
+    ];
+    let suffix = random_id();
+    for (idx, (plaintext, created_at)) in seeds.iter().enumerate() {
+        let envelope_id = format!("env-{idx}-{suffix}");
+        let ciphertext = B64.encode(plaintext.as_bytes());
+        seed_keyshare_envelope_with_created_at(
+            &arena.db,
+            &envelope_id,
+            &bob_device_id,
+            &alice_device_id,
+            "test",
+            &ciphertext,
+            0, // PreKey
+            created_at,
+        )
+        .await;
+    }
+
+    let (status, body) = get_json(
+        &arena.router,
+        "/rooms/test/keyshare/inbox",
+        &[("X-Device-Id", &bob_device_id)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let envelopes = body["envelopes"].as_array().expect("envelopes array");
+    assert_eq!(envelopes.len(), 5, "expected 5 envelopes: {body}");
+
+    let returned_plaintexts: Vec<String> = envelopes
+        .iter()
+        .map(|e| {
+            let ct_b64 = e["envelope"]["ciphertext"]
+                .as_str()
+                .expect("ciphertext")
+                .to_string();
+            let bytes = B64.decode(&ct_b64).expect("base64");
+            String::from_utf8(bytes).expect("utf8 plaintext")
+        })
+        .collect();
+    let expected: Vec<String> = seeds.iter().map(|(s, _)| (*s).to_string()).collect();
+    assert_eq!(
+        returned_plaintexts, expected,
+        "drain must order by datetime semantics, not lex-on-string-projection: {body}"
     );
 }

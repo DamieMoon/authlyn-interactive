@@ -41,12 +41,13 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use surrealdb::types::SurrealValue;
+use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::crypto::OlmEnvelope;
 use crate::protocol::{
     ErrorBody, InboxEnvelope, KeyshareDeposit, KeyshareDepositResponse, KeyshareInbox,
 };
+use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::keys::extract_device_id;
 use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
@@ -293,7 +294,13 @@ async fn drain(
         sender_key: String,
         olm_message_type: i64,
         olm_message: String,
-        created_at: String,
+        // Raw `datetime` from the projected column — see the module-doc
+        // cross-reference in the `BEGIN/COMMIT`-wrapped SELECT below for
+        // why the historic `<string>created_at AS created_at` cast was
+        // dropped. Converted to a fixed 9-digit RFC 3339 string at
+        // envelope build via `to_rfc3339_fixed`. Same convention as
+        // `server::messages::MessageRow.sent_at`.
+        created_at: Datetime,
     }
 
     // Pre-check FKs (read-only, two cheap SELECTs, no transaction needed).
@@ -329,9 +336,18 @@ async fn drain(
     // against the AFTER state, which for DELETE is `NONE`, so
     // `meta::id(sender_device)` errors with "Argument 1 was the wrong
     // type. Expected `record` but found `NONE`". The SELECT-then-DELETE
-    // pattern dodges that and also gives us a place to `ORDER BY` and
-    // string-cast `created_at` in SQL — keeps the SurrealValue derive on
-    // `DrainedRow` to plain `String` / `i64`.
+    // pattern dodges that and gives us a place to `ORDER BY created_at`
+    // under SurrealDB's native datetime semantics.
+    //
+    // `created_at` is projected RAW — no `<string>` cast. The historic
+    // cast routed the column through `Datetime::Display` →
+    // `SecondsFormat::AutoSi`, which emits variable-length sub-second
+    // suffixes and lex-mis-orders rows at format-class boundaries (`Z`
+    // < `.NNNZ` lexicographically but the other way chronologically).
+    // Mirrors `server::messages::load_messages`; same module-doc finding
+    // applies (`messages.rs` "Composite cursor empirical findings" §2).
+    // Rust-side conversion to the wire `String` happens at envelope
+    // build below via `to_rfc3339_fixed`.
     let drain_sql = r#"
         BEGIN TRANSACTION;
         LET $dev  = type::record("device", $recipient_id);
@@ -341,7 +357,7 @@ async fn drain(
             meta::id(sender_device) AS sender_key,
             olm_message_type,
             olm_message,
-            <string>created_at      AS created_at
+            created_at
         FROM keyshare_envelope
         WHERE recipient_device = $dev AND room = $room
         ORDER BY created_at ASC;
@@ -389,11 +405,13 @@ async fn drain(
                 message_type,
                 ciphertext: r.olm_message,
             },
-            created_at: r.created_at,
+            created_at: to_rfc3339_fixed(r.created_at),
         });
     }
     // DELETE has no intrinsic ordering guarantee — sort client-side for
-    // deterministic delivery order.
+    // deterministic delivery order. `created_at` is a fixed 9-digit
+    // RFC 3339 string post-`to_rfc3339_fixed`, so lex compare matches
+    // chronological order.
     envelopes.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     Ok(DrainOutcome::Ok(envelopes))
 }

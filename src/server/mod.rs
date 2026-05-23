@@ -9,6 +9,13 @@ pub mod retry;
 pub mod rooms;
 pub mod state;
 
+// Internal: wire-format helper for converting raw SurrealDB `datetime`
+// columns into fixed-precision RFC 3339 strings on the way out to JSON.
+// Used by `messages::load_messages` + `keyshare::drain` so they share
+// one format string (drift here re-introduces the cursor-ordering bug
+// they jointly close). Kept private — no out-of-server-module callers.
+mod datetime;
+
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
