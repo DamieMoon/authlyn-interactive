@@ -111,7 +111,7 @@ pub async fn upload_media(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     // Resolve caller first — an unauth request never reads the multipart
     // body, so an unauthenticated 16 MiB upload costs us no disk + ~0 CPU.
@@ -123,7 +123,7 @@ pub async fn upload_media(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    tracing::Span::current().record("caller_user", &tracing::field::display(&uploader));
+    tracing::Span::current().record("caller_user", tracing::field::display(&uploader));
 
     // v1 trade-off: `field.bytes()` buffers the whole ciphertext (up
     // to the 16 MiB per-route cap) into a single `Bytes` allocation per
@@ -264,7 +264,7 @@ pub async fn download_media(
         Some(d) => d,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     match load_caller_user(&state, &device_id).await {
         Ok(Some(_)) => {}

@@ -2,10 +2,10 @@
 //! `server::keyshare` (and future Megolm-rotation work in step 6).
 //!
 //! Step 3 (`172c777`) introduced this pattern in `server::keys` with the
-//! explicit note that "steps 5 + 6 will copy this pattern for room key-share
-//! + Megolm rotation." Step 5 hoists it here so the retry policy is defined
-//! in exactly one place and every consumer shares the same backoff schedule,
-//! attempt cap, and write-conflict matcher.
+//! explicit note that "steps 5 + 6 will copy this pattern for room
+//! key-share + Megolm rotation." Step 5 hoists it here so the retry policy
+//! is defined in exactly one place and every consumer shares the same
+//! backoff schedule, attempt cap, and write-conflict matcher.
 
 /// Cap on how many times we'll re-issue a SurrealDB statement that got
 /// rejected with a retryable write conflict. 5 attempts gives us linear

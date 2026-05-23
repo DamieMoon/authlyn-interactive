@@ -85,7 +85,7 @@ impl MegolmCiphertext {
         }
     }
 
-    fn into_megolm_message(&self) -> Result<MegolmMessage, MegolmError> {
+    fn to_megolm_message(&self) -> Result<MegolmMessage, MegolmError> {
         // Vodozemac's `MegolmMessage::from_base64` handles both the base64
         // decode and the inner version/proto parse; `DecodeError` already
         // carries a `Base64` variant so one wrapper arm covers both.
@@ -300,7 +300,7 @@ impl MegolmInbound {
     /// `latest_ratchet` and may populate the skip-ahead cache for
     /// intermediate indices.
     pub fn decrypt(&mut self, wire: &MegolmCiphertext) -> Result<DecryptedMessage, MegolmError> {
-        let msg = wire.into_megolm_message()?;
+        let msg = wire.to_megolm_message()?;
         self.session
             .decrypt(&msg)
             .map_err(|source| MegolmError::Decrypt { source })

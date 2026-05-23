@@ -67,7 +67,7 @@ pub async fn deposit_keyshare(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("sender_device", &tracing::field::display(&sender_id));
+    tracing::Span::current().record("sender_device", tracing::field::display(&sender_id));
 
     let Json(req) = match payload {
         Ok(json) => json,
@@ -250,7 +250,7 @@ pub async fn drain_inbox(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("recipient_device", &tracing::field::display(&recipient_id));
+    tracing::Span::current().record("recipient_device", tracing::field::display(&recipient_id));
 
     match drain(&state, &recipient_id, &room_id).await {
         Ok(DrainOutcome::Ok(envelopes)) => {

@@ -63,7 +63,7 @@ pub async fn upload_keys(
             return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header");
         }
     };
-    tracing::Span::current().record("device_id", &tracing::field::display(&device_id));
+    tracing::Span::current().record("device_id", tracing::field::display(&device_id));
 
     // --- Defensive: surface JSON-extraction failures as typed 400s. ---
     let Json(req) = match payload {

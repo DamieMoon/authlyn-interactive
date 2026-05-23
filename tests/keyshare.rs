@@ -112,6 +112,7 @@ async fn count_keyshare_envelopes(db: &Surreal<Client>) -> usize {
 /// validation gate is the HTTP path; the schema column is a bare
 /// `TYPE string`. Tests addressing the drain side only need
 /// distinguishable bytes.
+#[allow(clippy::too_many_arguments)] // test seed fixture; one param per column is clearer than a struct
 async fn seed_keyshare_envelope_with_created_at(
     db: &Surreal<Client>,
     envelope_id: &str,

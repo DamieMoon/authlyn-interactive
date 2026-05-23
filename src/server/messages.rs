@@ -152,7 +152,7 @@ pub async fn post_message(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     let Json(req) = match payload {
         Ok(json) => json,
@@ -195,7 +195,7 @@ pub async fn post_message(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    tracing::Span::current().record("caller_user", &tracing::field::display(&caller_user));
+    tracing::Span::current().record("caller_user", tracing::field::display(&caller_user));
 
     // Pre-checks (read-only, separate round-trip). validate-before-side-effect:
     // unknown-room + non-member-caller both 404 BEFORE any CREATE fires.
@@ -332,7 +332,7 @@ pub async fn list_messages(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     let parsed_cursor = match parse_cursor(&cursor) {
         Ok(c) => c,
@@ -347,7 +347,7 @@ pub async fn list_messages(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    tracing::Span::current().record("caller_user", &tracing::field::display(&caller_user));
+    tracing::Span::current().record("caller_user", tracing::field::display(&caller_user));
 
     let pre = match message_prechecks(&state, &room_id, &caller_user).await {
         Ok(p) => p,

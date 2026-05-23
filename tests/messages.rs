@@ -195,6 +195,7 @@ async fn create_room_via_http(router: &axum::Router, device_id: &str, name: &str
 /// timestamp — the composite cursor's tie-break branch is otherwise
 /// unreachable because microsecond-resolution `time::now()` would assign
 /// distinct timestamps to back-to-back POSTs.
+#[allow(clippy::too_many_arguments)] // test seed fixture; one param per column is clearer than a struct
 async fn seed_message_with_sent_at(
     db: &Surreal<Client>,
     message_id: &str,
@@ -1321,7 +1322,7 @@ async fn forward_exclusion_three_user_rotation() {
     assert!(bob_msgs_before.iter().any(|m| m["id"] == m1_id));
     let bob_m1 = first_envelope(&bob_msgs_before, &m1_id);
     let d_bob_m1 = bob_inbound_1
-        .decrypt(&megolm_wire_from_envelope(&bob_m1))
+        .decrypt(&megolm_wire_from_envelope(bob_m1))
         .expect("Bob decrypts M1 pre-removal");
     assert_eq!(d_bob_m1.plaintext, m1_plaintext);
 
@@ -1331,7 +1332,7 @@ async fn forward_exclusion_three_user_rotation() {
     assert!(charlie_msgs_before.iter().any(|m| m["id"] == m1_id));
     let charlie_m1 = first_envelope(&charlie_msgs_before, &m1_id);
     let d_charlie_m1 = charlie_inbound_1
-        .decrypt(&megolm_wire_from_envelope(&charlie_m1))
+        .decrypt(&megolm_wire_from_envelope(charlie_m1))
         .expect("Charlie decrypts M1 pre-removal");
     assert_eq!(d_charlie_m1.plaintext, m1_plaintext);
 
@@ -1386,7 +1387,7 @@ async fn forward_exclusion_three_user_rotation() {
     let bob_msgs_after = fetch_messages_via_http(&arena.router, &bob_device, &room_id).await;
     let bob_m2 = first_envelope(&bob_msgs_after, &m2_id);
     let d_bob_m2 = bob_inbound_2
-        .decrypt(&megolm_wire_from_envelope(&bob_m2))
+        .decrypt(&megolm_wire_from_envelope(bob_m2))
         .expect("Bob decrypts M2 post-removal");
     assert_eq!(d_bob_m2.plaintext, m2_plaintext);
 

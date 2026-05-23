@@ -88,7 +88,7 @@ pub async fn create_room(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     let Json(req) = match payload {
         Ok(json) => json,
@@ -118,7 +118,7 @@ pub async fn create_room(
 
     match persist_create_room(&state, &caller_user, name).await {
         Ok(CreateRoomOutcome::Created { room_id, event_id }) => {
-            tracing::Span::current().record("room", &tracing::field::display(&room_id));
+            tracing::Span::current().record("room", tracing::field::display(&room_id));
             (
                 StatusCode::CREATED,
                 Json(CreateRoomResponse {
@@ -235,7 +235,7 @@ pub async fn join_room(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     let Json(req) = match payload {
         Ok(json) => json,
@@ -244,7 +244,7 @@ pub async fn join_room(
             return json_rejection_response(rej);
         }
     };
-    tracing::Span::current().record("target_user", &tracing::field::display(&req.user));
+    tracing::Span::current().record("target_user", tracing::field::display(&req.user));
 
     // Resolve caller's user. Empty → caller's device row doesn't exist.
     let caller_user = match load_caller_user(&state, &device_id).await {
@@ -255,7 +255,7 @@ pub async fn join_room(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    tracing::Span::current().record("caller_user", &tracing::field::display(&caller_user));
+    tracing::Span::current().record("caller_user", tracing::field::display(&caller_user));
 
     // Pre-checks (read-only, outside any transaction). Privacy ordering:
     // unknown room AND non-member caller both surface as the same 404
@@ -450,7 +450,7 @@ pub async fn leave_room(
         Some(id) => id,
         None => return error_response(StatusCode::UNAUTHORIZED, "missing X-Device-Id header"),
     };
-    tracing::Span::current().record("caller_device", &tracing::field::display(&device_id));
+    tracing::Span::current().record("caller_device", tracing::field::display(&device_id));
 
     let caller_user = match load_caller_user(&state, &device_id).await {
         Ok(Some(u)) => u,
@@ -460,7 +460,7 @@ pub async fn leave_room(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    tracing::Span::current().record("caller_user", &tracing::field::display(&caller_user));
+    tracing::Span::current().record("caller_user", tracing::field::display(&caller_user));
 
     // Pre-check. Privacy: unknown room AND caller-not-member both surface
     // as the same 404 — see the module doc.

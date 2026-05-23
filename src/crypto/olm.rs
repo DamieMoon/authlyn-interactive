@@ -88,7 +88,7 @@ impl OlmEnvelope {
         }
     }
 
-    fn into_olm_message(&self) -> Result<OlmMessage, OlmSessionError> {
+    fn to_olm_message(&self) -> Result<OlmMessage, OlmSessionError> {
         let ct = B64
             .decode(&self.ciphertext)
             .map_err(|source| OlmSessionError::InvalidBase64 { source })?;
@@ -228,7 +228,7 @@ impl OlmSession {
         }
         let sender_curve =
             parse_curve25519(sender_identity_curve25519_hex, "sender_identity_curve25519")?;
-        let msg = envelope.into_olm_message()?;
+        let msg = envelope.to_olm_message()?;
         let prekey_msg = match msg {
             OlmMessage::PreKey(m) => m,
             // `OlmMessage::from_parts(0, _)` should always yield PreKey, but
@@ -263,7 +263,7 @@ impl OlmSession {
     /// will still decrypt. See the `corrupted_ciphertext_does_not_poison_session`
     /// test for the regression guard.
     pub fn decrypt(&mut self, envelope: &OlmEnvelope) -> Result<Vec<u8>, OlmSessionError> {
-        let msg = envelope.into_olm_message()?;
+        let msg = envelope.to_olm_message()?;
         self.session
             .decrypt(&msg)
             .map_err(|source| OlmSessionError::Decrypt { source })
