@@ -556,6 +556,40 @@ async fn get_partial_cursor_returns_400() {
     );
 }
 
+/// Test 11b: empty `?after_id=` (after trim) → 400 "after_id must not be
+/// empty". Reaches the `(Some, Some)` arm of `parse_cursor` with a valid
+/// `since`, then trips the explicit empty-after-trim guard. Without that
+/// guard the cursor reaches SurrealDB with `meta::id(id) > ""` which is
+/// degenerate (matches every id at the boundary). Mirrors the
+/// `megolm_session_id must not be empty` / `ciphertext must not be empty`
+/// trim-and-reject family in `post_message`.
+///
+/// Cases:
+/// - `after_id=` (literal empty) — `parse_cursor` sees `Some("")`.
+/// - `after_id=%20%20%20` (whitespace) — trims to `""` and trips the guard.
+#[tokio::test]
+async fn get_empty_after_id_returns_400() {
+    let arena = arena().await;
+    let (_user, device) = seed_user_and_device(&arena.db).await;
+    let room_id = create_room_via_http(&arena.router, &device, "r").await;
+
+    // (label, percent-encoded form passed in the URL)
+    for (label, encoded) in [("empty", ""), ("spaces", "%20%20%20"), ("tab", "%09")] {
+        let (status, body) = get_json(
+            &arena.router,
+            &format!("/rooms/{room_id}/messages?since=2026-05-22T12:00:00Z&after_id={encoded}"),
+            &[("X-Device-Id", &device)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "after_id {label}: {body}");
+        assert_eq!(
+            body.get("error").and_then(|v| v.as_str()),
+            Some("after_id must not be empty"),
+            "after_id {label}: {body}"
+        );
+    }
+}
+
 /// Test 12: GET privacy — non-member caller → 404 "room not found".
 /// Mirrors test 8's POST shape so the privacy ordering is consistent
 /// across verbs. (This is also the orthogonal HTTP claim test 17
@@ -805,10 +839,145 @@ async fn get_composite_cursor_resumes_at_boundary() {
     assert_eq!(ids, vec![m_gamma.as_str()]);
 }
 
+/// Test 15b: the `LIMIT 100` cap.
+///
+/// **Discriminating-ness.** This test must fail under either of two
+/// regressions: (a) the `LIMIT $page_limit` clause being dropped, OR
+/// (b) `MESSAGES_PAGE_LIMIT` being changed to anything other than 100.
+/// Seeding exactly 101 rows discriminates against (a) (would return 101)
+/// and against `LIMIT = 1000` (would also return 101); fewer than 101
+/// would not catch (a), and seeding 1000+ would let the `LIMIT = 1000`
+/// mutation slip through. The seeded `arena.db` insert path is
+/// load-bearing because `time::now()` at microsecond resolution would
+/// not guarantee distinct timestamps across 101 back-to-back POSTs.
+///
+/// The ASC `(sent_at, id)` ordering is asserted exactly: the first 100
+/// rows are returned in the seeded order, with id prefixes `m-000..=m-099`.
+///
+/// **Timestamp scheme.** Whole-second spacing (`12:00:00Z` ... `12:01:40Z`).
+/// Whole-second values stringify uniformly through the SELECT's
+/// `<string>sent_at` cast, so lexicographic and chronological order
+/// coincide for the ORDER BY alias (the future-self caveat the reviewer
+/// flagged on test 14 applies here too).
+#[tokio::test]
+async fn get_limit_caps_response_at_100_rows() {
+    let arena = arena().await;
+    let (_user, device) = seed_user_and_device(&arena.db).await;
+    let room_id = create_room_via_http(&arena.router, &device, "r").await;
+
+    // Seed 101 messages with monotonically-increasing sent_at and
+    // deterministically-orderable ids (`m-000-...` < `m-001-...` < ...).
+    let suffix = random_id();
+    let mut seeded_ids: Vec<String> = Vec::with_capacity(101);
+    for i in 0..101u32 {
+        let id = format!("m-{i:03}-{suffix}");
+        // Whole-second spacing: 12:00:00Z, 12:00:01Z, ..., 12:01:40Z.
+        let minute = i / 60;
+        let second = i % 60;
+        let sent_at = format!("2026-05-22T12:{minute:02}:{second:02}Z");
+        seed_message_with_sent_at(
+            &arena.db,
+            &id,
+            &room_id,
+            &device,
+            "s",
+            i64::from(i),
+            "YQ==",
+            &sent_at,
+        )
+        .await;
+        seeded_ids.push(id);
+    }
+
+    let (status, body) = get_json(
+        &arena.router,
+        &format!("/rooms/{room_id}/messages"),
+        &[("X-Device-Id", &device)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let messages = body
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .expect("messages array");
+    assert_eq!(
+        messages.len(),
+        100,
+        "GET without cursor must cap at exactly 100 envelopes (seeded 101)"
+    );
+    let returned_ids: Vec<&str> = messages
+        .iter()
+        .map(|m| m.get("id").and_then(|v| v.as_str()).expect("id"))
+        .collect();
+    let expected_ids: Vec<&str> = seeded_ids.iter().take(100).map(String::as_str).collect();
+    assert_eq!(
+        returned_ids, expected_ids,
+        "first 100 envelopes must be returned in ASC (sent_at, id) order"
+    );
+}
+
+/// Test 15c: cursor positioned past the last row → 200 with an empty
+/// `messages` array (not an error, not omitted from the response). Seeds
+/// a handful of messages, then asks for messages strictly after a future
+/// timestamp; the body must contain a present-but-empty `messages` array.
+#[tokio::test]
+async fn get_cursor_past_last_row_returns_empty_messages() {
+    let arena = arena().await;
+    let (_user, device) = seed_user_and_device(&arena.db).await;
+    let room_id = create_room_via_http(&arena.router, &device, "r").await;
+
+    // Seed three messages well in the past relative to the cursor.
+    for i in 0..3u32 {
+        let id = format!("seed-{i}-{}", random_id());
+        let sent_at = format!("2026-05-22T12:00:0{i}Z");
+        seed_message_with_sent_at(
+            &arena.db,
+            &id,
+            &room_id,
+            &device,
+            "s",
+            i64::from(i),
+            "YQ==",
+            &sent_at,
+        )
+        .await;
+    }
+
+    // Cursor in 2030 with a maximal-looking after_id. The `since` shape is
+    // RFC3339; `after_id` is non-empty so it survives the post-step-8b
+    // trim-and-reject in `parse_cursor`.
+    let (status, body) = get_json(
+        &arena.router,
+        &format!(
+            "/rooms/{room_id}/messages\
+             ?since=2030-01-01T00:00:00Z\
+             &after_id=ffffffffffffffffffffffffffffffff"
+        ),
+        &[("X-Device-Id", &device)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let messages_value = body
+        .get("messages")
+        .expect("messages key must be present (not omitted)");
+    let messages = messages_value
+        .as_array()
+        .expect("messages must be a JSON array (not null, not an object)");
+    assert_eq!(
+        messages.len(),
+        0,
+        "cursor past last row must return an empty messages array"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // End-to-end (tests 16-17)
 // ---------------------------------------------------------------------------
 
+/// `#[derive(SurrealValue)]` empirically deserializes correctly when
+/// nested inside `Notification<R>::data` on a LIVE stream — test 16's
+/// passing assertion that `notif.data.sender_device_key == alice_device`
+/// is the standing verification of that round-trip.
 #[derive(SurrealValue, Debug)]
 struct MessageNotificationRow {
     id_key: String,
@@ -890,7 +1059,10 @@ async fn two_clients_live_select_delivery() {
 
     // SUBSCRIBE BEFORE TRIGGER. The LIVE filter targets messages in this
     // room only — without WHERE we'd also see messages from concurrent
-    // test runs, but the per-test namespace already isolates that.
+    // test runs, but the per-test namespace already isolates that. LIVE
+    // subscription is synchronous on .await — see the "LIVE
+    // subscribe-before-trigger discipline" section in the module doc
+    // (lines 23-33). The ordering below is load-bearing.
     let bind_room_id = room_id.clone();
     let mut stream = arena
         .db

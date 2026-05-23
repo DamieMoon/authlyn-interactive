@@ -95,7 +95,11 @@ use crate::server::state::AppState;
 /// Hard cap on how many messages a single `GET /rooms/:id/messages`
 /// returns. Callers iterate with the composite cursor for more. 100 is
 /// the same cap step 8b/9 will inherit; no `?limit=` override in v1.
-const MESSAGES_PAGE_LIMIT: usize = 100;
+///
+/// Typed as `i64` to match SurrealQL's `int` directly at the bind site
+/// (the single call site in `load_messages`) — avoids a lossy-cast lint
+/// at the boundary.
+const MESSAGES_PAGE_LIMIT: i64 = 100;
 
 // ---------------------------------------------------------------------------
 // POST /rooms/{id}/messages
@@ -299,6 +303,12 @@ pub struct ListMessagesQuery {
 /// described in [`is_rfc3339`] so the HTTP path returns the typed 400 the
 /// validation table promises rather than bubbling a Surreal parse error
 /// out as a 500.
+///
+/// The empirical SurrealQL workarounds the SELECT depends on
+/// (`type::datetime($since)` cast, `<string>sent_at AS sent_at` projection,
+/// ORDER BY alias requirement) are documented in the module doc's
+/// "Composite cursor empirical findings" section (`messages.rs:44-73`) and
+/// applied in [`load_messages`].
 #[tracing::instrument(skip_all, fields(caller_device, caller_user, room = %room_id))]
 pub async fn list_messages(
     State(state): State<AppState>,
@@ -360,12 +370,24 @@ fn parse_cursor(q: &ListMessagesQuery) -> Result<CursorState, &'static str> {
     match (&q.since, &q.after_id) {
         (None, None) => Ok(CursorState::None),
         (Some(since), Some(after_id)) => {
+            // Trim both halves, then validate. An empty-after-trim `since`
+            // falls through to the RFC3339 shape probe (which rejects on
+            // `len < 20`); an empty-after-trim `after_id` is rejected
+            // explicitly so the cursor never reaches SurrealDB with
+            // `meta::id(id) > ""` (degenerate — matches every id at the
+            // boundary). Mirrors `post_message`'s trim-and-reject on
+            // `megolm_session_id` / `ciphertext` (see `:154-163`).
+            let since = since.trim();
+            let after_id = after_id.trim();
             if !is_rfc3339(since) {
                 return Err("since must be RFC3339 datetime");
             }
+            if after_id.is_empty() {
+                return Err("after_id must not be empty");
+            }
             Ok(CursorState::Both {
-                since: since.clone(),
-                after_id: after_id.clone(),
+                since: since.to_string(),
+                after_id: after_id.to_string(),
             })
         }
         _ => Err("since and after_id must be provided together"),
@@ -485,7 +507,7 @@ async fn load_messages(
         .db
         .query(sql)
         .bind(("room_id", room_id.to_string()))
-        .bind(("page_limit", MESSAGES_PAGE_LIMIT as i64));
+        .bind(("page_limit", MESSAGES_PAGE_LIMIT));
     if let CursorState::Both { since, after_id } = cursor {
         q = q.bind(("since", since)).bind(("after_id", after_id));
     }
