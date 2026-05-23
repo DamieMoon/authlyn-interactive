@@ -2,7 +2,7 @@
 
 ## What this is
 
-A self-hosted chat application with end-to-end encryption, reached from the public internet via DDNS. Solo project; Damien is the only developer and tester. He testing the running app mostly remotely (not from the LAN), so anything that only works from `localhost`/`192.168.*` will block him.
+A self-hosted chat application with end-to-end encryption, reached from the public internet via DDNS. Solo project; Damien is the only developer and tester. He tests the running app mostly remotely (not from the LAN), so anything that only works from `localhost`/`192.168.*` will block him.
 
 ## Stack
 
@@ -13,6 +13,15 @@ A self-hosted chat application with end-to-end encryption, reached from the publ
 
 Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[cfg(feature = "ssr")]` so it never compiles into the WASM bundle.
 
+**Module map.**
+
+- `src/app.rs` — Leptos root component; shared by ssr and hydrate.
+- `src/protocol.rs` — shared wire-format DTOs (serde-JSON, no ssr gate).
+- `src/crypto/` — vodozemac wrappers: `identity`, `olm`, `megolm`, `prekey`, `pickle` (libolm-compat pickle for at-rest Account encryption). Built for both ssr and hydrate.
+- `src/server/` (ssr-only) — axum routing layer: `keys`, `keyshare`, `rooms`, `messages`, plus `retry` (SurrealDB write-conflict backoff), `state` (`AppState`), `datetime` (RFC3339 fixed-nanos helper — see gotcha below).
+- `src/storage/` (ssr-only) — SurrealDB schema (`schema.surql`) + bootstrap.
+- `src/db.rs` (ssr-only) — DB connection + the connect-with-retry wrapper.
+
 ## Conventions
 
 - **Rust toolchain:** pinned via `rust-toolchain.toml` to `channel = "stable"` (plus rustfmt + clippy + wasm32 target). Run `cargo fmt --all` before committing; idiomatic Rust naming (`snake_case` fns/vars, `PascalCase` types).
@@ -20,6 +29,8 @@ Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[
 - **WASM gotcha:** `vodozemac` pulls `getrandom 0.2`, which needs the `js` feature when compiling to `wasm32-unknown-unknown`. The fix lives under `[target.'cfg(target_arch = "wasm32")'.dependencies]` in `Cargo.toml` — leave it there.
 - **Lockfile:** `Cargo.lock` is committed (this is an app, not a library).
 - **No license file** (private repo, internal use).
+- **SurrealDB datetime serialization:** never `<string>` cast in a query that drives an `ORDER BY` or a cursor — the cast produces variable-precision sub-second output that lex-mis-orders rows at format-class boundaries. Project raw `datetime` columns and format on the Rust side via `src/server/datetime.rs::to_rfc3339_fixed`. Background: `surrealdb-string-datetime-cast-quirk` memory entry; commit `d39f892`.
+- **SurrealDB SDK pin:** `surrealdb = "=3.1.0-beta.3"` is exact — the WebSocket subprotocol must match the on-machine `surreal` 3.x binary. Don't `cargo update -p surrealdb` blind; bump the binary on the Pi in lockstep.
 
 ## Dev loop
 
@@ -29,9 +40,11 @@ cp .env.example .env       # once
 cargo leptos watch         # terminal 2 — app on 127.0.0.1:3000
 ```
 
+Integration tests in `tests/` hit a real SurrealDB — keep `./scripts/dev-db.sh` running while you `cargo test`. Each test reserves its own namespace via `tests/common::arena` so parallel runs don't collide.
+
 ## Deployment target
 
-Self-hosted on a Raspberry Pi 4B (8GB), publicly reachable over HTTPS via a TP-Link DDNS hostname; the router forwards ports to the Pi via UPnP. The Pi runs aarch64 Linux, so production binaries cross-compile from macOS (also aarch64) to `aarch64-unknown-linux-gnu`. Deploy story is not built yet.
+Self-hosted on a Raspberry Pi 4B (8GB), publicly reachable over HTTPS via a TP-Link DDNS hostname; the router forwards ports to the Pi via UPnP. The Pi runs aarch64 Linux, so production binaries cross-compile from macOS (also aarch64) to `aarch64-unknown-linux-gnu`. The pipeline is live — see *Branching and auto-deploy* below.
 
 Pi-specific machine state (LAN IP, DDNS hostname, SSH alias, port-collision rules, currently chosen ports) lives in the project memory entry [`pi-deployment`](../../.claude/projects/-Users-damien-Developer-authlyn-interactive/memory/pi-deployment.md) and is loaded automatically at session start via `MEMORY.md`.
 
@@ -52,10 +65,10 @@ Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB
 - Rolling back a bad ship: `git push origin <good-sha>:release --force-with-lease`. CI re-runs against the good commit and the puller picks it up on the next tick.
 - Pi-side machine state (chosen ports, install layout) lives in the project memory entry `pi-deployment`.
 
-## Out of scope (Damien to design)
+## Current status
 
-- Chat schema in SurrealDB
-- Pre-key bundle exchange + message routing on top of `vodozemac`
-- Auth / login
-- CI
-- Cross-compile + deploy pipeline to the Pi
+Landed: SurrealDB schema + routing plan steps 1–8 (key upload/claim, room create/join/leave, keyshare deposit/inbox, message send + LIVE-select receive), CI cross-compile pipeline, Pi auto-deploy.
+
+Still open: auth / login (`server::keys` currently runs against a v1 device-ID header stub — see the comment at the top of `keys.rs`).
+
+Active plan/spec docs live in `docs/superpowers/{plans,specs}/`.
