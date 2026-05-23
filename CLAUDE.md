@@ -17,8 +17,8 @@ Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[
 
 - `src/app.rs` — Leptos root component; shared by ssr and hydrate.
 - `src/protocol.rs` — shared wire-format DTOs (serde-JSON, no ssr gate).
-- `src/crypto/` — vodozemac wrappers: `identity`, `olm`, `megolm`, `prekey`, `pickle` (libolm-compat pickle for at-rest Account encryption). Built for both ssr and hydrate.
-- `src/server/` (ssr-only) — axum routing layer: `keys`, `keyshare`, `rooms`, `messages`, plus `retry` (SurrealDB write-conflict backoff), `state` (`AppState`), `datetime` (RFC3339 fixed-nanos helper — see gotcha below).
+- `src/crypto/` — vodozemac wrappers: `identity`, `olm`, `megolm`, `prekey`, `pickle` (libolm-compat pickle for at-rest Account encryption), plus `attachment` (AES-256-CTR + SHA-256 + JWK, Matrix `m.encrypted` v2). Built for both ssr and hydrate.
+- `src/server/` (ssr-only) — axum routing layer: `keys`, `keyshare`, `rooms`, `messages`, `media`, plus `retry` (SurrealDB write-conflict backoff), `state` (`AppState`), `datetime` (RFC3339 fixed-nanos helper — see gotcha below).
 - `src/storage/` (ssr-only) — SurrealDB schema (`schema.surql`) + bootstrap.
 - `src/db.rs` (ssr-only) — DB connection + the connect-with-retry wrapper.
 
@@ -31,6 +31,8 @@ Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[
 - **No license file** (private repo, internal use).
 - **SurrealDB datetime serialization:** never `<string>` cast in a query that drives an `ORDER BY` or a cursor — the cast produces variable-precision sub-second output that lex-mis-orders rows at format-class boundaries. Project raw `datetime` columns and format on the Rust side via `src/server/datetime.rs::to_rfc3339_fixed`. Background: `surrealdb-string-datetime-cast-quirk` memory entry; commit `d39f892`.
 - **SurrealDB SDK pin:** `surrealdb = "=3.1.0-beta.3"` is exact — the WebSocket subprotocol must match the on-machine `surreal` 3.x binary. Don't `cargo update -p surrealdb` blind; bump the binary on the Pi in lockstep.
+- **Media storage root:** `$MEDIA_STORAGE_DIR` (defaults to `./media` in dev, `/opt/authlyn/media` on the Pi via the systemd unit's `ReadWritePaths`). `main.rs` creates the dir at startup; `AppState` canonicalizes the path once at construction so the GET path-traversal `starts_with` check is a free comparison. Local `./media/` is gitignored.
+- **Matrix `m.encrypted` v2 base64 conventions:** `iv` and `hashes.sha256` are **unpadded** (`STANDARD_NO_PAD`); the JWK `k` field is base64url-no-pad. Padded base64 here silently breaks wire compat with every other Matrix client. The convention lives in `src/crypto/attachment.rs:55-60`; the spec reviewer for step 9 caught this against MSC1420 + matrix-js-sdk.
 
 ## Dev loop
 
@@ -67,8 +69,11 @@ Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB
 
 ## Current status
 
-Landed: SurrealDB schema + routing plan steps 1–8 (key upload/claim, room create/join/leave, keyshare deposit/inbox, message send + LIVE-select receive), CI cross-compile pipeline, Pi auto-deploy.
+Landed: SurrealDB schema + routing plan steps 1–9 (key upload/claim, room create/join/leave, keyshare deposit/inbox, message send + LIVE-select receive, encrypted attachments via `crypto::attachment` + `server::media`), CI cross-compile pipeline, Pi auto-deploy. Live origin serves these as of 2026-05-23.
 
-Still open: auth / login (`server::keys` currently runs against a v1 device-ID header stub — see the comment at the top of `keys.rs`).
+Still open:
+- **Routing plan step 10** — Leptos UI smoke replacing the stock welcome page (`src/app.rs` is still `cargo leptos new` boilerplate). Step 10 is what wires the routing protocol end-to-end into the browser; without it, the live origin's `/` page still renders "Welcome to Leptos!".
+- **Auth / login** — `server::keys` and the rest still run against the v1 device-ID-header stub (see the comment at the top of `keys.rs`). No follow-up plan written yet; design + impl are both open.
+- **Streaming media** — `server::media` buffers the full ciphertext (≤ 16 MiB per the per-route cap) in RAM per request. ~500 concurrent uploads = the 8 GB Pi's memory ceiling. Acceptable for the 1 MiB v1 acceptance target and single-user workload; switch to `tokio::fs::File` + `Body::from_stream` when those assumptions stop holding.
 
 Active plan/spec docs live in `docs/superpowers/{plans,specs}/`.

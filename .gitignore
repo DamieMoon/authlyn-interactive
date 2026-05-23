@@ -22,3 +22,8 @@ history.txt
 
 # Per-machine Claude notes (deployment IPs, SSH key names, etc.)
 CLAUDE.local.md
+
+# Encrypted-attachment storage root (dev default). `main.rs` creates this
+# at startup if `$MEDIA_STORAGE_DIR` is unset; on the Pi the dir lives at
+# `/opt/authlyn/media` so the in-repo path is dev-only.
+/media/
