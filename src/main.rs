@@ -1,6 +1,8 @@
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+    use std::path::PathBuf;
+
     use authlyn_interactive::app::*;
     use authlyn_interactive::db;
     use authlyn_interactive::server::{self, AppState};
@@ -21,10 +23,21 @@ async fn main() {
         .expect("SurrealDB schema apply failed");
     log!("SurrealDB schema applied");
 
-    // Combine the SurrealDB handle and Leptos config in one application
-    // state. `FromRef<AppState> for LeptosOptions` lets us keep using the
-    // Leptos-provided routing helpers.
-    let state = AppState::with_leptos(surreal, leptos_options.clone());
+    // Encrypted-attachment storage root. The Pi's authlyn.service has
+    // `ReadWritePaths=/opt/authlyn/media` reserved for this; locally the
+    // default `./media` keeps dev runs self-contained inside the repo
+    // checkout. Create-if-missing here so a fresh checkout doesn't have
+    // to know to mkdir the dir.
+    let media_dir =
+        PathBuf::from(std::env::var("MEDIA_STORAGE_DIR").unwrap_or_else(|_| "media".into()));
+    std::fs::create_dir_all(&media_dir)
+        .unwrap_or_else(|e| panic!("create media_dir {}: {e}", media_dir.display()));
+    log!("media storage at {}", media_dir.display());
+
+    // Combine the SurrealDB handle, Leptos config, and media dir in one
+    // application state. `FromRef<AppState> for LeptosOptions` lets us
+    // keep using the Leptos-provided routing helpers.
+    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir);
 
     // Generate the list of Leptos SSR routes.
     let routes = generate_route_list(App);

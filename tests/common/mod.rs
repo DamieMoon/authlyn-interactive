@@ -20,6 +20,7 @@
 #![allow(dead_code)]
 #![cfg(feature = "ssr")]
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::{to_bytes, Body};
@@ -36,23 +37,43 @@ use authlyn_interactive::server::{make_router, AppState};
 use authlyn_interactive::storage;
 
 /// Monotonic counter so concurrent `cargo test` workers each get distinct
-/// SurrealDB namespaces, in addition to the process-PID prefix.
+/// SurrealDB namespaces *and* media tempdirs, in addition to the
+/// process-PID prefix.
 pub static NS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// One isolated test arena: a SurrealDB namespace+database that owns its
-/// schema, plus the axum `Router` wired against it. `db` is exposed so
-/// tests that need to inspect persisted state (count rows, assert
-/// post-conditions) can issue queries directly.
+/// schema, the axum `Router` wired against it, and a per-arena media
+/// storage tempdir. `db` is exposed so tests that need to inspect
+/// persisted state (count rows, assert post-conditions) can issue queries
+/// directly; `media_dir` is exposed so the media tests can probe the
+/// filesystem side directly.
 pub struct Arena {
     pub router: Router,
     pub db: Surreal<Client>,
+    pub media_dir: PathBuf,
 }
 
 pub async fn arena() -> Arena {
     let db = test_db().await;
-    let state = AppState::new(db.clone());
+    let media_dir = test_media_dir();
+    let state = AppState::new(db.clone(), media_dir.clone());
     let router = make_router(state);
-    Arena { router, db }
+    Arena {
+        router,
+        db,
+        media_dir,
+    }
+}
+
+/// Per-arena media-storage tempdir. Uses `random_id()` for uniqueness —
+/// 16 bytes of entropy is more than enough to prevent collisions even
+/// under aggressive parallel `cargo test` workers. Leaks on drop —
+/// for dev runs `/tmp` rotates often enough; CI runners are ephemeral.
+/// Cheap enough that the lack of cleanup is fine for v1.
+fn test_media_dir() -> PathBuf {
+    let path = std::env::temp_dir().join(format!("authlyn-test-media-{}", random_id()));
+    std::fs::create_dir_all(&path).expect("create test media dir");
+    path
 }
 
 pub async fn test_db() -> Surreal<Client> {

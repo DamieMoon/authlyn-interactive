@@ -4,6 +4,7 @@
 
 pub mod keys;
 pub mod keyshare;
+pub mod media;
 pub mod messages;
 pub mod retry;
 pub mod rooms;
@@ -22,18 +23,24 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 pub use self::state::AppState;
 
-/// Hard cap on the size of any request body the routes below will accept.
-/// A normal pre-key bundle is ~150 B per OTK + fixed header overhead, so
-/// 64 KiB comfortably covers `MAX_OTKS_PER_PUBLISH = 200` OTKs while still
-/// bounding what an adversarial client can push at us. Keyshare deposits
-/// are a few hundred bytes each (one Olm envelope per POST), so they sit
-/// well inside the same cap.
+/// Hard cap on the size of any request body the JSON/keyshare routes
+/// will accept. A normal pre-key bundle is ~150 B per OTK + fixed header
+/// overhead, so 64 KiB comfortably covers `MAX_OTKS_PER_PUBLISH = 200`
+/// OTKs while still bounding what an adversarial client can push at us.
+/// Keyshare deposits are a few hundred bytes each (one Olm envelope per
+/// POST), so they sit well inside the same cap. Media uploads are NOT
+/// under this layer — see [`MEDIA_BODY_LIMIT_BYTES`].
 const REQUEST_BODY_LIMIT_BYTES: usize = 64 * 1024;
 
-/// Build the API subrouter (everything outside the Leptos handlers) plus
-/// the shared body-size limit. Used internally by both [`make_router`] and
-/// [`api_router`] so the layer can't drift between the two entry points.
-fn api_routes() -> Router<AppState> {
+/// Hard cap on the size of a single `POST /media` body. 16 MiB clears
+/// the 1 MiB acceptance-test target with comfortable headroom for a
+/// large image while still bounding adversarial upload size. The cap is
+/// applied to the media subrouter only; the JSON/keyshare routes keep
+/// the much tighter [`REQUEST_BODY_LIMIT_BYTES`].
+const MEDIA_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+
+/// JSON + keyshare routes, sharing the small body cap.
+fn small_body_routes() -> Router<AppState> {
     Router::new()
         // axum 0.8 uses `{param}` braces, not `:param` colons.
         .route("/keys/upload", post(keys::upload_keys))
@@ -48,6 +55,28 @@ fn api_routes() -> Router<AppState> {
             post(messages::post_message).get(messages::list_messages),
         )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
+}
+
+/// Media upload + download routes, under their own larger body cap.
+/// Split out as a separate sub-router because `RequestBodyLimitLayer`
+/// composes with min-limit semantics: a 16 MiB inner layer under the
+/// 64 KiB outer layer would still reject at 64 KiB because the outer
+/// `Limited<Body>` reads first. The two layers therefore have to live
+/// on disjoint route groups, merged here.
+fn media_routes() -> Router<AppState> {
+    Router::new()
+        .route("/media", post(media::upload_media))
+        .route("/media/{id}", get(media::download_media))
+        .layer(RequestBodyLimitLayer::new(MEDIA_BODY_LIMIT_BYTES))
+}
+
+/// Build the API subrouter (everything outside the Leptos handlers).
+/// Used internally by both [`make_router`] and [`api_router`] so the
+/// layer composition can't drift between the two entry points.
+fn api_routes() -> Router<AppState> {
+    Router::new()
+        .merge(small_body_routes())
+        .merge(media_routes())
 }
 
 /// Build the application-specific routes bound to the given [`AppState`].

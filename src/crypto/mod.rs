@@ -10,15 +10,17 @@
 //! - [`olm`]: pairwise Olm sessions (Double Ratchet, used to carry Megolm
 //!   group-session keys between two devices).
 //! - [`megolm`]: group sessions (sender-keys ratchet) for room messages.
-//!
-//! Coming next: `attachment`.
+//! - [`attachment`]: per-blob AES-256-CTR + SHA-256 wrappers (Matrix
+//!   `m.encrypted` v2) for encrypted media uploads.
 
+pub mod attachment;
 pub mod identity;
 pub mod megolm;
 pub mod olm;
 pub mod pickle;
 pub mod prekey;
 
+pub use attachment::{AttachmentError, EncryptedAttachment, EncryptedFileRef, Hashes, KeyJwk};
 pub use identity::{DeviceAccount, DeviceError};
 pub use megolm::{MegolmCiphertext, MegolmError, MegolmInbound, MegolmOutbound};
 pub use olm::{OlmEnvelope, OlmSession, OlmSessionError};

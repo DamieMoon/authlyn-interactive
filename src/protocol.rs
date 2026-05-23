@@ -262,6 +262,23 @@ pub struct ListMessagesResponse {
 }
 
 // ---------------------------------------------------------------------------
+// POST /media
+// ---------------------------------------------------------------------------
+
+/// Successful response from `POST /media` (multipart upload).
+///
+/// The returned `id` is the opaque key of the `media_blob` row the server
+/// just created. Clients embed it into the URL field of an
+/// [`crate::crypto::EncryptedFileRef`] (`/media/<id>`) which itself rides
+/// inside a Megolm-encrypted message body — the server never sees the
+/// `EncryptedFileRef` payload.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MediaUploadResponse {
+    /// Opaque id of the new `media_blob` row.
+    pub id: String,
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
