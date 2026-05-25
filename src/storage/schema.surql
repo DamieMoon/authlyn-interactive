@@ -123,6 +123,10 @@ DEFINE FIELD IF NOT EXISTS persona_color       ON message TYPE option<string>;
 -- is a valid value (option<record>), so no string-coercion backfill hazard.
 DEFINE FIELD IF NOT EXISTS persona_avatar      ON message TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- plaintext
+-- Inline image attachments: media_blob ids (strings — record links aren't
+-- referentially enforced here, and id strings serve directly as /media/{id}).
+-- Discord-style: rendered as a compacting grid, click opens a lightbox.
+DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_at;
@@ -137,6 +141,12 @@ UPDATE message SET
     persona_color = persona.color,
     persona_avatar = persona.avatar
     WHERE persona != NONE AND persona_name = NONE;
+
+-- Backfill `attachments` to [] on every pre-attachment row. SCHEMAFULL arrays
+-- behave like the string fields: old rows hold NONE, and editing a message
+-- (UPDATE body) would re-validate `attachments` (NONE vs array) and 500. Touch
+-- ALL rows missing it (not just persona'd ones), idempotent via the WHERE.
+UPDATE message SET attachments = [] WHERE attachments = NONE;
 
 -- Lorebook entries (SillyTavern-style; on a kind='lorebook' channel) ----
 DEFINE TABLE IF NOT EXISTS lorebook_entry SCHEMAFULL;

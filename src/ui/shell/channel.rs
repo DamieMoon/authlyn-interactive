@@ -135,6 +135,49 @@ fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoV
     }
 }
 
+/// Render a message's inline image attachments as a Discord-style grid: the
+/// more images, the more compact (column count climbs, cells go square).
+/// Clicking one opens it in the lightbox. Thumbnails pull a downscaled JPEG
+/// (`?w=512`); the lightbox loads the full original.
+#[cfg(feature = "hydrate")]
+fn attachment_grid(ids: Vec<String>, lightbox: RwSignal<Option<String>>) -> impl IntoView {
+    let cols = match ids.len() {
+        1 => 1,
+        2 | 4 => 2,
+        _ => 3,
+    };
+    view! {
+        <div class=format!("attachments cols-{cols}")>
+            {ids.into_iter().map(|id| {
+                let open_id = id.clone();
+                view! {
+                    <img class="att-thumb" loading="lazy" alt="attachment"
+                        src=format!("/media/{id}?w=512")
+                        on:click=move |_| lightbox.set(Some(open_id.clone()))/>
+                }
+            }).collect_view()}
+        </div>
+    }
+}
+
+/// SSR build has no lightbox interaction; render the grid as plain links so the
+/// markup still hydrates identically.
+#[cfg(not(feature = "hydrate"))]
+fn attachment_grid(ids: Vec<String>, _lightbox: RwSignal<Option<String>>) -> impl IntoView {
+    let cols = match ids.len() {
+        1 => 1,
+        2 | 4 => 2,
+        _ => 3,
+    };
+    view! {
+        <div class=format!("attachments cols-{cols}")>
+            {ids.into_iter().map(|id| view! {
+                <img class="att-thumb" alt="attachment" src=format!("/media/{id}?w=512")/>
+            }).collect_view()}
+        </div>
+    }
+}
+
 #[component]
 pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
@@ -172,6 +215,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
 
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
+    // Lightbox: media id of the attachment opened near-fullscreen, if any.
+    let lightbox = RwSignal::new(None::<String>);
 
     // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
     // the user's last scroll (i.e. pre-append). On a new message: your own →
@@ -301,6 +346,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         let when = format_local_time(&m.sent_at);
                         // Circular persona avatar (send-time snapshot) left of the name.
                         let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
+                        let atts = m.attachments.clone();
                         let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let mid = m.id.clone();
@@ -379,6 +425,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         }.into_any()
                                     }
                                 }}
+                                {(!atts.is_empty()).then(|| attachment_grid(atts.clone(), lightbox))}
                             </li>
                         }
                     }).collect_view()
@@ -441,6 +488,36 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
 
             <div class="composer">
                 <div class="toolbar">
+                    // Attach images: a hidden multi-file input behind a 📎 label.
+                    // Each pick uploads immediately and stages the media id.
+                    <label class="fmt attach" title="attach image">
+                        "📎"
+                        <input type="file" accept="image/*" multiple style="display:none"
+                            on:change=move |_ev| {
+                                #[cfg(feature = "hydrate")]
+                                {
+                                    use leptos::wasm_bindgen::JsCast;
+                                    if let Some(input) = _ev.target().and_then(|t| {
+                                        t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
+                                    }) {
+                                        if let Some(files) = input.files() {
+                                            for i in 0..files.length() {
+                                                if let Some(file) = files.get(i) {
+                                                    act::add_compose_attachment(s, file);
+                                                }
+                                            }
+                                        }
+                                        // Clear so re-picking the same file re-fires.
+                                        input.set_value("");
+                                    }
+                                }
+                                #[cfg(not(feature = "hydrate"))]
+                                {
+                                    let _ = &_ev;
+                                    act::add_compose_attachment(s);
+                                }
+                            }/>
+                    </label>
                     <button class="fmt" title="bold"
                         on:click=move |_| apply_markup(s, composer_ref, "**", "**")>
                         <strong>"B"</strong>
@@ -479,10 +556,56 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         }
                     }).collect_view()}
                 </div>
+                // Pending attachments: thumbnails of staged uploads, each with a
+                // remove button. Sent (and cleared) on the next message.
+                {move || {
+                    let atts = s.compose_attachments.get();
+                    (!atts.is_empty()).then(|| view! {
+                        <div class="compose-attachments">
+                            {atts.into_iter().map(|id| {
+                                let rid = id.clone();
+                                view! {
+                                    <div class="pending-att">
+                                        <img src=format!("/media/{id}?w=256") alt="pending attachment"/>
+                                        <button class="att-remove" type="button" title="remove"
+                                            on:click=move |_| act::remove_compose_attachment(s, rid.clone())>
+                                            "✕"
+                                        </button>
+                                    </div>
+                                }
+                            }).collect_view()}
+                        </div>
+                    })
+                }}
                 <textarea
                     node_ref=composer_ref
                     prop:value=move || s.compose.get()
                     on:input=move |ev| s.compose.set(event_target_value(&ev))
+                    on:paste=move |_ev| {
+                        // Paste-to-upload images (#27): stage any image items on
+                        // the clipboard and suppress their default text paste.
+                        #[cfg(feature = "hydrate")]
+                        {
+                            if let Some(dt) = _ev.clipboard_data() {
+                                let items = dt.items();
+                                let mut handled = false;
+                                for i in 0..items.length() {
+                                    let Some(item) = items.get(i) else { continue };
+                                    if item.type_().starts_with("image/") {
+                                        if let Ok(Some(file)) = item.get_as_file() {
+                                            act::add_compose_attachment(s, file);
+                                            handled = true;
+                                        }
+                                    }
+                                }
+                                if handled {
+                                    _ev.prevent_default();
+                                }
+                            }
+                        }
+                        #[cfg(not(feature = "hydrate"))]
+                        let _ = &_ev;
+                    }
                     on:keydown=move |ev| {
                         #[cfg(feature = "hydrate")]
                         {
@@ -534,6 +657,19 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                             }}
                             <p class="muted">"Controlled by "<strong>{author}</strong></p>
                         </div>
+                    </div>
+                }
+            })}
+
+            // Attachment lightbox — the clicked image near-fullscreen; click
+            // anywhere (or the ✕) to close. Loads the full original, not the
+            // grid thumbnail.
+            {move || lightbox.get().map(|id| {
+                view! {
+                    <div class="lightbox" on:click=move |_| lightbox.set(None)>
+                        <button class="lightbox-close" title="close"
+                            on:click=move |_| lightbox.set(None)>"✕"</button>
+                        <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
                     </div>
                 }
             })}

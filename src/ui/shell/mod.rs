@@ -92,6 +92,9 @@ pub(crate) struct Shell {
     cursor: RwSignal<Option<(String, String)>>,
     seen: RwSignal<HashSet<String>>,
     compose: RwSignal<String>,
+    /// Media ids already uploaded and staged to send with the next message
+    /// (the composer's pending image attachments, in pick order).
+    compose_attachments: RwSignal<Vec<String>>,
     status: RwSignal<String>,
     polling: RwSignal<bool>,
     pane: RwSignal<Pane>,
@@ -123,6 +126,7 @@ fn AppShell() -> impl IntoView {
         cursor: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         compose: RwSignal::new(String::new()),
+        compose_attachments: RwSignal::new(Vec::new()),
         status: RwSignal::new(String::new()),
         polling: RwSignal::new(false),
         pane: RwSignal::new(Pane::Friends),
@@ -662,16 +666,19 @@ mod act {
             return;
         };
         let body = s.compose.get_untracked();
-        if body.trim().is_empty() {
+        let attachments = s.compose_attachments.get_untracked();
+        // A message needs text OR at least one image.
+        if body.trim().is_empty() && attachments.is_empty() {
             return;
         }
         s.compose.set(String::new());
+        s.compose_attachments.set(Vec::new());
         s.status.set(String::new());
         // Sending is a user gesture — a reliable point to request notification
         // permission so background channels can notify later.
         request_notify_permission();
         spawn_local(async move {
-            match api::post_message(&ch.id, &body).await {
+            match api::post_message(&ch.id, &body, attachments).await {
                 Ok(_) => {
                     let cur = s.cursor.get_untracked();
                     if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
@@ -681,6 +688,23 @@ mod act {
                 Err(e) => s.status.set(api::humanize(&e)),
             }
         });
+    }
+
+    /// Upload a picked/pasted image and stage it as a pending composer
+    /// attachment (its media id is sent with the next message).
+    pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::upload_media(&file).await {
+                Ok(id) => s.compose_attachments.update(|v| v.push(id)),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Drop one staged attachment before sending.
+    pub fn remove_compose_attachment(s: Shell, id: String) {
+        s.compose_attachments.update(|v| v.retain(|x| *x != id));
     }
 
     /// Edit one of the caller's own messages, then patch `s.messages` in
@@ -1443,6 +1467,8 @@ mod act {
     pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
     pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
     pub fn send_message(_s: Shell) {}
+    pub fn add_compose_attachment(_s: Shell) {}
+    pub fn remove_compose_attachment(_s: Shell, _id: String) {}
     pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
     pub fn delete_message(_s: Shell, _cid: String, _mid: String) {}
     pub fn confirm_delete_message_enabled() -> bool {

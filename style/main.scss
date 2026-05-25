@@ -1029,3 +1029,120 @@ $persona-palette: (
 		max-height: 50vh;
 	}
 }
+
+// ---- chat image attachments (Discord-style grid + lightbox) ----
+// Per-message image grid. Column count is set by a `cols-N` class (more
+// images -> more compact). Cells crop square via object-fit; a single image
+// keeps its aspect ratio.
+.attachments {
+	display: grid;
+	gap: 4px;
+	margin-top: 0.4rem;
+	max-width: 420px;
+
+	&.cols-1 {
+		grid-template-columns: 1fr;
+	}
+	&.cols-2 {
+		grid-template-columns: repeat(2, 1fr);
+	}
+	&.cols-3 {
+		grid-template-columns: repeat(3, 1fr);
+	}
+
+	.att-thumb {
+		width: 100%;
+		aspect-ratio: 1 / 1;
+		object-fit: cover;
+		border-radius: 8px;
+		cursor: pointer;
+		background: #2a2740;
+		display: block;
+	}
+
+	// A lone image isn't forced square — show it at its natural ratio, capped.
+	&.cols-1 .att-thumb {
+		aspect-ratio: auto;
+		max-height: 360px;
+		width: auto;
+		max-width: 100%;
+		object-fit: contain;
+	}
+}
+
+// Composer attach control + staged-attachment previews.
+.composer .toolbar .attach {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+}
+
+.compose-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	padding: 0.4rem 0;
+
+	.pending-att {
+		position: relative;
+		width: 4rem;
+		height: 4rem;
+
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			border-radius: 8px;
+			background: #2a2740;
+		}
+
+		.att-remove {
+			position: absolute;
+			top: -0.4rem;
+			right: -0.4rem;
+			width: 1.3rem;
+			height: 1.3rem;
+			padding: 0;
+			border-radius: 50%;
+			border: none;
+			background: #1c1a2b;
+			color: $text;
+			cursor: pointer;
+			line-height: 1;
+			font-size: 0.8rem;
+		}
+	}
+}
+
+// Near-fullscreen image viewer.
+.lightbox {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	background: rgba(0, 0, 0, 0.85);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: zoom-out;
+
+	.lightbox-img {
+		max-width: 95vw;
+		max-height: 95vh;
+		object-fit: contain;
+		border-radius: 6px;
+	}
+
+	.lightbox-close {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		width: 2.4rem;
+		height: 2.4rem;
+		border-radius: 50%;
+		border: none;
+		background: rgba(28, 26, 43, 0.9);
+		color: $text;
+		font-size: 1.1rem;
+		cursor: pointer;
+	}
+}

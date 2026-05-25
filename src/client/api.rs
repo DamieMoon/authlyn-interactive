@@ -184,11 +184,16 @@ pub async fn list_messages(
     get(&url).await
 }
 
-pub async fn post_message(cid: &str, body: &str) -> Result<SendMessageResponse, ApiError> {
+pub async fn post_message(
+    cid: &str,
+    body: &str,
+    attachment_ids: Vec<String>,
+) -> Result<SendMessageResponse, ApiError> {
     post_json(
         &format!("/channels/{cid}/messages"),
         &SendMessageRequest {
             body: body.to_string(),
+            attachment_ids,
         },
     )
     .await

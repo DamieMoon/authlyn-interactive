@@ -160,6 +160,10 @@ pub struct SetMemberRoleRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SendMessageRequest {
     pub body: String,
+    /// Media ids (from `POST /media`) to attach as inline images, in display
+    /// order. May be empty. A message with attachments may have an empty body.
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
@@ -213,6 +217,10 @@ pub struct MessageEnvelope {
     #[serde(default)]
     pub persona_avatar_id: Option<String>,
     pub body: String,
+    /// Inline image attachments: media ids, in display order. Empty for a
+    /// plain text message. Rendered as a grid; each is a `/media/{id}` image.
+    #[serde(default)]
+    pub attachments: Vec<String>,
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,
     pub sent_at: String,

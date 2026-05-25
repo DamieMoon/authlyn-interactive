@@ -43,6 +43,9 @@ const MESSAGES_PAGE_LIMIT: i64 = 100;
 /// Max characters in a message body (markup included).
 const MAX_BODY_CHARS: usize = 50_000;
 
+/// Max inline image attachments per message.
+const MAX_ATTACHMENTS: usize = 10;
+
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/messages
 // ---------------------------------------------------------------------------
@@ -59,11 +62,34 @@ pub async fn post_message(
         Err(rej) => return json_rejection_response(rej),
     };
     let body = req.body.trim_end().to_string();
-    if body.trim().is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "message body must not be empty");
+    // Attachments: dedupe (preserve order), bound the count. A message is valid
+    // with text, with images, or both — but not empty of both.
+    let mut attachments: Vec<String> = Vec::new();
+    for id in req.attachment_ids {
+        if !attachments.contains(&id) {
+            attachments.push(id);
+        }
+    }
+    if body.trim().is_empty() && attachments.is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "message must have text or an image",
+        );
     }
     if body.chars().count() > MAX_BODY_CHARS {
         return error_response(StatusCode::BAD_REQUEST, "message body too long");
+    }
+    if attachments.len() > MAX_ATTACHMENTS {
+        return error_response(StatusCode::BAD_REQUEST, "too many attachments");
+    }
+    // Reject unknown media ids so a row never stores a dangling attachment.
+    match all_media_exist(&state, &attachments).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::BAD_REQUEST, "unknown attachment"),
+        Err(e) => {
+            tracing::error!(error = %e, "attachment existence check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
     }
 
     let access = match channel_access(&state, &cid, &account.0).await {
@@ -88,7 +114,16 @@ pub async fn post_message(
         }
     };
 
-    match persist_message(&state, &cid, &account.0, active_persona.as_deref(), &body).await {
+    match persist_message(
+        &state,
+        &cid,
+        &account.0,
+        active_persona.as_deref(),
+        &body,
+        &attachments,
+    )
+    .await
+    {
         Ok(id) => (StatusCode::CREATED, Json(SendMessageResponse { id })).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "persist_message failed");
@@ -103,6 +138,7 @@ async fn persist_message(
     author: &str,
     persona: Option<&str>,
     body: &str,
+    attachments: &[String],
 ) -> surrealdb::Result<String> {
     #[derive(SurrealValue)]
     struct IdRow {
@@ -121,13 +157,15 @@ async fn persist_message(
             persona_description = (SELECT VALUE description FROM ONLY type::record('persona', $persona)),
             persona_color = (SELECT VALUE color FROM ONLY type::record('persona', $persona)),
             persona_avatar = (SELECT VALUE avatar FROM ONLY type::record('persona', $persona)),
-            body    = $body
+            body    = $body,
+            attachments = $attachments
             RETURN meta::id(id) AS id_key;"
     } else {
         "CREATE message SET
             channel = type::record('channel', $cid),
             author  = type::record('account', $author),
-            body    = $body
+            body    = $body,
+            attachments = $attachments
             RETURN meta::id(id) AS id_key;"
     };
     let mut q = state
@@ -135,7 +173,8 @@ async fn persist_message(
         .query(sql)
         .bind(("cid", cid.to_string()))
         .bind(("author", author.to_string()))
-        .bind(("body", body.to_string()));
+        .bind(("body", body.to_string()))
+        .bind(("attachments", attachments.to_vec()));
     if let Some(persona) = persona {
         q = q.bind(("persona", persona.to_string()));
     }
@@ -382,6 +421,7 @@ struct MessageRow {
     persona_color: Option<String>,
     persona_avatar_id: Option<String>,
     body: String,
+    attachments: Vec<String>,
     tier: String,
     sent_at: Datetime,
 }
@@ -399,6 +439,7 @@ impl MessageRow {
             persona_color: self.persona_color,
             persona_avatar_id: self.persona_avatar_id,
             body: self.body,
+            attachments: self.attachments,
             tier: self.tier,
             sent_at: to_rfc3339_fixed(self.sent_at),
         }
@@ -427,6 +468,7 @@ async fn load_messages(
          ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
             AS persona_avatar_id,
         body,
+        (attachments ?? []) AS attachments,
         tier,
         sent_at";
 
@@ -529,6 +571,22 @@ async fn channel_access(
         kind: chan.kind,
         active_persona: mem.persona_id,
     }))
+}
+
+/// True when every id in `ids` names an existing `media_blob` (empty → true).
+/// Stops a message from persisting a dangling attachment reference.
+async fn all_media_exist(state: &AppState, ids: &[String]) -> surrealdb::Result<bool> {
+    if ids.is_empty() {
+        return Ok(true);
+    }
+    let mut resp = state
+        .db
+        .query("SELECT VALUE meta::id(id) FROM media_blob WHERE meta::id(id) IN $ids;")
+        .bind(("ids", ids.to_vec()))
+        .await?
+        .check()?;
+    let found: Vec<String> = resp.take(0)?;
+    Ok(ids.iter().all(|id| found.contains(id)))
 }
 
 // ---------------------------------------------------------------------------
