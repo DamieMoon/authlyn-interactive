@@ -739,9 +739,10 @@ textarea {
 }
 
 // ---- per-persona name tint (#9) ----
-// Palette name → hex (matches the .mk-* text colors). `.msg .who` sets a default
-// color with higher specificity than a bare `.mk-*`, so the persona tint needs
-// this compound override to win.
+// Palette name → hex (matches the .mk-* text colors). The default `.who` color is
+// set by the nested rule that compiles to `.content .messages .msg .who` (0,4,0),
+// so the persona tint must match that depth to win — a bare `.msg .who.mk-*`
+// (0,3,0) loses and the name stays the default purple.
 $persona-palette: (
 	"red": #f0828c,
 	"orange": #eea160,
@@ -753,7 +754,7 @@ $persona-palette: (
 	"gray": #9aa3af,
 );
 @each $n, $c in $persona-palette {
-	.msg .who.mk-#{$n} {
+	.content .messages .msg .who.mk-#{$n} {
 		color: $c;
 	}
 }

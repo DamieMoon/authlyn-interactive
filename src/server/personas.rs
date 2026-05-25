@@ -406,7 +406,7 @@ pub async fn set_avatar(
         Err(rej) => return json_rejection_response(rej),
     };
     if let Err(resp) =
-        require_owned_persona_and_media(&state, &pid, &account.0, &req.media_id).await
+        require_editable_persona_and_media(&state, &pid, &account.0, &req.media_id).await
     {
         return resp;
     }
@@ -444,7 +444,7 @@ pub async fn add_gallery_image(
         Err(rej) => return json_rejection_response(rej),
     };
     if let Err(resp) =
-        require_owned_persona_and_media(&state, &pid, &account.0, &req.media_id).await
+        require_editable_persona_and_media(&state, &pid, &account.0, &req.media_id).await
     {
         return resp;
     }
@@ -503,11 +503,11 @@ pub async fn remove_gallery_image(
     Path((pid, img)): Path<(String, String)>,
     account: AuthAccount,
 ) -> Response {
-    match owns_persona(&state, &pid, &account.0).await {
+    match can_edit_persona(&state, &pid, &account.0).await {
         Ok(true) => {}
         Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
         Err(e) => {
-            tracing::error!(error = %e, "owns_persona failed");
+            tracing::error!(error = %e, "can_edit_persona failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
@@ -974,19 +974,20 @@ async fn media_exists(state: &AppState, mid: &str) -> surrealdb::Result<bool> {
     Ok(resp.take::<Option<IdRow>>(0)?.is_some())
 }
 
-/// Owner-check the persona and existence-check the media id; map either miss
-/// to the appropriate 404.
-async fn require_owned_persona_and_media(
+/// Edit-check the persona and existence-check the media id; map either miss
+/// to the appropriate 404. Uses the same owner-or-editor rule as `patch_persona`
+/// so anyone who may edit the persona may also set its picture.
+async fn require_editable_persona_and_media(
     state: &AppState,
     pid: &str,
     account: &str,
     media_id: &str,
 ) -> Result<(), Response> {
-    match owns_persona(state, pid, account).await {
+    match can_edit_persona(state, pid, account).await {
         Ok(true) => {}
         Ok(false) => return Err(error_response(StatusCode::NOT_FOUND, "persona not found")),
         Err(e) => {
-            tracing::error!(error = %e, "owns_persona failed");
+            tracing::error!(error = %e, "can_edit_persona failed");
             return Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "storage error",
