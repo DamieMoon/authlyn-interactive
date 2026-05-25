@@ -167,6 +167,11 @@ panic = "abort"
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
 output-name = "authlyn-interactive"
 
+# The crate now has two bin targets (the server + the `nova-mcp` bridge), so
+# cargo-leptos can't auto-pick the server bin — name it explicitly or
+# `cargo leptos build` errors with "Several bin targets found".
+bin-target = "authlyn-interactive"
+
 # The site root folder is where cargo-leptos generate all output. WARNING: all content of this folder will be erased on a rebuild. Use it in your server setup.
 site-root = "target/site"
 
