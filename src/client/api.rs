@@ -7,9 +7,12 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::{
-    AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody, GuildDetail,
-    GuildSummary, ListGuildsResponse, ListMessagesResponse, LoginRequest, MeResponse,
-    RegisterRequest, SendMessageRequest, SendMessageResponse,
+    AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
+    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest, ErrorBody,
+    FriendRequest, GuildDetail, GuildSummary, ListFriendsResponse, ListGuildsResponse,
+    ListLorebookResponse, ListMessagesResponse, ListPersonasResponse, LoginRequest, MeResponse,
+    PersonaSummary, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -126,12 +129,110 @@ pub async fn post_message(cid: &str, body: &str) -> Result<SendMessageResponse, 
 }
 
 // ---------------------------------------------------------------------------
+// Personas + wardrobe
+// ---------------------------------------------------------------------------
+
+pub async fn list_personas() -> Result<ListPersonasResponse, ApiError> {
+    get("/personas").await
+}
+
+pub async fn create_persona(name: &str, description: &str) -> Result<PersonaSummary, ApiError> {
+    post_json(
+        "/personas",
+        &CreatePersonaRequest {
+            name: name.to_string(),
+            description: Some(description.to_string()),
+        },
+    )
+    .await
+}
+
+/// Wear (`Some`) or take off (`None`) a persona in a guild.
+pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result<(), ApiError> {
+    let resp = Request::put(&format!("/guilds/{gid}/active-persona"))
+        .json(&SetActivePersonaRequest { persona_id })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+// ---------------------------------------------------------------------------
+// Lorebook
+// ---------------------------------------------------------------------------
+
+pub async fn list_lore(cid: &str) -> Result<ListLorebookResponse, ApiError> {
+    get(&format!("/channels/{cid}/lorebook")).await
+}
+
+pub async fn create_lore(
+    cid: &str,
+    keys: Vec<String>,
+    content: &str,
+) -> Result<CreateLorebookEntryResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/lorebook"),
+        &CreateLorebookEntryRequest {
+            title: None,
+            keys,
+            content: content.to_string(),
+            enabled: None,
+            position: None,
+        },
+    )
+    .await
+}
+
+pub async fn delete_lore(cid: &str, eid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/lorebook/{eid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Friends
+// ---------------------------------------------------------------------------
+
+pub async fn list_friends() -> Result<ListFriendsResponse, ApiError> {
+    get("/friends").await
+}
+
+pub async fn add_friend(username: &str) -> Result<(), ApiError> {
+    let resp = Request::post("/friends")
+        .json(&FriendRequest {
+            username: username.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
+    post_empty(&format!("/friends/{aid}/accept")).await
+}
+
+pub async fn remove_friend(aid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/friends/{aid}")).await
+}
+
+// ---------------------------------------------------------------------------
 // Low-level helpers (reused by later slices)
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn get<T: DeserializeOwned>(url: &str) -> Result<T, ApiError> {
     let resp = Request::get(url).send().await.map_err(net)?;
     decode(resp).await
+}
+
+async fn post_empty(url: &str) -> Result<(), ApiError> {
+    let resp = Request::post(url).send().await.map_err(net)?;
+    decode_empty(resp).await
+}
+
+async fn delete_empty(url: &str) -> Result<(), ApiError> {
+    let resp = Request::delete(url).send().await.map_err(net)?;
+    decode_empty(resp).await
 }
 
 pub(crate) async fn post_json<B: Serialize, T: DeserializeOwned>(
