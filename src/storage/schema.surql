@@ -75,7 +75,7 @@ DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 DEFINE TABLE IF NOT EXISTS guild_member SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS guild          ON guild_member TYPE record<guild>;
 DEFINE FIELD IF NOT EXISTS account        ON guild_member TYPE record<account>;
-DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'member' ASSERT $value IN ['owner', 'member'];
+DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'member' ASSERT $value IN ['owner', 'admin', 'member'];
 DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<persona>>;
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;

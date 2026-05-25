@@ -25,6 +25,7 @@ use surrealdb::types::SurrealValue;
 use crate::protocol::{
     ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody, GuildDetail, GuildSummary,
     InviteMemberRequest, ListGuildsResponse, PatchChannelRequest, PatchGuildRequest,
+    SetMemberRoleRequest,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -238,7 +239,7 @@ pub async fn patch_guild(
         Ok(json) => json,
         Err(rej) => return json_rejection_response(rej),
     };
-    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
         return r;
     }
 
@@ -318,7 +319,7 @@ pub async fn create_channel(
         Ok(json) => json,
         Err(rej) => return json_rejection_response(rej),
     };
-    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
         return r;
     }
     let name = req.name.trim().to_string();
@@ -406,7 +407,7 @@ pub async fn patch_channel(
         Ok(json) => json,
         Err(rej) => return json_rejection_response(rej),
     };
-    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
         return r;
     }
     match channel_in_guild(&state, &gid, &cid).await {
@@ -465,7 +466,7 @@ pub async fn delete_channel(
     Path((gid, cid)): Path<(String, String)>,
     account: AuthAccount,
 ) -> Response {
-    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
         return r;
     }
     match channel_in_guild(&state, &gid, &cid).await {
@@ -506,7 +507,7 @@ pub async fn invite_member(
         Ok(json) => json,
         Err(rej) => return json_rejection_response(rej),
     };
-    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
         return r;
     }
     let username_ci = req.username.trim().to_lowercase();
@@ -590,11 +591,14 @@ pub async fn remove_member(
             );
         }
     } else {
-        // Kicking someone else requires ownership.
-        if caller_membership != "owner" {
-            return error_response(StatusCode::FORBIDDEN, "owner only");
+        // Kicking someone else needs manage rights; the owner can't be kicked.
+        if caller_membership != "owner" && caller_membership != "admin" {
+            return error_response(StatusCode::FORBIDDEN, "admin only");
         }
         match caller_role(&state, &gid, &aid).await {
+            Ok(Some(role)) if role == "owner" => {
+                return error_response(StatusCode::FORBIDDEN, "cannot remove the owner")
+            }
             Ok(Some(_)) => {}
             Ok(None) => return error_response(StatusCode::NOT_FOUND, "member not found"),
             Err(e) => {
@@ -619,6 +623,63 @@ pub async fn remove_member(
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "remove_member failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /guilds/{id}/members/{aid}/role
+// ---------------------------------------------------------------------------
+
+/// Grant or revoke admin. Any manager (owner or admin) can promote a member
+/// to `admin` or demote back to `member` — this is the easy, intended path to
+/// share control. The owner's role is fixed (ownership transfer is out of
+/// scope), so the owner can't be targeted.
+#[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, target = %aid))]
+pub async fn set_member_role(
+    State(state): State<AppState>,
+    Path((gid, aid)): Path<(String, String)>,
+    account: AuthAccount,
+    payload: Result<Json<SetMemberRoleRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    if req.role != "admin" && req.role != "member" {
+        return error_response(StatusCode::BAD_REQUEST, "role must be admin or member");
+    }
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
+        return r;
+    }
+    match caller_role(&state, &gid, &aid).await {
+        Ok(Some(role)) if role == "owner" => {
+            return error_response(StatusCode::FORBIDDEN, "cannot change the owner's role")
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "member not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "target membership lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    match state
+        .db
+        .query(
+            "UPDATE guild_member SET role = $role
+                WHERE guild = type::record('guild', $gid)
+                  AND account = type::record('account', $aid);",
+        )
+        .bind(("role", req.role))
+        .bind(("gid", gid))
+        .bind(("aid", aid))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "set_member_role failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
         }
     }
@@ -654,8 +715,28 @@ async fn caller_role(
     Ok(row.map(|r| r.role))
 }
 
-/// `Ok(())` if the caller owns the guild; otherwise an early-return response:
-/// 404 for non-members (privacy), 403 for non-owner members.
+/// `Ok(())` if the caller can manage the guild (owner **or** admin);
+/// otherwise an early-return response: 404 for non-members (privacy), 403 for
+/// plain members. This gates the everyday management actions (channels,
+/// invites, kicks, rename) — admins are deliberately near-peers of the owner
+/// so granting admin is the easy, sufficient way to share control.
+async fn require_manager(state: &AppState, gid: &str, account: &str) -> Result<(), Response> {
+    match caller_role(state, gid, account).await {
+        Ok(Some(role)) if role == "owner" || role == "admin" => Ok(()),
+        Ok(Some(_)) => Err(error_response(StatusCode::FORBIDDEN, "admin only")),
+        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "guild not found")),
+        Err(e) => {
+            tracing::error!(error = %e, "require_manager lookup failed");
+            Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "storage error",
+            ))
+        }
+    }
+}
+
+/// `Ok(())` only if the caller is the guild **owner**. Reserved for the few
+/// irreversible/structural actions (deleting the guild).
 async fn require_owner(state: &AppState, gid: &str, account: &str) -> Result<(), Response> {
     match caller_role(state, gid, account).await {
         Ok(Some(role)) if role == "owner" => Ok(()),

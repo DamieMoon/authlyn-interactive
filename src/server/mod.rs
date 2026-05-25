@@ -57,6 +57,10 @@ fn small_body_routes() -> Router<AppState> {
         .route("/guilds/{id}/members", post(guilds::invite_member))
         .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
         .route(
+            "/guilds/{id}/members/{aid}/role",
+            put(guilds::set_member_role),
+        )
+        .route(
             "/guilds/{id}/active-persona",
             put(personas::set_active_persona),
         )

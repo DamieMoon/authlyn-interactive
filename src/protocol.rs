@@ -133,6 +133,13 @@ pub struct InviteMemberRequest {
     pub username: String,
 }
 
+/// Body of `PUT /guilds/{id}/members/{aid}/role` — grant/revoke admin.
+/// `role` is `"admin"` or `"member"` (the owner's role is fixed).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetMemberRoleRequest {
+    pub role: String,
+}
+
 // ---------------------------------------------------------------------------
 // Messages (channel-scoped, plaintext body; markup rides inside `body`)
 // ---------------------------------------------------------------------------
