@@ -554,6 +554,33 @@ mod act {
         });
     }
 
+    /// Save edits to a persona (name + description), then reload the wardrobe
+    /// grid so the card reflects the change. `done` is set true on success so
+    /// the caller can close the detail editor.
+    pub fn update_persona(
+        s: Shell,
+        pid: String,
+        name: String,
+        description: String,
+        done: RwSignal<bool>,
+    ) {
+        if name.trim().is_empty() {
+            s.status.set("name must not be empty".to_string());
+            return;
+        }
+        spawn_local(async move {
+            match api::patch_persona(&pid, Some(name), Some(description)).await {
+                Ok(()) => {
+                    if let Ok(r) = api::list_personas().await {
+                        s.personas.set(r.personas);
+                    }
+                    done.set(true);
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn wear_persona(s: Shell, pid: String) {
         let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
@@ -737,6 +764,7 @@ mod act {
     use super::Shell;
     use crate::protocol::ChannelSummary;
     use crate::ui::AuthCtx;
+    use leptos::prelude::RwSignal;
 
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
@@ -754,6 +782,14 @@ mod act {
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}
     pub fn create_persona(_s: Shell, _name: String, _desc: String) {}
+    pub fn update_persona(
+        _s: Shell,
+        _pid: String,
+        _name: String,
+        _description: String,
+        _done: RwSignal<bool>,
+    ) {
+    }
     pub fn wear_persona(_s: Shell, _pid: String) {}
     pub fn unwear(_s: Shell) {}
     pub fn add_friend(_s: Shell, _username: String) {}

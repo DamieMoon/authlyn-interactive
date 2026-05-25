@@ -11,8 +11,9 @@ use crate::protocol::{
     CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest, ErrorBody,
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
     ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PersonaSummary,
-    RegisterRequest, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
+    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PatchPersonaRequest,
+    PersonaSummary, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -185,6 +186,21 @@ pub async fn create_persona(name: &str, description: &str) -> Result<PersonaSumm
         },
     )
     .await
+}
+
+/// Update a persona's name and/or description (owner only). 204, no body.
+pub async fn patch_persona(
+    pid: &str,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/personas/{pid}"))
+        .json(&PatchPersonaRequest { name, description })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 /// Wear (`Some`) or take off (`None`) a persona in a guild.
