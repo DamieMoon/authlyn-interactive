@@ -6,18 +6,30 @@
 //! later polish. All data-fetching lives in the `act` module, defined twice —
 //! real on hydrate, no-op stubs on ssr — so the view's handlers call it
 //! ungated and the gloo-net client never enters the ssr graph.
+//!
+//! The content panes each live in their own submodule (`channel`, `wardrobe`,
+//! `lorebook`, `friends`); this module owns the shared [`Shell`] state, the
+//! rail/sidebar layout ([`AppShell`]), and the [`act`] action layer.
 
 use std::collections::HashSet;
 
 use leptos::prelude::*;
 
-use crate::markup::Color;
 use crate::protocol::{
     ChannelSummary, GuildSummary, ListFriendsResponse, LorebookEntry, MessageEnvelope,
     PersonaSummary,
 };
-use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
+
+mod channel;
+mod friends;
+mod lorebook;
+mod wardrobe;
+
+use channel::ChannelPane;
+use friends::FriendsPane;
+use lorebook::LorebookPane;
+use wardrobe::WardrobePane;
 
 #[component]
 pub fn Home() -> impl IntoView {
@@ -50,9 +62,11 @@ enum Pane {
 }
 
 /// All of the shell's reactive state, bundled into one `Copy` handle.
+/// `pub(crate)` so the pane submodules can take it as a prop; the fields stay
+/// private (submodules are descendants and can still read them).
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
-struct Shell {
+pub(crate) struct Shell {
     guilds: RwSignal<Vec<GuildSummary>>,
     sel_server: RwSignal<Option<String>>,
     /// owner account id of the currently-open server (gates the invite control).
@@ -316,226 +330,6 @@ fn ChannelRow(
                 }
             }}
         </li>
-    }
-}
-
-#[component]
-fn ChannelPane(s: Shell) -> impl IntoView {
-    // Auto-grow the composer to fit its content, up to the CSS max-height
-    // (then it scrolls). Tracking `compose` covers both typing and the
-    // programmatic clear after send. Hydrate-only; ssr leaves it min-height.
-    let composer_ref = NodeRef::<leptos::html::Textarea>::new();
-    #[cfg(feature = "hydrate")]
-    Effect::new(move |_| {
-        s.compose.track();
-        if let Some(el) = composer_ref.get() {
-            // Deref to web_sys::HtmlElement so its inherent `style()` wins over
-            // tachys' `ElementExt::style` (both in scope via leptos prelude).
-            let style = (*el).style();
-            let _ = style.set_property("height", "auto");
-            let _ = style.set_property("height", &format!("{}px", el.scroll_height()));
-        }
-    });
-
-    view! {
-        <div class="channel-view">
-            <ul class="messages">
-                {move || s.messages.get().into_iter().map(|m| {
-                    let who = m.persona_name.clone().unwrap_or_else(|| short_id(&m.author_id));
-                    view! {
-                        <li class="msg">
-                            <span class="who">{who}</span>
-                            <span class="text">{render_body(&m.body)}</span>
-                        </li>
-                    }
-                }).collect_view()}
-            </ul>
-            <div class="composer">
-                <div class="toolbar">
-                    <button class="fmt" title="bold"
-                        on:click=move |_| s.compose.update(|c| c.push_str("**bold**"))>
-                        <strong>"B"</strong>
-                    </button>
-                    <button class="fmt" title="italic"
-                        on:click=move |_| s.compose.update(|c| c.push_str("*italic*"))>
-                        <em>"i"</em>
-                    </button>
-                    {Color::ALL.into_iter().map(|col| {
-                        let name = col.name();
-                        view! {
-                            <button class=format!("swatch mk-bg-{name}") title=name
-                                on:click=move |_| s.compose.update(|c| {
-                                    c.push_str(&format!("[{name}]text[/{name}]"));
-                                })>
-                            </button>
-                        }
-                    }).collect_view()}
-                </div>
-                <textarea
-                    node_ref=composer_ref
-                    prop:value=move || s.compose.get()
-                    on:input=move |ev| s.compose.set(event_target_value(&ev))
-                    on:keydown=move |ev| {
-                        #[cfg(feature = "hydrate")]
-                        {
-                            if ev.key() == "Enter" && !ev.shift_key() {
-                                ev.prevent_default();
-                                act::send_message(s);
-                            }
-                        }
-                        #[cfg(not(feature = "hydrate"))]
-                        let _ = &ev;
-                    }
-                    placeholder="type a message — **bold**, *italic*, [red]color[/red]"
-                ></textarea>
-                <button class="send" on:click=move |_| act::send_message(s)>"Send"</button>
-            </div>
-        </div>
-    }
-}
-
-#[component]
-fn WardrobePane(s: Shell) -> impl IntoView {
-    let name = RwSignal::new(String::new());
-    let desc = RwSignal::new(String::new());
-    view! {
-        <div class="pane">
-            <h3>"Wardrobe"</h3>
-            <div class="add-row">
-                <input prop:value=move || name.get()
-                    on:input=move |ev| name.set(event_target_value(&ev))
-                    placeholder="persona name"/>
-                <input prop:value=move || desc.get()
-                    on:input=move |ev| desc.set(event_target_value(&ev))
-                    placeholder="description"/>
-                <button on:click=move |_| {
-                    let (n, d) = (name.get_untracked(), desc.get_untracked());
-                    name.set(String::new());
-                    desc.set(String::new());
-                    act::create_persona(s, n, d);
-                }>"Create persona"</button>
-            </div>
-            <div class="persona-grid">
-                {move || s.personas.get().into_iter().map(|p| {
-                    let pid = p.id.clone();
-                    let pid_worn = pid.clone();
-                    let worn = move || s.active_persona.get().as_deref() == Some(pid_worn.as_str());
-                    let pid_wear = pid.clone();
-                    view! {
-                        <div class="persona-card">
-                            <span class="pname">{p.name}</span>
-                            <Show when=worn
-                                fallback=move || {
-                                    let pid = pid_wear.clone();
-                                    view! {
-                                        <button on:click=move |_| act::wear_persona(s, pid.clone())>
-                                            "Wear"
-                                        </button>
-                                    }
-                                }>
-                                <button class="worn" on:click=move |_| act::unwear(s)>"Worn ✓"</button>
-                            </Show>
-                        </div>
-                    }
-                }).collect_view()}
-            </div>
-        </div>
-    }
-}
-
-#[component]
-fn LorebookPane(s: Shell) -> impl IntoView {
-    let keys = RwSignal::new(String::new());
-    let content = RwSignal::new(String::new());
-    let cid = move || s.sel_channel.get().map(|c| c.id).unwrap_or_default();
-    view! {
-        <div class="pane">
-            <h3>"Lorebook"</h3>
-            <div class="lore-list">
-                {move || s.lore.get().into_iter().map(|e| {
-                    let entry_cid = cid();
-                    let eid = e.id.clone();
-                    let title = if e.title.is_empty() { e.keys.join(", ") } else { e.title };
-                    view! {
-                        <div class="lore-entry">
-                            <div class="lore-head">
-                                <strong>{title}</strong>
-                                <button on:click=move |_|
-                                    act::delete_lore(s, entry_cid.clone(), eid.clone())>"✕"</button>
-                            </div>
-                            <div class="lore-content">{e.content}</div>
-                        </div>
-                    }
-                }).collect_view()}
-            </div>
-            <div class="lore-add">
-                <input prop:value=move || keys.get()
-                    on:input=move |ev| keys.set(event_target_value(&ev))
-                    placeholder="trigger keywords (comma-separated)"/>
-                <textarea prop:value=move || content.get()
-                    on:input=move |ev| content.set(event_target_value(&ev))
-                    placeholder="entry content"></textarea>
-                <button on:click=move |_| {
-                    let parsed = keys.get_untracked()
-                        .split(',')
-                        .map(|k| k.trim().to_string())
-                        .filter(|k| !k.is_empty())
-                        .collect::<Vec<_>>();
-                    let body = content.get_untracked();
-                    keys.set(String::new());
-                    content.set(String::new());
-                    act::create_lore(s, cid(), parsed, body);
-                }>"Add entry"</button>
-            </div>
-        </div>
-    }
-}
-
-#[component]
-fn FriendsPane(s: Shell) -> impl IntoView {
-    let username = RwSignal::new(String::new());
-    view! {
-        <div class="pane">
-            <h3>"Friends"</h3>
-            <div class="add-row">
-                <input prop:value=move || username.get()
-                    on:input=move |ev| username.set(event_target_value(&ev))
-                    placeholder="add by username"/>
-                <button on:click=move |_| {
-                    let u = username.get_untracked();
-                    username.set(String::new());
-                    act::add_friend(s, u);
-                }>"Add"</button>
-            </div>
-            {move || {
-                let f = s.friends.get();
-                view! {
-                    <ul class="flist">
-                        {f.incoming.into_iter().map(|p| {
-                            let aid = p.account_id.clone();
-                            view! {
-                                <li>
-                                    <span class="tag in">"wants to add"</span>" "{p.username}" "
-                                    <button on:click=move |_| act::accept_friend(s, aid.clone())>"Accept"</button>
-                                </li>
-                            }
-                        }).collect_view()}
-                        {f.outgoing.into_iter().map(|p| view! {
-                            <li><span class="tag out">"pending"</span>" "{p.username}</li>
-                        }).collect_view()}
-                        {f.friends.into_iter().map(|p| {
-                            let aid = p.account_id.clone();
-                            view! {
-                                <li>
-                                    <span class="tag ok">"friend"</span>" "{p.username}" "
-                                    <button on:click=move |_| act::remove_friend(s, aid.clone())>"Remove"</button>
-                                </li>
-                            }
-                        }).collect_view()}
-                    </ul>
-                }
-            }}
-        </div>
     }
 }
 
