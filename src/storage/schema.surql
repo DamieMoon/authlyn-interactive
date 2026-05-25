@@ -20,6 +20,9 @@ DEFINE FIELD IF NOT EXISTS password_hash ON account TYPE string;  -- argon2id PH
 DEFINE FIELD IF NOT EXISTS avatar        ON account TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS created_at    ON account TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS account_username_ci ON account FIELDS username_ci UNIQUE;
+-- Same NONE-coercion guard as persona: accounts predating `display_name` hold
+-- NONE there, which would 500 any account UPDATE (e.g. change-password).
+UPDATE account SET display_name = (display_name ?? '') WHERE display_name = NONE;
 
 -- Sessions (cookie carries a random token; we store only its SHA-256) ---
 DEFINE TABLE IF NOT EXISTS session SCHEMAFULL;
@@ -52,6 +55,15 @@ DEFINE INDEX IF NOT EXISTS persona_owner ON persona FIELDS owner;
 -- in practice); a plain index keeps the redeem lookup fast without rejecting
 -- the empty-default sentinel on any pre-existing rows.
 DEFINE INDEX IF NOT EXISTS persona_share_key ON persona FIELDS share_key;
+-- Backfill string fields added after rows already existed (share_key, color).
+-- SCHEMAFULL DEFAULT only applies on write, so old personas hold NONE there;
+-- any UPDATE then fails coercion ("Expected string but found NONE"), breaking
+-- persona edits. Materialise them so edits work. Idempotent via the WHERE.
+UPDATE persona SET
+    share_key   = (share_key ?? ''),
+    color       = (color ?? ''),
+    description = (description ?? '')
+    WHERE share_key = NONE OR color = NONE OR description = NONE;
 
 -- Persona editors (key-redeem grants another account edit+wear access) -----
 DEFINE TABLE IF NOT EXISTS persona_editor SCHEMAFULL;
