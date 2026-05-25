@@ -12,7 +12,109 @@ use leptos::prelude::*;
 
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
+use crate::protocol::GalleryImage;
 use crate::ui::markup_view::render_body;
+
+// ---------------------------------------------------------------------------
+// Gallery actions (inline, cfg-guarded). The shared `act` module lives in
+// mod.rs (owned by another stream), so the per-persona gallery flows are
+// implemented here directly, mirroring `act`'s `spawn_local` + `s.status`
+// pattern. On ssr these are no-ops so the view still type-checks.
+// ---------------------------------------------------------------------------
+
+/// Load a persona's gallery into `gallery`, surfacing errors via `s.status`.
+#[cfg(feature = "hydrate")]
+fn load_gallery(s: Shell, pid: String, gallery: RwSignal<Vec<GalleryImage>>) {
+    use crate::client::api;
+    use leptos::task::spawn_local;
+    spawn_local(async move {
+        match api::get_persona(&pid).await {
+            Ok(detail) => gallery.set(detail.gallery),
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn load_gallery(_s: Shell, _pid: String, _gallery: RwSignal<Vec<GalleryImage>>) {}
+
+/// Upload a file and append it to the persona's gallery, then reload the
+/// gallery so the new thumbnail appears.
+#[cfg(feature = "hydrate")]
+fn add_gallery_image(
+    s: Shell,
+    pid: String,
+    file: web_sys::File,
+    gallery: RwSignal<Vec<GalleryImage>>,
+) {
+    use crate::client::api;
+    use leptos::task::spawn_local;
+    s.status.set(String::new());
+    spawn_local(async move {
+        let media_id = match api::upload_media(&file).await {
+            Ok(id) => id,
+            Err(e) => {
+                s.status.set(api::humanize(&e));
+                return;
+            }
+        };
+        match api::add_gallery_image(&pid, &media_id).await {
+            Ok(_) => load_gallery(s, pid, gallery),
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+// ssr stub: no `web_sys::File` (that crate is hydrate-only). The only call site
+// (the file-input `on:change`) is itself hydrate-gated, so on ssr this stub is
+// never referenced — keep it for signature parity and silence dead_code.
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+fn add_gallery_image(_s: Shell, _pid: String, _gallery: RwSignal<Vec<GalleryImage>>) {}
+
+/// Remove a gallery image, then reload the gallery.
+#[cfg(feature = "hydrate")]
+fn remove_gallery_image(s: Shell, pid: String, img: String, gallery: RwSignal<Vec<GalleryImage>>) {
+    use crate::client::api;
+    use leptos::task::spawn_local;
+    spawn_local(async move {
+        match api::remove_gallery_image(&pid, &img).await {
+            Ok(()) => load_gallery(s, pid, gallery),
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn remove_gallery_image(
+    _s: Shell,
+    _pid: String,
+    _img: String,
+    _gallery: RwSignal<Vec<GalleryImage>>,
+) {
+}
+
+/// Set a gallery image's media as the persona's primary avatar, then reload the
+/// wardrobe grid so the portrait updates everywhere.
+#[cfg(feature = "hydrate")]
+fn set_avatar_from_gallery(s: Shell, pid: String, media_id: String) {
+    use crate::client::api;
+    use leptos::task::spawn_local;
+    s.status.set(String::new());
+    spawn_local(async move {
+        match api::set_persona_avatar(&pid, &media_id).await {
+            Ok(()) => {
+                if let Ok(r) = api::list_personas().await {
+                    s.personas.set(r.personas);
+                }
+            }
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn set_avatar_from_gallery(_s: Shell, _pid: String, _media_id: String) {}
 
 /// A persona portrait: the uploaded avatar image when `avatar_id` is `Some`,
 /// otherwise the name's first letter as a monogram. Shared by the card, the
@@ -230,6 +332,13 @@ fn PersonaDetail(
     let edit_desc = RwSignal::new(seed_desc);
     // The persona's name-tint (markup palette name, or "" for default).
     let edit_color = RwSignal::new(seed_color);
+    // The persona's gallery, loaded on mount; re-loaded after add/remove.
+    let gallery = RwSignal::new(Vec::<GalleryImage>::new());
+    load_gallery(s, pid.clone(), gallery);
+    // A gallery image awaiting a remove confirmation (its id), if any. Local to
+    // the editor — the shell-wide `PendingDelete` flow is owned elsewhere, so a
+    // gallery thumbnail confirms inline.
+    let pending_remove = RwSignal::new(None::<String>);
     // Owner-only sharing state, loaded on mount: the caller's friends and which
     // of them currently have editor access. Editors leave these empty.
     let friends = RwSignal::new(Vec::<crate::protocol::FriendSummary>::new());
@@ -248,6 +357,8 @@ fn PersonaDetail(
     let pid_save = pid.clone();
     let pid_share = pid.clone();
     let pid_avatar = pid.clone();
+    let pid_gallery_add = pid.clone();
+    let pid_gallery_thumbs = pid.clone();
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
@@ -287,6 +398,95 @@ fn PersonaDetail(
                         act::set_persona_avatar(s, pid_avatar.clone());
                     }/>
             </label>
+            // Gallery: thumbnails of all of this persona's images. Clicking a
+            // thumbnail sets it as the primary avatar (the current one is
+            // ringed); the ✕ removes it (with an inline confirm). The file
+            // input below appends a freshly-uploaded image.
+            <div class="field gallery-field">
+                <span>"Gallery"</span>
+                <div class="gallery-grid">
+                    {move || {
+                        let imgs = gallery.get();
+                        if imgs.is_empty() {
+                            return view! {
+                                <span class="muted">"No gallery images yet."</span>
+                            }.into_any();
+                        }
+                        let current = avatar.get();
+                        let pid_t = pid_gallery_thumbs.clone();
+                        imgs.into_iter().map(|g| {
+                            let src = format!("/media/{}", g.media_id);
+                            let is_avatar = current.as_deref() == Some(g.media_id.as_str());
+                            let pid_set = pid_t.clone();
+                            let media_set = g.media_id.clone();
+                            let img_id = g.id.clone();
+                            view! {
+                                <div class="gallery-thumb" class:is-avatar=is_avatar>
+                                    <button class="gallery-pick"
+                                        title=if is_avatar { "Current avatar" } else { "Set as avatar" }
+                                        on:click=move |_| set_avatar_from_gallery(
+                                            s, pid_set.clone(), media_set.clone())>
+                                        <img src=src alt="gallery image"
+                                            style="width:100%;height:100%;object-fit:cover;border-radius:inherit"/>
+                                        {is_avatar.then(|| view! {
+                                            <span class="gallery-badge" title="Current avatar">"★"</span>
+                                        })}
+                                    </button>
+                                    <button class="gallery-remove danger" title="remove image"
+                                        on:click=move |_| pending_remove.set(Some(img_id.clone()))>
+                                        "✕"
+                                    </button>
+                                </div>
+                            }
+                        }).collect_view().into_any()
+                    }}
+                </div>
+            </div>
+            <label class="field">
+                <span>"Add to gallery"</span>
+                <input type="file" accept="image/*"
+                    on:change=move |_ev| {
+                        #[cfg(feature = "hydrate")]
+                        {
+                            use leptos::wasm_bindgen::JsCast;
+                            if let Some(input) = _ev
+                                .target()
+                                .and_then(|t| t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok())
+                            {
+                                if let Some(file) = input.files().and_then(|fl| fl.get(0)) {
+                                    add_gallery_image(s, pid_gallery_add.clone(), file, gallery);
+                                }
+                                // Clear so re-picking the same file re-fires change.
+                                input.set_value("");
+                            }
+                        }
+                        #[cfg(not(feature = "hydrate"))]
+                        let _ = &pid_gallery_add;
+                    }/>
+            </label>
+            // Inline remove confirmation for a gallery image.
+            {move || pending_remove.get().map(|img_id| {
+                let pid_confirm = pid.clone();
+                let img_confirm = img_id.clone();
+                view! {
+                    <div class="modal-backdrop" on:click=move |_| pending_remove.set(None)>
+                        <div class="modal confirm-dialog" on:click=move |_ev| {
+                            #[cfg(feature = "hydrate")]
+                            _ev.stop_propagation();
+                        }>
+                            <p>"Remove this image from the gallery?"</p>
+                            <div class="detail-actions">
+                                <button class="danger" on:click=move |_| {
+                                    remove_gallery_image(
+                                        s, pid_confirm.clone(), img_confirm.clone(), gallery);
+                                    pending_remove.set(None);
+                                }>"Remove"</button>
+                                <button on:click=move |_| pending_remove.set(None)>"Cancel"</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            })}
             <label class="field">
                 <span>"Name"</span>
                 <input prop:value=move || edit_name.get()
