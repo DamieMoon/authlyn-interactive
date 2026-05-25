@@ -193,7 +193,7 @@ async fn store_subscription(
                 account  = type::record('account', $account),
                 endpoint = $endpoint,
                 p256dh   = $p256dh,
-                auth     = $auth;
+                `auth`   = $auth;
              COMMIT TRANSACTION;",
         )
         .bind(("account", account.to_string()))
@@ -306,7 +306,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     let mut resp = state
         .db
         .query(
-            "SELECT endpoint, p256dh, auth FROM push_subscription
+            "SELECT endpoint, p256dh, `auth` FROM push_subscription
                 WHERE account != type::record('account', $author)
                   AND account IN (SELECT VALUE account FROM guild_member
                       WHERE guild = type::record('guild', $gid));",

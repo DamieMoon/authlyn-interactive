@@ -185,7 +185,7 @@ DEFINE TABLE IF NOT EXISTS push_subscription SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS account    ON push_subscription TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS endpoint   ON push_subscription TYPE string;
 DEFINE FIELD IF NOT EXISTS p256dh     ON push_subscription TYPE string;  -- receiver ECDH pubkey (base64url)
-DEFINE FIELD IF NOT EXISTS auth       ON push_subscription TYPE string;  -- receiver auth secret (base64url)
+DEFINE FIELD IF NOT EXISTS `auth`     ON push_subscription TYPE string;  -- receiver auth secret (base64url)
 DEFINE FIELD IF NOT EXISTS created_at ON push_subscription TYPE datetime DEFAULT time::now();
 -- Endpoint is the natural identity (one per browser). UNIQUE so re-subscribing
 -- the same browser upserts rather than duplicating. This is a NEW table — no
