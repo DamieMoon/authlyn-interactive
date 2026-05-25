@@ -149,6 +149,192 @@ async fn posting_to_a_lorebook_channel_is_400() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// Post a message as `cookie` to `cid` and return its id.
+#[cfg(feature = "ssr")]
+async fn post_one(router: &axum::Router, cookie: &str, cid: &str, body: &str) -> String {
+    let (status, _, m) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(cookie),
+        Some(&json!({ "body": body })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    m["id"].as_str().unwrap().to_string()
+}
+
+/// Fetch the single message in a channel as `cookie`.
+#[cfg(feature = "ssr")]
+async fn first_message(
+    router: &axum::Router,
+    cookie: &str,
+    cid: &str,
+) -> Option<serde_json::Value> {
+    let (status, _, body) = common::send(
+        router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(cookie),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    body["messages"].as_array().unwrap().first().cloned()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn author_edits_own_message() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "before").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        Some(&json!({ "body": "after **edit**" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let m = first_message(&a.router, &owner, &cid).await.unwrap();
+    assert_eq!(m["body"], "after **edit**", "edit is observable via list");
+    assert_eq!(m["id"].as_str().unwrap(), mid, "id is unchanged");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn empty_edit_body_is_400() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "keep me").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        Some(&json!({ "body": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The original body survives a rejected edit.
+    let m = first_message(&a.router, &owner, &cid).await.unwrap();
+    assert_eq!(m["body"], "keep me");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn author_deletes_own_message() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "delete me").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    assert!(
+        first_message(&a.router, &owner, &cid).await.is_none(),
+        "message is gone after delete"
+    );
+
+    // Deleting again is idempotent-ish: the message no longer belongs to the
+    // caller (it's gone), so the author check collapses to 403.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn other_member_cannot_edit_or_delete() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "owner's words").await;
+
+    // A second member of the same guild (so the channel is visible to them).
+    let member = common::register_account(&a.router, "Member", "password123").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Member" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (edit, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&member),
+        Some(&json!({ "body": "hijacked" })),
+    )
+    .await;
+    assert_eq!(edit, StatusCode::FORBIDDEN);
+
+    let (del, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&member),
+        None,
+    )
+    .await;
+    assert_eq!(del, StatusCode::FORBIDDEN);
+
+    // The message is untouched.
+    let m = first_message(&a.router, &owner, &cid).await.unwrap();
+    assert_eq!(m["body"], "owner's words");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nonmember_edit_is_privacy_404() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "private").await;
+    let outsider = common::register_account(&a.router, "Outsider", "password123").await;
+
+    let (edit, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&outsider),
+        Some(&json!({ "body": "x" })),
+    )
+    .await;
+    assert_eq!(edit, StatusCode::NOT_FOUND);
+
+    let (del, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+    assert_eq!(del, StatusCode::NOT_FOUND);
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn cursor_paginates_past_100_in_order() {

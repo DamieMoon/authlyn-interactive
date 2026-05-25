@@ -328,6 +328,52 @@ textarea {
 				gap: 0.5rem;
 			}
 
+			// Own-message edit/delete affordances: tucked to the right of the
+			// meta line, dimmed until the message card is hovered.
+			.msg-actions {
+				margin-left: auto;
+				display: flex;
+				gap: 0.15rem;
+				opacity: 0;
+				transition: opacity 0.1s ease-in;
+			}
+
+			&:hover .msg-actions,
+			&:focus-within .msg-actions {
+				opacity: 1;
+			}
+
+			// Ghost icon-button for the message edit/delete/save/cancel controls.
+			// `.row-edit` is scoped under `.sidebar` for the channel rename, so
+			// the message pane (under `.content`) needs its own copy.
+			.row-edit {
+				background: transparent;
+				border: none;
+				color: $muted;
+				padding: 0.2rem 0.35rem;
+				font-size: 0.85rem;
+
+				&:hover {
+					color: $text;
+				}
+			}
+
+			// Inline edit: the textarea spans the card width with the save/cancel
+			// controls beside it, mirroring the channel-rename row.
+			.msg-edit {
+				display: flex;
+				align-items: flex-start;
+				gap: 0.3rem;
+
+				.rename-input {
+					flex: 1;
+					min-width: 0;
+					min-height: 2.2rem;
+					resize: vertical;
+					font: inherit;
+				}
+			}
+
 			.who {
 				font-weight: 600;
 				color: #cdb8f0;

@@ -524,6 +524,48 @@ mod act {
         });
     }
 
+    /// Edit one of the caller's own messages, then patch `s.messages` in
+    /// place. `ingest` only appends (dedupes by id), so an edit needs a direct
+    /// in-place body update — the row's id and cursor position don't change.
+    pub fn edit_message(s: Shell, cid: String, mid: String, body: String) {
+        let body = body.trim_end().to_string();
+        if body.trim().is_empty() {
+            return;
+        }
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::edit_message(&cid, &mid, &body).await {
+                Ok(()) => s.messages.update(|v| {
+                    if let Some(m) = v.iter_mut().find(|m| m.id == mid) {
+                        m.body = body.clone();
+                    }
+                }),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Delete one of the caller's own messages, then drop it from `s.messages`
+    /// and `s.seen` so a subsequent catch-up poll doesn't treat it as already
+    /// seen (it won't reappear regardless — the server row is gone — but
+    /// clearing `seen` keeps the dedupe set tidy). `s.cursor` is left as-is:
+    /// it still marks the high-water mark for the poll, so deleting a row never
+    /// rewinds the catch-up window.
+    pub fn delete_message(s: Shell, cid: String, mid: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::delete_message(&cid, &mid).await {
+                Ok(()) => {
+                    s.messages.update(|v| v.retain(|m| m.id != mid));
+                    s.seen.update(|h| {
+                        h.remove(&mid);
+                    });
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn show_friends(s: Shell) {
         s.pane.set(Pane::Friends);
         reload_friends(s);
@@ -751,6 +793,8 @@ mod act {
     pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
     pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
     pub fn send_message(_s: Shell) {}
+    pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
+    pub fn delete_message(_s: Shell, _cid: String, _mid: String) {}
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}
     pub fn create_persona(_s: Shell, _name: String, _desc: String) {}

@@ -8,11 +8,12 @@ use serde::Serialize;
 
 use crate::protocol::{
     AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
-    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest, ErrorBody,
-    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
-    ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PersonaSummary,
-    RegisterRequest, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
+    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
+    EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
+    ListFriendsResponse, ListGuildsResponse, ListLorebookResponse, ListMessagesResponse,
+    ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    PersonaSummary, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -166,6 +167,24 @@ pub async fn post_message(cid: &str, body: &str) -> Result<SendMessageResponse, 
         },
     )
     .await
+}
+
+/// Edit one of your own messages. 204, no body.
+pub async fn edit_message(cid: &str, mid: &str, body: &str) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/channels/{cid}/messages/{mid}"))
+        .json(&EditMessageRequest {
+            body: body.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Delete one of your own messages. 204, no body.
+pub async fn delete_message(cid: &str, mid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/messages/{mid}")).await
 }
 
 // ---------------------------------------------------------------------------

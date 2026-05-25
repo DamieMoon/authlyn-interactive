@@ -28,10 +28,12 @@ use serde::Deserialize;
 use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
-    ErrorBody, ListMessagesResponse, MessageEnvelope, SendMessageRequest, SendMessageResponse,
+    EditMessageRequest, ErrorBody, ListMessagesResponse, MessageEnvelope, SendMessageRequest,
+    SendMessageResponse,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
+use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
 
 /// Max messages returned per `GET`. Callers iterate with the cursor for more.
@@ -135,6 +137,153 @@ async fn persist_message(
     let row: Option<IdRow> = resp.take(0)?;
     row.map(|r| r.id_key)
         .ok_or_else(|| surrealdb::Error::thrown("CREATE message returned no row".to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /channels/{cid}/messages/{mid}  — edit own message body
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid, message = %mid))]
+pub async fn edit_message(
+    State(state): State<AppState>,
+    Path((cid, mid)): Path<(String, String)>,
+    account: AuthAccount,
+    payload: Result<Json<EditMessageRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    let body = req.body.trim_end().to_string();
+    if body.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "message body must not be empty");
+    }
+    if body.chars().count() > MAX_BODY_CHARS {
+        return error_response(StatusCode::BAD_REQUEST, "message body too long");
+    }
+
+    // Membership gate first (privacy 404 for non-members / unknown channel),
+    // then the author check (403). The message must live in this channel.
+    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
+        return resp;
+    }
+
+    let result = with_write_conflict_retry(|| async {
+        state
+            .db
+            .query("UPDATE type::record('message', $mid) SET body = $body;")
+            .bind(("mid", mid.clone()))
+            .bind(("body", body.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await;
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "edit_message update failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /channels/{cid}/messages/{mid}  — delete own message
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid, message = %mid))]
+pub async fn delete_message(
+    State(state): State<AppState>,
+    Path((cid, mid)): Path<(String, String)>,
+    account: AuthAccount,
+) -> Response {
+    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
+        return resp;
+    }
+
+    let result = with_write_conflict_retry(|| async {
+        state
+            .db
+            .query("DELETE type::record('message', $mid);")
+            .bind(("mid", mid.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await;
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "delete_message failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+/// Gate for the per-message mutations (edit/delete): the caller must be a
+/// member of the channel's guild (else privacy-404) *and* the message must
+/// exist in this channel and be authored by the caller (else 403). The two
+/// "not yours" cases — a stranger's message vs. a missing message — both
+/// collapse to 403 so a member can't probe which message ids exist by edit.
+async fn require_own_message(
+    state: &AppState,
+    cid: &str,
+    mid: &str,
+    account: &str,
+) -> Result<(), Response> {
+    match channel_access(state, cid, account).await {
+        Ok(AccessOutcome::Ok(_)) => {}
+        Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
+            return Err(error_response(StatusCode::NOT_FOUND, "channel not found"));
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "channel_access failed");
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "storage error",
+            ));
+        }
+    }
+
+    match message_author(state, cid, mid).await {
+        Ok(Some(author)) if author == account => Ok(()),
+        Ok(Some(_)) | Ok(None) => Err(error_response(
+            StatusCode::FORBIDDEN,
+            "you can only modify your own messages",
+        )),
+        Err(e) => {
+            tracing::error!(error = %e, "message_author lookup failed");
+            Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "storage error",
+            ))
+        }
+    }
+}
+
+/// The author account id of a message *scoped to a channel*, or `None` when
+/// no such message exists in that channel.
+async fn message_author(
+    state: &AppState,
+    cid: &str,
+    mid: &str,
+) -> surrealdb::Result<Option<String>> {
+    #[derive(SurrealValue)]
+    struct Row {
+        author_key: String,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(author) AS author_key FROM type::record('message', $mid)
+                WHERE channel = type::record('channel', $cid);",
+        )
+        .bind(("mid", mid.to_string()))
+        .bind(("cid", cid.to_string()))
+        .await?
+        .check()?;
+    Ok(resp.take::<Option<Row>>(0)?.map(|r| r.author_key))
 }
 
 // ---------------------------------------------------------------------------

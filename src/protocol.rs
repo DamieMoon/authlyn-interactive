@@ -154,6 +154,14 @@ pub struct SendMessageRequest {
     pub body: String,
 }
 
+/// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
+/// Only the message's author may edit; the server stores the new `body`
+/// verbatim (markup rides inside it, as with [`SendMessageRequest`]).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EditMessageRequest {
+    pub body: String,
+}
+
 /// Successful response from `POST /channels/{cid}/messages`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SendMessageResponse {

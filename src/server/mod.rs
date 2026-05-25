@@ -71,6 +71,10 @@ fn small_body_routes() -> Router<AppState> {
             get(messages::list_messages).post(messages::post_message),
         )
         .route(
+            "/channels/{cid}/messages/{mid}",
+            patch(messages::edit_message).delete(messages::delete_message),
+        )
+        .route(
             "/channels/{cid}/lorebook",
             get(lorebook::list_entries).post(lorebook::create_entry),
         )
