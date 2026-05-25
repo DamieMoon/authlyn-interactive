@@ -731,6 +731,108 @@ pub async fn remove_editor(
 }
 
 // ---------------------------------------------------------------------------
+// PUT /personas/{id}/editors/{aid}  — owner shares the persona with a friend
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid, editor = %aid))]
+pub async fn add_editor(
+    State(state): State<AppState>,
+    Path((pid, aid)): Path<(String, String)>,
+    account: AuthAccount,
+) -> Response {
+    // Owner-only, and you can only share with an accepted friend (the UI offers
+    // exactly that set). `aid` is an opaque account id from the friends list.
+    match owns_persona(&state, &pid, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "owns_persona failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    match is_accepted_friend(&state, &account.0, &aid).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::BAD_REQUEST, "can only share with friends"),
+        Err(e) => {
+            tracing::error!(error = %e, "is_accepted_friend failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    let result = with_write_conflict_retry(|| async {
+        state
+            .db
+            .query(
+                "CREATE persona_editor SET
+                    persona = type::record('persona', $pid),
+                    account = type::record('account', $aid);",
+            )
+            .bind(("pid", pid.clone()))
+            .bind(("aid", aid.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await;
+    match result {
+        // Already shared is success — the checkbox is just confirming the state.
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) if is_unique_violation(&e) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "add_editor write failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /personas/{id}/leave  — an editor drops a shared persona from their list
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
+pub async fn leave_persona(
+    State(state): State<AppState>,
+    Path(pid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    // Only an editor can leave; the owner deletes instead (and a non-editor
+    // gets the same privacy-404 as an unknown persona).
+    match is_persona_editor(&state, &pid, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "is_persona_editor failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    // Drop the editor link and stop the caller "wearing" it anywhere.
+    let sql = r#"
+        BEGIN TRANSACTION;
+        DELETE FROM persona_editor
+            WHERE persona = type::record("persona", $pid)
+              AND account = type::record("account", $account);
+        UPDATE guild_member SET active_persona = NONE
+            WHERE active_persona = type::record("persona", $pid)
+              AND account = type::record("account", $account);
+        COMMIT TRANSACTION;
+    "#;
+    match state
+        .db
+        .query(sql)
+        .bind(("pid", pid))
+        .bind(("account", account.0))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "leave_persona failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -748,6 +850,29 @@ async fn owns_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::
         )
         .bind(("pid", pid.to_string()))
         .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    Ok(resp.take::<Option<IdRow>>(0)?.is_some())
+}
+
+/// True when `me` and `other` have an accepted friendship (either direction).
+async fn is_accepted_friend(state: &AppState, me: &str, other: &str) -> surrealdb::Result<bool> {
+    #[derive(SurrealValue)]
+    struct IdRow {
+        id_key: String,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key FROM friendship
+                WHERE state = 'accepted'
+                  AND ((requester = type::record('account', $me)
+                        AND addressee = type::record('account', $other))
+                    OR (requester = type::record('account', $other)
+                        AND addressee = type::record('account', $me)));",
+        )
+        .bind(("me", me.to_string()))
+        .bind(("other", other.to_string()))
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.is_some())

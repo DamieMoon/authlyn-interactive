@@ -94,10 +94,11 @@ fn small_body_routes() -> Router<AppState> {
                 .patch(personas::patch_persona)
                 .delete(personas::delete_persona),
         )
+        .route("/personas/{id}/leave", delete(personas::leave_persona))
         .route("/personas/{id}/editors", get(personas::list_editors))
         .route(
             "/personas/{id}/editors/{aid}",
-            delete(personas::remove_editor),
+            put(personas::add_editor).delete(personas::remove_editor),
         )
         .route("/personas/{id}/avatar", put(personas::set_avatar))
         .route("/personas/{id}/gallery", post(personas::add_gallery_image))

@@ -353,10 +353,6 @@ fn ChannelRow(
     }
 }
 
-fn short_id(id: &str) -> String {
-    id.chars().take(8).collect()
-}
-
 // ---------------------------------------------------------------------------
 // Actions — real on hydrate, no-op stubs on ssr (so the view calls them
 // ungated and gloo-net never enters the ssr graph).
@@ -667,54 +663,60 @@ mod act {
         });
     }
 
-    /// Redeem a persona share key (gain editor access), then reload the
-    /// wardrobe grid so the shared persona appears.
-    pub fn redeem_persona(s: Shell, key: String) {
-        if key.trim().is_empty() {
-            return;
-        }
+    /// Leave a shared persona (editor only): drop it from the caller's list.
+    /// Mirrors `remove_persona`'s local cleanup, then reloads the grid.
+    pub fn leave_shared_persona(s: Shell, pid: String) {
         spawn_local(async move {
-            match api::redeem_persona_key(key.trim()).await {
+            match api::leave_persona(&pid).await {
                 Ok(()) => {
+                    if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                        LocalStorage::delete(KEY_PERSONA);
+                        s.active_persona.set(None);
+                    }
                     if let Ok(r) = api::list_personas().await {
                         s.personas.set(r.personas);
                     }
-                    s.status.set("Persona added.".to_string());
                 }
                 Err(e) => s.status.set(api::humanize(&e)),
             }
         });
     }
 
-    /// Fetch a persona's owner-only sharing info (share key + editor roster)
-    /// and populate the two signals the detail editor binds to.
-    pub fn load_persona_share(
+    /// Load the owner-only sharing state for the detail editor's friends
+    /// checklist: the caller's friends, plus who already has editor access.
+    pub fn load_persona_sharing(
         s: Shell,
         pid: String,
-        share_key: RwSignal<Option<String>>,
+        friends: RwSignal<Vec<crate::protocol::FriendSummary>>,
         editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
     ) {
         spawn_local(async move {
-            match api::get_persona(&pid).await {
-                Ok(detail) => {
-                    share_key.set(detail.share_key);
-                    editors.set(detail.editors);
-                }
+            match api::list_friends().await {
+                Ok(r) => friends.set(r.friends),
                 Err(e) => s.status.set(api::humanize(&e)),
+            }
+            if let Ok(r) = api::list_persona_editors(&pid).await {
+                editors.set(r.editors);
             }
         });
     }
 
-    /// Revoke an editor's access (owner only), then refresh the editor list
-    /// signal the detail editor is bound to.
-    pub fn remove_persona_editor(
+    /// Toggle whether a friend may edit/wear this persona (owner only): check =
+    /// grant, uncheck = revoke. Refreshes the editor set the checklist binds to.
+    pub fn set_persona_share(
         s: Shell,
         pid: String,
         aid: String,
+        share: bool,
         editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
     ) {
         spawn_local(async move {
-            match api::remove_persona_editor(&pid, &aid).await {
+            let res = if share {
+                api::add_persona_editor(&pid, &aid).await
+            } else {
+                api::remove_persona_editor(&pid, &aid).await
+            };
+            match res {
                 Ok(()) => {
                     if let Ok(r) = api::list_persona_editors(&pid).await {
                         editors.set(r.editors);
@@ -938,18 +940,19 @@ mod act {
     ) {
     }
     pub fn remove_persona(_s: Shell, _pid: String) {}
-    pub fn redeem_persona(_s: Shell, _key: String) {}
-    pub fn load_persona_share(
+    pub fn leave_shared_persona(_s: Shell, _pid: String) {}
+    pub fn load_persona_sharing(
         _s: Shell,
         _pid: String,
-        _share_key: RwSignal<Option<String>>,
+        _friends: RwSignal<Vec<crate::protocol::FriendSummary>>,
         _editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
     ) {
     }
-    pub fn remove_persona_editor(
+    pub fn set_persona_share(
         _s: Shell,
         _pid: String,
         _aid: String,
+        _share: bool,
         _editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
     ) {
     }

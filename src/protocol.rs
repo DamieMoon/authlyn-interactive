@@ -189,10 +189,19 @@ pub struct MessageEnvelope {
     /// Username of the account that controlled the persona for this message
     /// (the "who was in control" — fixed at send time via `author_id`).
     pub author_name: String,
+    /// The controlling account's nickname (display_name, or username when
+    /// unset). Shown as the message author when no persona was worn — the
+    /// "default" identity — instead of a raw id.
+    pub author_display: String,
+    /// Live link to the persona row (None if the author wore none). May dangle
+    /// once the persona is deleted — `persona_name`/`persona_description` are
+    /// the source of truth for display.
     pub persona_id: Option<String>,
+    /// Persona name snapshotted at send time, so it stays put on past messages
+    /// even after the persona is renamed or deleted (None if author wore none).
     pub persona_name: Option<String>,
-    /// The persona's *current* description (None if it has no persona or the
-    /// persona was since deleted). For the click-the-name info popup.
+    /// Persona description snapshotted at send time (None if it had no persona).
+    /// For the click-the-name info popup.
     pub persona_description: Option<String>,
     pub body: String,
     /// AI-visibility tier. Always `"default"` in phase 1.

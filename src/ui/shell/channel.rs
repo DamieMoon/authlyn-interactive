@@ -2,7 +2,7 @@
 
 use leptos::prelude::*;
 
-use super::{act, short_id, Shell};
+use super::{act, Shell};
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
 use crate::ui::markup_view::render_body;
@@ -223,7 +223,10 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel_channel.get().map(|c| c.id);
                     s.messages.get().into_iter().map(|m| {
-                        let who = m.persona_name.clone().unwrap_or_else(|| short_id(&m.author_id));
+                        // Worn persona's frozen name, else the "default" identity
+                        // (the controlling account's nickname).
+                        let who = m.persona_name.clone()
+                            .unwrap_or_else(|| m.author_display.clone());
                         let when = format_local_time(&m.sent_at);
                         let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
@@ -389,9 +392,10 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
 
             // Persona info popup — opened by clicking a message's author name.
             {move || info.get().map(|m| {
-                let persona = m.persona_name.clone().unwrap_or_else(|| "(no persona)".to_string());
-                let monogram = m.persona_name.as_deref()
-                    .and_then(|n| n.chars().next())
+                // For a personaless message the "default" identity is the
+                // controlling account's nickname.
+                let persona = m.persona_name.clone().unwrap_or_else(|| m.author_display.clone());
+                let monogram = persona.chars().next()
                     .unwrap_or('?')
                     .to_uppercase()
                     .to_string();

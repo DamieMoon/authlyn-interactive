@@ -11,29 +11,14 @@ use leptos::prelude::*;
 use super::{act, Shell};
 use crate::ui::markup_view::render_body;
 
-/// Select the full text of the focused input (so the owner can one-click copy
-/// the share key). Hydrate-only; a no-op on the server render.
-#[cfg(feature = "hydrate")]
-fn select_all(ev: &leptos::ev::FocusEvent) {
-    use leptos::wasm_bindgen::JsCast;
-    if let Some(t) = ev.target() {
-        if let Ok(i) = t.dyn_into::<leptos::web_sys::HtmlInputElement>() {
-            i.select();
-        }
-    }
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn select_all(_ev: &leptos::ev::FocusEvent) {}
-
 #[component]
 pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let desc = RwSignal::new(String::new());
-    // The "add a shared persona by key" input.
-    let redeem_key = RwSignal::new(String::new());
     // Which persona's detail editor is open (by id), if any.
     let selected = RwSignal::new(None::<String>);
+    // Which persona's read-only info popup is open (clicking a card name), if any.
+    let info = RwSignal::new(None::<crate::protocol::PersonaSummary>);
 
     view! {
         <div class="pane wardrobe">
@@ -42,9 +27,9 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                 <input prop:value=move || name.get()
                     on:input=move |ev| name.set(event_target_value(&ev))
                     placeholder="persona name"/>
-                <input prop:value=move || desc.get()
+                <textarea class="add-desc" prop:value=move || desc.get()
                     on:input=move |ev| desc.set(event_target_value(&ev))
-                    placeholder="description"/>
+                    placeholder="description (Shift+Enter for a new line)"></textarea>
                 <button on:click=move |_| {
                     let (n, d) = (name.get_untracked(), desc.get_untracked());
                     name.set(String::new());
@@ -52,25 +37,12 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                     act::create_persona(s, n, d);
                 }>"Create persona"</button>
             </div>
-            // Redeem a share key → gain edit + wear access to someone else's persona.
-            <div class="add-row redeem-row">
-                <input prop:value=move || redeem_key.get()
-                    on:input=move |ev| redeem_key.set(event_target_value(&ev))
-                    placeholder="paste a persona share key"/>
-                <button on:click=move |_| {
-                    let k = redeem_key.get_untracked();
-                    redeem_key.set(String::new());
-                    act::redeem_persona(s, k);
-                }>"Add by key"</button>
-            </div>
-
-            // Detail editor: shown only while a card is selected. Self-contained
-            // (no modal library) — an expanded panel above the grid. Branch with
-            // `.into_any()` rather than nesting <Show> to keep view depth low.
+            // Detail editor: a modal shown while a card's Edit is open. Branch
+            // with `.into_any()` rather than nesting <Show> to keep view depth low.
             {move || match selected.get() {
                 Some(pid) => {
-                    // The owner flag drives whether the share key + editor roster
-                    // appear; seeded from the grid entry for this persona.
+                    // The owner flag drives whether the sharing block appears;
+                    // seeded from the grid entry for this persona.
                     let owned = s.personas.get_untracked()
                         .into_iter()
                         .find(|p| p.id == pid)
@@ -81,9 +53,34 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                 None => ().into_any(),
             }}
 
+            // Read-only info popup — opened by clicking a card's name.
+            {move || info.get().map(|p| {
+                let monogram = p.name.chars().next().unwrap_or('?').to_uppercase().to_string();
+                let desc = (!p.description.trim().is_empty()).then(|| p.description.clone());
+                view! {
+                    <div class="modal-backdrop" on:click=move |_| info.set(None)>
+                        <div class="modal persona-info" on:click=move |_ev| {
+                            #[cfg(feature = "hydrate")]
+                            _ev.stop_propagation();
+                        }>
+                            <div class="detail-head">
+                                <h4>{p.name.clone()}</h4>
+                                <button class="row-edit" title="close"
+                                    on:click=move |_| info.set(None)>"✕"</button>
+                            </div>
+                            <div class="info-portrait" title="image coming soon">{monogram}</div>
+                            {match desc {
+                                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
+                                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+                            }}
+                        </div>
+                    </div>
+                }
+            })}
+
             <div class="persona-grid">
                 {move || s.personas.get().into_iter().map(|p| {
-                    view! { <PersonaCard s=s p=p selected=selected/> }
+                    view! { <PersonaCard s=s p=p selected=selected info=info/> }
                 }).collect_view()}
             </div>
         </div>
@@ -91,23 +88,26 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
 }
 
 /// One character card: name prominent, description blurb, a reserved portrait
-/// slot (image upload deferred), and a wear/worn toggle. Clicking the card body
-/// opens the detail editor.
+/// slot (image upload deferred), and a wear/worn toggle. Clicking the name opens
+/// a read-only info popup; the Edit button opens the detail editor.
 #[component]
 fn PersonaCard(
     s: Shell,
     p: crate::protocol::PersonaSummary,
     selected: RwSignal<Option<String>>,
+    info: RwSignal<Option<crate::protocol::PersonaSummary>>,
 ) -> impl IntoView {
     let pid = p.id.clone();
     let pid_worn = pid.clone();
     let pid_wear = pid.clone();
-    let pid_open = pid.clone();
+    let pid_edit = pid.clone();
     let pid_remove = pid.clone();
+    let pid_leave = pid.clone();
     let worn = Memo::new(move |_| s.active_persona.get().as_deref() == Some(pid_worn.as_str()));
     let desc = p.description.clone();
     let has_desc = !desc.trim().is_empty();
     let owned = p.owned;
+    let info_p = p.clone();
 
     view! {
         <div class="persona-card" class:worn=move || worn.get()>
@@ -115,8 +115,9 @@ fn PersonaCard(
             <div class="card-portrait" title="image upload coming soon">
                 {p.name.chars().next().unwrap_or('?').to_uppercase().to_string()}
             </div>
-            <button class="card-open" title="Edit persona"
-                on:click=move |_| selected.set(Some(pid_open.clone()))>
+            // Clicking the name/blurb opens the read-only info popup.
+            <button class="card-open" title="View persona"
+                on:click=move |_| info.set(Some(info_p.clone()))>
                 <span class="card-name">{p.name.clone()}</span>
                 {if has_desc {
                     // Description renders the same markup as chat (#18).
@@ -137,17 +138,25 @@ fn PersonaCard(
                     }>
                     <button class="worn" on:click=move |_| act::unwear(s)>"Worn ✓"</button>
                 </Show>
-                // Only the owner may delete; editors (key-redeemed) cannot.
+                // Owner and editor alike may edit (the editor's view hides sharing).
+                <button title="edit persona"
+                    on:click=move |_| selected.set(Some(pid_edit.clone()))>"Edit"</button>
+                // The owner deletes the persona; an editor leaves (drops it from
+                // their own list).
                 {if owned {
                     view! {
-                        <button class="danger" title="remove persona"
+                        <button class="danger" title="delete persona"
                             on:click=move |_| act::remove_persona(s, pid_remove.clone())>
                             "Remove"
                         </button>
                     }.into_any()
                 } else {
-                    view! { <span class="shared-tag" title="shared with you">"Shared"</span> }
-                        .into_any()
+                    view! {
+                        <button class="danger" title="remove from your wardrobe"
+                            on:click=move |_| act::leave_shared_persona(s, pid_leave.clone())>
+                            "Leave"
+                        </button>
+                    }.into_any()
                 }}
             </div>
         </div>
@@ -170,11 +179,12 @@ fn PersonaDetail(
 
     let edit_name = RwSignal::new(seed_name);
     let edit_desc = RwSignal::new(seed_desc);
-    // Owner-only sharing state, loaded on mount; editors leave these empty.
-    let share_key = RwSignal::new(None::<String>);
+    // Owner-only sharing state, loaded on mount: the caller's friends and which
+    // of them currently have editor access. Editors leave these empty.
+    let friends = RwSignal::new(Vec::<crate::protocol::FriendSummary>::new());
     let editors = RwSignal::new(Vec::<crate::protocol::PersonaEditor>::new());
     if owned {
-        act::load_persona_share(s, pid.clone(), share_key, editors);
+        act::load_persona_sharing(s, pid.clone(), friends, editors);
     }
     // Flipped true by `act::update_persona` on success → closes the editor.
     let done = RwSignal::new(false);
@@ -187,7 +197,13 @@ fn PersonaDetail(
     let pid_save = pid.clone();
     let pid_share = pid.clone();
     view! {
-        <div class="persona-detail">
+        // Modal: click the backdrop to close, so a long description can never
+        // trap the user. The inner panel scrolls (CSS caps its height).
+        <div class="modal-backdrop" on:click=move |_| selected.set(None)>
+        <div class="modal persona-detail" on:click=move |_ev| {
+            #[cfg(feature = "hydrate")]
+            _ev.stop_propagation();
+        }>
             <div class="detail-head">
                 <h4>{if owned { "Edit persona" } else { "Edit shared persona" }}</h4>
                 <button class="row-edit" title="close"
@@ -207,46 +223,40 @@ fn PersonaDetail(
                 <span>"Description"</span>
                 <textarea prop:value=move || edit_desc.get()
                     on:input=move |ev| edit_desc.set(event_target_value(&ev))
-                    placeholder="describe this character"></textarea>
+                    placeholder="describe this character (Shift+Enter for a new line)"></textarea>
             </label>
-            // Owner-only sharing block: the share key (read-only, selectable) +
-            // the editor roster. Editors never reach this branch.
+            // Owner-only sharing block: tick a friend to grant edit + wear
+            // access, untick to revoke. Editors never reach this branch.
             {if owned {
                 view! {
                     <div class="share-block">
-                        <label class="field">
-                            <span>"Share key"</span>
-                            <input class="share-key" readonly=true
-                                prop:value=move || share_key.get().unwrap_or_default()
-                                on:focus=move |ev| select_all(&ev)/>
-                        </label>
-                        <div class="editor-list">
-                            <span class="muted">"Editors"</span>
-                            {move || {
-                                let list = editors.get();
-                                if list.is_empty() {
-                                    view! {
-                                        <span class="muted">"No one else yet."</span>
-                                    }.into_any()
-                                } else {
+                        <span class="muted">"Share with friends"</span>
+                        {move || {
+                            let granted: Vec<String> = editors.get()
+                                .into_iter().map(|e| e.account_id).collect();
+                            let list = friends.get();
+                            if list.is_empty() {
+                                view! {
+                                    <span class="muted">"No friends yet — add friends to share."</span>
+                                }.into_any()
+                            } else {
+                                let pid_share = pid_share.clone();
+                                list.into_iter().map(|f| {
+                                    let aid = f.account_id.clone();
+                                    let checked = granted.contains(&aid);
                                     let pid_share = pid_share.clone();
-                                    list.into_iter().map(|e| {
-                                        let aid = e.account_id.clone();
-                                        let pid_share = pid_share.clone();
-                                        view! {
-                                            <div class="editor-row">
-                                                <span>{e.username}</span>
-                                                <button class="danger" title="revoke access"
-                                                    on:click=move |_| act::remove_persona_editor(
-                                                        s, pid_share.clone(), aid.clone(), editors)>
-                                                    "Remove"
-                                                </button>
-                                            </div>
-                                        }
-                                    }).collect_view().into_any()
-                                }
-                            }}
-                        </div>
+                                    view! {
+                                        <label class="share-row">
+                                            <input type="checkbox" prop:checked=checked
+                                                on:change=move |ev| act::set_persona_share(
+                                                    s, pid_share.clone(), aid.clone(),
+                                                    event_target_checked(&ev), editors)/>
+                                            <span>{f.username}</span>
+                                        </label>
+                                    }
+                                }).collect_view().into_any()
+                            }
+                        }}
                     </div>
                 }.into_any()
             } else {
@@ -264,6 +274,7 @@ fn PersonaDetail(
                 }>"Save"</button>
                 <button on:click=move |_| selected.set(None)>"Cancel"</button>
             </div>
+        </div>
         </div>
     }
 }

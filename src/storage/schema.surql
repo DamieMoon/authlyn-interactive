@@ -96,11 +96,26 @@ DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, accou
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS channel ON message TYPE record<channel>;
 DEFINE FIELD IF NOT EXISTS author  ON message TYPE record<account>;
-DEFINE FIELD IF NOT EXISTS persona ON message TYPE option<record<persona>>;  -- "speaking as"
+DEFINE FIELD IF NOT EXISTS persona ON message TYPE option<record<persona>>;  -- "speaking as" (live link)
+-- Persona identity snapshotted at send time. A message is an immutable
+-- historical utterance: renaming or deleting the persona must not scramble
+-- the name/avatar shown on past messages, so we freeze them here instead of
+-- resolving `persona.name` live at render time.
+DEFINE FIELD IF NOT EXISTS persona_name        ON message TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS persona_description ON message TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- plaintext
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_at;
+
+-- One-time backfill: snapshot the persona identity onto messages sent before
+-- the snapshot columns existed, so a later persona delete doesn't scramble
+-- their name/avatar. Idempotent: only touches persona'd rows still missing the
+-- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
+UPDATE message SET
+    persona_name = persona.name,
+    persona_description = persona.description
+    WHERE persona != NONE AND persona_name = NONE;
 
 -- Lorebook entries (SillyTavern-style; on a kind='lorebook' channel) ----
 DEFINE TABLE IF NOT EXISTS lorebook_entry SCHEMAFULL;

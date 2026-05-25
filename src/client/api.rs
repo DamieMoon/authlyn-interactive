@@ -12,9 +12,8 @@ use crate::protocol::{
     EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
     ListFriendsResponse, ListGuildsResponse, ListLorebookResponse, ListMessagesResponse,
     ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    PatchChannelRequest, PatchGuildRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    RedeemPersonaKeyRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest,
+    PatchChannelRequest, PatchGuildRequest, PatchPersonaRequest, PersonaSummary, RegisterRequest,
+    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -210,11 +209,6 @@ pub async fn list_personas() -> Result<ListPersonasResponse, ApiError> {
     get("/personas").await
 }
 
-/// Fetch a persona's detail (gallery + owner-only share key + editor roster).
-pub async fn get_persona(pid: &str) -> Result<PersonaDetail, ApiError> {
-    get(&format!("/personas/{pid}")).await
-}
-
 pub async fn create_persona(name: &str, description: &str) -> Result<PersonaSummary, ApiError> {
     post_json(
         "/personas",
@@ -246,22 +240,23 @@ pub async fn delete_persona(pid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/personas/{pid}")).await
 }
 
-/// Redeem a persona share key to gain editor access. 201/200, no body.
-pub async fn redeem_persona_key(key: &str) -> Result<(), ApiError> {
-    let resp = Request::post("/personas/redeem")
-        .json(&RedeemPersonaKeyRequest {
-            key: key.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+/// Leave a shared persona — drop it from the caller's list (editor only). 204.
+pub async fn leave_persona(pid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/personas/{pid}/leave")).await
 }
 
 /// List the editors of a persona (owner only).
 pub async fn list_persona_editors(pid: &str) -> Result<ListPersonaEditorsResponse, ApiError> {
     get(&format!("/personas/{pid}/editors")).await
+}
+
+/// Share a persona with a friend — grant editor access (owner only). 204.
+pub async fn add_persona_editor(pid: &str, aid: &str) -> Result<(), ApiError> {
+    let resp = Request::put(&format!("/personas/{pid}/editors/{aid}"))
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 /// Revoke an editor's access to a persona (owner only). 204, no body.

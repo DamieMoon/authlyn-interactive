@@ -342,6 +342,58 @@ async fn active_persona_stamps_messages_both_ways() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn deleting_persona_keeps_its_name_on_past_messages() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    // Wear it and speak in character.
+    common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/active-persona"),
+        Some(&owner),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "in character" })),
+    )
+    .await;
+
+    // Delete the persona out from under that message.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The past message still shows the frozen persona name (not a scrambled id).
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["persona_name"], "Hero");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn cannot_wear_someone_elses_persona() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
@@ -565,4 +617,140 @@ async fn owner_cannot_redeem_own_key() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Friend-based sharing: owner grants editor access to a friend; editor leaves
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+async fn register_with_id(router: &axum::Router, name: &str) -> (String, String) {
+    let (status, cookie, body) = common::send(
+        router,
+        Method::POST,
+        "/auth/register",
+        None,
+        Some(&json!({ "username": name, "password": "password123" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    (
+        cookie.unwrap(),
+        body["account_id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// `a` requests `b_name`, then `b` accepts `a_id` → an accepted friendship.
+#[cfg(feature = "ssr")]
+async fn befriend(router: &axum::Router, a_cookie: &str, b_cookie: &str, a_id: &str, b_name: &str) {
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        "/friends",
+        Some(a_cookie),
+        Some(&json!({ "username": b_name })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/friends/{a_id}/accept"),
+        Some(b_cookie),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn owner_shares_with_friend_then_friend_leaves() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let (friend, friend_id) = register_with_id(&a.router, "Friend").await;
+    let (_stranger, stranger_id) = register_with_id(&a.router, "Stranger").await;
+
+    befriend(&a.router, &owner, &friend, &owner_id, "Friend").await;
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+
+    // Sharing with a non-friend is rejected.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/personas/{pid}/editors/{stranger_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // Share with the friend → 204, and re-sharing is idempotent.
+    for _ in 0..2 {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::PUT,
+            &format!("/personas/{pid}/editors/{friend_id}"),
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    // The friend now sees it (owned=false), with the roster reflecting them.
+    let (_, _, list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
+    let ps = list["personas"].as_array().unwrap();
+    assert_eq!(ps.len(), 1);
+    assert_eq!(ps[0]["owned"], false);
+    let (_, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(roster["editors"].as_array().unwrap().len(), 1);
+
+    // ...and can wear it.
+    let (gid, _cid) = guild_with_channel(&a.router, &friend).await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/active-persona"),
+        Some(&friend),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The friend leaves → gone from their list; the owner keeps it.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/leave"),
+        Some(&friend),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (_, _, list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
+    assert_eq!(list["personas"].as_array().unwrap().len(), 0);
+    let (_, _, owner_list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(owner_list["personas"].as_array().unwrap().len(), 1);
+
+    // The owner isn't an editor, so they can't "leave" their own persona.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/leave"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
 }

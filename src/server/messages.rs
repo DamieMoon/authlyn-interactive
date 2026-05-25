@@ -111,10 +111,14 @@ async fn persist_message(
     // `persona` is optional; only set the field when the caller is wearing
     // one, so a personaless author leaves it NONE.
     let sql = if persona.is_some() {
+        // Snapshot the worn persona's name/description onto the row so the
+        // message survives the persona being renamed or deleted later.
         "CREATE message SET
             channel = type::record('channel', $cid),
             author  = type::record('account', $author),
             persona = type::record('persona', $persona),
+            persona_name = (SELECT VALUE name FROM ONLY type::record('persona', $persona)),
+            persona_description = (SELECT VALUE description FROM ONLY type::record('persona', $persona)),
             body    = $body
             RETURN meta::id(id) AS id_key;"
     } else {
@@ -369,6 +373,7 @@ struct MessageRow {
     id_key: String,
     author_key: String,
     author_name: String,
+    author_display: String,
     persona_id: Option<String>,
     persona_name: Option<String>,
     persona_description: Option<String>,
@@ -383,6 +388,7 @@ impl MessageRow {
             id: self.id_key,
             author_id: self.author_key,
             author_name: self.author_name,
+            author_display: self.author_display,
             persona_id: self.persona_id,
             persona_name: self.persona_name,
             persona_description: self.persona_description,
@@ -398,15 +404,18 @@ async fn load_messages(
     cid: &str,
     cursor: CursorState,
 ) -> surrealdb::Result<Vec<MessageEnvelope>> {
-    // `persona_id` is null-safe (the IF guard avoids meta::id(NONE));
-    // `persona.name` traversal yields NONE when there's no persona.
+    // `persona_id` is null-safe (the IF guard avoids meta::id(NONE)). Name and
+    // description come from the row's send-time snapshot; the `?? persona.*`
+    // fallback covers any legacy row missing the snapshot whose persona still
+    // exists (deleted personas keep their frozen snapshot).
     const PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
         author.username  AS author_name,
+        (author.display_name ?: author.username) AS author_display,
         (IF persona != NONE THEN meta::id(persona) ELSE NONE END) AS persona_id,
-        persona.name        AS persona_name,
-        persona.description AS persona_description,
+        (persona_name ?? persona.name)               AS persona_name,
+        (persona_description ?? persona.description)  AS persona_description,
         body,
         tier,
         sent_at";
