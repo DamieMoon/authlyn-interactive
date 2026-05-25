@@ -950,6 +950,30 @@ mod act {
         });
     }
 
+    /// Upload a picture and set it as the persona's avatar: POST the file to
+    /// `/media`, then PUT the returned id as the avatar, then reload the grid so
+    /// the new portrait shows. Errors surface via `s.status`.
+    pub fn set_persona_avatar(s: Shell, pid: String, file: web_sys::File) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            let media_id = match api::upload_media(&file).await {
+                Ok(id) => id,
+                Err(e) => {
+                    s.status.set(api::humanize(&e));
+                    return;
+                }
+            };
+            match api::set_persona_avatar(&pid, &media_id).await {
+                Ok(()) => {
+                    if let Ok(r) = api::list_personas().await {
+                        s.personas.set(r.personas);
+                    }
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn wear_persona(s: Shell, pid: String) {
         let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
@@ -1357,6 +1381,7 @@ mod act {
         _editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
     ) {
     }
+    pub fn set_persona_avatar(_s: Shell, _pid: String) {}
     pub fn wear_persona(_s: Shell, _pid: String) {}
     pub fn unwear(_s: Shell) {}
     pub fn add_friend(_s: Shell, _username: String) {}

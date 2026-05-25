@@ -1,15 +1,43 @@
 //! The wardrobe pane: a gallery of persona *character cards*. Create a persona
 //! from the add-row, click a card to open a self-contained detail editor
-//! (editable name + description, Save), and wear / take off a persona.
+//! (editable name + description, picture upload, Save), and wear / take off a
+//! persona.
 //!
-//! Images are deliberately deferred: a persona carries an `avatar_id` on the
-//! wire and the backend has avatar/gallery endpoints, but no upload UI is wired
-//! here yet. The card reserves a slot (`.card-portrait`) for a future portrait.
+//! Each persona carries an `avatar_id` on the wire; when set, the portrait
+//! slots render `<img src="/media/{id}">` (inline-styled), otherwise a monogram.
+//! The detail editor exposes a file input that uploads to `POST /media` then
+//! `PUT /personas/{id}/avatar`.
 
 use leptos::prelude::*;
 
 use super::{act, PendingDelete, Shell};
 use crate::ui::markup_view::render_body;
+
+/// A persona portrait: the uploaded avatar image when `avatar_id` is `Some`,
+/// otherwise the name's first letter as a monogram. Shared by the card, the
+/// detail editor and the info popup. The `<img>` is styled inline so it fills
+/// whatever portrait slot it sits in (main.scss is owned by another stream).
+fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
+    match avatar_id {
+        Some(id) => {
+            let src = format!("/media/{id}");
+            view! {
+                <img src=src alt="persona portrait"
+                    style="width:100%;height:100%;object-fit:cover;border-radius:inherit"/>
+            }
+            .into_any()
+        }
+        None => {
+            let monogram = name
+                .chars()
+                .next()
+                .unwrap_or('?')
+                .to_uppercase()
+                .to_string();
+            view! { {monogram} }.into_any()
+        }
+    }
+}
 
 #[component]
 pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
@@ -55,7 +83,6 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
 
             // Read-only info popup — opened by clicking a card's name.
             {move || info.get().map(|p| {
-                let monogram = p.name.chars().next().unwrap_or('?').to_uppercase().to_string();
                 let desc = (!p.description.trim().is_empty()).then(|| p.description.clone());
                 view! {
                     <div class="modal-backdrop" on:click=move |_| info.set(None)>
@@ -68,7 +95,9 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                                 <button class="row-edit" title="close"
                                     on:click=move |_| info.set(None)>"✕"</button>
                             </div>
-                            <div class="info-portrait" title="image coming soon">{monogram}</div>
+                            <div class="info-portrait" title="persona portrait">
+                                {portrait(&p.avatar_id, &p.name)}
+                            </div>
                             {match desc {
                                 Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
                                 None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
@@ -87,8 +116,8 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
     }
 }
 
-/// One character card: name prominent, description blurb, a reserved portrait
-/// slot (image upload deferred), and a wear/worn toggle. Clicking the name opens
+/// One character card: name prominent, description blurb, a portrait slot
+/// (avatar image or monogram), and a wear/worn toggle. Clicking the name opens
 /// a read-only info popup; the Edit button opens the detail editor.
 #[component]
 fn PersonaCard(
@@ -112,9 +141,9 @@ fn PersonaCard(
 
     view! {
         <div class="persona-card" class:worn=move || worn.get()>
-            // Reserved portrait slot — image upload is deferred (see module docs).
-            <div class="card-portrait" title="image upload coming soon">
-                {p.name.chars().next().unwrap_or('?').to_uppercase().to_string()}
+            // Portrait slot: the uploaded avatar if set, else the monogram.
+            <div class="card-portrait" title="persona portrait">
+                {portrait(&p.avatar_id, &p.name)}
             </div>
             // Clicking the name/blurb opens the read-only info popup.
             <button class="card-open" title="View persona"
@@ -181,6 +210,18 @@ fn PersonaDetail(
     // Seed the form from the current grid entry for this persona.
     let seed = s.personas.get_untracked().into_iter().find(|p| p.id == pid);
     let (seed_name, seed_desc) = seed.map(|p| (p.name, p.description)).unwrap_or_default();
+    // Name used for the monogram fallback in the portrait slot.
+    let portrait_name = seed_name.clone();
+    // Live avatar for the portrait: re-read `s.personas` so a fresh upload shows
+    // without re-opening the editor.
+    let pid_portrait = pid.clone();
+    let avatar = Memo::new(move |_| {
+        s.personas
+            .get()
+            .into_iter()
+            .find(|p| p.id == pid_portrait)
+            .and_then(|p| p.avatar_id)
+    });
 
     let edit_name = RwSignal::new(seed_name);
     let edit_desc = RwSignal::new(seed_desc);
@@ -201,6 +242,7 @@ fn PersonaDetail(
 
     let pid_save = pid.clone();
     let pid_share = pid.clone();
+    let pid_avatar = pid.clone();
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
@@ -214,10 +256,32 @@ fn PersonaDetail(
                 <button class="row-edit" title="close"
                     on:click=move |_| selected.set(None)>"✕"</button>
             </div>
-            // Portrait slot — image upload deferred.
-            <div class="detail-portrait muted" title="image upload coming soon">
-                "Portrait — coming soon"
+            // Portrait slot — shows the current avatar (or monogram) and an
+            // upload control. Picking a file uploads it and sets it as the
+            // avatar; the server gates who may change it.
+            <div class="detail-portrait" title="persona portrait">
+                {move || portrait(&avatar.get(), &portrait_name)}
             </div>
+            <label class="field">
+                <span>"Picture"</span>
+                <input type="file" accept="image/*"
+                    on:change=move |_ev| {
+                        #[cfg(feature = "hydrate")]
+                        {
+                            use leptos::wasm_bindgen::JsCast;
+                            if let Some(input) = _ev
+                                .target()
+                                .and_then(|t| t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok())
+                            {
+                                if let Some(file) = input.files().and_then(|fl| fl.get(0)) {
+                                    act::set_persona_avatar(s, pid_avatar.clone(), file);
+                                }
+                            }
+                        }
+                        #[cfg(not(feature = "hydrate"))]
+                        act::set_persona_avatar(s, pid_avatar.clone());
+                    }/>
+            </label>
             <label class="field">
                 <span>"Name"</span>
                 <input prop:value=move || edit_name.get()

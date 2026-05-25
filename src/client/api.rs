@@ -285,6 +285,45 @@ pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result
     decode_empty(resp).await
 }
 
+/// Set a persona's primary avatar to an already-uploaded media id. 204, no body.
+pub async fn set_persona_avatar(pid: &str, media_id: &str) -> Result<(), ApiError> {
+    let resp = Request::put(&format!("/personas/{pid}/avatar"))
+        .json(&crate::protocol::SetAvatarRequest {
+            media_id: media_id.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+// ---------------------------------------------------------------------------
+// Media
+// ---------------------------------------------------------------------------
+
+/// Upload a browser `File`/`Blob` as multipart/form-data (field `file`) to
+/// `POST /media`; returns the new media id from the `{ "id": "..." }` body.
+pub async fn upload_media(file: &web_sys::File) -> Result<String, ApiError> {
+    let form = web_sys::FormData::new()
+        .map_err(|e| ApiError::Codec(format!("FormData unavailable: {e:?}")))?;
+    form.append_with_blob("file", file)
+        .map_err(|e| ApiError::Codec(format!("FormData append failed: {e:?}")))?;
+    let resp = Request::post("/media")
+        .body(form)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    let body: MediaUploadResponse = decode(resp).await?;
+    Ok(body.id)
+}
+
+#[derive(serde::Deserialize)]
+struct MediaUploadResponse {
+    id: String,
+}
+
 // ---------------------------------------------------------------------------
 // Lorebook
 // ---------------------------------------------------------------------------

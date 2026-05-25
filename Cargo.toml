@@ -33,7 +33,7 @@ js-sys = { version = "0.3", optional = true }
 # Same web-sys crate Leptos re-exports; we enable the one extra interface
 # (MediaQueryList) so the composer can detect touch devices via
 # `window.matchMedia("(pointer: coarse)")`. Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission"] }
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device
