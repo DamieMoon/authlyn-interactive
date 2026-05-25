@@ -26,7 +26,7 @@ use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 
 const MAX_NAME_CHARS: usize = 100;
-const MAX_DESCRIPTION_CHARS: usize = 4000;
+const MAX_DESCRIPTION_CHARS: usize = 50_000;
 
 /// Mint a url-safe random share key (32 bytes → 43 base64url-no-pad chars).
 fn random_share_key() -> String {

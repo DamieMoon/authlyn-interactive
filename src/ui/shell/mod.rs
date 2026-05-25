@@ -171,6 +171,8 @@ fn AppShell() -> impl IntoView {
         if !act::restore_session(s) {
             act::show_friends(s);
         }
+        // Keep the rail/sidebar/friends + open channel live (idempotent).
+        act::start_sync(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -1076,28 +1078,105 @@ mod act {
         }
     }
 
-    /// One poll loop, started on the first text-channel open; reads the current
-    /// channel + cursor each tick. SEAM: replace with an SSE subscription.
+    /// Server page size for messages (mirrors `MESSAGES_PAGE_LIMIT` on the
+    /// server). Below this, the whole channel is loaded in one page and can be
+    /// reconciled wholesale; at/above it we only append.
+    const MESSAGES_PAGE_LIMIT: usize = 100;
+
+    /// Full-set reconcile for a channel that fits in one page: reflects new,
+    /// edited, and deleted messages (including from other people), writing the
+    /// signal only when something actually changed so an idle poll causes no
+    /// re-render or scroll jump.
+    fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
+        let changed = s.messages.with_untracked(|cur| {
+            cur.len() != fresh.len()
+                || cur.iter().zip(fresh.iter()).any(|(a, b)| {
+                    a.id != b.id || a.body != b.body || a.persona_name != b.persona_name
+                })
+        });
+        if !changed {
+            return;
+        }
+        s.seen.update(|h| {
+            h.clear();
+            for m in &fresh {
+                h.insert(m.id.clone());
+            }
+        });
+        s.cursor
+            .set(fresh.last().map(|m| (m.sent_at.clone(), m.id.clone())));
+        s.messages.set(fresh);
+    }
+
+    /// In-place refresh of the guild rail, the open server's channels, and the
+    /// friends list — each written only when it changed, so things created or
+    /// removed elsewhere appear/disappear without a manual reload.
+    fn refresh_lists(s: Shell) {
+        let sel = s.sel_server.get_untracked();
+        spawn_local(async move {
+            if let Ok(r) = api::list_guilds().await {
+                if s.guilds.with_untracked(|g| *g != r.guilds) {
+                    s.guilds.set(r.guilds);
+                }
+            }
+            if let Ok(f) = api::list_friends().await {
+                if s.friends.with_untracked(|cur| *cur != f) {
+                    s.friends.set(f);
+                }
+            }
+            if let Some(gid) = sel {
+                if let Ok(d) = api::get_guild(&gid).await {
+                    if s.channels.with_untracked(|c| *c != d.channels) {
+                        s.channels.set(d.channels);
+                    }
+                }
+            }
+        });
+    }
+
+    /// The background sync loop (single instance, guarded by `s.polling`).
+    /// Every tick it refreshes the open channel's messages; every ~6s it also
+    /// refreshes the lists. Started on shell mount via [`start_sync`] so the
+    /// lists stay live even on the Friends pane. SEAM: replace with SSE.
     fn start_poll(s: Shell) {
         if s.polling.get_untracked() {
             return;
         }
         s.polling.set(true);
         spawn_local(async move {
+            let mut tick: u32 = 0;
             loop {
                 gloo_timers::future::TimeoutFuture::new(1500).await;
+                tick = tick.wrapping_add(1);
+                if tick.is_multiple_of(4) {
+                    refresh_lists(s);
+                }
                 if s.pane.get_untracked() != Pane::Channel {
                     continue;
                 }
                 let Some(ch) = s.sel_channel.get_untracked() else {
                     continue;
                 };
-                let cur = s.cursor.get_untracked();
-                if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
-                    ingest(s, l.messages);
+                match api::list_messages(&ch.id, None).await {
+                    Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => sync_messages(s, l.messages),
+                    Ok(_) => {
+                        // Long history: page 1 isn't the whole channel, so only
+                        // append new messages past the cursor.
+                        let cur = s.cursor.get_untracked();
+                        if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
+                            ingest(s, l.messages);
+                        }
+                    }
+                    Err(_) => {}
                 }
             }
         });
+    }
+
+    /// Start the background sync loop (idempotent). Called on shell mount so the
+    /// rail/sidebar/friends stay live before any channel is opened.
+    pub fn start_sync(s: Shell) {
+        start_poll(s);
     }
 }
 
@@ -1110,6 +1189,7 @@ mod act {
 
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
+    pub fn start_sync(_s: Shell) {}
     pub fn change_password(_s: Shell, _current: String, _new: String) {}
     pub fn restore_session(_s: Shell) -> bool {
         false

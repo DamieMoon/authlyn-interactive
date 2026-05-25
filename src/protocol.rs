@@ -84,7 +84,7 @@ pub struct CreateGuildRequest {
 }
 
 /// One guild as it appears in a list (the caller's guild rail).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GuildSummary {
     pub id: String,
     pub name: String,
@@ -97,7 +97,7 @@ pub struct ListGuildsResponse {
 }
 
 /// One channel within a guild. `kind` is `"text"` or `"lorebook"`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelSummary {
     pub id: String,
     pub name: String,
@@ -399,7 +399,7 @@ pub struct FriendRequest {
 }
 
 /// One account in a friends list / pending list.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FriendSummary {
     pub account_id: String,
     pub username: String,
@@ -408,7 +408,7 @@ pub struct FriendSummary {
 /// Response from `GET /friends`: accepted friends plus pending requests split
 /// by direction (`incoming` = others who requested you, `outgoing` = your
 /// unanswered requests).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ListFriendsResponse {
     pub friends: Vec<FriendSummary>,
     pub incoming: Vec<FriendSummary>,
