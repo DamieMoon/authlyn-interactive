@@ -135,18 +135,19 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- the snapshot columns existed, so a later persona delete doesn't scramble
 -- their name/avatar. Idempotent: only touches persona'd rows still missing the
 -- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
+-- Backfill `attachments` to [] on every pre-attachment row FIRST. SCHEMAFULL
+-- arrays behave like the string fields: old rows hold NONE, and ANY message
+-- UPDATE re-validates ALL fields — so this must run before the persona backfill
+-- below, or that UPDATE trips over the still-NONE `attachments` and aborts
+-- schema apply (crash-loops the service). Idempotent via the WHERE.
+UPDATE message SET attachments = [] WHERE attachments = NONE;
+
 UPDATE message SET
     persona_name = persona.name,
     persona_description = persona.description,
     persona_color = persona.color,
     persona_avatar = persona.avatar
     WHERE persona != NONE AND persona_name = NONE;
-
--- Backfill `attachments` to [] on every pre-attachment row. SCHEMAFULL arrays
--- behave like the string fields: old rows hold NONE, and editing a message
--- (UPDATE body) would re-validate `attachments` (NONE vs array) and 500. Touch
--- ALL rows missing it (not just persona'd ones), idempotent via the WHERE.
-UPDATE message SET attachments = [] WHERE attachments = NONE;
 
 -- Lorebook entries (SillyTavern-style; on a kind='lorebook' channel) ----
 DEFINE TABLE IF NOT EXISTS lorebook_entry SCHEMAFULL;
