@@ -83,6 +83,11 @@ axum-extra         = { version = "0.10", features = ["cookie"], optional = true 
 # `time::Duration` for the session cookie Max-Age — same 0.3 line the `cookie`
 # crate (under axum-extra) uses, so the types unify. ssr-only.
 time               = { version = "0.3", optional = true, default-features = false }
+# On-the-fly avatar thumbnailing in `src/server/media.rs` (GET /media/{id}?w=N):
+# decode the stored blob, downscale, re-encode JPEG, cache to disk. Lean codec
+# set (the formats personas actually upload). ssr-only — never in the WASM
+# bundle. `rayon` off to keep it single-threaded inside spawn_blocking.
+image              = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 
 # Nova MCP server (the `nova` feature + the `nova-mcp` bin). Native-only, never
 # in the app's ssr/hydrate graph — a standalone bridge that talks to the running
@@ -134,6 +139,7 @@ ssr = [
     "dep:argon2",
     "dep:axum-extra",
     "dep:time",
+    "dep:image",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

@@ -112,7 +112,10 @@ fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoV
     };
     match avatar_id {
         Some(id) => {
-            let src = format!("/media/{id}");
+            // Request a downscaled JPEG thumbnail instead of the full upload so
+            // avatars load fast: the small row circle needs ~128px, the popup ~256.
+            let tw = if fill { 256 } else { 128 };
+            let src = format!("/media/{id}?w={tw}");
             view! {
                 <span class="chat-avatar" style=frame>
                     <img src=src alt="" style="width:100%;height:100%;object-fit:cover"/>

@@ -16,11 +16,12 @@
 use std::path::PathBuf;
 
 use axum::body::Bytes;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use rand::RngCore;
+use serde::Deserialize;
 use surrealdb::types::SurrealValue;
 use tokio::fs;
 
@@ -145,10 +146,19 @@ async fn persist_media_row(
 // GET /media/{id}
 // ---------------------------------------------------------------------------
 
+/// Optional `?w=N` query: serve a JPEG thumbnail at most N px wide instead of
+/// the full blob. Used for avatars/cards so the chat doesn't pull multi-MB
+/// originals. Absent → full original (back-compat).
+#[derive(Debug, Deserialize)]
+pub struct MediaQuery {
+    pub w: Option<u32>,
+}
+
 #[tracing::instrument(skip_all, fields(account = %account.0, media = %id))]
 pub async fn download_media(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(q): Query<MediaQuery>,
     account: AuthAccount,
 ) -> Response {
     let _ = &account; // any authenticated account may fetch any blob (phase 1)
@@ -177,6 +187,32 @@ pub async fn download_media(
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
     }
 
+    // Thumbnail fast path: `?w=N` on an image blob serves a cached/just-built
+    // JPEG downscaled to ≤N px wide. The cache file lives next to the original
+    // (`{id}.w{N}.jpg`), keyed on the clamped width, so each size is built once.
+    if let Some(w) = q.w {
+        let w = w.clamp(THUMB_MIN_W, THUMB_MAX_W);
+        if row.mime.starts_with("image/") {
+            let thumb_path = state.media_dir.join(format!("{id}.w{w}.jpg"));
+            if let Ok(cached) = fs::read(&thumb_path).await {
+                return jpeg_response(cached);
+            }
+            if let Ok(orig) = fs::read(&canonical).await {
+                let for_blocking = orig.clone();
+                match tokio::task::spawn_blocking(move || make_thumb(&for_blocking, w)).await {
+                    Ok(Ok(jpg)) => {
+                        // Best-effort cache; a write failure just rebuilds next time.
+                        let _ = fs::write(&thumb_path, &jpg).await;
+                        return jpeg_response(jpg);
+                    }
+                    // Undecodable/unsupported → fall back to the original bytes.
+                    _ => return serve_original(orig, row.mime),
+                }
+            }
+            // Original unreadable → fall through to the normal read+error path.
+        }
+    }
+
     let bytes = match fs::read(&canonical).await {
         Ok(b) => b,
         Err(e) => {
@@ -184,15 +220,44 @@ pub async fn download_media(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
+    serve_original(bytes, row.mime)
+}
 
-    // Serve the stored MIME so the browser renders images directly. A
-    // malformed stored value falls back to octet-stream.
-    let content_type = if row.mime.is_empty() {
+/// Clamp bounds for the `?w=` thumbnail width (avatars are tiny; cards modest).
+const THUMB_MIN_W: u32 = 16;
+const THUMB_MAX_W: u32 = 512;
+
+/// Serve raw blob bytes with the stored MIME (octet-stream fallback).
+fn serve_original(bytes: Vec<u8>, mime: String) -> Response {
+    let content_type = if mime.is_empty() {
         DEFAULT_MIME.to_string()
     } else {
-        row.mime
+        mime
     };
     ([(header::CONTENT_TYPE, content_type)], bytes).into_response()
+}
+
+fn jpeg_response(bytes: Vec<u8>) -> Response {
+    ([(header::CONTENT_TYPE, "image/jpeg")], bytes).into_response()
+}
+
+/// Decode `bytes`, downscale to ≤`max_w` px wide (preserving aspect, never
+/// upscaling), and re-encode as JPEG. CPU-bound — call inside spawn_blocking.
+/// Alpha is flattened to RGB: the only consumers are circle-masked avatars and
+/// cards where corners are clipped anyway.
+fn make_thumb(bytes: &[u8], max_w: u32) -> Result<Vec<u8>, image::ImageError> {
+    use std::io::Cursor;
+    let img = image::load_from_memory(bytes)?;
+    let resized = if img.width() > max_w {
+        let nh = ((u64::from(img.height()) * u64::from(max_w)) / u64::from(img.width())).max(1);
+        img.resize_exact(max_w, nh as u32, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    let mut out = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(resized.to_rgb8())
+        .write_to(&mut out, image::ImageFormat::Jpeg)?;
+    Ok(out.into_inner())
 }
 
 #[derive(SurrealValue)]
