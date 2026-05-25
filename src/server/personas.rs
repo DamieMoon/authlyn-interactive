@@ -58,7 +58,10 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         id_key: String,
         name: String,
         description: String,
-        color: String,
+        // Optional: personas created before the `color` field existed have no
+        // value yet (SCHEMAFULL DEFAULT only applies on write), so a non-option
+        // String would fail to deserialize and 500 the whole wardrobe.
+        color: Option<String>,
         avatar_id: Option<String>,
         owned: bool,
     }
@@ -68,7 +71,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(id) AS id_key, name, description, color,
+            "SELECT meta::id(id) AS id_key, name, description, (color ?? '') AS color,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
                 (owner = type::record('account', $account)) AS owned
                 FROM persona
@@ -88,7 +91,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             name: r.name,
             description: r.description,
             avatar_id: r.avatar_id,
-            color: r.color,
+            color: r.color.unwrap_or_default(),
             owned: r.owned,
         })
         .collect())
