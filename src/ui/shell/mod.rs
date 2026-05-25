@@ -105,6 +105,9 @@ pub(crate) struct Shell {
     /// top-level confirm modal renders whenever this is `Some`.
     pending_delete: RwSignal<Option<PendingDelete>>,
     confirm_prompt: RwSignal<Option<String>>,
+    /// Channel ids the user has muted (no new-message notifications). Mirrored
+    /// to localStorage so it survives reloads.
+    muted: RwSignal<HashSet<String>>,
 }
 
 #[component]
@@ -134,6 +137,7 @@ fn AppShell() -> impl IntoView {
         lore: RwSignal::new(Vec::new()),
         pending_delete: RwSignal::new(None),
         confirm_prompt: RwSignal::new(None),
+        muted: RwSignal::new(HashSet::new()),
     };
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
@@ -173,6 +177,7 @@ fn AppShell() -> impl IntoView {
         }
         // Keep the rail/sidebar/friends + open channel live (idempotent).
         act::start_sync(s);
+        act::load_muted(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -311,6 +316,23 @@ fn AppShell() -> impl IntoView {
                     <button class="nav-toggle" title="Menu"
                         on:click=move |_| s.nav_open.update(|o| *o = !*o)>"☰"</button>
                     <span class="muted">"Signed in as " <strong>{username}</strong></span>
+                    // Mute toggle for the open channel (suppresses its
+                    // new-message notifications); 🔔 = active, 🔕 = muted.
+                    {move || s.sel_channel.get()
+                        .filter(|_| s.pane.get() == Pane::Channel)
+                        .map(|c| {
+                            let cid = c.id.clone();
+                            let cid_t = c.id.clone();
+                            let cid_b = c.id.clone();
+                            view! {
+                                <button class="row-edit"
+                                    title=move || if s.muted.get().contains(&cid_t) { "Unmute channel" } else { "Mute channel" }
+                                    on:click=move |_| act::toggle_mute(s, cid.clone())>
+                                    {move || if s.muted.get().contains(&cid_b) { "🔕" } else { "🔔" }}
+                                </button>
+                            }
+                        })
+                    }
                     <span class="spacer"></span>
                     <button title="Account"
                         on:click=move |_| { s.status.set(String::new()); account_open.set(true); }>
@@ -645,6 +667,9 @@ mod act {
         }
         s.compose.set(String::new());
         s.status.set(String::new());
+        // Sending is a user gesture — a reliable point to request notification
+        // permission so background channels can notify later.
+        request_notify_permission();
         spawn_local(async move {
             match api::post_message(&ch.id, &body).await {
                 Ok(_) => {
@@ -1078,6 +1103,80 @@ mod act {
         }
     }
 
+    // localStorage key for the muted-channel id list.
+    const KEY_MUTED: &str = "authlyn.muted_channels";
+
+    /// Load muted channels from localStorage into the reactive set (on mount).
+    pub fn load_muted(s: Shell) {
+        let ids = LocalStorage::get::<Vec<String>>(KEY_MUTED).unwrap_or_default();
+        s.muted.set(ids.into_iter().collect());
+    }
+
+    /// Toggle mute for a channel: flip the reactive set + persist. A click is a
+    /// user gesture, so it's also a good moment to ask for notification permission.
+    pub fn toggle_mute(s: Shell, cid: String) {
+        s.muted.update(|m| {
+            if !m.remove(&cid) {
+                m.insert(cid.clone());
+            }
+        });
+        let ids: Vec<String> = s.muted.with_untracked(|m| m.iter().cloned().collect());
+        let _ = LocalStorage::set(KEY_MUTED, &ids);
+        request_notify_permission();
+    }
+
+    /// Ask for Web Notification permission if undecided. Must run from a user
+    /// gesture or the browser may ignore it.
+    fn request_notify_permission() {
+        use leptos::web_sys::{Notification, NotificationPermission};
+        if Notification::permission() == NotificationPermission::Default {
+            let _ = Notification::request_permission();
+        }
+    }
+
+    /// True when the tab/PWA is backgrounded (so the user would miss messages).
+    fn tab_hidden() -> bool {
+        leptos::web_sys::window()
+            .and_then(|w| w.document())
+            .map(|d| d.hidden())
+            .unwrap_or(false)
+    }
+
+    /// The subset of `msgs` not yet in `s.seen` — genuinely new this tick.
+    fn unseen(s: Shell, msgs: &[MessageEnvelope]) -> Vec<MessageEnvelope> {
+        msgs.iter()
+            .filter(|m| !s.seen.with_untracked(|h| h.contains(&m.id)))
+            .cloned()
+            .collect()
+    }
+
+    /// Fire a Web Notification for new messages in `ch` — but only when the tab
+    /// is backgrounded (you'd see them otherwise), the channel isn't muted, and
+    /// permission was granted. Title-only to keep the web-sys surface minimal.
+    fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnvelope]) {
+        use leptos::web_sys::{Notification, NotificationPermission};
+        if fresh.is_empty() || !tab_hidden() {
+            return;
+        }
+        if s.muted.with_untracked(|m| m.contains(&ch.id)) {
+            return;
+        }
+        if Notification::permission() != NotificationPermission::Granted {
+            return;
+        }
+        let title = if fresh.len() > 1 {
+            format!("{} new messages in #{}", fresh.len(), ch.name)
+        } else {
+            let last = &fresh[0];
+            let who = last
+                .persona_name
+                .clone()
+                .unwrap_or_else(|| last.author_display.clone());
+            format!("{who} in #{}", ch.name)
+        };
+        let _ = Notification::new(&title);
+    }
+
     /// Server page size for messages (mirrors `MESSAGES_PAGE_LIMIT` on the
     /// server). Below this, the whole channel is loaded in one page and can be
     /// reconciled wholesale; at/above it we only append.
@@ -1158,13 +1257,19 @@ mod act {
                     continue;
                 };
                 match api::list_messages(&ch.id, None).await {
-                    Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => sync_messages(s, l.messages),
+                    Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
+                        let fresh = unseen(s, &l.messages);
+                        sync_messages(s, l.messages);
+                        notify_messages(s, &ch, &fresh);
+                    }
                     Ok(_) => {
                         // Long history: page 1 isn't the whole channel, so only
                         // append new messages past the cursor.
                         let cur = s.cursor.get_untracked();
                         if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
+                            let fresh = unseen(s, &l.messages);
                             ingest(s, l.messages);
+                            notify_messages(s, &ch, &fresh);
                         }
                     }
                     Err(_) => {}
@@ -1190,6 +1295,8 @@ mod act {
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
     pub fn start_sync(_s: Shell) {}
+    pub fn load_muted(_s: Shell) {}
+    pub fn toggle_mute(_s: Shell, _cid: String) {}
     pub fn change_password(_s: Shell, _current: String, _new: String) {}
     pub fn restore_session(_s: Shell) -> bool {
         false
