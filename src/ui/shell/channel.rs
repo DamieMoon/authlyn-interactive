@@ -4,6 +4,7 @@ use leptos::prelude::*;
 
 use super::{act, short_id, Shell};
 use crate::markup::Color;
+use crate::protocol::MessageEnvelope;
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
 
@@ -104,15 +105,55 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
         }
     });
 
+    // Click-the-name info popup: which message's persona/controller to show.
+    let info = RwSignal::new(None::<MessageEnvelope>);
+
+    // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
+    // the user's last scroll (i.e. pre-append). On a new message: your own →
+    // follow when NEAR the bottom; someone else's → only when EXACTLY at the
+    // bottom; otherwise leave the scroll position alone (reading history).
+    let list_ref = NodeRef::<leptos::html::Ul>::new();
+    let last_dist = StoredValue::new(0.0_f64);
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        let msgs = s.messages.get();
+        let mine = msgs
+            .last()
+            .zip(auth.user.get_untracked())
+            .map(|(m, u)| m.author_id == u.account_id)
+            .unwrap_or(false);
+        let threshold = if mine { 120.0 } else { 4.0 };
+        if last_dist.get_value() <= threshold {
+            last_dist.set_value(0.0);
+            leptos::task::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                if let Some(el) = list_ref.get_untracked() {
+                    el.set_scroll_top(el.scroll_height());
+                }
+            });
+        }
+    });
+
     view! {
         <div class="channel-view">
-            <ul class="messages">
+            <ul class="messages" node_ref=list_ref
+                on:scroll=move |_ev| {
+                    #[cfg(feature = "hydrate")]
+                    if let Some(el) = list_ref.get_untracked() {
+                        last_dist.set_value(
+                            (el.scroll_height() - el.scroll_top() - el.client_height()) as f64,
+                        );
+                    }
+                    #[cfg(not(feature = "hydrate"))]
+                    let _ = (&last_dist, &_ev);
+                }>
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel_channel.get().map(|c| c.id);
                     s.messages.get().into_iter().map(|m| {
                         let who = m.persona_name.clone().unwrap_or_else(|| short_id(&m.author_id));
                         let when = format_local_time(&m.sent_at);
+                        let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let mid = m.id.clone();
                         let body = m.body.clone();
@@ -120,7 +161,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         view! {
                             <li class="msg">
                                 <div class="meta">
-                                    <span class="who">{who}</span>
+                                    <button class="who" title="persona info"
+                                        on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
                                     <time class="when">{when}</time>
                                     {mine.then(|| {
                                         let edit_mid = mid.clone();
@@ -216,6 +258,32 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 ></textarea>
                 <button class="send" on:click=move |_| act::send_message(s)>"Send"</button>
             </div>
+
+            // Persona info popup — opened by clicking a message's author name.
+            {move || info.get().map(|m| {
+                let persona = m.persona_name.clone().unwrap_or_else(|| "(no persona)".to_string());
+                let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
+                let author = m.author_name.clone();
+                view! {
+                    <div class="modal-backdrop" on:click=move |_| info.set(None)>
+                        <div class="modal" on:click=move |_ev| {
+                            #[cfg(feature = "hydrate")]
+                            _ev.stop_propagation();
+                        }>
+                            <div class="detail-head">
+                                <h4>{persona}</h4>
+                                <button class="row-edit" title="close"
+                                    on:click=move |_| info.set(None)>"✕"</button>
+                            </div>
+                            {match desc {
+                                Some(d) => view! { <p class="card-desc">{d}</p> }.into_any(),
+                                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+                            }}
+                            <p class="muted">"Controlled by "<strong>{author}</strong></p>
+                        </div>
+                    </div>
+                }
+            })}
         </div>
     }
 }

@@ -368,8 +368,10 @@ fn is_rfc3339(s: &str) -> bool {
 struct MessageRow {
     id_key: String,
     author_key: String,
+    author_name: String,
     persona_id: Option<String>,
     persona_name: Option<String>,
+    persona_description: Option<String>,
     body: String,
     tier: String,
     sent_at: Datetime,
@@ -380,8 +382,10 @@ impl MessageRow {
         MessageEnvelope {
             id: self.id_key,
             author_id: self.author_key,
+            author_name: self.author_name,
             persona_id: self.persona_id,
             persona_name: self.persona_name,
+            persona_description: self.persona_description,
             body: self.body,
             tier: self.tier,
             sent_at: to_rfc3339_fixed(self.sent_at),
@@ -399,8 +403,10 @@ async fn load_messages(
     const PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
+        author.username  AS author_name,
         (IF persona != NONE THEN meta::id(persona) ELSE NONE END) AS persona_id,
-        persona.name     AS persona_name,
+        persona.name        AS persona_name,
+        persona.description AS persona_description,
         body,
         tier,
         sent_at";

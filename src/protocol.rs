@@ -178,8 +178,14 @@ pub struct SendMessageResponse {
 pub struct MessageEnvelope {
     pub id: String,
     pub author_id: String,
+    /// Username of the account that controlled the persona for this message
+    /// (the "who was in control" — fixed at send time via `author_id`).
+    pub author_name: String,
     pub persona_id: Option<String>,
     pub persona_name: Option<String>,
+    /// The persona's *current* description (None if it has no persona or the
+    /// persona was since deleted). For the click-the-name info popup.
+    pub persona_description: Option<String>,
     pub body: String,
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,

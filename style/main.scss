@@ -654,6 +654,46 @@ textarea {
 	background: #9aa3af;
 }
 
+// ---- modal overlay (persona-info popup, etc.) ----
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	background: rgba(0, 0, 0, 0.55);
+}
+
+.modal {
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.6rem;
+	padding: 1rem 1.2rem;
+	width: 100%;
+	max-width: 28rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+// `.who` is now a clickable button (opens the persona-info popup); strip the
+// default button chrome so it still reads as the author name.
+.msg .who {
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 600;
+	color: #cdb8f0;
+
+	&:hover {
+		text-decoration: underline;
+	}
+}
+
 // ---- mobile: rail + channel sidebar collapse into an off-canvas drawer ----
 @media (max-width: 768px) {
 	.app {
