@@ -64,6 +64,8 @@ struct Shell {
     status: RwSignal<String>,
     polling: RwSignal<bool>,
     pane: RwSignal<Pane>,
+    /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
+    nav_open: RwSignal<bool>,
     friends: RwSignal<ListFriendsResponse>,
     personas: RwSignal<Vec<PersonaSummary>>,
     active_persona: RwSignal<Option<String>>,
@@ -85,6 +87,7 @@ fn AppShell() -> impl IntoView {
         status: RwSignal::new(String::new()),
         polling: RwSignal::new(false),
         pane: RwSignal::new(Pane::Friends),
+        nav_open: RwSignal::new(false),
         friends: RwSignal::new(ListFriendsResponse {
             friends: Vec::new(),
             incoming: Vec::new(),
@@ -106,10 +109,10 @@ fn AppShell() -> impl IntoView {
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
 
     view! {
-        <div class="app">
+        <div class="app" class:nav-open=move || s.nav_open.get()>
             <nav class="rail">
                 <button class="rail-home" title="Friends"
-                    on:click=move |_| act::show_friends(s)>"@"</button>
+                    on:click=move |_| { act::show_friends(s); s.nav_open.set(false); }>"@"</button>
                 {move || s.guilds.get().into_iter().map(|g| {
                     let gid = g.id.clone();
                     let initial = g.name.chars().next().unwrap_or('#').to_uppercase().to_string();
@@ -137,7 +140,8 @@ fn AppShell() -> impl IntoView {
                     fallback=|| view! {
                         <p class="muted pad">"Pick or create a server, or visit Friends (@)."</p>
                     }>
-                    <button class="wardrobe-btn" on:click=move |_| act::show_wardrobe(s)>
+                    <button class="wardrobe-btn"
+                        on:click=move |_| { act::show_wardrobe(s); s.nav_open.set(false); }>
                         "🎭 Wardrobe"
                     </button>
                     <ul class="channels">
@@ -149,7 +153,7 @@ fn AppShell() -> impl IntoView {
                             view! {
                                 <li>
                                     <button class="channel" class:active=active
-                                        on:click=move |_| act::open_channel(s, ch.clone())>
+                                        on:click=move |_| { act::open_channel(s, ch.clone()); s.nav_open.set(false); }>
                                         {sigil}{c.name}
                                     </button>
                                 </li>
@@ -171,6 +175,8 @@ fn AppShell() -> impl IntoView {
 
             <section class="content">
                 <header class="topbar">
+                    <button class="nav-toggle" title="Menu"
+                        on:click=move |_| s.nav_open.update(|o| *o = !*o)>"☰"</button>
                     <span class="muted">"Signed in as " <strong>{username}</strong></span>
                     <span class="spacer"></span>
                     <button on:click=move |_| act::logout(auth)>"Log out"</button>
@@ -183,6 +189,9 @@ fn AppShell() -> impl IntoView {
                 }}
                 <p class="error">{move || s.status.get()}</p>
             </section>
+
+            // Mobile drawer backdrop: tap to close (hidden off mobile via CSS).
+            <div class="scrim" on:click=move |_| s.nav_open.set(false)></div>
         </div>
     }
 }

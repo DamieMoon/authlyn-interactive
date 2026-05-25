@@ -103,8 +103,15 @@ textarea {
 // ---- app shell ----
 .app {
 	display: grid;
-	grid-template-columns: 72px 240px 1fr;
+	// Rail fixed, sidebar fluid (caps at 260 on ultrawide, 180 floor), content fills.
+	grid-template-columns: 72px clamp(180px, 22vw, 260px) 1fr;
 	height: 100vh;
+	height: 100dvh; // dvh accounts for mobile browser chrome; vh is the fallback
+}
+
+// Mobile drawer backdrop — only ever shown inside the narrow media query below.
+.scrim {
+	display: none;
 }
 
 .rail {
@@ -206,6 +213,21 @@ textarea {
 		gap: 0.5rem;
 		padding: 0.6rem 1rem;
 		border-bottom: 1px solid $line;
+		min-width: 0;
+
+		.nav-toggle {
+			display: none; // revealed at the mobile breakpoint
+			padding: 0.2rem 0.55rem;
+			font-size: 1.1rem;
+			line-height: 1;
+		}
+
+		.muted {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 
 		.spacer {
 			flex: 1;
@@ -215,7 +237,7 @@ textarea {
 	.messages {
 		list-style: none;
 		margin: 0;
-		padding: 0.5rem 1rem;
+		padding: 0.5rem clamp(0.5rem, 2vw, 1rem);
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
@@ -240,7 +262,7 @@ textarea {
 
 	.composer {
 		border-top: 1px solid $line;
-		padding: 0.6rem 1rem;
+		padding: 0.6rem clamp(0.5rem, 2vw, 1rem);
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.4rem;
@@ -248,6 +270,7 @@ textarea {
 
 		.toolbar {
 			display: flex;
+			flex-wrap: wrap;
 			gap: 0.25rem;
 			width: 100%;
 
@@ -325,4 +348,50 @@ textarea {
 }
 .mk-bg-gray {
 	background: #9aa3af;
+}
+
+// ---- mobile: rail + channel sidebar collapse into an off-canvas drawer ----
+@media (max-width: 768px) {
+	.app {
+		grid-template-columns: 1fr; // content fills the screen
+	}
+
+	.rail,
+	.sidebar {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		z-index: 30; // above the scrim (20) and the content
+		transition: transform 0.2s ease;
+	}
+
+	.rail {
+		left: 0;
+		width: 72px;
+		transform: translateX(-100%);
+	}
+
+	.sidebar {
+		left: 72px;
+		width: min(240px, calc(85vw - 72px));
+		// Tuck fully off the left edge (own width + the rail's 72px).
+		transform: translateX(calc(-100% - 72px));
+	}
+
+	.app.nav-open .rail,
+	.app.nav-open .sidebar {
+		transform: translateX(0);
+	}
+
+	.app.nav-open .scrim {
+		display: block;
+		position: fixed;
+		inset: 0;
+		z-index: 20;
+		background: rgba(0, 0, 0, 0.5);
+	}
+
+	.content .topbar .nav-toggle {
+		display: inline-flex;
+	}
 }
