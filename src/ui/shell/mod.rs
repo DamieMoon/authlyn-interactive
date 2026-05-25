@@ -138,10 +138,16 @@ fn AppShell() -> impl IntoView {
             .unwrap_or_default()
     };
 
-    // On mount: load the guild rail + the friends home. (No-ops on ssr.)
+    // On mount: load the guild rail, then try to restore the last session.
+    // If nothing was stored, fall back to the Friends home. When a session is
+    // restored, its channel/pane wins (we don't show Friends over it).
+    // (No-ops on ssr; the stub `restore_session` returns false so ssr still
+    // lands on Friends.)
     Effect::new(move |_| {
         act::refresh_guilds(s);
-        act::show_friends(s);
+        if !act::restore_session(s) {
+            act::show_friends(s);
+        }
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -348,8 +354,14 @@ mod act {
     use crate::client::api;
     use crate::protocol::{ChannelSummary, MessageEnvelope};
     use crate::ui::AuthCtx;
+    use gloo_storage::{LocalStorage, Storage};
     use leptos::prelude::*;
     use leptos::task::spawn_local;
+
+    // localStorage keys for the last-used selection, restored on reload.
+    const KEY_SERVER: &str = "authlyn.last_server";
+    const KEY_CHANNEL: &str = "authlyn.last_channel";
+    const KEY_PERSONA: &str = "authlyn.active_persona";
 
     pub fn logout(auth: AuthCtx) {
         let nav = leptos_router::hooks::use_navigate();
@@ -369,6 +381,7 @@ mod act {
     }
 
     pub fn open_server(s: Shell, gid: String) {
+        let _ = LocalStorage::set(KEY_SERVER, &gid);
         s.sel_server.set(Some(gid.clone()));
         s.sel_owner.set(None);
         s.channels.set(Vec::new());
@@ -391,6 +404,7 @@ mod act {
     pub fn open_channel(s: Shell, ch: ChannelSummary) {
         let cid = ch.id.clone();
         let kind = ch.kind.clone();
+        let _ = LocalStorage::set(KEY_CHANNEL, &cid);
         s.sel_channel.set(Some(ch));
         if kind == "lorebook" {
             s.pane.set(Pane::Lorebook);
@@ -407,6 +421,54 @@ mod act {
                 }
             });
         }
+    }
+
+    /// Restore the last server / channel / worn persona from localStorage.
+    ///
+    /// Runs after `refresh_guilds` on mount. Returns `true` if a server was
+    /// restored, so the caller can leave the Friends pane as the default only
+    /// when there was nothing to restore. The whole restore is one spawned task
+    /// so it never races the default `open_server` path (it doesn't call it):
+    /// it fetches the guild itself, sets `sel_owner` + `channels`, then opens
+    /// the *specific* stored channel (falling back to the first text channel,
+    /// then any channel) via the existing `open_channel`.
+    pub fn restore_session(s: Shell) -> bool {
+        let Ok(gid) = LocalStorage::get::<String>(KEY_SERVER) else {
+            return false;
+        };
+        let stored_channel = LocalStorage::get::<String>(KEY_CHANNEL).ok();
+        let stored_persona = LocalStorage::get::<String>(KEY_PERSONA).ok();
+
+        spawn_local(async move {
+            let Ok(d) = api::get_guild(&gid).await else {
+                // The stored server is gone — drop the stale keys and bail.
+                LocalStorage::delete(KEY_SERVER);
+                LocalStorage::delete(KEY_CHANNEL);
+                return;
+            };
+            s.sel_server.set(Some(gid.clone()));
+            s.sel_owner.set(Some(d.owner_id.clone()));
+            s.channels.set(d.channels.clone());
+
+            // Prefer the stored channel; fall back to the first text channel,
+            // then to the first channel of any kind (matches `open_server`).
+            let target = stored_channel
+                .as_deref()
+                .and_then(|cid| d.channels.iter().find(|c| c.id == cid))
+                .or_else(|| d.channels.iter().find(|c| c.kind == "text"))
+                .or_else(|| d.channels.first())
+                .cloned();
+            if let Some(ch) = target {
+                open_channel(s, ch);
+            }
+
+            // Re-assert the worn persona for the restored server.
+            if let Some(pid) = stored_persona {
+                s.active_persona.set(Some(pid.clone()));
+                let _ = api::set_active_persona(&gid, Some(pid)).await;
+            }
+        });
+        true
     }
 
     pub fn create_server(s: Shell, name: String) {
@@ -493,6 +555,7 @@ mod act {
     }
 
     pub fn wear_persona(s: Shell, pid: String) {
+        let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
         if let Some(gid) = s.sel_server.get_untracked() {
             spawn_local(async move {
@@ -502,6 +565,7 @@ mod act {
     }
 
     pub fn unwear(s: Shell) {
+        LocalStorage::delete(KEY_PERSONA);
         s.active_persona.set(None);
         if let Some(gid) = s.sel_server.get_untracked() {
             spawn_local(async move {
@@ -676,6 +740,9 @@ mod act {
 
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
+    pub fn restore_session(_s: Shell) -> bool {
+        false
+    }
     pub fn open_server(_s: Shell, _gid: String) {}
     pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
     pub fn create_server(_s: Shell, _name: String) {}
