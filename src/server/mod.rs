@@ -40,6 +40,7 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
+        .route("/auth/change-password", post(auth::change_password))
         .route("/auth/me", get(auth::me))
         .route(
             "/guilds",

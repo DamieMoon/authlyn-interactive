@@ -105,6 +105,107 @@ async fn login_good_and_bad_credentials() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn change_password_rotates_the_login_credential() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Erin", "oldpassword1").await;
+
+    // Correct current password → 204, no body.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/change-password",
+        Some(&cookie),
+        Some(&json!({ "current_password": "oldpassword1", "new_password": "newpassword2" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The new password now logs in.
+    let (new_ok, new_cookie, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/login",
+        None,
+        Some(&json!({ "username": "Erin", "password": "newpassword2" })),
+    )
+    .await;
+    assert_eq!(new_ok, StatusCode::OK);
+    assert!(new_cookie.is_some());
+
+    // The old password no longer works.
+    let (old_fail, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/login",
+        None,
+        Some(&json!({ "username": "Erin", "password": "oldpassword1" })),
+    )
+    .await;
+    assert_eq!(old_fail, StatusCode::UNAUTHORIZED);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn change_password_wrong_current_is_rejected() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Frank", "frankspass1").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/change-password",
+        Some(&cookie),
+        Some(&json!({ "current_password": "notmypassword", "new_password": "newpassword2" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // The original password is untouched.
+    let (login, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/login",
+        None,
+        Some(&json!({ "username": "Frank", "password": "frankspass1" })),
+    )
+    .await;
+    assert_eq!(login, StatusCode::OK);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn change_password_rejects_too_short_new_password() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Grace", "gracespass1").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/change-password",
+        Some(&cookie),
+        Some(&json!({ "current_password": "gracespass1", "new_password": "short" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn change_password_requires_authentication() {
+    let a = common::arena().await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/change-password",
+        None,
+        Some(&json!({ "current_password": "whatever1", "new_password": "newpassword2" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn logout_invalidates_the_session() {
     let a = common::arena().await;
     let cookie = common::register_account(&a.router, "Dave", "battery-staple").await;

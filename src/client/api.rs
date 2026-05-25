@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::{
-    AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
+    AuthResponse, ChangePasswordRequest, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
     CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
     EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
     ListFriendsResponse, ListGuildsResponse, ListLorebookResponse, ListMessagesResponse,
@@ -65,6 +65,20 @@ pub async fn login(body: &LoginRequest) -> Result<AuthResponse, ApiError> {
 
 pub async fn logout() -> Result<(), ApiError> {
     let resp = Request::post("/auth/logout").send().await.map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Change the signed-in account's password. 204, no body.
+pub async fn change_password(current: &str, new: &str) -> Result<(), ApiError> {
+    let resp = Request::post("/auth/change-password")
+        .json(&ChangePasswordRequest {
+            current_password: current.to_string(),
+            new_password: new.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
     decode_empty(resp).await
 }
 

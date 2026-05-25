@@ -678,6 +678,45 @@ textarea {
 	gap: 0.5rem;
 }
 
+// ---- account-management modal (reuses .modal / .modal-backdrop) ----
+.account-modal {
+	.account-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+
+		h2 {
+			margin: 0;
+			font-size: 1.05rem;
+		}
+	}
+
+	.account-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding-top: 0.5rem;
+		margin-top: 0.5rem;
+		border-top: 1px solid $line;
+
+		h3 {
+			margin: 0;
+			font-size: 0.9rem;
+			color: $muted;
+		}
+
+		.account-save {
+			align-self: flex-start;
+		}
+	}
+
+	.account-status {
+		min-height: 1em;
+		margin: 0.25rem 0 0;
+		color: #cdb8f0;
+	}
+}
+
 // `.who` is now a clickable button (opens the persona-info popup); strip the
 // default button chrome so it still reads as the author name.
 .msg .who {
