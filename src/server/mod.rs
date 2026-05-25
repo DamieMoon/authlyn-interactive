@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod guilds;
+pub mod lorebook;
 pub mod media;
 pub mod messages;
 pub mod personas;
@@ -67,6 +68,14 @@ fn small_body_routes() -> Router<AppState> {
         .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
+        )
+        .route(
+            "/channels/{cid}/lorebook",
+            get(lorebook::list_entries).post(lorebook::create_entry),
+        )
+        .route(
+            "/channels/{cid}/lorebook/{eid}",
+            patch(lorebook::patch_entry).delete(lorebook::delete_entry),
         )
         .route(
             "/personas",

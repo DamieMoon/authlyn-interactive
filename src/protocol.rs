@@ -271,3 +271,54 @@ pub struct AddGalleryImageResponse {
 pub struct SetActivePersonaRequest {
     pub persona_id: Option<String>,
 }
+
+// ---------------------------------------------------------------------------
+// Lorebook entries (SillyTavern-style world info; on a kind='lorebook' channel)
+// ---------------------------------------------------------------------------
+
+/// One lorebook entry. `keys` are the trigger keywords; `content` is the
+/// text a future AI layer would inject; `enabled`/`position` gate + order it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LorebookEntry {
+    pub id: String,
+    pub title: String,
+    pub keys: Vec<String>,
+    pub content: String,
+    pub enabled: bool,
+    pub position: i64,
+}
+
+/// Response from `GET /channels/{cid}/lorebook` — entries ordered by position.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListLorebookResponse {
+    pub entries: Vec<LorebookEntry>,
+}
+
+/// Body of `POST /channels/{cid}/lorebook`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateLorebookEntryRequest {
+    #[serde(default)]
+    pub title: Option<String>,
+    pub keys: Vec<String>,
+    pub content: String,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub position: Option<i64>,
+}
+
+/// Body of `PATCH /channels/{cid}/lorebook/{eid}` — partial update.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchLorebookEntryRequest {
+    pub title: Option<String>,
+    pub keys: Option<Vec<String>>,
+    pub content: Option<String>,
+    pub enabled: Option<bool>,
+    pub position: Option<i64>,
+}
+
+/// Response from `POST /channels/{cid}/lorebook`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateLorebookEntryResponse {
+    pub id: String,
+}
