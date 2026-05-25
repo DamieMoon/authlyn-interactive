@@ -8,6 +8,7 @@
 //! one, so the two caps must live on disjoint route groups.
 
 pub mod auth;
+pub mod friends;
 pub mod guilds;
 pub mod lorebook;
 pub mod media;
@@ -93,6 +94,12 @@ fn small_body_routes() -> Router<AppState> {
             "/personas/{id}/gallery/{img}",
             delete(personas::remove_gallery_image),
         )
+        .route(
+            "/friends",
+            get(friends::list_friends).post(friends::add_friend),
+        )
+        .route("/friends/{aid}/accept", post(friends::accept_friend))
+        .route("/friends/{aid}", delete(friends::remove_friend))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 

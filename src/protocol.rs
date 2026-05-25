@@ -322,3 +322,31 @@ pub struct PatchLorebookEntryRequest {
 pub struct CreateLorebookEntryResponse {
     pub id: String,
 }
+
+// ---------------------------------------------------------------------------
+// Friends (account-to-account; global, independent of guilds)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /friends` — send a friend request by username (or, if the
+/// target already requested you, accept it).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendRequest {
+    pub username: String,
+}
+
+/// One account in a friends list / pending list.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendSummary {
+    pub account_id: String,
+    pub username: String,
+}
+
+/// Response from `GET /friends`: accepted friends plus pending requests split
+/// by direction (`incoming` = others who requested you, `outgoing` = your
+/// unanswered requests).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListFriendsResponse {
+    pub friends: Vec<FriendSummary>,
+    pub incoming: Vec<FriendSummary>,
+    pub outgoing: Vec<FriendSummary>,
+}
