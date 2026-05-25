@@ -65,6 +65,14 @@ pub struct MeResponse {
     pub display_name: String,
 }
 
+/// Body of `POST /auth/change-password` (auth-required). The server verifies
+/// `current_password` against the stored hash, then re-hashes `new_password`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
 // ---------------------------------------------------------------------------
 // Guilds (servers), channels, membership
 // ---------------------------------------------------------------------------

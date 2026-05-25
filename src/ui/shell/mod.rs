@@ -21,11 +21,13 @@ use crate::protocol::{
 };
 use crate::ui::AuthCtx;
 
+mod account;
 mod channel;
 mod friends;
 mod lorebook;
 mod wardrobe;
 
+use account::AccountModal;
 use channel::ChannelPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
@@ -117,6 +119,8 @@ fn AppShell() -> impl IntoView {
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
     let new_invite = RwSignal::new(String::new());
+    // Account-management modal visibility (change password, future options).
+    let account_open = RwSignal::new(false);
     // Inline-rename edit state (owner only): the server title and per-channel rows.
     let editing_server = RwSignal::new(false);
     let server_edit_buf = RwSignal::new(String::new());
@@ -257,6 +261,10 @@ fn AppShell() -> impl IntoView {
                         on:click=move |_| s.nav_open.update(|o| *o = !*o)>"☰"</button>
                     <span class="muted">"Signed in as " <strong>{username}</strong></span>
                     <span class="spacer"></span>
+                    <button title="Account"
+                        on:click=move |_| { s.status.set(String::new()); account_open.set(true); }>
+                        "⚙"
+                    </button>
                     <button on:click=move |_| act::logout(auth)>"Log out"</button>
                 </header>
                 {move || match s.pane.get() {
@@ -270,6 +278,12 @@ fn AppShell() -> impl IntoView {
 
             // Mobile drawer backdrop: tap to close (hidden off mobile via CSS).
             <div class="scrim" on:click=move |_| s.nav_open.set(false)></div>
+
+            {move || if account_open.get() {
+                view! { <AccountModal s=s open=account_open/> }.into_any()
+            } else {
+                ().into_any()
+            }}
         </div>
     }
 }
@@ -376,6 +390,18 @@ mod act {
         spawn_local(async move {
             if let Ok(r) = api::list_guilds().await {
                 s.guilds.set(r.guilds);
+            }
+        });
+    }
+
+    /// Change the signed-in account's password. The new==confirm check is the
+    /// caller's (the modal's) job; this just hits the API and reports.
+    pub fn change_password(s: Shell, current: String, new: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::change_password(&current, &new).await {
+                Ok(()) => s.status.set("password changed".to_string()),
+                Err(e) => s.status.set(api::humanize(&e)),
             }
         });
     }
@@ -828,6 +854,7 @@ mod act {
 
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
+    pub fn change_password(_s: Shell, _current: String, _new: String) {}
     pub fn restore_session(_s: Shell) -> bool {
         false
     }
