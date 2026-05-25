@@ -1,13 +1,17 @@
 //! Server-side axum bits: the shared [`AppState`] and the route table that
 //! `main.rs` mounts (and the test harness consumes via [`make_router`]).
 //!
-//! Phase-1 rebuild in progress — handler modules land per build step. The
-//! kept infrastructure (`retry`, `datetime`) is re-wired as the first handler
-//! that needs it arrives. See `~/.claude/plans/synthetic-zooming-cookie.md`.
+//! Routes split into two body-limit groups: JSON routes under a tight 64 KiB
+//! cap, and media upload/download under a 16 MiB cap. The split is required
+//! because `RequestBodyLimitLayer` composes with min-limit semantics — a
+//! larger inner cap under a smaller outer one still rejects at the smaller
+//! one, so the two caps must live on disjoint route groups.
 
 pub mod auth;
 pub mod guilds;
+pub mod media;
 pub mod messages;
+pub mod personas;
 pub mod retry;
 pub mod state;
 
@@ -15,23 +19,21 @@ pub mod state;
 // Used by `messages::load_messages`; kept private to the server module.
 mod datetime;
 
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
 
 pub use self::state::AppState;
 
-/// Hard cap on JSON request bodies. Auth payloads are a username + a
-/// password; 64 KiB is generous headroom while bounding adversarial input.
-/// Media uploads (added later) get their own larger cap on a separate group.
+/// Tight cap for JSON request bodies (auth, guilds, messages, personas, …).
 const REQUEST_BODY_LIMIT_BYTES: usize = 64 * 1024;
 
-/// Build the API subrouter (everything outside the Leptos handlers).
-///
-/// `register`/`login` are public; `logout`/`me` self-gate via the
-/// [`auth::AuthAccount`] extractor (or, for logout, by reading the cookie
-/// directly), so no global auth middleware is needed.
-fn api_routes() -> Router<AppState> {
+/// Larger cap for `POST /media` image uploads.
+const MEDIA_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+
+/// JSON API routes, under the small body cap. Mutations self-gate via the
+/// [`auth::AuthAccount`] extractor; `register`/`login` are public.
+fn small_body_routes() -> Router<AppState> {
     Router::new()
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
@@ -55,24 +57,54 @@ fn api_routes() -> Router<AppState> {
         .route("/guilds/{id}/members", post(guilds::invite_member))
         .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
         .route(
+            "/guilds/{id}/active-persona",
+            put(personas::set_active_persona),
+        )
+        .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
+        )
+        .route(
+            "/personas",
+            get(personas::list_personas).post(personas::create_persona),
+        )
+        .route(
+            "/personas/{id}",
+            get(personas::get_persona)
+                .patch(personas::patch_persona)
+                .delete(personas::delete_persona),
+        )
+        .route("/personas/{id}/avatar", put(personas::set_avatar))
+        .route("/personas/{id}/gallery", post(personas::add_gallery_image))
+        .route(
+            "/personas/{id}/gallery/{img}",
+            delete(personas::remove_gallery_image),
         )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 
+/// Media upload/download, under the larger body cap.
+fn media_routes() -> Router<AppState> {
+    Router::new()
+        .route("/media", post(media::upload_media))
+        .route("/media/{id}", get(media::download_media))
+        .layer(RequestBodyLimitLayer::new(MEDIA_BODY_LIMIT_BYTES))
+}
+
+fn api_routes() -> Router<AppState> {
+    Router::new()
+        .merge(small_body_routes())
+        .merge(media_routes())
+}
+
 /// Build the application-specific routes bound to the given [`AppState`].
-///
-/// Returns a `Router<()>`: `.with_state(state)` has already been applied,
-/// so this is ready to drop into `axum::serve` as-is. Tests rely on this
-/// shape so they can call `Router::oneshot` without a separate state arg.
+/// Returns a `Router<()>` (state already applied) so tests can `oneshot`.
 pub fn make_router(state: AppState) -> Router {
     api_routes().with_state(state)
 }
 
-/// Same routes as [`make_router`] but stays `Router<AppState>` so the
-/// caller can merge other state-aware routers (e.g. Leptos) on top.
-/// Used by `main.rs` — tests don't need it.
+/// Same routes as [`make_router`] but stays `Router<AppState>` so `main.rs`
+/// can merge the Leptos handlers on top.
 pub fn api_router() -> Router<AppState> {
     api_routes()
 }

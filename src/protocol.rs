@@ -177,3 +177,90 @@ pub struct MessageEnvelope {
 pub struct ListMessagesResponse {
     pub messages: Vec<MessageEnvelope>,
 }
+
+// ---------------------------------------------------------------------------
+// Media (server-visible images: avatars, persona art, gallery)
+// ---------------------------------------------------------------------------
+
+/// Successful response from `POST /media` (multipart upload). The `id` is
+/// used directly in a `/media/{id}` URL as an `<img>` source.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MediaUploadResponse {
+    pub id: String,
+}
+
+// ---------------------------------------------------------------------------
+// Personas (account-global; "worn" per-guild)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /personas`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreatePersonaRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// Body of `PATCH /personas/{id}` — partial update.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchPersonaRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+/// One persona in a list (the wardrobe grid).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PersonaSummary {
+    pub id: String,
+    pub name: String,
+    pub avatar_id: Option<String>,
+}
+
+/// Response from `GET /personas`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListPersonasResponse {
+    pub personas: Vec<PersonaSummary>,
+}
+
+/// One gallery image of a persona.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GalleryImage {
+    pub id: String,
+    pub media_id: String,
+    pub position: i64,
+}
+
+/// Response from `GET /personas/{id}` — the persona plus its gallery.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PersonaDetail {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub avatar_id: Option<String>,
+    pub gallery: Vec<GalleryImage>,
+}
+
+/// Body of `PUT /personas/{id}/avatar` — set the primary image.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetAvatarRequest {
+    pub media_id: String,
+}
+
+/// Body of `POST /personas/{id}/gallery` — add a gallery image.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddGalleryImageRequest {
+    pub media_id: String,
+}
+
+/// Response from `POST /personas/{id}/gallery`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddGalleryImageResponse {
+    pub id: String,
+}
+
+/// Body of `PUT /guilds/{id}/active-persona` — wear a persona in this guild,
+/// or `null` to take it off.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetActivePersonaRequest {
+    pub persona_id: Option<String>,
+}
