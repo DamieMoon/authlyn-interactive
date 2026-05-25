@@ -641,6 +641,64 @@ mod act {
         });
     }
 
+    /// Redeem a persona share key (gain editor access), then reload the
+    /// wardrobe grid so the shared persona appears.
+    pub fn redeem_persona(s: Shell, key: String) {
+        if key.trim().is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            match api::redeem_persona_key(key.trim()).await {
+                Ok(()) => {
+                    if let Ok(r) = api::list_personas().await {
+                        s.personas.set(r.personas);
+                    }
+                    s.status.set("Persona added.".to_string());
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Fetch a persona's owner-only sharing info (share key + editor roster)
+    /// and populate the two signals the detail editor binds to.
+    pub fn load_persona_share(
+        s: Shell,
+        pid: String,
+        share_key: RwSignal<Option<String>>,
+        editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
+    ) {
+        spawn_local(async move {
+            match api::get_persona(&pid).await {
+                Ok(detail) => {
+                    share_key.set(detail.share_key);
+                    editors.set(detail.editors);
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Revoke an editor's access (owner only), then refresh the editor list
+    /// signal the detail editor is bound to.
+    pub fn remove_persona_editor(
+        s: Shell,
+        pid: String,
+        aid: String,
+        editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
+    ) {
+        spawn_local(async move {
+            match api::remove_persona_editor(&pid, &aid).await {
+                Ok(()) => {
+                    if let Ok(r) = api::list_persona_editors(&pid).await {
+                        editors.set(r.editors);
+                    }
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn wear_persona(s: Shell, pid: String) {
         let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
@@ -853,6 +911,21 @@ mod act {
     ) {
     }
     pub fn remove_persona(_s: Shell, _pid: String) {}
+    pub fn redeem_persona(_s: Shell, _key: String) {}
+    pub fn load_persona_share(
+        _s: Shell,
+        _pid: String,
+        _share_key: RwSignal<Option<String>>,
+        _editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
+    ) {
+    }
+    pub fn remove_persona_editor(
+        _s: Shell,
+        _pid: String,
+        _aid: String,
+        _editors: RwSignal<Vec<crate::protocol::PersonaEditor>>,
+    ) {
+    }
     pub fn wear_persona(_s: Shell, _pid: String) {}
     pub fn unwear(_s: Shell) {}
     pub fn add_friend(_s: Shell, _username: String) {}

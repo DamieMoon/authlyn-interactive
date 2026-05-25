@@ -44,8 +44,20 @@ DEFINE FIELD IF NOT EXISTS owner       ON persona TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS name        ON persona TYPE string;
 DEFINE FIELD IF NOT EXISTS description ON persona TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS avatar      ON persona TYPE option<record<media_blob>>;  -- primary image
+DEFINE FIELD IF NOT EXISTS share_key   ON persona TYPE string DEFAULT '';  -- redeem token granting edit access
 DEFINE FIELD IF NOT EXISTS created_at  ON persona TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS persona_owner ON persona FIELDS owner;
+-- Non-unique: every fresh persona gets a random 22-char token (collision-free
+-- in practice); a plain index keeps the redeem lookup fast without rejecting
+-- the empty-default sentinel on any pre-existing rows.
+DEFINE INDEX IF NOT EXISTS persona_share_key ON persona FIELDS share_key;
+
+-- Persona editors (key-redeem grants another account edit+wear access) -----
+DEFINE TABLE IF NOT EXISTS persona_editor SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS persona    ON persona_editor TYPE record<persona>;
+DEFINE FIELD IF NOT EXISTS account    ON persona_editor TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS created_at ON persona_editor TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS persona_editor_pair ON persona_editor FIELDS persona, account UNIQUE;
 
 -- Persona gallery (a persona owns N images, ordered by `position`) -------
 DEFINE TABLE IF NOT EXISTS persona_image SCHEMAFULL;

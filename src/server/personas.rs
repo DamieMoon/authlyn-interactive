@@ -17,14 +17,25 @@ use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, CreatePersonaRequest, ErrorBody, GalleryImage,
-    ListPersonasResponse, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    SetActivePersonaRequest, SetAvatarRequest,
+    ListPersonaEditorsResponse, ListPersonasResponse, PatchPersonaRequest, PersonaDetail,
+    PersonaEditor, PersonaSummary, RedeemPersonaKeyRequest, SetActivePersonaRequest,
+    SetAvatarRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 
 const MAX_NAME_CHARS: usize = 100;
 const MAX_DESCRIPTION_CHARS: usize = 4000;
+
+/// Mint a url-safe random share key (32 bytes → 43 base64url-no-pad chars).
+fn random_share_key() -> String {
+    use base64::Engine;
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
 
 // ---------------------------------------------------------------------------
 // GET /personas
@@ -48,13 +59,22 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         name: String,
         description: String,
         avatar_id: Option<String>,
+        owned: bool,
     }
+    // Personas the caller owns OR can edit (a persona_editor row exists). The
+    // editor set is resolved from the join table; `owned` flags which controls
+    // the UI shows. Ordered by name for a stable wardrobe grid.
     let mut resp = state
         .db
         .query(
             "SELECT meta::id(id) AS id_key, name, description,
-                (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
-                FROM persona WHERE owner = type::record('account', $account) ORDER BY name;",
+                (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
+                (owner = type::record('account', $account)) AS owned
+                FROM persona
+                WHERE owner = type::record('account', $account)
+                   OR id IN (SELECT VALUE persona FROM persona_editor
+                             WHERE account = type::record('account', $account))
+                ORDER BY name;",
         )
         .bind(("account", account.to_string()))
         .await?
@@ -67,6 +87,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             name: r.name,
             description: r.description,
             avatar_id: r.avatar_id,
+            owned: r.owned,
         })
         .collect())
 }
@@ -99,18 +120,21 @@ pub async fn create_persona(
     struct IdRow {
         id_key: String,
     }
+    let share_key = random_share_key();
     let mut resp = match state
         .db
         .query(
             "CREATE persona SET
                 owner = type::record('account', $account),
                 name = $name,
-                description = $description
+                description = $description,
+                share_key = $share_key
                 RETURN meta::id(id) AS id_key;",
         )
         .bind(("account", account.0))
         .bind(("name", name.clone()))
         .bind(("description", description))
+        .bind(("share_key", share_key))
         .await
         .and_then(|r| r.check())
     {
@@ -128,6 +152,7 @@ pub async fn create_persona(
                 name,
                 description: description_echo,
                 avatar_id: None,
+                owned: true,
             }),
         )
             .into_response(),
@@ -149,15 +174,26 @@ pub async fn get_persona(
     Path(pid): Path<String>,
     account: AuthAccount,
 ) -> Response {
-    match owns_persona(&state, &pid, &account.0).await {
-        Ok(true) => {}
-        Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+    // Owner sees the share key + editor list; an editor (redeemed via key) sees
+    // the persona but neither the key nor the editor roster.
+    let is_owner = match owns_persona(&state, &pid, &account.0).await {
+        Ok(v) => v,
         Err(e) => {
             tracing::error!(error = %e, "owns_persona failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
+    };
+    if !is_owner {
+        match is_persona_editor(&state, &pid, &account.0).await {
+            Ok(true) => {}
+            Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+            Err(e) => {
+                tracing::error!(error = %e, "is_persona_editor failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        }
     }
-    match load_persona_detail(&state, &pid).await {
+    match load_persona_detail(&state, &pid, is_owner).await {
         Ok(Some(detail)) => (StatusCode::OK, Json(detail)).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, "persona not found"),
         Err(e) => {
@@ -170,12 +206,14 @@ pub async fn get_persona(
 async fn load_persona_detail(
     state: &AppState,
     pid: &str,
+    is_owner: bool,
 ) -> surrealdb::Result<Option<PersonaDetail>> {
     #[derive(SurrealValue)]
     struct PRow {
         name: String,
         description: String,
         avatar_id: Option<String>,
+        share_key: String,
     }
     #[derive(SurrealValue)]
     struct GRow {
@@ -186,7 +224,7 @@ async fn load_persona_detail(
     let mut resp = state
         .db
         .query(
-            "SELECT name, description,
+            "SELECT name, description, share_key,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
                 FROM type::record('persona', $pid);
              SELECT meta::id(id) AS id_key, meta::id(media) AS media_id, position
@@ -200,11 +238,20 @@ async fn load_persona_detail(
         return Ok(None);
     };
     let gallery: Vec<GRow> = resp.take(1)?;
+    // Owner-only fields: the share key (so editors can't re-share) and the
+    // editor roster. Editors get `None` / empty.
+    let (share_key, editors) = if is_owner {
+        (Some(p.share_key), load_persona_editors(state, pid).await?)
+    } else {
+        (None, Vec::new())
+    };
     Ok(Some(PersonaDetail {
         id: pid.to_string(),
         name: p.name,
         description: p.description,
         avatar_id: p.avatar_id,
+        share_key,
+        editors,
         gallery: gallery
             .into_iter()
             .map(|g| GalleryImage {
@@ -231,11 +278,12 @@ pub async fn patch_persona(
         Ok(json) => json,
         Err(rej) => return json_rejection_response(rej),
     };
-    match owns_persona(&state, &pid, &account.0).await {
+    // Owner OR a redeemed editor may edit name/description.
+    match can_edit_persona(&state, &pid, &account.0).await {
         Ok(true) => {}
         Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
         Err(e) => {
-            tracing::error!(error = %e, "owns_persona failed");
+            tracing::error!(error = %e, "can_edit_persona failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
@@ -299,6 +347,7 @@ pub async fn delete_persona(
     let sql = r#"
         BEGIN TRANSACTION;
         DELETE FROM persona_image WHERE persona = type::record("persona", $pid);
+        DELETE FROM persona_editor WHERE persona = type::record("persona", $pid);
         UPDATE guild_member SET active_persona = NONE
             WHERE active_persona = type::record("persona", $pid);
         DELETE type::record("persona", $pid);
@@ -487,11 +536,12 @@ pub async fn set_active_persona(
     }
 
     if let Some(ref pid) = req.persona_id {
-        match owns_persona(&state, pid, &account.0).await {
+        // Editors (key-redeemed) may also wear the persona, not just the owner.
+        match can_edit_persona(&state, pid, &account.0).await {
             Ok(true) => {}
             Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
             Err(e) => {
-                tracing::error!(error = %e, "owns_persona failed");
+                tracing::error!(error = %e, "can_edit_persona failed");
                 return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
             }
         }
@@ -532,6 +582,155 @@ pub async fn set_active_persona(
 }
 
 // ---------------------------------------------------------------------------
+// POST /personas/redeem  — gain editor access via a share key
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn redeem_persona_key(
+    State(state): State<AppState>,
+    account: AuthAccount,
+    payload: Result<Json<RedeemPersonaKeyRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    let key = req.key.trim().to_string();
+    if key.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "key required");
+    }
+
+    // Resolve the persona + its owner from the key.
+    #[derive(SurrealValue)]
+    struct Row {
+        id_key: String,
+        owner_id: String,
+    }
+    let found = match state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key, meta::id(owner) AS owner_id
+                FROM persona WHERE share_key = $key LIMIT 1;",
+        )
+        .bind(("key", key))
+        .await
+        .and_then(|mut r| r.take::<Option<Row>>(0))
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!(error = %e, "redeem lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    let Some(persona) = found else {
+        return error_response(StatusCode::NOT_FOUND, "no such key");
+    };
+    if persona.owner_id == account.0 {
+        return error_response(StatusCode::CONFLICT, "you own this persona");
+    }
+
+    let caller = account.0.clone();
+    let pid = persona.id_key.clone();
+    let result = with_write_conflict_retry(|| async {
+        state
+            .db
+            .query(
+                "CREATE persona_editor SET
+                    persona = type::record('persona', $pid),
+                    account = type::record('account', $account);",
+            )
+            .bind(("pid", pid.clone()))
+            .bind(("account", caller.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await;
+    match result {
+        Ok(()) => StatusCode::CREATED.into_response(),
+        Err(e) if is_unique_violation(&e) => {
+            error_response(StatusCode::CONFLICT, "already an editor")
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "redeem_persona_key write failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /personas/{id}/editors  +  DELETE /personas/{id}/editors/{aid}
+// ---------------------------------------------------------------------------
+
+#[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
+pub async fn list_editors(
+    State(state): State<AppState>,
+    Path(pid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    // Owner-only roster.
+    match owns_persona(&state, &pid, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "owns_persona failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    match load_persona_editors(&state, &pid).await {
+        Ok(editors) => {
+            (StatusCode::OK, Json(ListPersonaEditorsResponse { editors })).into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "load_persona_editors failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+#[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid, editor = %aid))]
+pub async fn remove_editor(
+    State(state): State<AppState>,
+    Path((pid, aid)): Path<(String, String)>,
+    account: AuthAccount,
+) -> Response {
+    // Owner-only: revoke an editor's access.
+    match owns_persona(&state, &pid, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "owns_persona failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    // Also stop the removed editor from "wearing" it anywhere.
+    let sql = r#"
+        BEGIN TRANSACTION;
+        DELETE FROM persona_editor
+            WHERE persona = type::record("persona", $pid)
+              AND account = type::record("account", $aid);
+        UPDATE guild_member SET active_persona = NONE
+            WHERE active_persona = type::record("persona", $pid)
+              AND account = type::record("account", $aid);
+        COMMIT TRANSACTION;
+    "#;
+    match state
+        .db
+        .query(sql)
+        .bind(("pid", pid))
+        .bind(("aid", aid))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "remove_editor failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -552,6 +751,66 @@ async fn owns_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.is_some())
+}
+
+/// True when a `persona_editor` row links this persona to the account.
+async fn is_persona_editor(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
+    #[derive(SurrealValue)]
+    struct IdRow {
+        id_key: String,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key FROM persona_editor
+                WHERE persona = type::record('persona', $pid)
+                  AND account = type::record('account', $account);",
+        )
+        .bind(("pid", pid.to_string()))
+        .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    Ok(resp.take::<Option<IdRow>>(0)?.is_some())
+}
+
+/// Edit access = owner OR a redeemed editor. Used to gate PATCH + wear.
+async fn can_edit_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
+    if owns_persona(state, pid, account).await? {
+        return Ok(true);
+    }
+    is_persona_editor(state, pid, account).await
+}
+
+/// The editor roster for a persona (owner-only view).
+async fn load_persona_editors(
+    state: &AppState,
+    pid: &str,
+) -> surrealdb::Result<Vec<PersonaEditor>> {
+    #[derive(SurrealValue)]
+    struct Row {
+        account_id: String,
+        username: String,
+    }
+    // Order by the projected username (SurrealDB requires the ORDER BY idiom to
+    // be a selected field); editor ordering isn't otherwise load-bearing.
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(account) AS account_id, account.username AS username
+                FROM persona_editor WHERE persona = type::record('persona', $pid)
+                ORDER BY username;",
+        )
+        .bind(("pid", pid.to_string()))
+        .await?
+        .check()?;
+    let rows: Vec<Row> = resp.take(0)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| PersonaEditor {
+            account_id: r.account_id,
+            username: r.username,
+        })
+        .collect())
 }
 
 async fn media_exists(state: &AppState, mid: &str) -> surrealdb::Result<bool> {

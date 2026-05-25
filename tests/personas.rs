@@ -360,3 +360,209 @@ async fn cannot_wear_someone_elses_persona() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+// ---------------------------------------------------------------------------
+// Key-based shared persona editing (redeem → editor access)
+// ---------------------------------------------------------------------------
+
+/// Fetch a persona's share key via the owner's detail view.
+#[cfg(feature = "ssr")]
+async fn share_key_of(router: &axum::Router, owner_cookie: &str, pid: &str) -> String {
+    let (status, _, detail) = common::send(
+        router,
+        Method::GET,
+        &format!("/personas/{pid}"),
+        Some(owner_cookie),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    detail["share_key"]
+        .as_str()
+        .expect("owner detail must carry share_key")
+        .to_string()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn redeem_grants_edit_and_wear_then_revoke() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let editor = common::register_account(&a.router, "Editor", "password123").await;
+
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+    assert!(!key.is_empty(), "owner should see a non-empty share key");
+
+    // An editor (non-owner) does NOT see the key (None) and gets a 404 before
+    // redeeming.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}"),
+        Some(&editor),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Redeem the key → editor access.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // Redeeming again → 409 (already an editor).
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // The persona now appears in the editor's list with owned=false.
+    let (status, _, list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&editor), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let personas = list["personas"].as_array().unwrap();
+    assert_eq!(personas.len(), 1);
+    assert_eq!(personas[0]["id"], pid.as_str());
+    assert_eq!(personas[0]["owned"], false);
+
+    // And in the owner's list with owned=true.
+    let (_, _, owner_list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(owner_list["personas"][0]["owned"], true);
+
+    // Editor can PATCH (edit) the persona.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&editor),
+        Some(&json!({ "description": "edited by sharer" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, _, owner_list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(owner_list["personas"][0]["description"], "edited by sharer");
+
+    // Editor CANNOT delete (owner-only) → 404 (privacy).
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}"),
+        Some(&editor),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Editor can wear it in a guild they're a member of.
+    let (gid, _cid) = guild_with_channel(&a.router, &editor).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/active-persona"),
+        Some(&editor),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Owner sees the editor in the roster, then removes them.
+    let (status, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let editors = roster["editors"].as_array().unwrap();
+    assert_eq!(editors.len(), 1);
+    let editor_aid = editors[0]["account_id"].as_str().unwrap().to_string();
+    assert_eq!(editors[0]["username"], "Editor");
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/editors/{editor_aid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // After revocation the editor can no longer patch it (privacy-404).
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&editor),
+        Some(&json!({ "description": "should fail" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // And it's gone from the editor's list.
+    let (_, _, list) = common::send(&a.router, Method::GET, "/personas", Some(&editor), None).await;
+    assert_eq!(list["personas"].as_array().unwrap().len(), 0);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn redeem_bad_key_is_404() {
+    let a = common::arena().await;
+    let user = common::register_account(&a.router, "User", "password123").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&user),
+        Some(&json!({ "key": "this-key-does-not-exist" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn owner_cannot_redeem_own_key() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let pid = create_persona(&a.router, &owner, "Mine").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&owner),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // Editor roster endpoint is owner-only: a stranger gets 404.
+    let stranger = common::register_account(&a.router, "Stranger", "password123").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&stranger),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

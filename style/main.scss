@@ -601,6 +601,53 @@ textarea {
 			color: $accent;
 		}
 	}
+
+	// Owner-only sharing block: read-only key + editor roster.
+	.share-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding-top: 0.4rem;
+		border-top: 1px solid $line;
+
+		.share-key {
+			font-family: monospace;
+			font-size: 0.8rem;
+			color: $accent;
+			cursor: text;
+		}
+
+		.editor-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.3rem;
+			font-size: 0.85rem;
+		}
+
+		.editor-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.5rem;
+			padding: 0.25rem 0.4rem;
+			background: $panel-2;
+			border: 1px solid $line;
+			border-radius: 0.4rem;
+		}
+	}
+}
+
+// The "add by key" row sits beside the create row in the wardrobe.
+.wardrobe .redeem-row {
+	margin-top: -0.5rem;
+}
+
+// Non-owner card badge (shared persona — no delete control).
+.shared-tag {
+	font-size: 0.75rem;
+	color: $muted;
+	align-self: center;
+	padding: 0 0.3rem;
 }
 
 // ---- message markup palette ----
