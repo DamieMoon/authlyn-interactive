@@ -11,8 +11,8 @@ use crate::protocol::{
     CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest, ErrorBody,
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
     ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, PersonaSummary, RegisterRequest, SendMessageRequest,
-    SendMessageResponse, SetActivePersonaRequest,
+    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PersonaSummary,
+    RegisterRequest, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -94,6 +94,33 @@ pub async fn invite_member(gid: &str, username: &str) -> Result<(), ApiError> {
     let resp = Request::post(&format!("/guilds/{gid}/members"))
         .json(&InviteMemberRequest {
             username: username.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Rename a guild (owner/admin only). 204, no body.
+pub async fn patch_guild(gid: &str, name: &str) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/guilds/{gid}"))
+        .json(&PatchGuildRequest {
+            name: Some(name.to_string()),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Rename a channel (owner/admin only). 204, no body.
+pub async fn patch_channel(gid: &str, cid: &str, name: &str) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/guilds/{gid}/channels/{cid}"))
+        .json(&PatchChannelRequest {
+            name: Some(name.to_string()),
+            ..Default::default()
         })
         .map_err(codec)?
         .send()

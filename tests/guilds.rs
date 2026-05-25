@@ -183,6 +183,90 @@ async fn invite_grants_invitee_access() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn rename_guild_and_channel_is_manager_gated() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Old Name").await;
+
+    // Grab the default channel id.
+    let (_, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let cid = body["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Owner renames the guild, then the channel.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        Some(&json!({ "name": "New Name" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/guilds/{gid}/channels/{cid}"),
+        Some(&owner),
+        Some(&json!({ "name": "renamed" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // Both renames are reflected.
+    let (_, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(body["name"], "New Name");
+    assert_eq!(body["channels"][0]["name"], "renamed");
+
+    // A plain member cannot rename the guild or its channels.
+    let member = common::register_account(&a.router, "Member", "password123").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Member" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/guilds/{gid}"),
+        Some(&member),
+        Some(&json!({ "name": "hax" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/guilds/{gid}/channels/{cid}"),
+        Some(&member),
+        Some(&json!({ "name": "hax" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn concurrent_invite_yields_one_member_row() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;

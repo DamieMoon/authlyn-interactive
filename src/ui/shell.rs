@@ -103,10 +103,25 @@ fn AppShell() -> impl IntoView {
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
     let new_invite = RwSignal::new(String::new());
-    // The invite box shows only to the owner of the currently-open server.
+    // Inline-rename edit state (owner only): the server title and per-channel rows.
+    let editing_server = RwSignal::new(false);
+    let server_edit_buf = RwSignal::new(String::new());
+    let editing_channel = RwSignal::new(None::<String>);
+    let channel_edit_buf = RwSignal::new(String::new());
+    // The invite/manage controls show only to the owner of the open server.
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
         me.is_some() && me == s.sel_owner.get()
+    };
+    // The open server's name, derived from the rail list (auto-updates on rename).
+    let server_name = move || {
+        let sid = s.sel_server.get();
+        s.guilds
+            .get()
+            .into_iter()
+            .find(|g| Some(&g.id) == sid.as_ref())
+            .map(|g| g.name)
+            .unwrap_or_default()
     };
 
     // On mount: load the guild rail + the friends home. (No-ops on ssr.)
@@ -125,8 +140,10 @@ fn AppShell() -> impl IntoView {
                 {move || s.guilds.get().into_iter().map(|g| {
                     let gid = g.id.clone();
                     let initial = g.name.chars().next().unwrap_or('#').to_uppercase().to_string();
+                    let gid_active = gid.clone();
                     view! {
                         <button class="rail-guild" title=g.name
+                            class:active=move || s.sel_server.get().as_deref() == Some(gid_active.as_str())
                             on:click=move |_| act::open_server(s, gid.clone())>
                             {initial}
                         </button>
@@ -149,36 +166,53 @@ fn AppShell() -> impl IntoView {
                     fallback=|| view! {
                         <p class="muted pad">"Pick or create a server, or visit Friends (@)."</p>
                     }>
+                    <div class="server-header">
+                        {move || if editing_server.get() {
+                            view! {
+                                <input class="rename-input" prop:value=move || server_edit_buf.get()
+                                    on:input=move |ev| server_edit_buf.set(event_target_value(&ev))/>
+                                <button class="row-edit" title="save" on:click=move |_| {
+                                    if let Some(gid) = s.sel_server.get_untracked() {
+                                        act::rename_server(s, gid, server_edit_buf.get_untracked());
+                                    }
+                                    editing_server.set(false);
+                                }>"✓"</button>
+                                <button class="row-edit" title="cancel"
+                                    on:click=move |_| editing_server.set(false)>"✕"</button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class="server-title">{server_name()}</span>
+                                <Show when=is_owner fallback=|| ()>
+                                    <button class="row-edit" title="rename server" on:click=move |_| {
+                                        server_edit_buf.set(server_name());
+                                        editing_server.set(true);
+                                    }>"✎"</button>
+                                </Show>
+                            }.into_any()
+                        }}
+                    </div>
                     <button class="wardrobe-btn"
                         on:click=move |_| { act::show_wardrobe(s); s.nav_open.set(false); }>
                         "🎭 Wardrobe"
                     </button>
                     <ul class="channels">
                         {move || s.channels.get().into_iter().map(|c| {
-                            let ch = c.clone();
-                            let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
-                            let cid = c.id.clone();
-                            let active = move || s.sel_channel.get().map(|sc| sc.id) == Some(cid.clone());
-                            view! {
-                                <li>
-                                    <button class="channel" class:active=active
-                                        on:click=move |_| { act::open_channel(s, ch.clone()); s.nav_open.set(false); }>
-                                        {sigil}{c.name}
-                                    </button>
-                                </li>
-                            }
+                            view! { <ChannelRow s=s ch=c editing=editing_channel buf=channel_edit_buf/> }
                         }).collect_view()}
                     </ul>
-                    <div class="channel-add">
-                        <input prop:value=move || new_channel.get()
-                            on:input=move |ev| new_channel.set(event_target_value(&ev))
-                            placeholder="new text channel"/>
-                        <button on:click=move |_| {
-                            let name = new_channel.get_untracked();
-                            new_channel.set(String::new());
-                            act::create_channel(s, name);
-                        }>"+"</button>
-                    </div>
+                    <Show when=is_owner fallback=|| ()>
+                        <div class="channel-add">
+                            <input prop:value=move || new_channel.get()
+                                on:input=move |ev| new_channel.set(event_target_value(&ev))
+                                placeholder="new text channel"/>
+                            <button on:click=move |_| {
+                                let name = new_channel.get_untracked();
+                                new_channel.set(String::new());
+                                act::create_channel(s, name);
+                            }>"+"</button>
+                        </div>
+                    </Show>
                     <Show when=is_owner fallback=|| ()>
                         <div class="invite-row">
                             <input prop:value=move || new_invite.get()
@@ -217,6 +251,71 @@ fn AppShell() -> impl IntoView {
             // Mobile drawer backdrop: tap to close (hidden off mobile via CSS).
             <div class="scrim" on:click=move |_| s.nav_open.set(false)></div>
         </div>
+    }
+}
+
+/// One channel row in the sidebar: the open-channel button, plus an owner-only
+/// inline rename (✎ → input + ✓/✕). Edit state is shared across rows via the
+/// `editing` (which cid, if any) and `buf` signals owned by `AppShell`.
+#[component]
+fn ChannelRow(
+    s: Shell,
+    ch: ChannelSummary,
+    editing: RwSignal<Option<String>>,
+    buf: RwSignal<String>,
+) -> impl IntoView {
+    let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
+    let is_owner = move || {
+        let me = auth.user.get().map(|u| u.account_id);
+        me.is_some() && me == s.sel_owner.get()
+    };
+    let cid = ch.id.clone();
+    let name0 = ch.name.clone();
+    let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
+    view! {
+        <li>
+            {move || {
+                let cid = cid.clone();
+                let name0 = name0.clone();
+                let ch = ch.clone();
+                if editing.get().as_deref() == Some(cid.as_str()) {
+                    let cid_save = cid.clone();
+                    view! {
+                        <input class="rename-input" prop:value=move || buf.get()
+                            on:input=move |ev| buf.set(event_target_value(&ev))/>
+                        <button class="row-edit" title="save" on:click=move |_| {
+                            if let Some(gid) = s.sel_server.get_untracked() {
+                                act::rename_channel(s, gid, cid_save.clone(), buf.get_untracked());
+                            }
+                            editing.set(None);
+                        }>"✓"</button>
+                        <button class="row-edit" title="cancel"
+                            on:click=move |_| editing.set(None)>"✕"</button>
+                    }.into_any()
+                } else {
+                    let active_cid = cid.clone();
+                    let active = move || s.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
+                    let start_cid = cid.clone();
+                    let start_name = name0.clone();
+                    view! {
+                        <button class="channel" class:active=active
+                            on:click=move |_| { act::open_channel(s, ch.clone()); s.nav_open.set(false); }>
+                            {sigil}{name0.clone()}
+                        </button>
+                        <Show when=is_owner fallback=|| ()>
+                            <button class="row-edit" title="rename channel" on:click={
+                                let start_cid = start_cid.clone();
+                                let start_name = start_name.clone();
+                                move |_| {
+                                    buf.set(start_name.clone());
+                                    editing.set(Some(start_cid.clone()));
+                                }
+                            }>"✎"</button>
+                        </Show>
+                    }.into_any()
+                }
+            }}
+        </li>
     }
 }
 
@@ -642,6 +741,50 @@ mod act {
         });
     }
 
+    pub fn rename_server(s: Shell, gid: String, name: String) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            match api::patch_guild(&gid, &name).await {
+                // Patch the rail list in place; the sidebar title derives from it.
+                Ok(()) => s.guilds.update(|gs| {
+                    if let Some(g) = gs.iter_mut().find(|g| g.id == gid) {
+                        g.name = name.clone();
+                    }
+                }),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            match api::patch_channel(&gid, &cid, &name).await {
+                Ok(()) => {
+                    s.channels.update(|cs| {
+                        if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
+                            c.name = name.clone();
+                        }
+                    });
+                    s.sel_channel.update(|sc| {
+                        if let Some(c) = sc {
+                            if c.id == cid {
+                                c.name = name.clone();
+                            }
+                        }
+                    });
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn accept_friend(s: Shell, aid: String) {
         spawn_local(async move {
             let _ = api::accept_friend(&aid).await;
@@ -744,6 +887,8 @@ mod act {
     pub fn create_server(_s: Shell, _name: String) {}
     pub fn create_channel(_s: Shell, _name: String) {}
     pub fn invite_member(_s: Shell, _gid: String, _username: String) {}
+    pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
+    pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
     pub fn send_message(_s: Shell) {}
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}

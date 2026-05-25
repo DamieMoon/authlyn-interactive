@@ -130,6 +130,12 @@ textarea {
 		font-weight: 700;
 		text-transform: uppercase;
 		padding: 0;
+
+		&.active {
+			border-color: $accent;
+			box-shadow: 0 0 0 2px $accent;
+			color: $text;
+		}
 	}
 
 	.rail-add {
@@ -153,13 +159,42 @@ textarea {
 	flex-direction: column;
 	overflow-y: auto;
 
+	.server-header {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid $line;
+
+		.server-title {
+			flex: 1;
+			min-width: 0;
+			font-weight: 600;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.rename-input {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+
 	.channels {
 		list-style: none;
 		margin: 0;
 		padding: 0.5rem;
 
+		li {
+			display: flex;
+			align-items: center;
+			gap: 0.15rem;
+		}
+
 		.channel {
-			width: 100%;
+			flex: 1;
+			min-width: 0;
 			text-align: left;
 			background: transparent;
 			border: none;
@@ -176,6 +211,24 @@ textarea {
 				background: $panel-2;
 				color: $text;
 			}
+		}
+
+		.rename-input {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+
+	// Small ghost icon-button used for the inline rename affordances (✎ ✓ ✕).
+	.row-edit {
+		background: transparent;
+		border: none;
+		color: $muted;
+		padding: 0.2rem 0.35rem;
+		font-size: 0.85rem;
+
+		&:hover {
+			color: $text;
 		}
 	}
 
