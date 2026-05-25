@@ -1,3 +1,8 @@
+// The hydrate front's deeply-nested view types (AppShell) overflow the default
+// type-layout recursion limit when the release profile computes the async
+// hydration layout. Raise it crate-wide; harmless for the ssr build.
+#![recursion_limit = "512"]
+
 pub mod app;
 pub mod client;
 pub mod markup;
