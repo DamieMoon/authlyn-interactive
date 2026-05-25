@@ -93,6 +93,45 @@ fn format_local_time(sent_at: &str) -> String {
     sent_at.to_string()
 }
 
+/// A circular persona avatar for chat: the send-time snapshot image (served at
+/// `/media/{id}`) when present, else the name's first letter as a monogram.
+/// `fill` true makes it fill its parent slot (the info popup's `.info-portrait`);
+/// false renders a fixed small inline circle (the per-message meta row). Styled
+/// inline because `main.scss` is owned by a parallel work stream.
+fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoView {
+    let frame = if fill {
+        "width:100%;height:100%;border-radius:inherit;overflow:hidden;display:flex;\
+         align-items:center;justify-content:center"
+            .to_string()
+    } else {
+        "width:1.9rem;height:1.9rem;border-radius:50%;overflow:hidden;flex:0 0 auto;\
+         display:inline-flex;align-items:center;justify-content:center;\
+         background:#3a3550;color:#cdb8f0;font-weight:600;vertical-align:middle;\
+         margin-right:0.4rem"
+            .to_string()
+    };
+    match avatar_id {
+        Some(id) => {
+            let src = format!("/media/{id}");
+            view! {
+                <span class="chat-avatar" style=frame>
+                    <img src=src alt="" style="width:100%;height:100%;object-fit:cover"/>
+                </span>
+            }
+            .into_any()
+        }
+        None => {
+            let monogram = name
+                .chars()
+                .next()
+                .unwrap_or('?')
+                .to_uppercase()
+                .to_string();
+            view! { <span class="chat-avatar" style=frame>{monogram}</span> }.into_any()
+        }
+    }
+}
+
 #[component]
 pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
@@ -246,6 +285,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                             .map(|c| format!("who mk-{c}"))
                             .unwrap_or_else(|| "who".to_string());
                         let when = format_local_time(&m.sent_at);
+                        // Circular persona avatar (send-time snapshot) left of the name.
+                        let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
                         let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let mid = m.id.clone();
@@ -255,6 +296,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         view! {
                             <li class="msg" id=dom_id>
                                 <div class="meta">
+                                    {avatar_el}
                                     <button class=who_class title="persona info"
                                         on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
                                     <time class="when">{when}</time>
@@ -455,10 +497,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 // For a personaless message the "default" identity is the
                 // controlling account's nickname.
                 let persona = m.persona_name.clone().unwrap_or_else(|| m.author_display.clone());
-                let monogram = persona.chars().next()
-                    .unwrap_or('?')
-                    .to_uppercase()
-                    .to_string();
+                let portrait = chat_avatar(&m.persona_avatar_id, &persona, true);
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
                 view! {
@@ -472,8 +511,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                 <button class="row-edit" title="close"
                                     on:click=move |_| info.set(None)>"✕"</button>
                             </div>
-                            // Reserved for the persona's image (#19) — monogram for now.
-                            <div class="info-portrait" title="image coming soon">{monogram}</div>
+                            // Persona's send-time avatar snapshot (#26), monogram fallback.
+                            <div class="info-portrait">{portrait}</div>
                             {match desc {
                                 // Description supports the same markup as chat (#18).
                                 Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),

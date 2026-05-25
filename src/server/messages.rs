@@ -120,6 +120,7 @@ async fn persist_message(
             persona_name = (SELECT VALUE name FROM ONLY type::record('persona', $persona)),
             persona_description = (SELECT VALUE description FROM ONLY type::record('persona', $persona)),
             persona_color = (SELECT VALUE color FROM ONLY type::record('persona', $persona)),
+            persona_avatar = (SELECT VALUE avatar FROM ONLY type::record('persona', $persona)),
             body    = $body
             RETURN meta::id(id) AS id_key;"
     } else {
@@ -379,6 +380,7 @@ struct MessageRow {
     persona_name: Option<String>,
     persona_description: Option<String>,
     persona_color: Option<String>,
+    persona_avatar_id: Option<String>,
     body: String,
     tier: String,
     sent_at: Datetime,
@@ -395,6 +397,7 @@ impl MessageRow {
             persona_name: self.persona_name,
             persona_description: self.persona_description,
             persona_color: self.persona_color,
+            persona_avatar_id: self.persona_avatar_id,
             body: self.body,
             tier: self.tier,
             sent_at: to_rfc3339_fixed(self.sent_at),
@@ -420,6 +423,9 @@ async fn load_messages(
         (persona_name ?? persona.name)               AS persona_name,
         (persona_description ?? persona.description)  AS persona_description,
         (persona_color ?? persona.color)             AS persona_color,
+        (IF persona_avatar != NONE THEN meta::id(persona_avatar)
+         ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
+            AS persona_avatar_id,
         body,
         tier,
         sent_at";

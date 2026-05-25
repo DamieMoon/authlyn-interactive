@@ -206,6 +206,12 @@ pub struct MessageEnvelope {
     /// Persona name-tint (markup palette name) snapshotted at send time; the
     /// chat name renders in this color. None/empty = default.
     pub persona_color: Option<String>,
+    /// Media id of the persona's avatar snapshotted at send time, used directly
+    /// as a `/media/{id}` `<img>` source. Frozen so a past message keeps the
+    /// picture it was sent with even after the persona's avatar changes. None
+    /// when the author wore no persona or it had no avatar.
+    #[serde(default)]
+    pub persona_avatar_id: Option<String>,
     pub body: String,
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,

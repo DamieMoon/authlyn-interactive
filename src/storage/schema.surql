@@ -117,6 +117,11 @@ DEFINE FIELD IF NOT EXISTS persona ON message TYPE option<record<persona>>;  -- 
 DEFINE FIELD IF NOT EXISTS persona_name        ON message TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS persona_description ON message TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS persona_color       ON message TYPE option<string>;
+-- Avatar snapshot: the media_blob the persona wore at send time. A record link,
+-- not a copy — the file isn't duplicated, and changing the persona's avatar
+-- later leaves past messages pointing at the image they were sent with. NONE
+-- is a valid value (option<record>), so no string-coercion backfill hazard.
+DEFINE FIELD IF NOT EXISTS persona_avatar      ON message TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- plaintext
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -129,7 +134,8 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 UPDATE message SET
     persona_name = persona.name,
     persona_description = persona.description,
-    persona_color = persona.color
+    persona_color = persona.color,
+    persona_avatar = persona.avatar
     WHERE persona != NONE AND persona_name = NONE;
 
 -- Lorebook entries (SillyTavern-style; on a kind='lorebook' channel) ----
