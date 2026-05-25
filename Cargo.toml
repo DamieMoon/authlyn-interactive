@@ -40,17 +40,11 @@ serde = { version = "1", features = ["derive"] }
 # wire-format JSON, so `serde_json` lives in the always-on dependency block.
 serde_json = "1"
 
-# End-to-end encryption: Signal-style Double Ratchet via vodozemac.
-# Compiled into both ssr (server keying) and hydrate (client sessions).
-# `libolm-compat` gives us `to_libolm_pickle` / `from_libolm_pickle` (AES-CBC
-# + HMAC-SHA256), which we use for at-rest encryption of the device Account.
-vodozemac = { version = "0.9", features = ["libolm-compat"] }
-
-# Crypto helpers used by both the server (routing) and the client (E2EE).
+# Hashing / encoding helpers. `sha2` hashes session tokens; `hex`/`base64`
+# encode ids and binary payloads; `rand` mints session tokens (server-side)
+# and test ids; `thiserror` backs the server error enums.
 base64    = "0.22"
 hex       = "0.4"
-aes       = "0.8"
-ctr       = "0.9"
 sha2      = "0.10"
 rand      = "0.8"
 thiserror = "1"
@@ -68,10 +62,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 # bump that drops chrono from its public surface won't silently break us.
 # Server-only; no WASM `getrandom` concern.
 chrono             = { version = "0.4", optional = true, default-features = false, features = ["std"] }
+# Password hashing for accounts (argon2id). ssr-only — never in the WASM bundle.
+argon2             = { version = "0.5", optional = true }
 
-# vodozemac transitively pulls getrandom 0.2 for chacha20poly1305 / aead;
-# the WASM target needs the "js" feature so it can borrow the browser's
-# `crypto.getRandomValues`.
+# `rand` pulls getrandom 0.2 into the WASM (hydrate) build; that target needs
+# the "js" feature so getrandom can borrow the browser's `crypto.getRandomValues`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
@@ -106,6 +101,7 @@ ssr = [
     "dep:tracing",
     "dep:tracing-subscriber",
     "dep:chrono",
+    "dep:argon2",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

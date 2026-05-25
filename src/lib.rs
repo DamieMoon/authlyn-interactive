@@ -1,6 +1,4 @@
 pub mod app;
-pub mod client;
-pub mod crypto;
 pub mod protocol;
 
 #[cfg(feature = "ssr")]
