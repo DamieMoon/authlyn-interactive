@@ -221,6 +221,11 @@ pub async fn patch_persona(
     decode_empty(resp).await
 }
 
+/// Delete a persona (owner only). 204, no body.
+pub async fn delete_persona(pid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/personas/{pid}")).await
+}
+
 /// Wear (`Some`) or take off (`None`) a persona in a guild.
 pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result<(), ApiError> {
     let resp = Request::put(&format!("/guilds/{gid}/active-persona"))

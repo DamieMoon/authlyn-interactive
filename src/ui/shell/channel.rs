@@ -7,6 +7,53 @@ use crate::markup::Color;
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
 
+/// Insert markup around the textarea's current selection. With a non-empty
+/// selection the chosen `open`/`close` wrap it; with no selection an empty
+/// `open``close` is inserted and the caret is placed between the two markers.
+/// Hydrate-only DOM work (selection ranges are in UTF-16 units, so we splice in
+/// JS-string space); the ssr fallback just appends the markers.
+#[cfg(feature = "hydrate")]
+fn apply_markup(s: Shell, ta_ref: NodeRef<leptos::html::Textarea>, open: &str, close: &str) {
+    let Some(el) = ta_ref.get() else {
+        s.compose.update(|c| {
+            c.push_str(open);
+            c.push_str(close);
+        });
+        return;
+    };
+    let start = el.selection_start().ok().flatten().unwrap_or(0);
+    let end = el.selection_end().ok().flatten().unwrap_or(start);
+    let v = js_sys::JsString::from(el.value().as_str());
+    let before = v.slice(0, start).as_string().unwrap_or_default();
+    let sel = v.slice(start, end).as_string().unwrap_or_default();
+    let after = v.slice(end, v.length()).as_string().unwrap_or_default();
+    s.compose.set(format!("{before}{open}{sel}{close}{after}"));
+
+    let open_u = open.encode_utf16().count() as u32;
+    let close_u = close.encode_utf16().count() as u32;
+    // Empty selection → caret between the markers; otherwise just past the close.
+    let caret = if start == end {
+        start + open_u
+    } else {
+        end + open_u + close_u
+    };
+    // Defer the caret set until after Leptos rewrites prop:value on the next
+    // tick (writing .value otherwise resets the cursor to the end).
+    leptos::task::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(0).await;
+        let _ = el.set_selection_range(caret, caret);
+        let _ = el.focus();
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn apply_markup(s: Shell, _ta_ref: NodeRef<leptos::html::Textarea>, open: &str, close: &str) {
+    s.compose.update(|c| {
+        c.push_str(open);
+        c.push_str(close);
+    });
+}
+
 /// Format an RFC3339 timestamp for display beside the author name.
 ///
 /// On hydrate (browser) we hand the string to JavaScript's `Date`, which
@@ -133,20 +180,19 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             <div class="composer">
                 <div class="toolbar">
                     <button class="fmt" title="bold"
-                        on:click=move |_| s.compose.update(|c| c.push_str("**bold**"))>
+                        on:click=move |_| apply_markup(s, composer_ref, "**", "**")>
                         <strong>"B"</strong>
                     </button>
                     <button class="fmt" title="italic"
-                        on:click=move |_| s.compose.update(|c| c.push_str("*italic*"))>
+                        on:click=move |_| apply_markup(s, composer_ref, "*", "*")>
                         <em>"i"</em>
                     </button>
                     {Color::ALL.into_iter().map(|col| {
                         let name = col.name();
                         view! {
                             <button class=format!("swatch mk-bg-{name}") title=name
-                                on:click=move |_| s.compose.update(|c| {
-                                    c.push_str(&format!("[{name}]text[/{name}]"));
-                                })>
+                                on:click=move |_|
+                                    apply_markup(s, composer_ref, &format!("[{name}]"), &format!("[/{name}]"))>
                             </button>
                         }
                     }).collect_view()}

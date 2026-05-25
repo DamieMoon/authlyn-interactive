@@ -623,6 +623,24 @@ mod act {
         });
     }
 
+    pub fn remove_persona(s: Shell, pid: String) {
+        spawn_local(async move {
+            match api::delete_persona(&pid).await {
+                Ok(()) => {
+                    // If the removed persona was being worn, take it off locally.
+                    if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                        LocalStorage::delete(KEY_PERSONA);
+                        s.active_persona.set(None);
+                    }
+                    if let Ok(r) = api::list_personas().await {
+                        s.personas.set(r.personas);
+                    }
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn wear_persona(s: Shell, pid: String) {
         let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
@@ -834,6 +852,7 @@ mod act {
         _done: RwSignal<bool>,
     ) {
     }
+    pub fn remove_persona(_s: Shell, _pid: String) {}
     pub fn wear_persona(_s: Shell, _pid: String) {}
     pub fn unwear(_s: Shell) {}
     pub fn add_friend(_s: Shell, _username: String) {}

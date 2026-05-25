@@ -65,6 +65,7 @@ fn PersonaCard(
     let pid_worn = pid.clone();
     let pid_wear = pid.clone();
     let pid_open = pid.clone();
+    let pid_remove = pid.clone();
     let worn = Memo::new(move |_| s.active_persona.get().as_deref() == Some(pid_worn.as_str()));
     let blurb = if p.description.trim().is_empty() {
         "No description yet.".to_string()
@@ -100,6 +101,8 @@ fn PersonaCard(
                     }>
                     <button class="worn" on:click=move |_| act::unwear(s)>"Worn ✓"</button>
                 </Show>
+                <button class="danger" title="remove persona"
+                    on:click=move |_| act::remove_persona(s, pid_remove.clone())>"Remove"</button>
             </div>
         </div>
     }

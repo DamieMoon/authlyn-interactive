@@ -37,6 +37,14 @@ button {
 	&:hover {
 		border-color: $accent;
 	}
+
+	&.danger {
+		color: #f0828c;
+
+		&:hover {
+			border-color: #f0828c;
+		}
+	}
 }
 
 input,
