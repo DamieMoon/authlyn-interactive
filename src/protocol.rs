@@ -245,6 +245,10 @@ pub struct PersonaSummary {
     pub name: String,
     pub description: String,
     pub avatar_id: Option<String>,
+    /// True when the caller owns this persona; false when it was redeemed via a
+    /// share key (editor access — can wear + edit, but not delete/share).
+    #[serde(default)]
+    pub owned: bool,
 }
 
 /// Response from `GET /personas`.
@@ -261,6 +265,13 @@ pub struct GalleryImage {
     pub position: i64,
 }
 
+/// One editor of a persona (owner-only view).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PersonaEditor {
+    pub account_id: String,
+    pub username: String,
+}
+
 /// Response from `GET /personas/{id}` — the persona plus its gallery.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PersonaDetail {
@@ -269,6 +280,26 @@ pub struct PersonaDetail {
     pub description: String,
     pub avatar_id: Option<String>,
     pub gallery: Vec<GalleryImage>,
+    /// The shareable redeem key — populated only for the owner; `None` for
+    /// editors (so editors can't re-share a persona they don't own).
+    #[serde(default)]
+    pub share_key: Option<String>,
+    /// Accounts granted editor access via the share key — owner-only view
+    /// (empty for editors).
+    #[serde(default)]
+    pub editors: Vec<PersonaEditor>,
+}
+
+/// Response from `GET /personas/{id}/editors` — owner-only.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListPersonaEditorsResponse {
+    pub editors: Vec<PersonaEditor>,
+}
+
+/// Body of `POST /personas/redeem` — gain editor access via a share key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RedeemPersonaKeyRequest {
+    pub key: String,
 }
 
 /// Body of `PUT /personas/{id}/avatar` — set the primary image.

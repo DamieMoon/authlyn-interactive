@@ -87,11 +87,17 @@ fn small_body_routes() -> Router<AppState> {
             "/personas",
             get(personas::list_personas).post(personas::create_persona),
         )
+        .route("/personas/redeem", post(personas::redeem_persona_key))
         .route(
             "/personas/{id}",
             get(personas::get_persona)
                 .patch(personas::patch_persona)
                 .delete(personas::delete_persona),
+        )
+        .route("/personas/{id}/editors", get(personas::list_editors))
+        .route(
+            "/personas/{id}/editors/{aid}",
+            delete(personas::remove_editor),
         )
         .route("/personas/{id}/avatar", put(personas::set_avatar))
         .route("/personas/{id}/gallery", post(personas::add_gallery_image))
