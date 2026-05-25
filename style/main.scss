@@ -219,6 +219,14 @@ textarea {
 				background: $panel-2;
 				color: $text;
 			}
+
+			// Unread (#23): brighten the name and add an orange glow so a
+			// channel with new messages stands out in the sidebar.
+			&.unread {
+				color: #eea160;
+				font-weight: 600;
+				text-shadow: 0 0 6px rgba(238, 161, 96, 0.7);
+			}
 		}
 
 		.rename-input {

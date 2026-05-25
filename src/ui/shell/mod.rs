@@ -11,7 +11,7 @@
 //! `lorebook`, `friends`); this module owns the shared [`Shell`] state, the
 //! rail/sidebar layout ([`AppShell`]), and the [`act`] action layer.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 
@@ -111,6 +111,13 @@ pub(crate) struct Shell {
     /// Channel ids the user has muted (no new-message notifications). Mirrored
     /// to localStorage so it survives reloads.
     muted: RwSignal<HashSet<String>>,
+    /// Channel ids with unread messages — drives the sidebar glow (#23).
+    /// Recomputed by the background poll against `last_seen`.
+    unread: RwSignal<HashSet<String>>,
+    /// Per-channel high-water mark this client has seen: channel id →
+    /// (sent_at, id) of the last seen message. Persisted to localStorage;
+    /// unread = the channel has messages past this mark.
+    last_seen: RwSignal<HashMap<String, (String, String)>>,
 }
 
 #[component]
@@ -142,6 +149,8 @@ fn AppShell() -> impl IntoView {
         pending_delete: RwSignal::new(None),
         confirm_prompt: RwSignal::new(None),
         muted: RwSignal::new(HashSet::new()),
+        unread: RwSignal::new(HashSet::new()),
+        last_seen: RwSignal::new(HashMap::new()),
     };
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
@@ -182,6 +191,7 @@ fn AppShell() -> impl IntoView {
         // Keep the rail/sidebar/friends + open channel live (idempotent).
         act::start_sync(s);
         act::load_muted(s);
+        act::load_last_seen(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -448,10 +458,12 @@ fn ChannelRow(
                 } else {
                     let active_cid = cid.clone();
                     let active = move || s.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
+                    let unread_cid = cid.clone();
+                    let unread = move || s.unread.get().contains(&unread_cid);
                     let start_cid = cid.clone();
                     let start_name = name0.clone();
                     view! {
-                        <button class="channel" class:active=active
+                        <button class="channel" class:active=active class:unread=unread
                             on:click=move |_| { act::open_channel(s, ch.clone()); s.nav_open.set(false); }>
                             {sigil}{name0.clone()}
                         </button>
@@ -574,10 +586,19 @@ mod act {
             s.messages.set(Vec::new());
             s.cursor.set(None);
             s.seen.update(|h| h.clear());
+            // Opening clears the unread glow at once; the high-water mark
+            // advances once messages load below.
+            s.unread.update(|u| {
+                u.remove(&cid);
+            });
             start_poll(s);
+            let seen_cid = cid.clone();
             spawn_local(async move {
                 if let Ok(l) = api::list_messages(&cid, None).await {
                     ingest(s, l.messages);
+                    if let Some(cur) = s.cursor.get_untracked() {
+                        set_last_seen(s, &seen_cid, cur);
+                    }
                 }
             });
         }
@@ -1161,6 +1182,75 @@ mod act {
         s.muted.set(ids.into_iter().collect());
     }
 
+    /// localStorage key for the per-channel last-seen high-water marks (#23).
+    const KEY_LAST_SEEN: &str = "authlyn.last_seen";
+
+    /// Load last-seen marks from localStorage into the reactive map (on mount).
+    pub fn load_last_seen(s: Shell) {
+        s.last_seen
+            .set(LocalStorage::get(KEY_LAST_SEEN).unwrap_or_default());
+    }
+
+    /// Record `cur = (sent_at, id)` as the last message seen in `cid`, and
+    /// persist the whole map. Idempotent.
+    fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
+        s.last_seen.update(|m| {
+            m.insert(cid.to_string(), cur);
+        });
+        let _ = LocalStorage::set(KEY_LAST_SEEN, s.last_seen.get_untracked());
+    }
+
+    /// Recompute the unread set for the open server's channels (#23). The open
+    /// channel is always considered seen (advance its mark to the live cursor);
+    /// every other text channel is "unread" iff it has any message past its
+    /// last-seen mark. A never-seen channel is baselined to its current latest
+    /// (no retroactive glow on first sight). Runs on the ~6s list tick.
+    fn refresh_unread(s: Shell) {
+        let open = s.sel_channel.get_untracked().map(|c| c.id);
+        if let Some(ref oc) = open {
+            if let Some(cur) = s.cursor.get_untracked() {
+                set_last_seen(s, oc, cur);
+            }
+            s.unread.update(|u| {
+                u.remove(oc);
+            });
+        }
+        let channels = s.channels.get_untracked();
+        spawn_local(async move {
+            for ch in channels {
+                if ch.kind != "text" || Some(&ch.id) == open.as_ref() {
+                    continue;
+                }
+                match s.last_seen.with_untracked(|m| m.get(&ch.id).cloned()) {
+                    Some(cur) => {
+                        let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
+                            continue;
+                        };
+                        let has_new = !l.messages.is_empty();
+                        let marked = s.unread.with_untracked(|u| u.contains(&ch.id));
+                        if has_new != marked {
+                            s.unread.update(|u| {
+                                if has_new {
+                                    u.insert(ch.id.clone());
+                                } else {
+                                    u.remove(&ch.id);
+                                }
+                            });
+                        }
+                    }
+                    // First sight: baseline to the current latest, don't glow.
+                    None => {
+                        if let Ok(l) = api::list_messages(&ch.id, None).await {
+                            if let Some(last) = l.messages.last() {
+                                set_last_seen(s, &ch.id, (last.sent_at.clone(), last.id.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     /// Toggle mute for a channel: flip the reactive set + persist. A click is a
     /// user gesture, so it's also a good moment to ask for notification permission.
     pub fn toggle_mute(s: Shell, cid: String) {
@@ -1407,6 +1497,7 @@ mod act {
                 tick = tick.wrapping_add(1);
                 if tick.is_multiple_of(4) {
                     refresh_lists(s);
+                    refresh_unread(s);
                 }
                 if s.pane.get_untracked() != Pane::Channel {
                     continue;
@@ -1454,6 +1545,7 @@ mod act {
     pub fn refresh_guilds(_s: Shell) {}
     pub fn start_sync(_s: Shell) {}
     pub fn load_muted(_s: Shell) {}
+    pub fn load_last_seen(_s: Shell) {}
     pub fn toggle_mute(_s: Shell, _cid: String) {}
     pub fn change_password(_s: Shell, _current: String, _new: String) {}
     pub fn restore_session(_s: Shell) -> bool {
