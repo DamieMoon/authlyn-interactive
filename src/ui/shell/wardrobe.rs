@@ -9,6 +9,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
+use crate::ui::markup_view::render_body;
 
 #[component]
 pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
@@ -67,16 +68,8 @@ fn PersonaCard(
     let pid_open = pid.clone();
     let pid_remove = pid.clone();
     let worn = Memo::new(move |_| s.active_persona.get().as_deref() == Some(pid_worn.as_str()));
-    let blurb = if p.description.trim().is_empty() {
-        "No description yet.".to_string()
-    } else {
-        p.description.clone()
-    };
-    let blurb_class = if p.description.trim().is_empty() {
-        "card-desc muted"
-    } else {
-        "card-desc"
-    };
+    let desc = p.description.clone();
+    let has_desc = !desc.trim().is_empty();
 
     view! {
         <div class="persona-card" class:worn=move || worn.get()>
@@ -87,7 +80,12 @@ fn PersonaCard(
             <button class="card-open" title="Edit persona"
                 on:click=move |_| selected.set(Some(pid_open.clone()))>
                 <span class="card-name">{p.name.clone()}</span>
-                <span class=blurb_class>{blurb}</span>
+                {if has_desc {
+                    // Description renders the same markup as chat (#18).
+                    view! { <span class="card-desc">{render_body(&desc)}</span> }.into_any()
+                } else {
+                    view! { <span class="card-desc muted">"No description yet."</span> }.into_any()
+                }}
             </button>
             <div class="card-actions">
                 <Show when=move || worn.get()

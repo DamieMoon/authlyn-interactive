@@ -262,11 +262,16 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             // Persona info popup — opened by clicking a message's author name.
             {move || info.get().map(|m| {
                 let persona = m.persona_name.clone().unwrap_or_else(|| "(no persona)".to_string());
+                let monogram = m.persona_name.as_deref()
+                    .and_then(|n| n.chars().next())
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string();
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
                 view! {
                     <div class="modal-backdrop" on:click=move |_| info.set(None)>
-                        <div class="modal" on:click=move |_ev| {
+                        <div class="modal persona-info" on:click=move |_ev| {
                             #[cfg(feature = "hydrate")]
                             _ev.stop_propagation();
                         }>
@@ -275,8 +280,11 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                 <button class="row-edit" title="close"
                                     on:click=move |_| info.set(None)>"✕"</button>
                             </div>
+                            // Reserved for the persona's image (#19) — monogram for now.
+                            <div class="info-portrait" title="image coming soon">{monogram}</div>
                             {match desc {
-                                Some(d) => view! { <p class="card-desc">{d}</p> }.into_any(),
+                                // Description supports the same markup as chat (#18).
+                                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
                                 None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
                             }}
                             <p class="muted">"Controlled by "<strong>{author}</strong></p>

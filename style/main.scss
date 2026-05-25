@@ -678,6 +678,22 @@ textarea {
 	gap: 0.5rem;
 }
 
+// Reserved persona-image slot in the info popup (monogram placeholder for now).
+.modal .info-portrait {
+	align-self: center;
+	width: 64px;
+	height: 64px;
+	border-radius: 0.5rem;
+	background: $panel-2;
+	border: 1px solid $line;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.6rem;
+	font-weight: 700;
+	color: $accent;
+}
+
 // `.who` is now a clickable button (opens the persona-info popup); strip the
 // default button chrome so it still reads as the author name.
 .msg .who {
