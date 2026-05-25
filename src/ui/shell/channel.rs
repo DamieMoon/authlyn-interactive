@@ -6,6 +6,32 @@ use super::{act, short_id, Shell};
 use crate::markup::Color;
 use crate::ui::markup_view::render_body;
 
+/// Format an RFC3339 timestamp for display beside the author name.
+///
+/// On hydrate (browser) we hand the string to JavaScript's `Date`, which
+/// parses RFC3339 and renders in the viewer's local timezone + locale.
+/// On ssr (native) there is no browser timezone, so we fall back to the
+/// raw timestamp — the value is replaced by the localized one as soon as
+/// the client hydrates.
+#[cfg(feature = "hydrate")]
+fn format_local_time(sent_at: &str) -> String {
+    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(sent_at));
+    // NaN time => unparseable input; keep the raw string rather than show
+    // "Invalid Date".
+    if date.get_time().is_nan() {
+        return sent_at.to_string();
+    }
+    let undef = wasm_bindgen::JsValue::UNDEFINED;
+    let day = String::from(date.to_locale_date_string("default", &undef));
+    let time = String::from(date.to_locale_time_string("default"));
+    format!("{day} {time}")
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn format_local_time(sent_at: &str) -> String {
+    sent_at.to_string()
+}
+
 #[component]
 pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     // Auto-grow the composer to fit its content, up to the CSS max-height
@@ -29,9 +55,13 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             <ul class="messages">
                 {move || s.messages.get().into_iter().map(|m| {
                     let who = m.persona_name.clone().unwrap_or_else(|| short_id(&m.author_id));
+                    let when = format_local_time(&m.sent_at);
                     view! {
                         <li class="msg">
-                            <span class="who">{who}</span>
+                            <div class="meta">
+                                <span class="who">{who}</span>
+                                <time class="when">{when}</time>
+                            </div>
                             <span class="text">{render_body(&m.body)}</span>
                         </li>
                     }

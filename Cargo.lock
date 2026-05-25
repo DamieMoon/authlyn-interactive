@@ -259,6 +259,7 @@ dependencies = [
  "gloo-storage",
  "gloo-timers",
  "hex",
+ "js-sys",
  "leptos",
  "leptos_axum",
  "leptos_meta",
