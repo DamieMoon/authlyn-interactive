@@ -152,6 +152,66 @@ pub async fn post_json(
     (status, parsed)
 }
 
+/// Low-level request helper that also surfaces the response's first
+/// `Set-Cookie` as a bare `name=value` pair (sans attributes) — what you
+/// replay as a `Cookie:` header. `cookie` sets the request's `Cookie:`
+/// header; `body`, when `Some`, is sent as JSON.
+pub async fn send(
+    router: &Router,
+    method: Method,
+    path: &str,
+    cookie: Option<&str>,
+    body: Option<&Value>,
+) -> (StatusCode, Option<String>, Value) {
+    let mut builder = Request::builder().method(method).uri(path);
+    if let Some(c) = cookie {
+        builder = builder.header(header::COOKIE, c);
+    }
+    let req = match body {
+        Some(b) => builder
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(b).unwrap()))
+            .unwrap(),
+        None => builder.body(Body::empty()).unwrap(),
+    };
+
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let set_cookie = res
+        .headers()
+        .get(header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.expect("read body");
+    let parsed: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, set_cookie, parsed)
+}
+
+/// Register a fresh account and return its `authlyn_session=<token>` cookie
+/// pair, ready to pass as the `cookie` arg of [`send`] / [`post_json`].
+/// Panics unless registration returns 201 with a session cookie.
+pub async fn register_account(router: &Router, username: &str, password: &str) -> String {
+    let (status, cookie, body) = send(
+        router,
+        Method::POST,
+        "/auth/register",
+        None,
+        Some(&serde_json::json!({ "username": username, "password": password })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "register({username}) should 201, got {status}: {body:?}"
+    );
+    cookie.expect("register must set a session cookie")
+}
+
 /// Hit the router with a GET. Returns (status, parsed body).
 pub async fn get_json(
     router: &Router,
