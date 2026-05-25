@@ -69,9 +69,10 @@ Local dev defaults (`127.0.0.1:3000` for the app, `127.0.0.1:8000` for SurrealDB
 
 ## Branching and deploy
 
-- `main` is the working branch; commits land here freely.
-- **Deploy is manual on novahome:** `git -C ~/authlyn-interactive pull` → `cargo leptos build --release` → swap the binary + `site/` into `/opt/authlyn` → `systemctl restart authlyn`. Ensure the `site/pkg/authlyn-interactive_bg.wasm` alias exists (leptos hydration gotcha — copy it from `authlyn-interactive.wasm` if absent).
-- The old `release` → `build-release.yml` (aarch64) → Pi-puller pipeline still exists but is **superseded** for authlyn: nothing on novahome consumes it, so pushing to `release` no longer deploys authlyn. Open decision: retire it, or repoint CI to x86-64 and add a novahome pull/rebuild timer.
+- `main` is the working branch; commits land here freely. Push to GitHub (`origin/main`) when you want novahome to pick the changes up.
+- **Deploy is manual on novahome, by design — no auto-deploy.** SSH to novahome and fetch from origin, then rebuild + swap:
+  `git -C ~/authlyn-interactive fetch origin && git -C ~/authlyn-interactive reset --hard origin/main` → `cargo leptos build --release` → swap the binary + `site/` into `/opt/authlyn` (ensure the `site/pkg/authlyn-interactive_bg.wasm` alias — leptos hydration gotcha — copying it from `authlyn-interactive.wasm` if absent) → `systemctl restart authlyn`.
+- **Do not wire auto-deploy** (user decision 2026-05-25). The old `release` → `build-release.yml` (aarch64) → Pi-puller pipeline is **superseded** for authlyn — pushing to `release` no longer deploys it; ignore or retire it.
 
 ## Current status
 
