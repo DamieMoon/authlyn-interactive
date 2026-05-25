@@ -11,7 +11,7 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v2";
+const CACHE_VERSION = "authlyn-v3";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
