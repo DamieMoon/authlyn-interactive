@@ -86,6 +86,10 @@ DEFINE FIELD IF NOT EXISTS name       ON guild TYPE string;
 DEFINE FIELD IF NOT EXISTS owner      ON guild TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS icon       ON guild TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS created_at ON guild TYPE datetime DEFAULT time::now();
+-- Soft-delete (#22): NONE = live; a datetime = when it was trashed. A purge
+-- sweep hard-deletes past the rollback window (guild 30d). option<> ⇒ NONE is
+-- valid, no backfill needed. EVERY guild read filters `deleted_at = NONE`.
+DEFINE FIELD IF NOT EXISTS deleted_at ON guild TYPE option<datetime>;
 
 -- Channels (nested under a guild; `kind` gates text vs lorebook) --------
 DEFINE TABLE IF NOT EXISTS channel SCHEMAFULL;
@@ -94,6 +98,8 @@ DEFINE FIELD IF NOT EXISTS name       ON channel TYPE string;
 DEFINE FIELD IF NOT EXISTS kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook'];
 DEFINE FIELD IF NOT EXISTS position   ON channel TYPE int DEFAULT 0;
 DEFINE FIELD IF NOT EXISTS created_at ON channel TYPE datetime DEFAULT time::now();
+-- Soft-delete (#22): NONE = live (purge window: channel 1d). See guild.deleted_at.
+DEFINE FIELD IF NOT EXISTS deleted_at ON channel TYPE option<datetime>;
 DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 
 -- Guild membership (the worn persona lives here, per-guild) -------------
@@ -128,6 +134,8 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
+-- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
+DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_at;
 

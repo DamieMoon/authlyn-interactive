@@ -47,16 +47,28 @@ fn small_body_routes() -> Router<AppState> {
             "/guilds",
             get(guilds::list_guilds).post(guilds::create_guild),
         )
+        // Soft-delete trash (#22). `/guilds/trash` is static so it wins over
+        // `/guilds/{id}` in axum's router regardless of declaration order.
+        .route("/guilds/trash", get(guilds::list_deleted_guilds))
         .route(
             "/guilds/{id}",
             get(guilds::get_guild)
                 .patch(guilds::patch_guild)
                 .delete(guilds::delete_guild),
         )
+        .route("/guilds/{id}/restore", post(guilds::restore_guild))
+        .route(
+            "/guilds/{id}/trash/channels",
+            get(guilds::list_deleted_channels),
+        )
         .route("/guilds/{id}/channels", post(guilds::create_channel))
         .route(
             "/guilds/{id}/channels/{cid}",
             patch(guilds::patch_channel).delete(guilds::delete_channel),
+        )
+        .route(
+            "/guilds/{id}/channels/{cid}/restore",
+            post(guilds::restore_channel),
         )
         .route("/guilds/{id}/members", post(guilds::invite_member))
         .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
@@ -72,9 +84,18 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
         )
+        // Static `/messages/trash` wins over `/messages/{mid}` in axum's router.
+        .route(
+            "/channels/{cid}/messages/trash",
+            get(messages::list_deleted_messages),
+        )
         .route(
             "/channels/{cid}/messages/{mid}",
             patch(messages::edit_message).delete(messages::delete_message),
+        )
+        .route(
+            "/channels/{cid}/messages/{mid}/restore",
+            post(messages::restore_message),
         )
         .route(
             "/channels/{cid}/lorebook",
@@ -145,4 +166,42 @@ pub fn make_router(state: AppState) -> Router {
 /// can merge the Leptos handlers on top.
 pub fn api_router() -> Router<AppState> {
     api_routes()
+}
+
+/// Hard-delete soft-deleted rows past their rollback window (#22): message 1h,
+/// channel 1d, guild 30d. Cascades a purged channel's messages and a purged
+/// guild's channels/members/messages. Idempotent; safe on an interval.
+pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
+    state
+        .db
+        .query(
+            r#"
+            DELETE message WHERE deleted_at != NONE AND deleted_at < time::now() - 1h;
+            DELETE message WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
+            LET $g = (SELECT VALUE id FROM guild
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
+            DELETE message WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            DELETE channel WHERE guild IN $g;
+            DELETE guild_member WHERE guild IN $g;
+            DELETE guild WHERE id IN $g;
+            "#,
+        )
+        .await?
+        .check()?;
+    Ok(())
+}
+
+/// Spawn the purge sweep: runs once shortly after boot, then hourly.
+pub fn spawn_purge_sweep(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            tick.tick().await;
+            if let Err(e) = purge_soft_deleted(&state).await {
+                tracing::error!(error = %e, "purge sweep failed");
+            }
+        }
+    });
 }

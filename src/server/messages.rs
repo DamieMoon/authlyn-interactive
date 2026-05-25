@@ -247,10 +247,12 @@ pub async fn delete_message(
         return resp;
     }
 
+    // Soft-delete (#22): hidden by the deleted_at = NONE read filters; the
+    // purge sweep removes it after the 1h window. Restorable until then.
     let result = with_write_conflict_retry(|| async {
         state
             .db
-            .query("DELETE type::record('message', $mid);")
+            .query("UPDATE type::record('message', $mid) SET deleted_at = time::now();")
             .bind(("mid", mid.clone()))
             .await?
             .check()?;
@@ -264,6 +266,89 @@ pub async fn delete_message(
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Soft-delete trash + restore (#22)
+// ---------------------------------------------------------------------------
+
+/// POST /channels/{cid}/messages/{mid}/restore — un-delete the caller's own
+/// soft-deleted message (the channel must still be live).
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid, message = %mid))]
+pub async fn restore_message(
+    State(state): State<AppState>,
+    Path((cid, mid)): Path<(String, String)>,
+    account: AuthAccount,
+) -> Response {
+    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
+        return resp;
+    }
+    let result = with_write_conflict_retry(|| async {
+        state
+            .db
+            .query("UPDATE type::record('message', $mid) SET deleted_at = NONE;")
+            .bind(("mid", mid.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await;
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "restore_message failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+/// GET /channels/{cid}/messages/trash — the channel's soft-deleted messages,
+/// recoverable until the 1h purge. Any member may view the trash (mirrors
+/// normal message visibility).
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
+pub async fn list_deleted_messages(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    match channel_access(&state, &cid, &account.0).await {
+        Ok(AccessOutcome::Ok(_)) => {}
+        Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
+            return error_response(StatusCode::NOT_FOUND, "channel not found");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "channel_access failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+    match load_deleted_messages(&state, &cid).await {
+        Ok(messages) => (StatusCode::OK, Json(ListMessagesResponse { messages })).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "load_deleted_messages failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+async fn load_deleted_messages(
+    state: &AppState,
+    cid: &str,
+) -> surrealdb::Result<Vec<MessageEnvelope>> {
+    let sql = format!(
+        "SELECT {MSG_PROJECTION} FROM message
+            WHERE channel = type::record('channel', $cid)
+              AND deleted_at != NONE
+            ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
+    );
+    let mut resp = state
+        .db
+        .query(sql)
+        .bind(("cid", cid.to_string()))
+        .bind(("page_limit", MESSAGES_PAGE_LIMIT))
+        .await?
+        .check()?;
+    let rows: Vec<MessageRow> = resp.take(0)?;
+    Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
 }
 
 /// Gate for the per-message mutations (edit/delete): the caller must be a
@@ -446,16 +531,12 @@ impl MessageRow {
     }
 }
 
-async fn load_messages(
-    state: &AppState,
-    cid: &str,
-    cursor: CursorState,
-) -> surrealdb::Result<Vec<MessageEnvelope>> {
-    // `persona_id` is null-safe (the IF guard avoids meta::id(NONE)). Name and
-    // description come from the row's send-time snapshot; the `?? persona.*`
-    // fallback covers any legacy row missing the snapshot whose persona still
-    // exists (deleted personas keep their frozen snapshot).
-    const PROJECTION: &str = "
+// Shared SELECT projection for message rows — the channel list and the
+// soft-delete trash list both build MessageRows from it. `persona_id` is
+// null-safe (the IF guard avoids meta::id(NONE)); name/description/color come
+// from the send-time snapshot with a `?? persona.*` fallback for legacy rows
+// whose persona still exists (deleted personas keep their frozen snapshot).
+const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
         author.username  AS author_name,
@@ -472,19 +553,26 @@ async fn load_messages(
         tier,
         sent_at";
 
+async fn load_messages(
+    state: &AppState,
+    cid: &str,
+    cursor: CursorState,
+) -> surrealdb::Result<Vec<MessageEnvelope>> {
     let (sql, bound) = match cursor {
         CursorState::None => (
             format!(
-                "SELECT {PROJECTION} FROM message
+                "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
                     ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
             ),
             None,
         ),
         CursorState::Both { since, after_id } => (
             format!(
-                "SELECT {PROJECTION} FROM message
+                "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
                       AND (sent_at > type::datetime($since)
                            OR (sent_at = type::datetime($since) AND meta::id(id) > $after_id))
                     ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
@@ -542,7 +630,10 @@ async fn channel_access(
 
     let mut resp = state
         .db
-        .query("SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid);")
+        .query(
+            "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid)
+                WHERE deleted_at = NONE AND guild.deleted_at = NONE;",
+        )
         .bind(("cid", cid.to_string()))
         .await?
         .check()?;

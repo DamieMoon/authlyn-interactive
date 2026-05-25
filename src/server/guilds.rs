@@ -23,9 +23,9 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody, GuildDetail, GuildSummary,
-    InviteMemberRequest, ListGuildsResponse, PatchChannelRequest, PatchGuildRequest,
-    SetMemberRoleRequest,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody,
+    GuildDetail, GuildSummary, InviteMemberRequest, ListGuildsResponse, PatchChannelRequest,
+    PatchGuildRequest, SetMemberRoleRequest,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -59,7 +59,8 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
         .db
         .query(
             "SELECT meta::id(guild) AS id_key, guild.name AS name FROM guild_member
-                WHERE account = type::record('account', $account);",
+                WHERE account = type::record('account', $account)
+                  AND guild.deleted_at = NONE;",
         )
         .bind(("account", account.to_string()))
         .await?
@@ -197,9 +198,11 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
     let mut resp = state
         .db
         .query(
-            "SELECT name, meta::id(owner) AS owner_key FROM type::record('guild', $gid);
+            "SELECT name, meta::id(owner) AS owner_key FROM type::record('guild', $gid)
+                WHERE deleted_at = NONE;
              SELECT meta::id(id) AS id_key, name, kind, position FROM channel
-                WHERE guild = type::record('guild', $gid) ORDER BY position;",
+                WHERE guild = type::record('guild', $gid)
+                  AND deleted_at = NONE ORDER BY position;",
         )
         .bind(("gid", gid.to_string()))
         .await?
@@ -276,19 +279,14 @@ pub async fn delete_guild(
     if let Err(r) = require_owner(&state, &gid, &account.0).await {
         return r;
     }
-    // Channels + members go with the guild. Messages/lorebook rows orphan
-    // (harmless; their channel link just dangles) — acceptable for v1.
-    let sql = r#"
-        BEGIN TRANSACTION;
-        DELETE FROM channel WHERE guild = type::record("guild", $gid);
-        DELETE FROM guild_member WHERE guild = type::record("guild", $gid);
-        DELETE type::record("guild", $gid);
-        COMMIT TRANSACTION;
-    "#;
+    // Soft-delete (#22): stamp deleted_at and leave channels/members/messages
+    // intact so a restore brings the whole guild back. It vanishes from every
+    // read (all filter deleted_at = NONE); the purge sweep hard-deletes it +
+    // its channels/members after the 30d window.
     let result = with_write_conflict_retry(|| async {
         state
             .db
-            .query(sql)
+            .query("UPDATE type::record('guild', $gid) SET deleted_at = time::now();")
             .bind(("gid", gid.clone()))
             .await?
             .check()?;
@@ -477,9 +475,11 @@ pub async fn delete_channel(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
+    // Soft-delete (#22): hidden by the deleted_at = NONE read filters; the
+    // purge sweep removes it + its messages after the 1d window.
     match state
         .db
-        .query("DELETE type::record('channel', $cid);")
+        .query("UPDATE type::record('channel', $cid) SET deleted_at = time::now();")
         .bind(("cid", cid))
         .await
         .and_then(|r| r.check())
@@ -487,6 +487,161 @@ pub async fn delete_channel(
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "delete_channel failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trash + restore (#22 soft-delete)
+// ---------------------------------------------------------------------------
+
+/// GET /guilds/trash — the caller's own soft-deleted guilds (owner only),
+/// most-recently-trashed first. Recoverable until the purge sweep removes them.
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn list_deleted_guilds(State(state): State<AppState>, account: AuthAccount) -> Response {
+    #[derive(SurrealValue)]
+    struct Row {
+        id_key: String,
+        name: String,
+    }
+    let mut resp = match state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key, name FROM guild
+                WHERE owner = type::record('account', $account)
+                  AND deleted_at != NONE ORDER BY deleted_at DESC;",
+        )
+        .bind(("account", account.0))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "list_deleted_guilds failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    let guilds = match resp.take::<Vec<Row>>(0) {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|r| GuildSummary {
+                id: r.id_key,
+                name: r.name,
+            })
+            .collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "list_deleted_guilds decode failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    (StatusCode::OK, Json(ListGuildsResponse { guilds })).into_response()
+}
+
+/// POST /guilds/{id}/restore — un-delete a guild the caller owns (its
+/// channels/members were left intact, so it returns whole).
+#[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
+pub async fn restore_guild(
+    State(state): State<AppState>,
+    Path(gid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    // require_owner reads guild_member, which survives a soft-delete.
+    if let Err(r) = require_owner(&state, &gid, &account.0).await {
+        return r;
+    }
+    match state
+        .db
+        .query("UPDATE type::record('guild', $gid) SET deleted_at = NONE;")
+        .bind(("gid", gid))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "restore_guild failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+/// GET /guilds/{id}/trash/channels — soft-deleted channels in a guild (manager).
+#[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
+pub async fn list_deleted_channels(
+    State(state): State<AppState>,
+    Path(gid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
+        return r;
+    }
+    #[derive(SurrealValue)]
+    struct ChanRow {
+        id_key: String,
+        name: String,
+        kind: String,
+        position: i64,
+    }
+    let mut resp = match state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key, name, kind, position FROM channel
+                WHERE guild = type::record('guild', $gid)
+                  AND deleted_at != NONE ORDER BY deleted_at DESC;",
+        )
+        .bind(("gid", gid))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "list_deleted_channels failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    let channels = match resp.take::<Vec<ChanRow>>(0) {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|c| ChannelSummary {
+                id: c.id_key,
+                name: c.name,
+                kind: c.kind,
+                position: c.position,
+            })
+            .collect(),
+        Err(e) => {
+            tracing::error!(error = %e, "list_deleted_channels decode failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    (StatusCode::OK, Json(ChannelListResponse { channels })).into_response()
+}
+
+/// POST /guilds/{id}/channels/{cid}/restore — un-delete a channel (manager).
+#[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, channel = %cid))]
+pub async fn restore_channel(
+    State(state): State<AppState>,
+    Path((gid, cid)): Path<(String, String)>,
+    account: AuthAccount,
+) -> Response {
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
+        return r;
+    }
+    // Scope the update to this guild so a manager can't revive an unrelated id.
+    match state
+        .db
+        .query(
+            "UPDATE type::record('channel', $cid) SET deleted_at = NONE
+                WHERE guild = type::record('guild', $gid);",
+        )
+        .bind(("cid", cid))
+        .bind(("gid", gid))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "restore_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
         }
     }
@@ -762,7 +917,8 @@ async fn channel_in_guild(state: &AppState, gid: &str, cid: &str) -> surrealdb::
         .query(
             "SELECT meta::id(id) AS id_key FROM channel
                 WHERE id = type::record('channel', $cid)
-                  AND guild = type::record('guild', $gid);",
+                  AND guild = type::record('guild', $gid)
+                  AND deleted_at = NONE;",
         )
         .bind(("cid", cid.to_string()))
         .bind(("gid", gid.to_string()))

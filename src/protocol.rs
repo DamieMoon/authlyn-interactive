@@ -233,6 +233,13 @@ pub struct ListMessagesResponse {
     pub messages: Vec<MessageEnvelope>,
 }
 
+/// A flat list of channels — used by the soft-delete trash view
+/// (`GET /guilds/{id}/trash/channels`, #22).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChannelListResponse {
+    pub channels: Vec<ChannelSummary>,
+}
+
 // ---------------------------------------------------------------------------
 // Media (server-visible images: avatars, persona art, gallery)
 // ---------------------------------------------------------------------------

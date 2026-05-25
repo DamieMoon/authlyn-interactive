@@ -52,6 +52,10 @@ async fn main() {
     // keep using the Leptos-provided routing helpers.
     let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir);
 
+    // Background sweep that hard-deletes soft-deleted rows past their rollback
+    // window (#22: message 1h, channel 1d, guild 30d). Runs once at boot, hourly after.
+    server::spawn_purge_sweep(state.clone());
+
     // Generate the list of Leptos SSR routes.
     let routes = generate_route_list(App);
 
