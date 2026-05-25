@@ -752,3 +752,73 @@ async fn owner_shares_with_friend_then_friend_leaves() {
     .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn persona_color_create_patch_and_snapshot() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+
+    // Create with a palette color; the echo + list both carry it.
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas",
+        Some(&owner),
+        Some(&json!({ "name": "Hero", "description": "", "color": "blue" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    assert_eq!(body["color"], "blue");
+    let pid = body["id"].as_str().unwrap().to_string();
+    let (_, _, list) = common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(list["personas"][0]["color"], "blue");
+
+    // Recolor; an unknown color is rejected.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        Some(&json!({ "color": "red" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        Some(&json!({ "color": "chartreuse" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // Wearing it stamps the color onto the message (snapshot, like name).
+    common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/active-persona"),
+        Some(&owner),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "hi" })),
+    )
+    .await;
+    let (_, _, msgs) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(msgs["messages"][0]["persona_color"], "red");
+}

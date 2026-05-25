@@ -841,14 +841,15 @@ mod act {
         });
     }
 
-    /// Save edits to a persona (name + description), then reload the wardrobe
-    /// grid so the card reflects the change. `done` is set true on success so
-    /// the caller can close the detail editor.
+    /// Save edits to a persona (name + description + color), then reload the
+    /// wardrobe grid so the card reflects the change. `done` is set true on
+    /// success so the caller can close the detail editor.
     pub fn update_persona(
         s: Shell,
         pid: String,
         name: String,
         description: String,
+        color: String,
         done: RwSignal<bool>,
     ) {
         if name.trim().is_empty() {
@@ -856,7 +857,7 @@ mod act {
             return;
         }
         spawn_local(async move {
-            match api::patch_persona(&pid, Some(name), Some(description)).await {
+            match api::patch_persona(&pid, Some(name), Some(description), Some(color)).await {
                 Ok(()) => {
                     if let Ok(r) = api::list_personas().await {
                         s.personas.set(r.personas);
@@ -1361,6 +1362,7 @@ mod act {
         _pid: String,
         _name: String,
         _description: String,
+        _color: String,
         _done: RwSignal<bool>,
     ) {
     }

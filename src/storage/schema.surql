@@ -43,6 +43,7 @@ DEFINE TABLE IF NOT EXISTS persona SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS owner       ON persona TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS name        ON persona TYPE string;
 DEFINE FIELD IF NOT EXISTS description ON persona TYPE string DEFAULT '';
+DEFINE FIELD IF NOT EXISTS color       ON persona TYPE string DEFAULT '';  -- markup palette name (red…gray) or '' for none
 DEFINE FIELD IF NOT EXISTS avatar      ON persona TYPE option<record<media_blob>>;  -- primary image
 DEFINE FIELD IF NOT EXISTS share_key   ON persona TYPE string DEFAULT '';  -- redeem token granting edit access
 DEFINE FIELD IF NOT EXISTS created_at  ON persona TYPE datetime DEFAULT time::now();
@@ -103,6 +104,7 @@ DEFINE FIELD IF NOT EXISTS persona ON message TYPE option<record<persona>>;  -- 
 -- resolving `persona.name` live at render time.
 DEFINE FIELD IF NOT EXISTS persona_name        ON message TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS persona_description ON message TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS persona_color       ON message TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- plaintext
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -114,7 +116,8 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
 UPDATE message SET
     persona_name = persona.name,
-    persona_description = persona.description
+    persona_description = persona.description,
+    persona_color = persona.color
     WHERE persona != NONE AND persona_name = NONE;
 
 -- Lorebook entries (SillyTavern-style; on a kind='lorebook' channel) ----

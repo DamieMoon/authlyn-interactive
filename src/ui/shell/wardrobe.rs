@@ -11,6 +11,7 @@
 use leptos::prelude::*;
 
 use super::{act, PendingDelete, Shell};
+use crate::markup::Color;
 use crate::ui::markup_view::render_body;
 
 /// A persona portrait: the uploaded avatar image when `avatar_id` is `Some`,
@@ -209,7 +210,9 @@ fn PersonaDetail(
 ) -> impl IntoView {
     // Seed the form from the current grid entry for this persona.
     let seed = s.personas.get_untracked().into_iter().find(|p| p.id == pid);
-    let (seed_name, seed_desc) = seed.map(|p| (p.name, p.description)).unwrap_or_default();
+    let (seed_name, seed_desc, seed_color) = seed
+        .map(|p| (p.name, p.description, p.color))
+        .unwrap_or_default();
     // Name used for the monogram fallback in the portrait slot.
     let portrait_name = seed_name.clone();
     // Live avatar for the portrait: re-read `s.personas` so a fresh upload shows
@@ -225,6 +228,8 @@ fn PersonaDetail(
 
     let edit_name = RwSignal::new(seed_name);
     let edit_desc = RwSignal::new(seed_desc);
+    // The persona's name-tint (markup palette name, or "" for default).
+    let edit_color = RwSignal::new(seed_color);
     // Owner-only sharing state, loaded on mount: the caller's friends and which
     // of them currently have editor access. Editors leave these empty.
     let friends = RwSignal::new(Vec::<crate::protocol::FriendSummary>::new());
@@ -294,6 +299,25 @@ fn PersonaDetail(
                     on:input=move |ev| edit_desc.set(event_target_value(&ev))
                     placeholder="describe this character (Shift+Enter for a new line)"></textarea>
             </label>
+            // Name color: the palette tinting this persona's name in chat.
+            <div class="field">
+                <span>"Name color"</span>
+                <div class="color-row">
+                    <button class="swatch-pick none" title="Default"
+                        class:active=move || edit_color.get().is_empty()
+                        on:click=move |_| edit_color.set(String::new())>"○"</button>
+                    {Color::ALL.into_iter().map(|c| {
+                        let name = c.name();
+                        let pick = name.to_string();
+                        let active_name = name.to_string();
+                        view! {
+                            <button class=format!("swatch-pick mk-{name}") title=name
+                                class:active=move || edit_color.get() == active_name
+                                on:click=move |_| edit_color.set(pick.clone())>"●"</button>
+                        }
+                    }).collect_view()}
+                </div>
+            </div>
             // Owner-only sharing block: tick a friend to grant edit + wear
             // access, untick to revoke. Editors never reach this branch.
             {if owned {
@@ -338,6 +362,7 @@ fn PersonaDetail(
                         pid_save.clone(),
                         edit_name.get_untracked(),
                         edit_desc.get_untracked(),
+                        edit_color.get_untracked(),
                         done,
                     );
                 }>"Save"</button>

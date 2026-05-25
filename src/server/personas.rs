@@ -58,6 +58,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         id_key: String,
         name: String,
         description: String,
+        color: String,
         avatar_id: Option<String>,
         owned: bool,
     }
@@ -67,7 +68,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(id) AS id_key, name, description,
+            "SELECT meta::id(id) AS id_key, name, description, color,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
                 (owner = type::record('account', $account)) AS owned
                 FROM persona
@@ -87,6 +88,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             name: r.name,
             description: r.description,
             avatar_id: r.avatar_id,
+            color: r.color,
             owned: r.owned,
         })
         .collect())
@@ -115,6 +117,11 @@ pub async fn create_persona(
         return error_response(StatusCode::BAD_REQUEST, "description too long");
     }
     let description_echo = description.clone();
+    let color = req.color.unwrap_or_default();
+    if !valid_color(&color) {
+        return error_response(StatusCode::BAD_REQUEST, "invalid color");
+    }
+    let color_echo = color.clone();
 
     #[derive(SurrealValue)]
     struct IdRow {
@@ -128,12 +135,14 @@ pub async fn create_persona(
                 owner = type::record('account', $account),
                 name = $name,
                 description = $description,
+                color = $color,
                 share_key = $share_key
                 RETURN meta::id(id) AS id_key;",
         )
         .bind(("account", account.0))
         .bind(("name", name.clone()))
         .bind(("description", description))
+        .bind(("color", color))
         .bind(("share_key", share_key))
         .await
         .and_then(|r| r.check())
@@ -152,6 +161,7 @@ pub async fn create_persona(
                 name,
                 description: description_echo,
                 avatar_id: None,
+                color: color_echo,
                 owned: true,
             }),
         )
@@ -301,6 +311,12 @@ pub async fn patch_persona(
         }
         sets.push("description = $description");
     }
+    if let Some(ref color) = req.color {
+        if !valid_color(color) {
+            return error_response(StatusCode::BAD_REQUEST, "invalid color");
+        }
+        sets.push("color = $color");
+    }
     if sets.is_empty() {
         return StatusCode::NO_CONTENT.into_response();
     }
@@ -315,6 +331,9 @@ pub async fn patch_persona(
     }
     if let Some(desc) = req.description {
         q = q.bind(("description", desc));
+    }
+    if let Some(color) = req.color {
+        q = q.bind(("color", color));
     }
     match q.await.and_then(|r| r.check()) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
@@ -1012,6 +1031,12 @@ fn validate_name(name: &str) -> Result<(), &'static str> {
         return Err("name too long");
     }
     Ok(())
+}
+
+/// A persona color is either empty (default tint) or one of the shared markup
+/// palette names (red…gray) — the same set the chat `[color]` markup uses.
+fn valid_color(c: &str) -> bool {
+    c.is_empty() || crate::markup::Color::from_name(c).is_some()
 }
 
 fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {

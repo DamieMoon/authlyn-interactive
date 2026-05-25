@@ -738,6 +738,48 @@ textarea {
 	background: #9aa3af;
 }
 
+// ---- per-persona name tint (#9) ----
+// Palette name → hex (matches the .mk-* text colors). `.msg .who` sets a default
+// color with higher specificity than a bare `.mk-*`, so the persona tint needs
+// this compound override to win.
+$persona-palette: (
+	"red": #f0828c,
+	"orange": #eea160,
+	"yellow": #e6d36b,
+	"green": #7cc47f,
+	"blue": #6ea8e6,
+	"purple": #b58be0,
+	"pink": #e88fc0,
+	"gray": #9aa3af,
+);
+@each $n, $c in $persona-palette {
+	.msg .who.mk-#{$n} {
+		color: $c;
+	}
+}
+
+// Color picker in the persona detail editor: a row of round swatches; the
+// glyph inherits its `.mk-*` text color, the "none" swatch is the default.
+.persona-detail .color-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+
+	.swatch-pick {
+		width: 1.6rem;
+		height: 1.6rem;
+		padding: 0;
+		font-size: 1rem;
+		line-height: 1;
+		border-radius: 50%;
+
+		&.active {
+			border-color: $text;
+			box-shadow: 0 0 0 1px $text;
+		}
+	}
+}
+
 // ---- block markup (Discord-style headers / subtext / code) ----
 // Headers stay modest so they don't blow up the chat layout; tight margins
 // keep them flush with surrounding lines.

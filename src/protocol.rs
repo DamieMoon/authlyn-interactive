@@ -203,6 +203,9 @@ pub struct MessageEnvelope {
     /// Persona description snapshotted at send time (None if it had no persona).
     /// For the click-the-name info popup.
     pub persona_description: Option<String>,
+    /// Persona name-tint (markup palette name) snapshotted at send time; the
+    /// chat name renders in this color. None/empty = default.
+    pub persona_color: Option<String>,
     pub body: String,
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,
@@ -237,6 +240,10 @@ pub struct CreatePersonaRequest {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Markup palette name (red…gray) tinting the persona's chat name, or empty
+    /// for the default color.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// Body of `PATCH /personas/{id}` — partial update.
@@ -244,6 +251,8 @@ pub struct CreatePersonaRequest {
 pub struct PatchPersonaRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Markup palette name (red…gray) or empty string to clear the tint.
+    pub color: Option<String>,
 }
 
 /// One persona in a list (the wardrobe grid). Carries `description` so the
@@ -254,6 +263,9 @@ pub struct PersonaSummary {
     pub name: String,
     pub description: String,
     pub avatar_id: Option<String>,
+    /// Markup palette name tinting the persona's chat name (empty for default).
+    #[serde(default)]
+    pub color: String,
     /// True when the caller owns this persona; false when it was redeemed via a
     /// share key (editor access — can wear + edit, but not delete/share).
     #[serde(default)]

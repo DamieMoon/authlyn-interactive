@@ -225,19 +225,25 @@ pub async fn create_persona(name: &str, description: &str) -> Result<PersonaSumm
         &CreatePersonaRequest {
             name: name.to_string(),
             description: Some(description.to_string()),
+            color: None,
         },
     )
     .await
 }
 
-/// Update a persona's name and/or description (owner only). 204, no body.
+/// Update a persona's name, description and/or color (owner/editor). 204.
 pub async fn patch_persona(
     pid: &str,
     name: Option<String>,
     description: Option<String>,
+    color: Option<String>,
 ) -> Result<(), ApiError> {
     let resp = Request::patch(&format!("/personas/{pid}"))
-        .json(&PatchPersonaRequest { name, description })
+        .json(&PatchPersonaRequest {
+            name,
+            description,
+            color,
+        })
         .map_err(codec)?
         .send()
         .await

@@ -239,6 +239,12 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         // (the controlling account's nickname).
                         let who = m.persona_name.clone()
                             .unwrap_or_else(|| m.author_display.clone());
+                        // Tint the name with the persona's chosen palette color
+                        // (validated against the markup palette before trusting it).
+                        let who_class = m.persona_color.as_deref()
+                            .filter(|c| Color::from_name(c).is_some())
+                            .map(|c| format!("who mk-{c}"))
+                            .unwrap_or_else(|| "who".to_string());
                         let when = format_local_time(&m.sent_at);
                         let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
@@ -249,7 +255,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         view! {
                             <li class="msg" id=dom_id>
                                 <div class="meta">
-                                    <button class="who" title="persona info"
+                                    <button class=who_class title="persona info"
                                         on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
                                     <time class="when">{when}</time>
                                     {mine.then(|| {
