@@ -1150,13 +1150,116 @@ mod act {
         request_notify_permission();
     }
 
+    /// True only when `window.Notification` actually exists. iOS Safari outside
+    /// an installed PWA has no `Notification` global at all, and *touching*
+    /// `web_sys::Notification::permission()` there traps the WASM (the binding
+    /// dereferences an undefined global). Feature-detect via reflection first so
+    /// the whole notification path can never throw / abort the send-receive flow.
+    fn notifications_available() -> bool {
+        let Some(win) = leptos::web_sys::window() else {
+            return false;
+        };
+        match js_sys::Reflect::get(&win, &wasm_bindgen::JsValue::from_str("Notification")) {
+            Ok(v) => !v.is_undefined() && !v.is_null(),
+            Err(_) => false,
+        }
+    }
+
     /// Ask for Web Notification permission if undecided. Must run from a user
-    /// gesture or the browser may ignore it.
+    /// gesture or the browser may ignore it. No-ops (never throws) where the
+    /// Notification API is missing — e.g. iOS Safari outside an installed PWA.
     fn request_notify_permission() {
         use leptos::web_sys::{Notification, NotificationPermission};
+        if !notifications_available() {
+            return;
+        }
         if Notification::permission() == NotificationPermission::Default {
             let _ = Notification::request_permission();
         }
+    }
+
+    /// Show `title` as a notification, preferring the service-worker
+    /// `registration.showNotification()` path so it works when the app runs as
+    /// an installed PWA (standalone display mode), where the `new Notification()`
+    /// constructor is unavailable / throws. Falls back to the constructor for a
+    /// plain browser tab. Every step is fallible and swallowed: this function
+    /// must never throw and never block the caller (a notification failure must
+    /// not break message send/receive).
+    fn show_notification(title: &str) {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::{JsCast, JsValue};
+
+        // SW path: navigator.serviceWorker.ready -> reg.showNotification(title).
+        // Driven entirely by reflection (`Reflect::get` + `Function::call`) so
+        // it needs no extra web-sys features (no Navigator / ServiceWorker*
+        // bindings) and any missing member just yields `None` -> silent
+        // fallback. The promise is chained with `.then(onFulfilled, onRejected)`
+        // so a rejected `ready`/`showNotification` is swallowed too.
+        let sw_dispatched = (|| -> Option<()> {
+            let win = leptos::web_sys::window()?;
+            // `window.navigator` by reflection (the Navigator web-sys feature
+            // isn't enabled in this build).
+            let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+            let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+            if sw.is_undefined() || sw.is_null() {
+                return None;
+            }
+            let ready = js_sys::Reflect::get(&sw, &JsValue::from_str("ready")).ok()?;
+            let ready: js_sys::Promise = ready.dyn_into().ok()?;
+            let title = title.to_owned();
+            // `reg.showNotification(title)` once the registration resolves.
+            let on_ready = Closure::once_into_js(move |reg: JsValue| {
+                let _ = (|| -> Option<()> {
+                    let show =
+                        js_sys::Reflect::get(&reg, &JsValue::from_str("showNotification")).ok()?;
+                    let show: js_sys::Function = show.dyn_into().ok()?;
+                    // Returns a Promise; swallow a rejection so it never
+                    // surfaces as an unhandled rejection.
+                    let p = show.call1(&reg, &JsValue::from_str(&title)).ok()?;
+                    if let Ok(p) = p.dyn_into::<js_sys::Promise>() {
+                        let noop = js_sys::Function::new_no_args("");
+                        let _ = then_via_reflect(&p, &on_ready_noop(), &noop);
+                    }
+                    Some(())
+                })();
+            });
+            let on_ready: js_sys::Function = on_ready.dyn_into().ok()?;
+            let noop = js_sys::Function::new_no_args("");
+            // `ready.then(on_ready, noop)` — invoked reflectively so we pass
+            // plain `Function`s instead of typed wasm-bindgen `Closure`s.
+            then_via_reflect(&ready, &on_ready, &noop)?;
+            Some(())
+        })();
+
+        if sw_dispatched.is_some() {
+            return;
+        }
+
+        // Fallback: plain browser tab. Guard so a throwing constructor (some
+        // standalone contexts) can't propagate.
+        if notifications_available() {
+            let _ = leptos::web_sys::Notification::new(title);
+        }
+    }
+
+    /// A no-op fulfilment callback for the inner `showNotification` promise.
+    fn on_ready_noop() -> js_sys::Function {
+        js_sys::Function::new_no_args("")
+    }
+
+    /// Call `promise.then(on_fulfilled, on_rejected)` via reflection so the
+    /// callbacks can be plain `js_sys::Function`s. Returns `None` if `then`
+    /// is missing or the call traps. Never throws.
+    fn then_via_reflect(
+        promise: &js_sys::Promise,
+        on_fulfilled: &js_sys::Function,
+        on_rejected: &js_sys::Function,
+    ) -> Option<()> {
+        use wasm_bindgen::JsCast;
+        let then = js_sys::Reflect::get(promise, &wasm_bindgen::JsValue::from_str("then")).ok()?;
+        let then: js_sys::Function = then.dyn_into().ok()?;
+        then.call2(promise, on_fulfilled, on_rejected).ok()?;
+        Some(())
     }
 
     /// True when the tab/PWA is backgrounded (so the user would miss messages).
@@ -1186,6 +1289,12 @@ mod act {
         if s.muted.with_untracked(|m| m.contains(&ch.id)) {
             return;
         }
+        // Feature-detect before reading permission: on iOS Safari outside an
+        // installed PWA the Notification global is absent and the permission
+        // read itself would trap.
+        if !notifications_available() {
+            return;
+        }
         if Notification::permission() != NotificationPermission::Granted {
             return;
         }
@@ -1199,7 +1308,7 @@ mod act {
                 .unwrap_or_else(|| last.author_display.clone());
             format!("{who} in #{}", ch.name)
         };
-        let _ = Notification::new(&title);
+        show_notification(&title);
     }
 
     /// Server page size for messages (mirrors `MESSAGES_PAGE_LIMIT` on the

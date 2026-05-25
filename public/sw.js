@@ -11,7 +11,7 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v3";
+const CACHE_VERSION = "authlyn-v4";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
@@ -96,4 +96,21 @@ self.addEventListener("fetch", (event) => {
 
   // Everything else: network-first, cache as offline fallback.
   event.respondWith(networkFirst(request));
+});
+
+// Notifications shown via registration.showNotification() (the installed-PWA /
+// standalone path — the `new Notification()` constructor is unavailable there).
+// Clicking one focuses an existing app window if present, else opens a new one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client) return client.focus();
+        }
+        if (self.clients.openWindow) return self.clients.openWindow("/");
+      })
+  );
 });
