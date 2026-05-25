@@ -278,6 +278,9 @@ textarea {
 		flex-direction: column;
 		flex: 1;
 		min-height: 0;
+		// Anchors the floating jump-to-bottom arrow / unread pill, which are
+		// positioned absolutely against this pane.
+		position: relative;
 	}
 
 	.topbar {
@@ -398,6 +401,55 @@ textarea {
 				white-space: pre-wrap;
 				overflow-wrap: break-word;
 			}
+		}
+	}
+
+	// Floating round button that jumps the message list to the latest message.
+	// Shown only while the user has scrolled up past the threshold; anchored to
+	// the bottom-right of .channel-view, sitting just above the composer.
+	.jump-bottom {
+		position: absolute;
+		right: 1rem;
+		bottom: 5.5rem;
+		z-index: 5;
+		width: 2.4rem;
+		height: 2.4rem;
+		padding: 0;
+		border-radius: 50%;
+		border: 1px solid $line;
+		background: $panel-2;
+		color: $text;
+		font-size: 1.2rem;
+		line-height: 1;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+		cursor: pointer;
+
+		&:hover {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+
+	// Unread notifier pill: appears centered above the composer when messages
+	// arrive while the user is scrolled up. Click jumps to the earliest unread.
+	.unread-pill {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		bottom: 5.5rem;
+		z-index: 5;
+		padding: 0.35rem 0.9rem;
+		border-radius: 1rem;
+		border: 1px solid $accent;
+		background: $accent;
+		color: $bg;
+		font-size: 0.85rem;
+		font-weight: 600;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+		cursor: pointer;
+
+		&:hover {
+			filter: brightness(1.08);
 		}
 	}
 
