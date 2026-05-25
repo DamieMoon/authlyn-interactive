@@ -63,6 +63,19 @@ enum Pane {
     Wardrobe,
 }
 
+/// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
+/// (with a human prompt in `confirm_prompt`); the top-level confirm modal in
+/// `AppShell` dispatches the matching `act::` fn when the user confirms. Storing
+/// a closure in a signal is awkward in Leptos, so we describe the action as data.
+#[derive(Clone)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+enum PendingDelete {
+    Message { cid: String, mid: String },
+    Channel { gid: String, cid: String },
+    Server { gid: String },
+    Persona { pid: String },
+}
+
 /// All of the shell's reactive state, bundled into one `Copy` handle.
 /// `pub(crate)` so the pane submodules can take it as a prop; the fields stay
 /// private (submodules are descendants and can still read them).
@@ -88,6 +101,10 @@ pub(crate) struct Shell {
     personas: RwSignal<Vec<PersonaSummary>>,
     active_persona: RwSignal<Option<String>>,
     lore: RwSignal<Vec<LorebookEntry>>,
+    /// A destructive action awaiting confirmation, with its human prompt; the
+    /// top-level confirm modal renders whenever this is `Some`.
+    pending_delete: RwSignal<Option<PendingDelete>>,
+    confirm_prompt: RwSignal<Option<String>>,
 }
 
 #[component]
@@ -115,6 +132,8 @@ fn AppShell() -> impl IntoView {
         personas: RwSignal::new(Vec::new()),
         active_persona: RwSignal::new(None),
         lore: RwSignal::new(Vec::new()),
+        pending_delete: RwSignal::new(None),
+        confirm_prompt: RwSignal::new(None),
     };
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
@@ -212,6 +231,20 @@ fn AppShell() -> impl IntoView {
                                         server_edit_buf.set(server_name());
                                         editing_server.set(true);
                                     }>"✎"</button>
+                                    <button class="row-edit danger" title="delete server"
+                                        on:click=move |_| {
+                                            if let Some(gid) = s.sel_server.get_untracked() {
+                                                act::ask_delete(
+                                                    s,
+                                                    format!(
+                                                        "Delete the server “{}” and all its \
+                                                         channels and messages? This cannot be undone.",
+                                                        server_name()
+                                                    ),
+                                                    PendingDelete::Server { gid },
+                                                );
+                                            }
+                                        }>"🗑"</button>
                                 </Show>
                             }.into_any()
                         }}
@@ -284,6 +317,29 @@ fn AppShell() -> impl IntoView {
             } else {
                 ().into_any()
             }}
+
+            // Top-level confirm dialog for destructive actions. Shown whenever a
+            // `PendingDelete` is queued; backdrop/Cancel clears it without acting,
+            // "Delete" dispatches the queued action (see `act::confirm_delete`).
+            {move || s.pending_delete.get().is_some().then(|| {
+                let prompt = s.confirm_prompt.get().unwrap_or_default();
+                view! {
+                    <div class="modal-backdrop" on:click=move |_| act::cancel_delete(s)>
+                        <div class="modal confirm-modal" on:click=move |_ev| {
+                            #[cfg(feature = "hydrate")]
+                            _ev.stop_propagation();
+                        }>
+                            <h3>"Confirm delete"</h3>
+                            <p>{prompt}</p>
+                            <div class="confirm-actions">
+                                <button on:click=move |_| act::cancel_delete(s)>"Cancel"</button>
+                                <button class="danger"
+                                    on:click=move |_| act::confirm_delete(s)>"Delete"</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            })}
         </div>
     }
 }
@@ -345,6 +401,25 @@ fn ChannelRow(
                                     editing.set(Some(start_cid.clone()));
                                 }
                             }>"✎"</button>
+                            <button class="row-edit danger" title="delete channel" on:click={
+                                let del_cid = start_cid.clone();
+                                let del_name = start_name.clone();
+                                move |_| {
+                                    if let Some(gid) = s.sel_server.get_untracked() {
+                                        act::ask_delete(
+                                            s,
+                                            format!(
+                                                "Delete the channel “{del_name}” and all its \
+                                                 messages? This cannot be undone."
+                                            ),
+                                            PendingDelete::Channel {
+                                                gid,
+                                                cid: del_cid.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                            }>"🗑"</button>
                         </Show>
                     }.into_any()
                 }
@@ -360,7 +435,7 @@ fn ChannelRow(
 
 #[cfg(feature = "hydrate")]
 mod act {
-    use super::{Pane, Shell};
+    use super::{Pane, PendingDelete, Shell};
     use crate::client::api;
     use crate::protocol::{ChannelSummary, MessageEnvelope};
     use crate::ui::AuthCtx;
@@ -582,6 +657,92 @@ mod act {
                     s.seen.update(|h| {
                         h.remove(&mid);
                     });
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    // ---- destructive-action confirmation ----
+
+    // localStorage key for the "ask before deleting a message" toggle. Absent or
+    // any value other than "0" means ON (confirm); "0" means the user opted out.
+    const KEY_CONFIRM_DELETE_MSG: &str = "authlyn.confirm_delete_message";
+
+    /// Whether message deletes should ask for confirmation (default ON).
+    pub fn confirm_delete_message_enabled() -> bool {
+        LocalStorage::get::<String>(KEY_CONFIRM_DELETE_MSG)
+            .map(|v| v != "0")
+            .unwrap_or(true)
+    }
+
+    /// Persist the message-delete confirmation toggle.
+    pub fn set_confirm_delete_message(on: bool) {
+        let _ = LocalStorage::set(KEY_CONFIRM_DELETE_MSG, if on { "1" } else { "0" });
+    }
+
+    /// Queue a destructive action behind the top-level confirm modal: stash the
+    /// action plus its human prompt. The modal dispatches it via `confirm_delete`.
+    pub fn ask_delete(s: Shell, prompt: String, pending: PendingDelete) {
+        s.confirm_prompt.set(Some(prompt));
+        s.pending_delete.set(Some(pending));
+    }
+
+    /// Clear a pending confirm without acting (Cancel / backdrop).
+    pub fn cancel_delete(s: Shell) {
+        s.pending_delete.set(None);
+        s.confirm_prompt.set(None);
+    }
+
+    /// Run the pending destructive action (the modal's "Delete"), then clear it.
+    pub fn confirm_delete(s: Shell) {
+        let pending = s.pending_delete.get_untracked();
+        cancel_delete(s);
+        match pending {
+            Some(PendingDelete::Message { cid, mid }) => delete_message(s, cid, mid),
+            Some(PendingDelete::Channel { gid, cid }) => delete_channel(s, gid, cid),
+            Some(PendingDelete::Server { gid }) => delete_server(s, gid),
+            Some(PendingDelete::Persona { pid }) => remove_persona(s, pid),
+            None => {}
+        }
+    }
+
+    /// Delete a channel (owner only). On success, clear the selection if it was
+    /// the open channel and reload the server so the sidebar drops the dead row.
+    pub fn delete_channel(s: Shell, gid: String, cid: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::delete_channel(&gid, &cid).await {
+                Ok(()) => {
+                    if s.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str())
+                    {
+                        s.sel_channel.set(None);
+                        s.pane.set(Pane::Friends);
+                    }
+                    open_server(s, gid);
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Delete a guild (owner only). On success, clear the server selection and
+    /// refresh the rail so it no longer points at a dead id.
+    pub fn delete_server(s: Shell, gid: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::delete_guild(&gid).await {
+                Ok(()) => {
+                    if s.sel_server.get_untracked().as_deref() == Some(gid.as_str()) {
+                        s.sel_server.set(None);
+                        s.sel_owner.set(None);
+                        s.channels.set(Vec::new());
+                        s.sel_channel.set(None);
+                        s.pane.set(Pane::Friends);
+                        LocalStorage::delete(KEY_SERVER);
+                        LocalStorage::delete(KEY_CHANNEL);
+                    }
+                    refresh_guilds(s);
                 }
                 Err(e) => s.status.set(api::humanize(&e)),
             }
@@ -907,7 +1068,7 @@ mod act {
 
 #[cfg(not(feature = "hydrate"))]
 mod act {
-    use super::Shell;
+    use super::{PendingDelete, Shell};
     use crate::protocol::ChannelSummary;
     use crate::ui::AuthCtx;
     use leptos::prelude::RwSignal;
@@ -928,6 +1089,24 @@ mod act {
     pub fn send_message(_s: Shell) {}
     pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
     pub fn delete_message(_s: Shell, _cid: String, _mid: String) {}
+    pub fn confirm_delete_message_enabled() -> bool {
+        true
+    }
+    pub fn set_confirm_delete_message(_on: bool) {}
+    pub fn ask_delete(_s: Shell, _prompt: String, _pending: PendingDelete) {}
+    pub fn cancel_delete(_s: Shell) {}
+    // Mirrors the hydrate dispatch shape so the per-action stubs stay "used".
+    pub fn confirm_delete(s: Shell) {
+        match None::<PendingDelete> {
+            Some(PendingDelete::Message { cid, mid }) => delete_message(s, cid, mid),
+            Some(PendingDelete::Channel { gid, cid }) => delete_channel(s, gid, cid),
+            Some(PendingDelete::Server { gid }) => delete_server(s, gid),
+            Some(PendingDelete::Persona { pid }) => remove_persona(s, pid),
+            None => {}
+        }
+    }
+    pub fn delete_channel(_s: Shell, _gid: String, _cid: String) {}
+    pub fn delete_server(_s: Shell, _gid: String) {}
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}
     pub fn create_persona(_s: Shell, _name: String, _desc: String) {}

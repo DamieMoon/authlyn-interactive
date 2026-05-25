@@ -8,7 +8,7 @@
 
 use leptos::prelude::*;
 
-use super::{act, Shell};
+use super::{act, PendingDelete, Shell};
 use crate::ui::markup_view::render_body;
 
 #[component]
@@ -108,6 +108,7 @@ fn PersonaCard(
     let has_desc = !desc.trim().is_empty();
     let owned = p.owned;
     let info_p = p.clone();
+    let remove_name = p.name.clone();
 
     view! {
         <div class="persona-card" class:worn=move || worn.get()>
@@ -146,7 +147,11 @@ fn PersonaCard(
                 {if owned {
                     view! {
                         <button class="danger" title="delete persona"
-                            on:click=move |_| act::remove_persona(s, pid_remove.clone())>
+                            on:click=move |_| act::ask_delete(
+                                s,
+                                format!("Delete the persona “{}”? This cannot be undone.", remove_name.clone()),
+                                PendingDelete::Persona { pid: pid_remove.clone() },
+                            )>
                             "Remove"
                         </button>
                     }.into_any()

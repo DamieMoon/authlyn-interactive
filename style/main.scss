@@ -791,6 +791,26 @@ textarea {
 	color: $accent;
 }
 
+// ---- confirm dialog (reuses .modal / .modal-backdrop) ----
+.confirm-modal {
+	h3 {
+		margin: 0;
+		font-size: 1.05rem;
+	}
+
+	p {
+		margin: 0;
+		color: $muted;
+	}
+
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+}
+
 // ---- account-management modal (reuses .modal / .modal-backdrop) ----
 .account-modal {
 	.account-head {
@@ -820,6 +840,17 @@ textarea {
 
 		.account-save {
 			align-self: flex-start;
+		}
+
+		// A checkbox + label preference (e.g. the message-delete confirm toggle).
+		.pref-row {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+
+			input {
+				width: auto;
+			}
 		}
 	}
 

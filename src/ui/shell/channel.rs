@@ -2,7 +2,7 @@
 
 use leptos::prelude::*;
 
-use super::{act, Shell};
+use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
 use crate::ui::markup_view::render_body;
@@ -255,7 +255,22 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                                 <button class="row-edit" title="delete"
                                                     on:click=move |_| {
                                                         if let Some(cid) = del_cid.clone() {
-                                                            act::delete_message(s, cid, del_mid.clone());
+                                                            // Message deletes confirm unless the
+                                                            // user opted out in account settings;
+                                                            // other deletes always confirm.
+                                                            if act::confirm_delete_message_enabled() {
+                                                                act::ask_delete(
+                                                                    s,
+                                                                    "Delete this message? This cannot be undone."
+                                                                        .to_string(),
+                                                                    PendingDelete::Message {
+                                                                        cid,
+                                                                        mid: del_mid.clone(),
+                                                                    },
+                                                                );
+                                                            } else {
+                                                                act::delete_message(s, cid, del_mid.clone());
+                                                            }
                                                         }
                                                     }>"🗑"</button>
                                             </span>

@@ -144,6 +144,16 @@ pub async fn patch_channel(gid: &str, cid: &str, name: &str) -> Result<(), ApiEr
     decode_empty(resp).await
 }
 
+/// Delete a guild (owner/admin only). 204, no body.
+pub async fn delete_guild(gid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/guilds/{gid}")).await
+}
+
+/// Delete a channel (owner/admin only). 204, no body.
+pub async fn delete_channel(gid: &str, cid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/guilds/{gid}/channels/{cid}")).await
+}
+
 pub async fn create_channel(gid: &str, name: &str, kind: &str) -> Result<ChannelSummary, ApiError> {
     post_json(
         &format!("/guilds/{gid}/channels"),

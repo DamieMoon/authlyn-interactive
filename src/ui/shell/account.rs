@@ -20,6 +20,10 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let new_pw = RwSignal::new(String::new());
     let confirm = RwSignal::new(String::new());
 
+    // ---- preferences section: message-delete confirmation toggle ----
+    // Seeded from localStorage (default ON); each change persists immediately.
+    let confirm_delete_msg = RwSignal::new(act::confirm_delete_message_enabled());
+
     let save = move |_| {
         let cur = current.get_untracked();
         let new = new_pw.get_untracked();
@@ -60,6 +64,20 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         prop:value=move || confirm.get()
                         on:input=move |ev| confirm.set(event_target_value(&ev))/>
                     <button class="account-save" on:click=save>"Save"</button>
+                </section>
+
+                // ---- Preferences ----
+                <section class="account-section">
+                    <h3>"Preferences"</h3>
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || confirm_delete_msg.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                confirm_delete_msg.set(on);
+                                act::set_confirm_delete_message(on);
+                            }/>
+                        <span>"Ask before deleting a message"</span>
+                    </label>
                 </section>
 
                 // Future account options go here as further
