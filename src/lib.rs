@@ -1,6 +1,8 @@
 pub mod app;
+pub mod client;
 pub mod markup;
 pub mod protocol;
+pub mod ui;
 
 #[cfg(feature = "ssr")]
 pub mod db;

@@ -5,6 +5,10 @@ use leptos_router::{
     StaticSegment,
 };
 
+use crate::ui::auth::{LoginPage, RegisterPage};
+use crate::ui::shell::Home;
+use crate::ui::AuthCtx;
+
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -27,6 +31,24 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
+    // Session state, resolved once on mount via `/auth/me`.
+    let auth = AuthCtx {
+        user: RwSignal::new(None),
+        loading: RwSignal::new(true),
+    };
+    provide_context(auth);
+
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        leptos::task::spawn_local(async move {
+            match crate::client::api::current_user().await {
+                Ok(me) => auth.user.set(Some(me)),
+                Err(_) => auth.user.set(None),
+            }
+            auth.loading.set(false);
+        });
+    });
+
     view! {
         <Stylesheet id="leptos" href="/pkg/authlyn-interactive.css"/>
         <Title text="authlyn"/>
@@ -34,20 +56,11 @@ pub fn App() -> impl IntoView {
         <Router>
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
-                    <Route path=StaticSegment("") view=Landing/>
+                    <Route path=StaticSegment("login") view=LoginPage/>
+                    <Route path=StaticSegment("register") view=RegisterPage/>
+                    <Route path=StaticSegment("") view=Home/>
                 </Routes>
             </main>
         </Router>
-    }
-}
-
-/// Placeholder landing page during the phase-1 rebuild. The real Discord-style
-/// UI (login, server rail, channels, wardrobe, lorebook) lands in `src/ui/`
-/// at build step 7 — see `~/.claude/plans/synthetic-zooming-cookie.md`.
-#[component]
-fn Landing() -> impl IntoView {
-    view! {
-        <h1>"authlyn"</h1>
-        <p>"Roleplay platform — rebuild in progress."</p>
     }
 }
