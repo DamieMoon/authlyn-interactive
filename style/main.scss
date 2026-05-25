@@ -189,6 +189,16 @@ textarea {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
+	min-height: 0;
+
+	// The pane wrapper must fill .content and constrain its own children,
+	// or .messages' flex:1/overflow-y below never engages and the page grows.
+	.channel-view {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+	}
 
 	.topbar {
 		display: flex;
@@ -207,6 +217,7 @@ textarea {
 		margin: 0;
 		padding: 0.5rem 1rem;
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 
 		.msg {
@@ -216,6 +227,13 @@ textarea {
 				font-weight: 600;
 				margin-right: 0.5rem;
 				color: #cdb8f0;
+			}
+
+			.text {
+				// pre-wrap renders message newlines/blank lines and still
+				// wraps at spaces; break-word stops long URLs overflowing.
+				white-space: pre-wrap;
+				overflow-wrap: break-word;
 			}
 		}
 	}
@@ -250,8 +268,10 @@ textarea {
 		textarea {
 			flex: 1;
 			min-width: 0;
-			resize: vertical;
+			resize: none;
 			min-height: 2.4rem;
+			max-height: 12rem;
+			overflow-y: auto;
 		}
 	}
 }

@@ -189,6 +189,22 @@ fn AppShell() -> impl IntoView {
 
 #[component]
 fn ChannelPane(s: Shell) -> impl IntoView {
+    // Auto-grow the composer to fit its content, up to the CSS max-height
+    // (then it scrolls). Tracking `compose` covers both typing and the
+    // programmatic clear after send. Hydrate-only; ssr leaves it min-height.
+    let composer_ref = NodeRef::<leptos::html::Textarea>::new();
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        s.compose.track();
+        if let Some(el) = composer_ref.get() {
+            // Deref to web_sys::HtmlElement so its inherent `style()` wins over
+            // tachys' `ElementExt::style` (both in scope via leptos prelude).
+            let style = (*el).style();
+            let _ = style.set_property("height", "auto");
+            let _ = style.set_property("height", &format!("{}px", el.scroll_height()));
+        }
+    });
+
     view! {
         <div class="channel-view">
             <ul class="messages">
@@ -224,6 +240,7 @@ fn ChannelPane(s: Shell) -> impl IntoView {
                     }).collect_view()}
                 </div>
                 <textarea
+                    node_ref=composer_ref
                     prop:value=move || s.compose.get()
                     on:input=move |ev| s.compose.set(event_target_value(&ev))
                     on:keydown=move |ev| {
@@ -366,19 +383,19 @@ fn FriendsPane(s: Shell) -> impl IntoView {
                             let aid = p.account_id.clone();
                             view! {
                                 <li>
-                                    <span class="tag in">"wants to add"</span> {p.username} " "
+                                    <span class="tag in">"wants to add"</span>" "{p.username}" "
                                     <button on:click=move |_| act::accept_friend(s, aid.clone())>"Accept"</button>
                                 </li>
                             }
                         }).collect_view()}
                         {f.outgoing.into_iter().map(|p| view! {
-                            <li><span class="tag out">"pending"</span> {p.username}</li>
+                            <li><span class="tag out">"pending"</span>" "{p.username}</li>
                         }).collect_view()}
                         {f.friends.into_iter().map(|p| {
                             let aid = p.account_id.clone();
                             view! {
                                 <li>
-                                    <span class="tag ok">"friend"</span> {p.username} " "
+                                    <span class="tag ok">"friend"</span>" "{p.username}" "
                                     <button on:click=move |_| act::remove_friend(s, aid.clone())>"Remove"</button>
                                 </li>
                             }
