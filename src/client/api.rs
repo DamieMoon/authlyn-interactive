@@ -6,7 +6,11 @@ use gloo_net::http::{Request, Response};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::protocol::{AuthResponse, ErrorBody, LoginRequest, MeResponse, RegisterRequest};
+use crate::protocol::{
+    AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody, GuildDetail,
+    GuildSummary, ListGuildsResponse, ListMessagesResponse, LoginRequest, MeResponse,
+    RegisterRequest, SendMessageRequest, SendMessageResponse,
+};
 
 /// A failed API call.
 #[derive(Clone, Debug)]
@@ -61,8 +65,74 @@ pub async fn logout() -> Result<(), ApiError> {
 }
 
 // ---------------------------------------------------------------------------
+// Guilds + channels
+// ---------------------------------------------------------------------------
+
+pub async fn list_guilds() -> Result<ListGuildsResponse, ApiError> {
+    get("/guilds").await
+}
+
+pub async fn create_guild(name: &str) -> Result<GuildSummary, ApiError> {
+    post_json(
+        "/guilds",
+        &CreateGuildRequest {
+            name: name.to_string(),
+        },
+    )
+    .await
+}
+
+pub async fn get_guild(gid: &str) -> Result<GuildDetail, ApiError> {
+    get(&format!("/guilds/{gid}")).await
+}
+
+pub async fn create_channel(gid: &str, name: &str, kind: &str) -> Result<ChannelSummary, ApiError> {
+    post_json(
+        &format!("/guilds/{gid}/channels"),
+        &CreateChannelRequest {
+            name: name.to_string(),
+            kind: kind.to_string(),
+        },
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+/// List messages, optionally resuming from a `(sent_at, id)` cursor.
+pub async fn list_messages(
+    cid: &str,
+    cursor: Option<&(String, String)>,
+) -> Result<ListMessagesResponse, ApiError> {
+    let url = match cursor {
+        Some((since, after_id)) => {
+            format!("/channels/{cid}/messages?since={since}&after_id={after_id}")
+        }
+        None => format!("/channels/{cid}/messages"),
+    };
+    get(&url).await
+}
+
+pub async fn post_message(cid: &str, body: &str) -> Result<SendMessageResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/messages"),
+        &SendMessageRequest {
+            body: body.to_string(),
+        },
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // Low-level helpers (reused by later slices)
 // ---------------------------------------------------------------------------
+
+pub(crate) async fn get<T: DeserializeOwned>(url: &str) -> Result<T, ApiError> {
+    let resp = Request::get(url).send().await.map_err(net)?;
+    decode(resp).await
+}
 
 pub(crate) async fn post_json<B: Serialize, T: DeserializeOwned>(
     url: &str,

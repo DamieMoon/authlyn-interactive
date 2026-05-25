@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use crate::protocol::MeResponse;
 
 pub mod auth;
+pub mod markup_view;
 pub mod shell;
 
 /// Session state, provided once at the app root and read everywhere.
