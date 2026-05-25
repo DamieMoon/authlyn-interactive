@@ -6,10 +6,11 @@
 //! that needs it arrives. See `~/.claude/plans/synthetic-zooming-cookie.md`.
 
 pub mod auth;
+pub mod guilds;
 pub mod retry;
 pub mod state;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -31,6 +32,23 @@ fn api_routes() -> Router<AppState> {
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me))
+        .route(
+            "/guilds",
+            get(guilds::list_guilds).post(guilds::create_guild),
+        )
+        .route(
+            "/guilds/{id}",
+            get(guilds::get_guild)
+                .patch(guilds::patch_guild)
+                .delete(guilds::delete_guild),
+        )
+        .route("/guilds/{id}/channels", post(guilds::create_channel))
+        .route(
+            "/guilds/{id}/channels/{cid}",
+            patch(guilds::patch_channel).delete(guilds::delete_channel),
+        )
+        .route("/guilds/{id}/members", post(guilds::invite_member))
+        .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 

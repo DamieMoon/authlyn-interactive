@@ -64,3 +64,71 @@ pub struct MeResponse {
     pub username: String,
     pub display_name: String,
 }
+
+// ---------------------------------------------------------------------------
+// Guilds (servers), channels, membership
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /guilds`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateGuildRequest {
+    pub name: String,
+}
+
+/// One guild as it appears in a list (the caller's guild rail).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GuildSummary {
+    pub id: String,
+    pub name: String,
+}
+
+/// Response from `GET /guilds`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListGuildsResponse {
+    pub guilds: Vec<GuildSummary>,
+}
+
+/// One channel within a guild. `kind` is `"text"` or `"lorebook"`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChannelSummary {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub position: i64,
+}
+
+/// Response from `GET /guilds/{id}` — the guild plus its channel list.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GuildDetail {
+    pub id: String,
+    pub name: String,
+    pub owner_id: String,
+    pub channels: Vec<ChannelSummary>,
+}
+
+/// Body of `POST /guilds/{id}/channels`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateChannelRequest {
+    pub name: String,
+    /// `"text"` or `"lorebook"`.
+    pub kind: String,
+}
+
+/// Body of `PATCH /guilds/{id}` — every field optional (partial update).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchGuildRequest {
+    pub name: Option<String>,
+}
+
+/// Body of `PATCH /guilds/{id}/channels/{cid}` — partial update.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchChannelRequest {
+    pub name: Option<String>,
+    pub position: Option<i64>,
+}
+
+/// Body of `POST /guilds/{id}/members` — invite a user by username.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteMemberRequest {
+    pub username: String,
+}
