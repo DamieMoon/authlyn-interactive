@@ -7,13 +7,14 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::{
-    AuthResponse, ChangePasswordRequest, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
-    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
-    EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
-    ListFriendsResponse, ListGuildsResponse, ListLorebookResponse, ListMessagesResponse,
-    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    PatchChannelRequest, PatchGuildRequest, PatchPersonaRequest, PersonaSummary, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
+    AddGalleryImageRequest, AddGalleryImageResponse, AuthResponse, ChangePasswordRequest,
+    ChannelSummary, CreateChannelRequest, CreateGuildRequest, CreateLorebookEntryRequest,
+    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
+    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse,
+    ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    PatchPersonaRequest, PersonaDetail, PersonaSummary, RegisterRequest, SendMessageRequest,
+    SendMessageResponse, SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -289,6 +290,32 @@ pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result
         .await
         .map_err(net)?;
     decode_empty(resp).await
+}
+
+/// Fetch a persona's detail (name, description, avatar, gallery, and — for the
+/// owner — its share key + editor roster).
+pub async fn get_persona(pid: &str) -> Result<PersonaDetail, ApiError> {
+    get(&format!("/personas/{pid}")).await
+}
+
+/// Add an already-uploaded media id to a persona's gallery (owner/editor).
+/// 201 with the new gallery image id.
+pub async fn add_gallery_image(
+    pid: &str,
+    media_id: &str,
+) -> Result<AddGalleryImageResponse, ApiError> {
+    post_json(
+        &format!("/personas/{pid}/gallery"),
+        &AddGalleryImageRequest {
+            media_id: media_id.to_string(),
+        },
+    )
+    .await
+}
+
+/// Remove a gallery image from a persona (owner/editor). 204, no body.
+pub async fn remove_gallery_image(pid: &str, img: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/personas/{pid}/gallery/{img}")).await
 }
 
 /// Set a persona's primary avatar to an already-uploaded media id. 204, no body.
