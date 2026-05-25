@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 
-const BASE = "http://127.0.0.1:3000/";
+// Defaults to the local dev server; override to point at the live origin, e.g.
+// SMOKE_BASE=https://authlyn.tplinkdns.com:8444/ npx playwright test
+const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3000/";
 
 // Generate + publish a device, then read back its (auto-filled) user/device ids.
 async function publish(p: Page): Promise<{ user: string; device: string }> {
