@@ -1,4 +1,5 @@
 pub mod app;
+pub mod markup;
 pub mod protocol;
 
 #[cfg(feature = "ssr")]

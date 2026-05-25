@@ -132,3 +132,48 @@ pub struct PatchChannelRequest {
 pub struct InviteMemberRequest {
     pub username: String,
 }
+
+// ---------------------------------------------------------------------------
+// Messages (channel-scoped, plaintext body; markup rides inside `body`)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /channels/{cid}/messages`. `body` is the raw message text,
+/// which may contain markup (see [`crate::markup`]); the server stores it
+/// verbatim. The author and "speaking-as" persona are resolved server-side
+/// (from the session + the caller's active persona in that guild), never
+/// trusted from the request.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendMessageRequest {
+    pub body: String,
+}
+
+/// Successful response from `POST /channels/{cid}/messages`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendMessageResponse {
+    /// Opaque id of the new `message` row. Clients dedup catch-up reads on it.
+    pub id: String,
+}
+
+/// One message as returned by `GET /channels/{cid}/messages`.
+///
+/// `persona_id`/`persona_name` are the persona the author was "wearing" when
+/// they sent it (both `None` if they had none). `sent_at` is the fixed-9-digit
+/// RFC 3339 cursor key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageEnvelope {
+    pub id: String,
+    pub author_id: String,
+    pub persona_id: Option<String>,
+    pub persona_name: Option<String>,
+    pub body: String,
+    /// AI-visibility tier. Always `"default"` in phase 1.
+    pub tier: String,
+    pub sent_at: String,
+}
+
+/// Successful response from `GET /channels/{cid}/messages`. Up to 100
+/// envelopes, ASC by `(sent_at, id)`; iterate with `?since=&after_id=`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListMessagesResponse {
+    pub messages: Vec<MessageEnvelope>,
+}

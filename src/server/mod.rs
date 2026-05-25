@@ -7,8 +7,13 @@
 
 pub mod auth;
 pub mod guilds;
+pub mod messages;
 pub mod retry;
 pub mod state;
+
+// Internal wire-format helper (raw SurrealDB `datetime` -> fixed RFC 3339).
+// Used by `messages::load_messages`; kept private to the server module.
+mod datetime;
 
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
@@ -49,6 +54,10 @@ fn api_routes() -> Router<AppState> {
         )
         .route("/guilds/{id}/members", post(guilds::invite_member))
         .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
+        .route(
+            "/channels/{cid}/messages",
+            get(messages::list_messages).post(messages::post_message),
+        )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 
