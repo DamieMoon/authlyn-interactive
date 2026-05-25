@@ -13,8 +13,8 @@ use crate::protocol::{
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
     ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse,
     ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
-    PatchPersonaRequest, PersonaDetail, PersonaSummary, RegisterRequest, SendMessageRequest,
-    SendMessageResponse, SetActivePersonaRequest,
+    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
+    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -418,6 +418,28 @@ pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
 
 pub async fn remove_friend(aid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/friends/{aid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Web Push (#30)
+// ---------------------------------------------------------------------------
+
+/// Fetch the server's VAPID public key. Returns `Err(Status(404, _))` when push
+/// isn't configured server-side — callers treat that as "push unavailable" and
+/// skip subscribing.
+pub async fn push_vapid_key() -> Result<VapidKeyResponse, ApiError> {
+    get("/push/vapid-key").await
+}
+
+/// Register this browser's push subscription with the server. 204, no body.
+pub async fn push_subscribe(req: &PushSubscribeRequest) -> Result<(), ApiError> {
+    let resp = Request::post("/push/subscribe")
+        .json(req)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,9 @@ web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Not
 gloo-net = { version = "0.6", optional = true, default-features = false, features = ["http", "json"] }
 gloo-storage = { version = "0.3", optional = true }
 gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
+# Await browser Promises (serviceWorker.ready, pushManager.subscribe) when
+# wiring Web Push from the client. Hydrate-only; wasm-only.
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 # SurrealDB client (ssr-only; never compiled into the WASM bundle).
 # Pinned to the 3.x line so the on-machine `surreal` binary 3.x and the
@@ -88,6 +91,12 @@ time               = { version = "0.3", optional = true, default-features = fals
 # set (the formats personas actually upload). ssr-only — never in the WASM
 # bundle. `rayon` off to keep it single-threaded inside spawn_blocking.
 image              = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+# Web Push (#30 background notifications): builds the encrypted aes128gcm
+# payload + VAPID signature and POSTs it to the browser's push endpoint
+# (FCM / Apple / Mozilla). ssr-only — never in the WASM bundle. Default
+# features pull the isahc (libcurl) client; the send path reuses a single
+# IsahcWebPushClient held in AppState. Needs system libcurl at build time.
+web-push           = { version = "0.11", optional = true }
 
 # Nova MCP server (the `nova` feature + the `nova-mcp` bin). Native-only, never
 # in the app's ssr/hydrate graph — a standalone bridge that talks to the running
@@ -125,6 +134,7 @@ hydrate = [
     "dep:gloo-net",
     "dep:gloo-storage",
     "dep:gloo-timers",
+    "dep:wasm-bindgen-futures",
 ]
 ssr = [
     "dep:axum",
@@ -140,6 +150,7 @@ ssr = [
     "dep:axum-extra",
     "dep:time",
     "dep:image",
+    "dep:web-push",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

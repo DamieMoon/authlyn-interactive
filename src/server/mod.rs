@@ -14,6 +14,7 @@ pub mod lorebook;
 pub mod media;
 pub mod messages;
 pub mod personas;
+pub mod push;
 pub mod retry;
 pub mod state;
 
@@ -134,6 +135,10 @@ fn small_body_routes() -> Router<AppState> {
         )
         .route("/friends/{aid}/accept", post(friends::accept_friend))
         .route("/friends/{aid}", delete(friends::remove_friend))
+        // Web Push (#30): public VAPID key fetch + subscribe/unsubscribe.
+        .route("/push/vapid-key", get(push::vapid_key))
+        .route("/push/subscribe", post(push::subscribe))
+        .route("/push/unsubscribe", post(push::unsubscribe))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
 }
 

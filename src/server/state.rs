@@ -14,6 +14,8 @@ use leptos::prelude::LeptosOptions;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
+use crate::server::push::PushSender;
+
 /// The single state object handed to every axum handler.
 ///
 /// `Clone` is cheap: `LeptosOptions` is small, `Arc<Surreal<Client>>` is
@@ -34,6 +36,9 @@ pub struct AppState {
     /// rejects a non-existent or unreadable dir — main.rs and the test
     /// harness must `create_dir_all` first.
     pub media_dir: Arc<PathBuf>,
+    /// Web Push sender (#30), built from VAPID env at startup. `None` = push
+    /// disabled (tests, or env unset) — every push path becomes a silent no-op.
+    pub push: Option<Arc<PushSender>>,
 }
 
 impl AppState {
@@ -49,16 +54,23 @@ impl AppState {
             leptos: LeptosOptions::builder().output_name("test").build(),
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
+            push: None,
         }
     }
 
     /// Build with all three halves supplied. Used by `main.rs`. Same
     /// canonicalization contract as [`Self::new`].
-    pub fn with_leptos(db: Surreal<Client>, leptos: LeptosOptions, media_dir: PathBuf) -> Self {
+    pub fn with_leptos(
+        db: Surreal<Client>,
+        leptos: LeptosOptions,
+        media_dir: PathBuf,
+        push: Option<Arc<PushSender>>,
+    ) -> Self {
         Self {
             leptos,
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
+            push,
         }
     }
 }

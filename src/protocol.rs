@@ -447,3 +447,40 @@ pub struct ListFriendsResponse {
     pub incoming: Vec<FriendSummary>,
     pub outgoing: Vec<FriendSummary>,
 }
+
+// ---------------------------------------------------------------------------
+// Web Push (#30 background notifications)
+// ---------------------------------------------------------------------------
+
+/// Response from `GET /push/vapid-key` — the server's VAPID public key
+/// (base64url, unpadded), which the browser decodes into the `Uint8Array`
+/// `applicationServerKey` for `pushManager.subscribe`. The endpoint 404s when
+/// push isn't configured server-side, so the client can skip subscription.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VapidKeyResponse {
+    pub key: String,
+}
+
+/// Body of `POST /push/subscribe` — a browser `PushSubscription` shaped like
+/// its `.toJSON()` output. `endpoint` is the push-service URL; `keys.p256dh`
+/// and `keys.auth` are the receiver keys the server needs to encrypt payloads
+/// (RFC 8291). Re-subscribing the same browser upserts on `endpoint`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PushSubscribeRequest {
+    pub endpoint: String,
+    pub keys: PushSubscriptionKeys,
+}
+
+/// The `keys` object of a browser `PushSubscription` (both base64url strings).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PushSubscriptionKeys {
+    pub p256dh: String,
+    pub auth: String,
+}
+
+/// Body of `POST /push/unsubscribe` — drop a stored subscription by its
+/// endpoint (e.g. when the browser reports the subscription changed/stale).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PushUnsubscribeRequest {
+    pub endpoint: String,
+}

@@ -176,3 +176,20 @@ DEFINE FIELD IF NOT EXISTS state      ON friendship TYPE string DEFAULT 'pending
 DEFINE FIELD IF NOT EXISTS created_at ON friendship TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON friendship TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS friendship_pair ON friendship FIELDS requester, addressee UNIQUE;
+
+-- Web Push subscriptions (#30): one row per browser push endpoint ----------
+-- The client subscribes via the Push API and POSTs the resulting endpoint +
+-- receiver keys; the server encrypts (aes128gcm) + VAPID-signs a payload per
+-- row when a new message lands in a guild the owner belongs to.
+DEFINE TABLE IF NOT EXISTS push_subscription SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS account    ON push_subscription TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS endpoint   ON push_subscription TYPE string;
+DEFINE FIELD IF NOT EXISTS p256dh     ON push_subscription TYPE string;  -- receiver ECDH pubkey (base64url)
+DEFINE FIELD IF NOT EXISTS auth       ON push_subscription TYPE string;  -- receiver auth secret (base64url)
+DEFINE FIELD IF NOT EXISTS created_at ON push_subscription TYPE datetime DEFAULT time::now();
+-- Endpoint is the natural identity (one per browser). UNIQUE so re-subscribing
+-- the same browser upserts rather than duplicating. This is a NEW table — no
+-- rows predate these fields, so there is no NONE-coercion backfill hazard (the
+-- trap that only applies to fields added to tables with existing rows).
+DEFINE INDEX IF NOT EXISTS push_subscription_endpoint ON push_subscription FIELDS endpoint UNIQUE;
+DEFINE INDEX IF NOT EXISTS push_subscription_account ON push_subscription FIELDS account;

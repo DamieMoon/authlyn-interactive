@@ -1279,17 +1279,148 @@ mod act {
         }
     }
 
-    /// Ask for Web Notification permission if undecided. Must run from a user
-    /// gesture or the browser may ignore it. No-ops (never throws) where the
-    /// Notification API is missing — e.g. iOS Safari outside an installed PWA.
+    /// Ask for Web Notification permission if undecided, and once it is (or
+    /// already is) granted, register a Web Push subscription so notifications
+    /// arrive even when the PWA is backgrounded/closed (#30). Must run from a
+    /// user gesture — `request_permission` is gesture-bound, and on iOS the
+    /// subscribe that follows it is too, so both ride the same tap. No-ops
+    /// (never throws) where the API is missing — e.g. iOS Safari outside an
+    /// installed PWA.
     fn request_notify_permission() {
         use leptos::web_sys::{Notification, NotificationPermission};
         if !notifications_available() {
             return;
         }
-        if Notification::permission() == NotificationPermission::Default {
-            let _ = Notification::request_permission();
+        match Notification::permission() {
+            NotificationPermission::Default => {
+                // Ask; subscribe only after the user actually grants.
+                if let Ok(promise) = Notification::request_permission() {
+                    spawn_local(async move {
+                        if let Ok(v) = wasm_bindgen_futures::JsFuture::from(promise).await {
+                            if v.as_string().as_deref() == Some("granted") {
+                                ensure_push_subscription().await;
+                            }
+                        }
+                    });
+                }
+            }
+            NotificationPermission::Granted => {
+                // Already granted (a prior session, or the first send/mute after
+                // push shipped): make sure a subscription exists. Idempotent —
+                // getSubscription() short-circuits if we already have one. Runs
+                // from this gesture, so iOS is satisfied.
+                spawn_local(async move {
+                    ensure_push_subscription().await;
+                });
+            }
+            _ => {}
         }
+    }
+
+    /// Ensure this browser has a Web Push subscription registered with the
+    /// server. Idempotent: reuses an existing subscription, else subscribes
+    /// using the server's VAPID public key and POSTs the result. Entirely
+    /// reflection-driven (no extra web-sys features) and all-or-nothing — any
+    /// missing API (no `serviceWorker`, no `pushManager`, e.g. iOS Safari
+    /// outside an installed PWA) just makes it a silent no-op. Call only after
+    /// Notification permission is granted.
+    async fn ensure_push_subscription() {
+        use wasm_bindgen::{JsCast, JsValue};
+        use wasm_bindgen_futures::JsFuture;
+
+        let _ = async {
+            let win = leptos::web_sys::window()?;
+            let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+            let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+            if sw.is_undefined() || sw.is_null() {
+                return None;
+            }
+            // navigator.serviceWorker.ready : Promise<ServiceWorkerRegistration>
+            let ready: js_sys::Promise = js_sys::Reflect::get(&sw, &JsValue::from_str("ready"))
+                .ok()?
+                .dyn_into()
+                .ok()?;
+            let reg = JsFuture::from(ready).await.ok()?;
+            let pm = js_sys::Reflect::get(&reg, &JsValue::from_str("pushManager")).ok()?;
+            if pm.is_undefined() || pm.is_null() {
+                return None; // no Push API (e.g. iOS Safari outside an installed PWA)
+            }
+
+            // Reuse an existing subscription if the browser already has one.
+            let get_sub: js_sys::Function =
+                js_sys::Reflect::get(&pm, &JsValue::from_str("getSubscription"))
+                    .ok()?
+                    .dyn_into()
+                    .ok()?;
+            let existing = JsFuture::from(
+                get_sub
+                    .call0(&pm)
+                    .ok()?
+                    .dyn_into::<js_sys::Promise>()
+                    .ok()?,
+            )
+            .await
+            .ok()?;
+
+            let subscription = if existing.is_null() || existing.is_undefined() {
+                // Fresh subscribe: needs the server's VAPID public key as a
+                // Uint8Array applicationServerKey (a base64url string fails on iOS).
+                let key_b64 = api::push_vapid_key().await.ok()?.key;
+                let key_bytes = base64url_to_bytes(&key_b64)?;
+                let key_arr = js_sys::Uint8Array::from(key_bytes.as_slice());
+
+                let opts = js_sys::Object::new();
+                js_sys::Reflect::set(&opts, &JsValue::from_str("userVisibleOnly"), &JsValue::TRUE)
+                    .ok()?;
+                js_sys::Reflect::set(&opts, &JsValue::from_str("applicationServerKey"), &key_arr)
+                    .ok()?;
+
+                let subscribe: js_sys::Function =
+                    js_sys::Reflect::get(&pm, &JsValue::from_str("subscribe"))
+                        .ok()?
+                        .dyn_into()
+                        .ok()?;
+                let p: js_sys::Promise = subscribe.call1(&pm, &opts).ok()?.dyn_into().ok()?;
+                JsFuture::from(p).await.ok()?
+            } else {
+                existing
+            };
+
+            // subscription.toJSON() -> { endpoint, keys: { p256dh, auth } }
+            let to_json: js_sys::Function =
+                js_sys::Reflect::get(&subscription, &JsValue::from_str("toJSON"))
+                    .ok()?
+                    .dyn_into()
+                    .ok()?;
+            let json = to_json.call0(&subscription).ok()?;
+            let endpoint = js_sys::Reflect::get(&json, &JsValue::from_str("endpoint"))
+                .ok()?
+                .as_string()?;
+            let keys = js_sys::Reflect::get(&json, &JsValue::from_str("keys")).ok()?;
+            let p256dh = js_sys::Reflect::get(&keys, &JsValue::from_str("p256dh"))
+                .ok()?
+                .as_string()?;
+            let auth = js_sys::Reflect::get(&keys, &JsValue::from_str("auth"))
+                .ok()?
+                .as_string()?;
+
+            api::push_subscribe(&crate::protocol::PushSubscribeRequest {
+                endpoint,
+                keys: crate::protocol::PushSubscriptionKeys { p256dh, auth },
+            })
+            .await
+            .ok()?;
+            Some(())
+        }
+        .await;
+    }
+
+    /// Decode a base64url-unpadded string (the VAPID public key) to bytes.
+    fn base64url_to_bytes(s: &str) -> Option<Vec<u8>> {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(s)
+            .ok()
     }
 
     /// Show `title` as a notification, preferring the service-worker

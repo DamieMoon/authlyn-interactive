@@ -11,7 +11,7 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v4";
+const CACHE_VERSION = "authlyn-v5";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
@@ -98,19 +98,95 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(networkFirst(request));
 });
 
-// Notifications shown via registration.showNotification() (the installed-PWA /
-// standalone path — the `new Notification()` constructor is unavailable there).
-// Clicking one focuses an existing app window if present, else opens a new one.
+// ---------------------------------------------------------------------------
+// Web Push
+// ---------------------------------------------------------------------------
+
+// Parse the push payload defensively; fall back to a generic notification so
+// the handler never silently drops a push event.
+function parsePushPayload(event) {
+  if (!event.data) {
+    return { title: "authlyn", body: "New notification" };
+  }
+  try {
+    return event.data.json();
+  } catch {
+    return { title: "authlyn", body: event.data.text() || "New notification" };
+  }
+}
+
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    (async () => {
+      const {
+        title = "authlyn",
+        body = "",
+        icon = "/icons/icon-192.png",
+        badge = "/icons/icon-192.png",
+        tag,
+        channel,
+        // accept a pre-built data blob or synthesise one from top-level fields
+        data,
+      } = parsePushPayload(event);
+
+      const notifData = data ?? (channel ? { channel } : {});
+
+      // ALWAYS show a notification on a push. iOS revokes the subscription if a
+      // push event resolves without a showNotification() call (the
+      // userVisibleOnly contract), so we deliberately do NOT suppress for a
+      // focused window — that would silently kill push on iOS PWAs. (A
+      // focused-client suppression could be gated on non-iOS later.)
+      await self.registration.showNotification(title, {
+        body,
+        icon,
+        badge,
+        // tag deduplicates: a second push with the same tag replaces the first.
+        // Only set it when the payload provides one so unrelated pushes stack.
+        ...(tag != null && { tag, renotify: true }),
+        data: notifData,
+      });
+    })()
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Notification click — focus existing window or open a new one; honour the
+// deep-link channel carried in notification.data.
+// ---------------------------------------------------------------------------
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+
+  const { channel } = event.notification.data ?? {};
+  const target = channel ? `/?channel=${encodeURIComponent(channel)}` : "/";
+
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((clients) => {
-        for (const client of clients) {
-          if ("focus" in client) return client.focus();
+    (async () => {
+      const windowClients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
+      // Prefer an already-focused window, then any visible window, then any
+      // window at all.
+      const focused = windowClients.find((c) => c.focused);
+      const visible = windowClients.find((c) => c.visibilityState === "visible");
+      const existing = focused ?? visible ?? windowClients[0] ?? null;
+
+      if (existing) {
+        // Try to navigate to the deep-link URL; fall back to postMessage so the
+        // app can handle routing itself (navigate() throws if the client is
+        // cross-origin or the SW scope doesn't cover the URL).
+        try {
+          await existing.navigate(target);
+        } catch {
+          existing.postMessage({ type: "NOTIFICATION_CLICK", channel: channel ?? null, url: target });
         }
-        if (self.clients.openWindow) return self.clients.openWindow("/");
-      })
+        await existing.focus();
+        return;
+      }
+
+      // No existing window — open a fresh one at the deep-link URL.
+      await self.clients.openWindow(target);
+    })()
   );
 });

@@ -124,7 +124,12 @@ pub async fn post_message(
     )
     .await
     {
-        Ok(id) => (StatusCode::CREATED, Json(SendMessageResponse { id })).into_response(),
+        Ok(id) => {
+            // Fire-and-forget Web Push to the guild's other members (#30). Never
+            // blocks or fails the send; a no-op when push is disabled.
+            crate::server::push::notify_new_message(state.clone(), id.clone(), account.0.clone());
+            (StatusCode::CREATED, Json(SendMessageResponse { id })).into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "persist_message failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

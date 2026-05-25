@@ -50,7 +50,15 @@ async fn main() {
     // Combine the SurrealDB handle, Leptos config, and media dir in one
     // application state. `FromRef<AppState> for LeptosOptions` lets us
     // keep using the Leptos-provided routing helpers.
-    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir);
+    // Web Push (#30): build the VAPID sender from env. `None` = push disabled
+    // (the app and every push code path run fine; the client just won't subscribe).
+    let push = server::push::PushSender::from_env();
+    if push.is_some() {
+        log!("Web Push enabled (VAPID configured)");
+    } else {
+        log!("Web Push disabled (set VAPID_PRIVATE_KEY + VAPID_PUBLIC_KEY to enable)");
+    }
+    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir, push);
 
     // Background sweep that hard-deletes soft-deleted rows past their rollback
     // window (#22: message 1h, channel 1d, guild 30d). Runs once at boot, hourly after.
