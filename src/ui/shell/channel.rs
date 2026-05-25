@@ -114,17 +114,82 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     // bottom; otherwise leave the scroll position alone (reading history).
     let list_ref = NodeRef::<leptos::html::Ul>::new();
     let last_dist = StoredValue::new(0.0_f64);
+
+    // Scroll/unread aids (all component-local):
+    //  - `scrolled_up` toggles the jump-to-bottom arrow's visibility, set from
+    //    the on:scroll handler when the user is more than ~200px from bottom.
+    //  - `unread` / `first_unread_id` track messages that arrived *while the
+    //    user was scrolled up and weren't their own*, so the unread pill can
+    //    jump back to the earliest one.
+    //  - `prev_count` is the message count seen on the previous effect run; it
+    //    distinguishes genuinely-appended messages from the initial load and
+    //    from in-place edits/deletes (which don't grow the list).
+    let scrolled_up = RwSignal::new(false);
+    let unread = RwSignal::new(0_usize);
+    // Only read/written from hydrate-gated code (the append effect and the pill
+    // click); on ssr they'd be unused, so gate the declarations too.
+    #[cfg(feature = "hydrate")]
+    let first_unread_id = RwSignal::new(None::<String>);
+    #[cfg(feature = "hydrate")]
+    let prev_count = StoredValue::new(None::<usize>);
+
+    // `at_bottom` clears the unread state and hides the arrow. Called from the
+    // jump-to-bottom click and from the on:scroll handler when the user is back
+    // at (or very near) the bottom of the list.
+    #[cfg(feature = "hydrate")]
+    let mark_seen = move || {
+        unread.set(0);
+        first_unread_id.set(None);
+        scrolled_up.set(false);
+    };
+
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         let msgs = s.messages.get();
+        let me = auth.user.get_untracked().map(|u| u.account_id);
         let mine = msgs
             .last()
-            .zip(auth.user.get_untracked())
-            .map(|(m, u)| m.author_id == u.account_id)
+            .zip(me.as_ref())
+            .map(|(m, id)| &m.author_id == id)
             .unwrap_or(false);
+
+        // Detect genuinely-new appended messages (count grew since last run)
+        // vs. the initial load (no previous count) or an edit/delete (count
+        // same or smaller). `prev` is the count *before* this batch.
+        let count = msgs.len();
+        let prev = prev_count.get_value();
+        prev_count.set_value(Some(count));
+
+        // The user is "scrolled up" reading history when more than a small
+        // slack from the bottom at the moment new messages land.
+        let was_scrolled_up = last_dist.get_value() > 4.0;
+
+        if let Some(prev) = prev {
+            if count > prev && was_scrolled_up {
+                // New arrivals while away from the bottom. Count only the
+                // newly-appended messages that aren't the current user's own,
+                // and remember the earliest such id for the pill's jump target.
+                let mut newly_unread = 0_usize;
+                for m in msgs.iter().skip(prev) {
+                    let is_mine = me.as_deref() == Some(m.author_id.as_str());
+                    if !is_mine {
+                        if first_unread_id.get_untracked().is_none() && newly_unread == 0 {
+                            first_unread_id.set(Some(m.id.clone()));
+                        }
+                        newly_unread += 1;
+                    }
+                }
+                if newly_unread > 0 {
+                    unread.update(|n| *n += newly_unread);
+                }
+            }
+        }
+
         let threshold = if mine { 120.0 } else { 4.0 };
         if last_dist.get_value() <= threshold {
             last_dist.set_value(0.0);
+            // Following the bottom on this append also clears any unread state.
+            mark_seen();
             leptos::task::spawn_local(async move {
                 gloo_timers::future::TimeoutFuture::new(0).await;
                 if let Some(el) = list_ref.get_untracked() {
@@ -140,9 +205,16 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 on:scroll=move |_ev| {
                     #[cfg(feature = "hydrate")]
                     if let Some(el) = list_ref.get_untracked() {
-                        last_dist.set_value(
-                            (el.scroll_height() - el.scroll_top() - el.client_height()) as f64,
-                        );
+                        let dist =
+                            (el.scroll_height() - el.scroll_top() - el.client_height()) as f64;
+                        last_dist.set_value(dist);
+                        // Show the jump arrow once the user is meaningfully up
+                        // the history; clear unread state when they reach the
+                        // bottom again.
+                        scrolled_up.set(dist > 200.0);
+                        if dist <= 4.0 {
+                            mark_seen();
+                        }
                     }
                     #[cfg(not(feature = "hydrate"))]
                     let _ = (&last_dist, &_ev);
@@ -158,8 +230,9 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         let mid = m.id.clone();
                         let body = m.body.clone();
                         let cid = cid.clone();
+                        let dom_id = format!("msg-{}", m.id);
                         view! {
-                            <li class="msg">
+                            <li class="msg" id=dom_id>
                                 <div class="meta">
                                     <button class="who" title="persona info"
                                         on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
@@ -219,6 +292,61 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     }).collect_view()
                 }}
             </ul>
+
+            // Unread pill — shown only when messages arrived while the user was
+            // scrolled up. Clicking it scrolls the earliest unread message into
+            // view (and clears the unread state).
+            {move || {
+                (unread.get() > 0).then(|| {
+                    let n = unread.get();
+                    let label = if n == 1 {
+                        "1 new message ↓".to_string()
+                    } else {
+                        format!("{n} new messages ↓")
+                    };
+                    view! {
+                        <button class="unread-pill"
+                            on:click=move |_| {
+                                #[cfg(feature = "hydrate")]
+                                {
+                                    if let Some(id) = first_unread_id.get_untracked() {
+                                        if let Some(el) = leptos::prelude::document()
+                                            .get_element_by_id(&format!("msg-{id}"))
+                                        {
+                                            el.scroll_into_view();
+                                        }
+                                    }
+                                    mark_seen();
+                                }
+                            }>
+                            {label}
+                        </button>
+                    }
+                })
+            }}
+
+            // Jump-to-bottom arrow — shown only when scrolled up past the
+            // threshold. Clicking it jumps to the bottom and clears unread.
+            {move || {
+                scrolled_up.get().then(|| {
+                    view! {
+                        <button class="jump-bottom" title="jump to latest"
+                            on:click=move |_| {
+                                #[cfg(feature = "hydrate")]
+                                {
+                                    if let Some(el) = list_ref.get_untracked() {
+                                        el.set_scroll_top(el.scroll_height());
+                                    }
+                                    last_dist.set_value(0.0);
+                                    mark_seen();
+                                }
+                            }>
+                            "↓"
+                        </button>
+                    }
+                })
+            }}
+
             <div class="composer">
                 <div class="toolbar">
                     <button class="fmt" title="bold"
