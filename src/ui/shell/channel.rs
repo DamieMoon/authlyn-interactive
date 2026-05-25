@@ -387,6 +387,26 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         on:click=move |_| apply_markup(s, composer_ref, "*", "*")>
                         <em>"i"</em>
                     </button>
+                    // Discord-style block formats. Headers / subtext are
+                    // line-leading prefixes (insert the marker, no closer);
+                    // inline code wraps the selection, the fence opens/closes
+                    // a block.
+                    <button class="fmt" title="heading"
+                        on:click=move |_| apply_markup(s, composer_ref, "# ", "")>
+                        "H"
+                    </button>
+                    <button class="fmt" title="subtext"
+                        on:click=move |_| apply_markup(s, composer_ref, "-# ", "")>
+                        <small>"-#"</small>
+                    </button>
+                    <button class="fmt" title="inline code"
+                        on:click=move |_| apply_markup(s, composer_ref, "`", "`")>
+                        <code>"</>"</code>
+                    </button>
+                    <button class="fmt" title="code block"
+                        on:click=move |_| apply_markup(s, composer_ref, "```\n", "\n```")>
+                        <code>"{}"</code>
+                    </button>
                     {Color::ALL.into_iter().map(|col| {
                         let name = col.name();
                         view! {

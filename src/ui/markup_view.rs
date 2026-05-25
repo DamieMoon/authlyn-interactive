@@ -1,6 +1,8 @@
-//! Render a message body's [`crate::markup`] AST to styled inline views.
-//! Bold -> `<strong>`, italic -> `<em>`, color -> `<span class="mk-NAME">`
-//! (the palette CSS lives in style/main.scss). Compiles for both targets.
+//! Render a message body's [`crate::markup`] AST to styled views.
+//! Inline: bold -> `<strong>`, italic -> `<em>`, color -> `<span
+//! class="mk-NAME">`, inline code -> `<code>`. Block: headings -> `<h1>`/`<h2>`
+//! /`<h3>`, subtext -> `<small class="mk-subtext">`, fenced code -> `<pre><code>`
+//! (the markup CSS lives in style/main.scss). Compiles for both targets.
 
 use leptos::prelude::*;
 
@@ -25,5 +27,15 @@ fn render_node(node: Node) -> AnyView {
             let class = format!("mk-{}", color.name());
             view! { <span class=class>{render_nodes(children)}</span> }.into_any()
         }
+        Node::Code(s) => view! { <code class="mk-code">{s}</code> }.into_any(),
+        Node::Heading(level, children) => match level {
+            1 => view! { <h1 class="mk-h1">{render_nodes(children)}</h1> }.into_any(),
+            2 => view! { <h2 class="mk-h2">{render_nodes(children)}</h2> }.into_any(),
+            _ => view! { <h3 class="mk-h3">{render_nodes(children)}</h3> }.into_any(),
+        },
+        Node::Subtext(children) => {
+            view! { <small class="mk-subtext">{render_nodes(children)}</small> }.into_any()
+        }
+        Node::CodeBlock(s) => view! { <pre class="mk-pre"><code>{s}</code></pre> }.into_any(),
     }
 }

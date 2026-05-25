@@ -6,21 +6,36 @@
 //! the composer inserts the same syntax via toolbar buttons (build step 7).
 //! Nothing here is gated to a feature — it compiles for both ssr and hydrate.
 //!
-//! ## Grammar (v1)
+//! ## Grammar
+//! Inline (anywhere within a line):
 //! - **bold**: `**text**`
 //! - *italic*: `*text*` (matches the RP convention where `*waves*` actions
 //!   render italic)
 //! - color: `[name]text[/name]` where `name` is one of the fixed [`Color`]
 //!   palette (red, orange, yellow, green, blue, purple, pink, gray)
+//! - inline code: `` `text` `` (monospace; no inline markup applies inside)
+//!
+//! Block / line-leading (Discord-style, marker must start a line + be followed
+//! by a space):
+//! - `# heading` → [`Node::Heading`] level 1
+//! - `## heading` → level 2
+//! - `### heading` → level 3
+//! - `-# subtext` → [`Node::Subtext`] (small, muted)
+//! - fenced code block: a line that is exactly ```` ``` ```` opens a block; it
+//!   runs verbatim until the next ```` ``` ```` line (or end of input). No
+//!   markup applies inside.
 //!
 //! Out of scope (deliberately): arbitrary hex colors, fonts.
 //!
 //! ## Leniency
-//! The parser never fails. Unmatched openers, mismatched closers, and unknown
-//! `[...]` tags are emitted as literal text, so any input renders as
-//! *something* reasonable. Nesting is supported (`**[red]hi *there*[/red]**`);
+//! The parser never fails. Unmatched openers, mismatched closers, unknown
+//! `[...]` tags, a bare `#` with no trailing space, and an unterminated fence
+//! are all emitted as literal text, so any input renders as *something*
+//! reasonable. Inline nesting is supported (`**[red]hi *there*[/red]**`);
 //! bold/italic toggle against the innermost open span, so pathological
-//! interleavings degrade to literal text rather than panicking.
+//! interleavings degrade to literal text rather than panicking. Inline code
+//! and fenced code render their contents verbatim — no other markup is applied
+//! inside them.
 
 /// The fixed color palette. No hex, by design.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,18 +83,109 @@ impl Color {
 }
 
 /// A node in the parsed markup tree.
+///
+/// `Text`, `Bold`, `Italic`, `Color` and `Code` are *inline* nodes; `Heading`,
+/// `Subtext` and `CodeBlock` are *block* nodes that only appear at the top
+/// level (one per source line / fence run).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Text(String),
     Bold(Vec<Node>),
     Italic(Vec<Node>),
     Color(Color, Vec<Node>),
+    /// Inline code span (`` `…` ``): contents are literal, monospace.
+    Code(String),
+    /// Line-leading header. `level` is 1, 2, or 3 (`#`, `##`, `###`).
+    /// Children are parsed inline so a header can still hold bold/color/etc.
+    Heading(u8, Vec<Node>),
+    /// Line-leading `-#` subtext (small, muted). Children parsed inline.
+    Subtext(Vec<Node>),
+    /// A fenced ```` ``` ```` code block. Verbatim, no inner markup.
+    CodeBlock(String),
 }
 
 /// Parse a message body into a markup tree. Never fails (see module docs).
+///
+/// Two-level parse: split into blocks by line (detecting line-leading markers
+/// and ```` ``` ```` fences), then parse the inline content of each non-code
+/// block with the inline tokenizer/tree-builder.
 pub fn parse(input: &str) -> Vec<Node> {
-    let tokens = tokenize(input);
-    build_tree(tokens)
+    parse_blocks(input)
+}
+
+/// Parse `input` line-by-line into block-level nodes, recombining ordinary
+/// text lines so a multi-line paragraph stays a single inline run (preserving
+/// its embedded newlines, which the renderer shows via `white-space: pre-wrap`).
+fn parse_blocks(input: &str) -> Vec<Node> {
+    let mut out: Vec<Node> = Vec::new();
+    // Buffer of consecutive plain lines awaiting inline parsing as one run.
+    let mut para: Vec<&str> = Vec::new();
+    let mut lines = input.split('\n').peekable();
+
+    // Flush the pending plain-line buffer as one inline run.
+    let flush_para = |para: &mut Vec<&str>, out: &mut Vec<Node>| {
+        if !para.is_empty() {
+            let joined = para.join("\n");
+            for node in build_tree(tokenize(&joined)) {
+                push_node(out, node);
+            }
+            para.clear();
+        }
+    };
+
+    while let Some(line) = lines.next() {
+        if line.trim_end() == "```" {
+            // Open a fence: consume verbatim until the closing ``` or EOF.
+            flush_para(&mut para, &mut out);
+            let mut body: Vec<&str> = Vec::new();
+            let mut closed = false;
+            for inner in lines.by_ref() {
+                if inner.trim_end() == "```" {
+                    closed = true;
+                    break;
+                }
+                body.push(inner);
+            }
+            if closed {
+                out.push(Node::CodeBlock(body.join("\n")));
+            } else {
+                // Unterminated fence: lenient fallback — re-emit the opening
+                // line and its captured body as literal text.
+                let mut lit = String::from("```");
+                for b in body {
+                    lit.push('\n');
+                    lit.push_str(b);
+                }
+                push_node(&mut out, Node::Text(lit));
+            }
+            continue;
+        }
+
+        if let Some(block) = parse_line_block(line) {
+            flush_para(&mut para, &mut out);
+            out.push(block);
+        } else {
+            para.push(line);
+        }
+    }
+    flush_para(&mut para, &mut out);
+    out
+}
+
+/// If `line` is a line-leading block (`#`/`##`/`###` heading or `-#` subtext),
+/// parse its inline content and return the block node. A marker not followed by
+/// a space (e.g. a bare `#` or `#foo`) is *not* a block — returns `None` so the
+/// line falls through to literal/inline handling.
+fn parse_line_block(line: &str) -> Option<Node> {
+    if let Some(rest) = line.strip_prefix("-# ") {
+        return Some(Node::Subtext(build_tree(tokenize(rest))));
+    }
+    for (marker, level) in [("### ", 3u8), ("## ", 2), ("# ", 1)] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return Some(Node::Heading(level, build_tree(tokenize(rest))));
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +198,8 @@ enum Tok {
     Italic,
     ColorOpen(Color),
     ColorClose(Color),
+    /// A fully-formed inline code span; contents are already literal.
+    Code(String),
 }
 
 fn tokenize(s: &str) -> Vec<Tok> {
@@ -109,7 +217,19 @@ fn tokenize(s: &str) -> Vec<Tok> {
 
     while i < s.len() {
         let rest = &s[i..];
-        if let Some(after) = rest.strip_prefix("**") {
+        if let Some(after_tick) = rest.strip_prefix('`') {
+            // Inline code: scan to the next backtick. Contents are literal —
+            // the closing backtick must exist, else the opener is literal text.
+            if let Some(close_rel) = after_tick.find('`') {
+                flush!();
+                let inner = &after_tick[..close_rel];
+                tokens.push(Tok::Code(inner.to_string()));
+                i += 1 + close_rel + 1;
+            } else {
+                buf.push('`');
+                i += 1;
+            }
+        } else if let Some(after) = rest.strip_prefix("**") {
             let _ = after;
             flush!();
             tokens.push(Tok::Bold);
@@ -181,6 +301,7 @@ fn build_tree(tokens: Vec<Tok>) -> Vec<Node> {
     for tok in tokens {
         match tok {
             Tok::Text(s) => push_text(&mut top(&mut stack).children, &s),
+            Tok::Code(s) => top(&mut stack).children.push(Node::Code(s)),
             Tok::Bold => toggle(&mut stack, FrameKind::Bold, "**"),
             Tok::Italic => toggle(&mut stack, FrameKind::Italic, "*"),
             Tok::ColorOpen(c) => stack.push(Frame {
@@ -351,6 +472,126 @@ mod tests {
             parse("[green]hi"),
             vec![text("[green]hi")],
             "an unclosed color tag re-emits its opener as text"
+        );
+    }
+
+    // --- block formats (Discord-style) -------------------------------------
+
+    #[test]
+    fn headings_by_level() {
+        assert_eq!(
+            parse("# big"),
+            vec![Node::Heading(1, vec![text("big")])],
+            "h1"
+        );
+        assert_eq!(
+            parse("## mid"),
+            vec![Node::Heading(2, vec![text("mid")])],
+            "h2"
+        );
+        assert_eq!(
+            parse("### small"),
+            vec![Node::Heading(3, vec![text("small")])],
+            "h3"
+        );
+    }
+
+    #[test]
+    fn subtext_block() {
+        assert_eq!(
+            parse("-# a footnote"),
+            vec![Node::Subtext(vec![text("a footnote")])]
+        );
+    }
+
+    #[test]
+    fn heading_keeps_inline_markup() {
+        assert_eq!(
+            parse("## a **bold** title"),
+            vec![Node::Heading(
+                2,
+                vec![text("a "), Node::Bold(vec![text("bold")]), text(" title"),]
+            )]
+        );
+    }
+
+    #[test]
+    fn bare_hash_without_space_is_literal() {
+        // No trailing space → not a heading marker.
+        assert_eq!(parse("#nospace"), vec![text("#nospace")]);
+        assert_eq!(parse("#"), vec![text("#")]);
+        assert_eq!(parse("-#nope"), vec![text("-#nope")]);
+    }
+
+    #[test]
+    fn inline_code_is_literal_inside() {
+        assert_eq!(
+            parse("run `**not bold**` now"),
+            vec![
+                text("run "),
+                Node::Code("**not bold**".to_string()),
+                text(" now"),
+            ],
+            "markup inside inline code stays literal"
+        );
+    }
+
+    #[test]
+    fn unterminated_inline_code_backtick_is_literal() {
+        assert_eq!(parse("a ` b"), vec![text("a ` b")]);
+    }
+
+    #[test]
+    fn fenced_code_block_verbatim() {
+        let src = "```\nlet x = **5**;\n*y*\n```";
+        assert_eq!(
+            parse(src),
+            vec![Node::CodeBlock("let x = **5**;\n*y*".to_string())],
+            "fence contents are verbatim, no inner markup"
+        );
+    }
+
+    #[test]
+    fn fenced_code_block_among_text() {
+        let src = "before\n```\ncode\n```\nafter";
+        assert_eq!(
+            parse(src),
+            vec![
+                text("before"),
+                Node::CodeBlock("code".to_string()),
+                text("after"),
+            ]
+        );
+    }
+
+    #[test]
+    fn unterminated_fence_is_literal() {
+        let src = "```\nstill open";
+        assert_eq!(
+            parse(src),
+            vec![text("```\nstill open")],
+            "an unclosed fence re-emits as literal text"
+        );
+    }
+
+    #[test]
+    fn plain_multiline_stays_one_run_with_newlines() {
+        // Adjacent non-block lines join into a single inline run, newline kept.
+        assert_eq!(
+            parse("line one\nline two"),
+            vec![text("line one\nline two")]
+        );
+    }
+
+    #[test]
+    fn block_lines_split_around_plain_text() {
+        assert_eq!(
+            parse("intro\n# Title\nbody"),
+            vec![
+                text("intro"),
+                Node::Heading(1, vec![text("Title")]),
+                text("body"),
+            ]
         );
     }
 }
