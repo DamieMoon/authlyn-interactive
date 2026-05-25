@@ -28,7 +28,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 pub use self::state::AppState;
 
 /// Tight cap for JSON request bodies (auth, guilds, messages, personas, …).
-const REQUEST_BODY_LIMIT_BYTES: usize = 64 * 1024;
+const REQUEST_BODY_LIMIT_BYTES: usize = 512 * 1024;
 
 /// Larger cap for `POST /media` image uploads.
 const MEDIA_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;

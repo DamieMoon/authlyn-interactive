@@ -921,4 +921,13 @@ textarea {
 	.content .topbar .nav-toggle {
 		display: inline-flex;
 	}
+
+	// Roomier compose / edit boxes on phones: multi-line typing is common and
+	// the soft keyboard already covers the lower screen, so give the text more
+	// room and let it grow taller before scrolling.
+	.content .composer textarea,
+	.content .messages .msg .msg-edit .rename-input {
+		min-height: 6rem;
+		max-height: 50vh;
+	}
 }

@@ -41,7 +41,7 @@ use crate::server::state::AppState;
 const MESSAGES_PAGE_LIMIT: i64 = 100;
 
 /// Max characters in a message body (markup included).
-const MAX_BODY_CHARS: usize = 4000;
+const MAX_BODY_CHARS: usize = 50_000;
 
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/messages

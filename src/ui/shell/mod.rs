@@ -213,7 +213,23 @@ fn AppShell() -> impl IntoView {
                         {move || if editing_server.get() {
                             view! {
                                 <input class="rename-input" prop:value=move || server_edit_buf.get()
-                                    on:input=move |ev| server_edit_buf.set(event_target_value(&ev))/>
+                                    on:input=move |ev| server_edit_buf.set(event_target_value(&ev))
+                                    on:keydown=move |ev| {
+                                        #[cfg(feature = "hydrate")]
+                                        match ev.key().as_str() {
+                                            "Enter" => {
+                                                ev.prevent_default();
+                                                if let Some(gid) = s.sel_server.get_untracked() {
+                                                    act::rename_server(s, gid, server_edit_buf.get_untracked());
+                                                }
+                                                editing_server.set(false);
+                                            }
+                                            "Escape" => editing_server.set(false),
+                                            _ => {}
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = &ev;
+                                    }/>
                                 <button class="row-edit" title="save" on:click=move |_| {
                                     if let Some(gid) = s.sel_server.get_untracked() {
                                         act::rename_server(s, gid, server_edit_buf.get_untracked());
@@ -372,7 +388,26 @@ fn ChannelRow(
                     let cid_save = cid.clone();
                     view! {
                         <input class="rename-input" prop:value=move || buf.get()
-                            on:input=move |ev| buf.set(event_target_value(&ev))/>
+                            on:input=move |ev| buf.set(event_target_value(&ev))
+                            on:keydown={
+                                let cid_kd = cid.clone();
+                                move |ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    match ev.key().as_str() {
+                                        "Enter" => {
+                                            ev.prevent_default();
+                                            if let Some(gid) = s.sel_server.get_untracked() {
+                                                act::rename_channel(s, gid, cid_kd.clone(), buf.get_untracked());
+                                            }
+                                            editing.set(None);
+                                        }
+                                        "Escape" => editing.set(None),
+                                        _ => {}
+                                    }
+                                    #[cfg(not(feature = "hydrate"))]
+                                    let _ = (&ev, &cid_kd);
+                                }
+                            }/>
                         <button class="row-edit" title="save" on:click=move |_| {
                             if let Some(gid) = s.sel_server.get_untracked() {
                                 act::rename_channel(s, gid, cid_save.clone(), buf.get_untracked());

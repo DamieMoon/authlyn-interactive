@@ -8,6 +8,18 @@ use crate::protocol::MessageEnvelope;
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
 
+/// True on touch-primary devices (phones/tablets), where the on-screen
+/// keyboard's Enter must insert a newline rather than send — there's no
+/// Shift+Enter, so Enter-to-send would make multi-line messages impossible.
+/// Desktop (fine pointer) keeps Enter-to-send / Shift+Enter-for-newline.
+#[cfg(feature = "hydrate")]
+fn enter_inserts_newline() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false)
+}
+
 /// Insert markup around the textarea's current selection. With a non-empty
 /// selection the chosen `open`/`close` wrap it; with no selection an empty
 /// `open``close` is inserted and the caret is placed between the two markers.
@@ -392,7 +404,14 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     on:keydown=move |ev| {
                         #[cfg(feature = "hydrate")]
                         {
-                            if ev.key() == "Enter" && !ev.shift_key() {
+                            // Send on plain Enter only on desktop. On touch
+                            // devices (no Shift) and mid-IME-composition, Enter
+                            // falls through to insert a newline; use the Send button.
+                            if ev.key() == "Enter"
+                                && !ev.shift_key()
+                                && !ev.is_composing()
+                                && !enter_inserts_newline()
+                            {
                                 ev.prevent_default();
                                 act::send_message(s);
                             }
