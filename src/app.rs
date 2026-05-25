@@ -16,9 +16,24 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                // PWA: linked manifest + theme/icon hints. Assets live in
+                // `public/` (cargo-leptos `assets-dir`) and are copied to the
+                // site root, so they serve at these absolute URLs.
+                <link rel="manifest" href="/manifest.webmanifest"/>
+                <meta name="theme-color" content="#1e2127"/>
+                <meta name="mobile-web-app-capable" content="yes"/>
+                <meta name="apple-mobile-web-app-capable" content="yes"/>
+                <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+                <link rel="apple-touch-icon" href="/icons/icon-192.png"/>
+                <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png"/>
                 <AutoReload options=options.clone() />
                 <HydrationScripts options/>
                 <MetaTags/>
+                // Register the service worker after load. No-op where the API
+                // is absent (older browsers, insecure contexts).
+                <script>
+                    "if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.error('SW registration failed:',e);});});}"
+                </script>
             </head>
             <body>
                 <App/>
