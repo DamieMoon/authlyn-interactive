@@ -9,10 +9,10 @@ use serde::Serialize;
 use crate::protocol::{
     AuthResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest,
     CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest, ErrorBody,
-    FriendRequest, GuildDetail, GuildSummary, ListFriendsResponse, ListGuildsResponse,
-    ListLorebookResponse, ListMessagesResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    PersonaSummary, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest,
+    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonasResponse,
+    LoginRequest, MeResponse, PersonaSummary, RegisterRequest, SendMessageRequest,
+    SendMessageResponse, SetActivePersonaRequest,
 };
 
 /// A failed API call.
@@ -87,6 +87,19 @@ pub async fn create_guild(name: &str) -> Result<GuildSummary, ApiError> {
 
 pub async fn get_guild(gid: &str) -> Result<GuildDetail, ApiError> {
     get(&format!("/guilds/{gid}")).await
+}
+
+/// Invite a user to a guild by username (owner/admin only). 201 with no body.
+pub async fn invite_member(gid: &str, username: &str) -> Result<(), ApiError> {
+    let resp = Request::post(&format!("/guilds/{gid}/members"))
+        .json(&InviteMemberRequest {
+            username: username.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 pub async fn create_channel(gid: &str, name: &str, kind: &str) -> Result<ChannelSummary, ApiError> {

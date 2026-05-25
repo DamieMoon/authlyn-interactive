@@ -55,6 +55,8 @@ enum Pane {
 struct Shell {
     guilds: RwSignal<Vec<GuildSummary>>,
     sel_server: RwSignal<Option<String>>,
+    /// owner account id of the currently-open server (gates the invite control).
+    sel_owner: RwSignal<Option<String>>,
     channels: RwSignal<Vec<ChannelSummary>>,
     sel_channel: RwSignal<Option<ChannelSummary>>,
     messages: RwSignal<Vec<MessageEnvelope>>,
@@ -78,6 +80,7 @@ fn AppShell() -> impl IntoView {
     let s = Shell {
         guilds: RwSignal::new(Vec::new()),
         sel_server: RwSignal::new(None),
+        sel_owner: RwSignal::new(None),
         channels: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
         messages: RwSignal::new(Vec::new()),
@@ -99,6 +102,12 @@ fn AppShell() -> impl IntoView {
     };
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
+    let new_invite = RwSignal::new(String::new());
+    // The invite box shows only to the owner of the currently-open server.
+    let is_owner = move || {
+        let me = auth.user.get().map(|u| u.account_id);
+        me.is_some() && me == s.sel_owner.get()
+    };
 
     // On mount: load the guild rail + the friends home. (No-ops on ssr.)
     Effect::new(move |_| {
@@ -170,6 +179,21 @@ fn AppShell() -> impl IntoView {
                             act::create_channel(s, name);
                         }>"+"</button>
                     </div>
+                    <Show when=is_owner fallback=|| ()>
+                        <div class="invite-row">
+                            <input prop:value=move || new_invite.get()
+                                on:input=move |ev| new_invite.set(event_target_value(&ev))
+                                placeholder="invite by username"/>
+                            <button on:click=move |_| {
+                                let gid = s.sel_server.get_untracked();
+                                let u = new_invite.get_untracked();
+                                new_invite.set(String::new());
+                                if let Some(gid) = gid {
+                                    act::invite_member(s, gid, u);
+                                }
+                            }>"Invite"</button>
+                        </div>
+                    </Show>
                 </Show>
             </aside>
 
@@ -453,9 +477,11 @@ mod act {
 
     pub fn open_server(s: Shell, gid: String) {
         s.sel_server.set(Some(gid.clone()));
+        s.sel_owner.set(None);
         s.channels.set(Vec::new());
         spawn_local(async move {
             if let Ok(d) = api::get_guild(&gid).await {
+                s.sel_owner.set(Some(d.owner_id.clone()));
                 s.channels.set(d.channels.clone());
                 if let Some(first) = d
                     .channels
@@ -603,6 +629,19 @@ mod act {
         });
     }
 
+    pub fn invite_member(s: Shell, gid: String, username: String) {
+        let username = username.trim().to_string();
+        if username.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            match api::invite_member(&gid, &username).await {
+                Ok(()) => s.status.set(format!("invited {username}")),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn accept_friend(s: Shell, aid: String) {
         spawn_local(async move {
             let _ = api::accept_friend(&aid).await;
@@ -704,6 +743,7 @@ mod act {
     pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
     pub fn create_server(_s: Shell, _name: String) {}
     pub fn create_channel(_s: Shell, _name: String) {}
+    pub fn invite_member(_s: Shell, _gid: String, _username: String) {}
     pub fn send_message(_s: Shell) {}
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}

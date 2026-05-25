@@ -138,6 +138,51 @@ async fn invite_unknown_user_is_404() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn invite_grants_invitee_access() {
+    // The contract the invite UI relies on: once invited, the user sees the
+    // guild in their list and can open it (membership == access).
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "My Guild").await;
+    let alice = common::register_account(&a.router, "Alice", "password123").await;
+
+    // Before the invite, Alice can't see the guild.
+    let (status, _, body) =
+        common::send(&a.router, Method::GET, "/guilds", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["guilds"].as_array().unwrap().len(), 0);
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Alice" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // After the invite, the guild appears in Alice's list and she can open it.
+    let (status, _, body) =
+        common::send(&a.router, Method::GET, "/guilds", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let guilds = body["guilds"].as_array().unwrap();
+    assert_eq!(guilds.len(), 1);
+    assert_eq!(guilds[0]["name"], "My Guild");
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "invited member can open the guild");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn concurrent_invite_yields_one_member_row() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;

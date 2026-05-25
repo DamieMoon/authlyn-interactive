@@ -190,6 +190,18 @@ textarea {
 			min-width: 0;
 		}
 	}
+
+	.invite-row {
+		display: flex;
+		gap: 0.25rem;
+		padding: 0.5rem;
+		border-top: 1px solid $line;
+
+		input {
+			flex: 1;
+			min-width: 0;
+		}
+	}
 }
 
 .content {

@@ -1,3 +1,6 @@
+// The SSR render instantiates the full nested view type; same depth need as lib.rs.
+#![recursion_limit = "512"]
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
