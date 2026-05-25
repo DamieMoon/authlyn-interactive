@@ -193,13 +193,13 @@ async fn store_subscription(
                 account  = type::record('account', $account),
                 endpoint = $endpoint,
                 p256dh   = $p256dh,
-                `auth`   = $auth;
+                `auth`   = $auth_key;
              COMMIT TRANSACTION;",
         )
         .bind(("account", account.to_string()))
         .bind(("endpoint", req.endpoint.clone()))
         .bind(("p256dh", req.keys.p256dh.clone()))
-        .bind(("auth", req.keys.auth.clone()))
+        .bind(("auth_key", req.keys.auth.clone()))
         .await?
         .check()?;
     Ok(())
