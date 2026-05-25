@@ -11,6 +11,13 @@ codename = "giggly-crescent"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# Nova MCP bridge — only built when the `nova` feature is on, so the default
+# build / cargo-leptos never compiles it (it never enters the app graph).
+[[bin]]
+name = "nova-mcp"
+path = "src/bin/nova-mcp.rs"
+required-features = ["nova"]
+
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
@@ -73,6 +80,15 @@ axum-extra         = { version = "0.10", features = ["cookie"], optional = true 
 # crate (under axum-extra) uses, so the types unify. ssr-only.
 time               = { version = "0.3", optional = true, default-features = false }
 
+# Nova MCP server (the `nova` feature + the `nova-mcp` bin). Native-only, never
+# in the app's ssr/hydrate graph — a standalone bridge that talks to the running
+# authlyn HTTP API as the "Nova" account and exposes it over MCP. rmcp is the
+# official Rust MCP SDK; reqwest is the HTTP client (cookie jar for the session;
+# no TLS — the target is loopback http).
+rmcp     = { version = "0.8", features = ["server", "macros", "transport-streamable-http-server"], optional = true }
+reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies"], optional = true }
+anyhow   = { version = "1", optional = true }
+
 # `rand` pulls getrandom 0.2 into the WASM (hydrate) build; that target needs
 # the "js" feature so getrandom can borrow the browser's `crypto.getRandomValues`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -116,6 +132,22 @@ ssr = [
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
+]
+# The Nova MCP bridge binary. Standalone (no leptos/lib deps); build with
+# `cargo build --release --bin nova-mcp --features nova`. Pulls a full tokio
+# runtime + reqwest + rmcp, all native-only.
+nova = [
+    "dep:rmcp",
+    "dep:reqwest",
+    "dep:anyhow",
+    "dep:axum",
+    "dep:tokio",
+    "tokio/macros",
+    "tokio/net",
+    "tokio/signal",
+    "tokio/rt-multi-thread",
+    "dep:tracing",
+    "dep:tracing-subscriber",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode

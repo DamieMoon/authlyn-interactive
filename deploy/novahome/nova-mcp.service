@@ -1,0 +1,35 @@
+[Unit]
+Description=Nova MCP bridge (lets a local AI act as the "Nova" user in authlyn)
+Documentation=https://github.com/DamieMoon/authlyn-interactive
+# Nova talks to the authlyn HTTP API, so authlyn must be up first.
+Requires=authlyn.service
+After=authlyn.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=authlyn
+Group=authlyn
+WorkingDirectory=/opt/nova-mcp
+ExecStart=/opt/nova-mcp/nova-mcp
+EnvironmentFile=/opt/nova-mcp/.env
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=15s
+TimeoutStopSec=10s
+
+# Hardening — Nova writes no files; it only needs loopback networking
+# (reach authlyn on 127.0.0.1:8081, bind the MCP on 127.0.0.1:8082).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

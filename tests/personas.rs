@@ -699,8 +699,7 @@ async fn owner_shares_with_friend_then_friend_leaves() {
     }
 
     // The friend now sees it (owned=false), with the roster reflecting them.
-    let (_, _, list) =
-        common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
+    let (_, _, list) = common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
     let ps = list["personas"].as_array().unwrap();
     assert_eq!(ps.len(), 1);
     assert_eq!(ps[0]["owned"], false);
@@ -736,8 +735,7 @@ async fn owner_shares_with_friend_then_friend_leaves() {
     )
     .await;
     assert_eq!(st, StatusCode::NO_CONTENT);
-    let (_, _, list) =
-        common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
+    let (_, _, list) = common::send(&a.router, Method::GET, "/personas", Some(&friend), None).await;
     assert_eq!(list["personas"].as_array().unwrap().len(), 0);
     let (_, _, owner_list) =
         common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
