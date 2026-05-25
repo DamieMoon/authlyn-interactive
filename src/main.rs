@@ -13,6 +13,16 @@ async fn main() {
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
 
+    // Route handler diagnostics (tracing::error!/warn! across the server layer)
+    // to stdout → journald. Without an initialized subscriber these events were
+    // silently dropped, leaving 500s with no server-side cause to inspect.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,authlyn_interactive=debug".into()),
+        )
+        .init();
+
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;

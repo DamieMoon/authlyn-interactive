@@ -21,6 +21,7 @@ pub mod state;
 // Used by `messages::load_messages`; kept private to the server module.
 mod datetime;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -120,6 +121,11 @@ fn media_routes() -> Router<AppState> {
     Router::new()
         .route("/media", post(media::upload_media))
         .route("/media/{id}", get(media::download_media))
+        // axum applies its own ~2 MB DefaultBodyLimit on top of the tower-http
+        // layer (min wins), which silently capped uploads well below 16 MiB and
+        // failed multi-MB phone photos with "could not read multipart body".
+        // Raise axum's default here too so the real cap is MEDIA_BODY_LIMIT_BYTES.
+        .layer(DefaultBodyLimit::max(MEDIA_BODY_LIMIT_BYTES))
         .layer(RequestBodyLimitLayer::new(MEDIA_BODY_LIMIT_BYTES))
 }
 
