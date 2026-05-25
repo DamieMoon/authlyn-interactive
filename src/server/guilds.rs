@@ -510,7 +510,7 @@ pub async fn list_deleted_guilds(State(state): State<AppState>, account: AuthAcc
         .query(
             "SELECT meta::id(id) AS id_key, name FROM guild
                 WHERE owner = type::record('account', $account)
-                  AND deleted_at != NONE ORDER BY deleted_at DESC;",
+                  AND deleted_at != NONE;",
         )
         .bind(("account", account.0))
         .await
@@ -587,7 +587,7 @@ pub async fn list_deleted_channels(
         .query(
             "SELECT meta::id(id) AS id_key, name, kind, position FROM channel
                 WHERE guild = type::record('guild', $gid)
-                  AND deleted_at != NONE ORDER BY deleted_at DESC;",
+                  AND deleted_at != NONE ORDER BY position;",
         )
         .bind(("gid", gid))
         .await
