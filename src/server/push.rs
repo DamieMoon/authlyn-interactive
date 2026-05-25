@@ -321,10 +321,16 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     }
 
     // Same payload for every recipient. Title = "<who> in #<channel>".
+    // Per-channel notification `tag`: the service worker forwards it to
+    // showNotification, so a burst of messages in the SAME channel collapses
+    // into ONE notification window (replaces + re-alerts) instead of stacking —
+    // less spammy. `channel` carries the same id for the click deep-link. The
+    // title already names the sender + channel, the body is a content preview.
     let payload = serde_json::json!({
         "title": format!("{} in #{}", info.sender_name, info.channel_name),
         "body": notification_body(&info.body),
-        "channel": info.channel_key,
+        "channel": info.channel_key.clone(),
+        "tag": info.channel_key,
     })
     .to_string()
     .into_bytes();
