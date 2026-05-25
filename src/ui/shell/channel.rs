@@ -104,10 +104,10 @@ fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoV
          align-items:center;justify-content:center"
             .to_string()
     } else {
-        "width:1.9rem;height:1.9rem;border-radius:50%;overflow:hidden;flex:0 0 auto;\
+        "width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;flex:0 0 auto;\
          display:inline-flex;align-items:center;justify-content:center;\
-         background:#3a3550;color:#cdb8f0;font-weight:600;vertical-align:middle;\
-         margin-right:0.4rem"
+         background:#3a3550;color:#cdb8f0;font-weight:600;font-size:1.05rem;\
+         vertical-align:middle;margin-right:0.5rem"
             .to_string()
     };
     match avatar_id {
@@ -147,13 +147,24 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         s.compose.track();
-        if let Some(el) = composer_ref.get() {
+        let Some(el) = composer_ref.get() else {
+            return;
+        };
+        // Measure AFTER Leptos flushes prop:value to the DOM on the next tick.
+        // On send the composer is cleared to "" (#28): measuring synchronously
+        // here reads the stale, still-large content and the textarea stays
+        // super-tall until the next keystroke — especially visible on mobile
+        // after a big message + keyboard close. Deferring lets scroll_height
+        // reflect the current value, so an emptied composer collapses to its
+        // CSS min-height.
+        leptos::task::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(0).await;
             // Deref to web_sys::HtmlElement so its inherent `style()` wins over
             // tachys' `ElementExt::style` (both in scope via leptos prelude).
             let style = (*el).style();
             let _ = style.set_property("height", "auto");
             let _ = style.set_property("height", &format!("{}px", el.scroll_height()));
-        }
+        });
     });
 
     // Click-the-name info popup: which message's persona/controller to show.
