@@ -2,6 +2,9 @@
 debug/
 target/
 
+# Claude Code agent worktrees (created in-repo by the harness)
+/.claude/
+
 # rustfmt backup files
 **/*.rs.bk
 

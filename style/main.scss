@@ -432,6 +432,169 @@ textarea {
 	}
 }
 
+// ---- wardrobe: persona character cards + detail editor ----
+.pane {
+	padding: 1rem clamp(0.5rem, 2vw, 1rem);
+	overflow-y: auto;
+	min-height: 0;
+
+	h3 {
+		margin: 0 0 0.75rem;
+	}
+}
+
+.wardrobe {
+	.add-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+
+		input {
+			flex: 1;
+			min-width: 8rem;
+		}
+	}
+}
+
+.persona-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 0.75rem;
+}
+
+.persona-card {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.75rem;
+	background: $panel-2;
+	border: 1px solid $line;
+	border-radius: 0.6rem;
+
+	&.worn {
+		border-color: $accent;
+		box-shadow: 0 0 0 1px $accent inset;
+	}
+
+	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
+	.card-portrait {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 5rem;
+		border-radius: 0.5rem;
+		background: $panel;
+		border: 1px dashed $line;
+		color: $accent;
+		font-size: 2rem;
+		font-weight: 700;
+		user-select: none;
+	}
+
+	// The clickable card body that opens the detail editor.
+	.card-open {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		text-align: left;
+		background: none;
+		border: none;
+		padding: 0;
+
+		&:hover .card-name {
+			color: $accent;
+		}
+	}
+
+	.card-name {
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: $text;
+	}
+
+	.card-desc {
+		font-size: 0.85rem;
+		color: $text;
+		// Clamp the blurb to a few lines so cards stay uniform.
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.card-actions {
+		display: flex;
+		gap: 0.4rem;
+
+		.worn {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+}
+
+.persona-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	margin-bottom: 1rem;
+	padding: 0.9rem;
+	background: $panel;
+	border: 1px solid $accent;
+	border-radius: 0.6rem;
+
+	.detail-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+
+		h4 {
+			margin: 0;
+		}
+	}
+
+	.detail-portrait {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 6rem;
+		border-radius: 0.5rem;
+		background: $panel-2;
+		border: 1px dashed $line;
+		font-size: 0.85rem;
+	}
+
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+		color: $muted;
+
+		input,
+		textarea {
+			color: $text;
+		}
+
+		textarea {
+			min-height: 6rem;
+			resize: vertical;
+		}
+	}
+
+	.detail-actions {
+		display: flex;
+		gap: 0.4rem;
+
+		.save {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+}
+
 // ---- message markup palette ----
 .mk-red {
 	color: #f0828c;

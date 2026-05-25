@@ -107,6 +107,69 @@ async fn persona_crud_is_owner_scoped() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn patch_persona_is_owner_scoped() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let (_, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas",
+        Some(&owner),
+        Some(&json!({ "name": "Hero", "description": "brave" })),
+    )
+    .await;
+    let pid = body["id"].as_str().unwrap().to_string();
+
+    // Owner updates name + description → 204 and the change is observable.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        Some(&json!({ "name": "Heroine", "description": "bolder" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _, list) =
+        common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let personas = list["personas"].as_array().unwrap();
+    assert_eq!(personas.len(), 1);
+    assert_eq!(personas[0]["name"], "Heroine");
+    assert_eq!(personas[0]["description"], "bolder");
+
+    // Empty name is rejected.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        Some(&json!({ "name": "  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // A different account cannot update it (privacy-404).
+    let other = common::register_account(&a.router, "Other", "password123").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&other),
+        Some(&json!({ "name": "Hijacked" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // And the owner's persona is untouched.
+    let (_, _, list) = common::send(&a.router, Method::GET, "/personas", Some(&owner), None).await;
+    assert_eq!(list["personas"][0]["name"], "Heroine");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn avatar_and_gallery_with_served_mime() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;

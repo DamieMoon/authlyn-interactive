@@ -223,11 +223,13 @@ pub struct PatchPersonaRequest {
     pub description: Option<String>,
 }
 
-/// One persona in a list (the wardrobe grid).
+/// One persona in a list (the wardrobe grid). Carries `description` so the
+/// character cards can show a blurb without a per-card detail fetch.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PersonaSummary {
     pub id: String,
     pub name: String,
+    pub description: String,
     pub avatar_id: Option<String>,
 }
 

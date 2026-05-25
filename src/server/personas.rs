@@ -46,12 +46,13 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
     struct Row {
         id_key: String,
         name: String,
+        description: String,
         avatar_id: Option<String>,
     }
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(id) AS id_key, name,
+            "SELECT meta::id(id) AS id_key, name, description,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
                 FROM persona WHERE owner = type::record('account', $account) ORDER BY name;",
         )
@@ -64,6 +65,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         .map(|r| PersonaSummary {
             id: r.id_key,
             name: r.name,
+            description: r.description,
             avatar_id: r.avatar_id,
         })
         .collect())
@@ -91,6 +93,7 @@ pub async fn create_persona(
     if description.chars().count() > MAX_DESCRIPTION_CHARS {
         return error_response(StatusCode::BAD_REQUEST, "description too long");
     }
+    let description_echo = description.clone();
 
     #[derive(SurrealValue)]
     struct IdRow {
@@ -123,6 +126,7 @@ pub async fn create_persona(
             Json(PersonaSummary {
                 id: row.id_key,
                 name,
+                description: description_echo,
                 avatar_id: None,
             }),
         )
