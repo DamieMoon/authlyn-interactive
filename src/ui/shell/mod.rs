@@ -267,18 +267,37 @@ fn AppShell() -> impl IntoView {
             <nav class="rail">
                 <button class="rail-home" title="Friends"
                     on:click=move |_| { act::show_friends(s); s.nav_open.set(false); }>"@"</button>
-                {move || s.guilds.get().into_iter().map(|g| {
-                    let gid = g.id.clone();
-                    let initial = g.name.chars().next().unwrap_or('#').to_uppercase().to_string();
-                    let gid_active = gid.clone();
-                    view! {
-                        <button class="rail-guild" title=g.name
-                            class:active=move || s.sel_server.get().as_deref() == Some(gid_active.as_str())
-                            on:click=move |_| act::open_server(s, gid.clone())>
-                            {initial}
-                        </button>
-                    }
-                }).collect_view()}
+                {move || {
+                    let guilds = s.guilds.get();
+                    let len = guilds.len();
+                    // `len`/`idx` feed the rail-reorder `disabled` closures, which
+                    // the `view!` macro strips on ssr — silence the unused warning.
+                    let _ = len;
+                    guilds.into_iter().enumerate().map(|(idx, g)| {
+                        let gid = g.id.clone();
+                        let initial = g.name.chars().next().unwrap_or('#').to_uppercase().to_string();
+                        let gid_active = gid.clone();
+                        view! {
+                            <div class="rail-guild-wrap">
+                                <button class="rail-guild" title=g.name
+                                    class:active=move || s.sel_server.get().as_deref() == Some(gid_active.as_str())
+                                    on:click=move |_| act::open_server(s, gid.clone())>
+                                    {initial}
+                                </button>
+                                // Personal rail reorder ↑/↓ (#17/FB2). ↑ disabled
+                                // on the first guild, ↓ on the last.
+                                <div class="rail-reorder">
+                                    <button class="rail-reorder-btn" title="Move up"
+                                        disabled=move || idx == 0
+                                        on:click=move |_| act::swap_guild(s, idx, true)>"↑"</button>
+                                    <button class="rail-reorder-btn" title="Move down"
+                                        disabled=move || idx + 1 >= len
+                                        on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
+                                </div>
+                            </div>
+                        }
+                    }).collect_view()
+                }}
                 // Guild trash button — loads + opens the deleted-guilds panel.
                 <button class="rail-trash" title="Trashed servers"
                     class:active=move || guild_trash_open.get()
@@ -411,9 +430,13 @@ fn AppShell() -> impl IntoView {
                         "👥 Members"
                     </button>
                     <ul class="channels">
-                        {move || s.channels.get().into_iter().map(|c| {
-                            view! { <ChannelRow s=s ch=c editing=editing_channel buf=channel_edit_buf/> }
-                        }).collect_view()}
+                        {move || {
+                            let chans = s.channels.get();
+                            let len = chans.len();
+                            chans.into_iter().enumerate().map(|(idx, c)| {
+                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel buf=channel_edit_buf/> }
+                            }).collect_view()
+                        }}
                     </ul>
                     <Show when=is_owner fallback=|| ()>
                         <div class="channel-add">
@@ -588,6 +611,8 @@ fn AppShell() -> impl IntoView {
 fn ChannelRow(
     s: Shell,
     ch: ChannelSummary,
+    idx: usize,
+    len: usize,
     editing: RwSignal<Option<String>>,
     buf: RwSignal<String>,
 ) -> impl IntoView {
@@ -596,6 +621,10 @@ fn ChannelRow(
         let me = auth.user.get().map(|u| u.account_id);
         me.is_some() && me == s.sel_owner.get()
     };
+    // `idx`/`len` feed the reorder buttons' `disabled` closures, which the
+    // `view!` macro strips on ssr — silence the ssr-side unused warning the same
+    // way wardrobe.rs does for the persona reorder controls.
+    let _ = (idx, len);
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
     let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
@@ -651,6 +680,14 @@ fn ChannelRow(
                             {sigil}{name0.clone()}
                         </button>
                         <Show when=is_owner fallback=|| ()>
+                            // Reorder ↑/↓ — mirrors the persona/lorebook pattern.
+                            // ↑ disabled on the first channel, ↓ on the last.
+                            <button class="channel-reorder" title="Move up"
+                                disabled=move || idx == 0
+                                on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
+                            <button class="channel-reorder" title="Move down"
+                                disabled=move || idx + 1 >= len
+                                on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
                             <button class="row-edit" title="rename channel" on:click={
                                 let start_cid = start_cid.clone();
                                 let start_name = start_name.clone();
@@ -717,6 +754,36 @@ mod act {
 
     pub fn refresh_guilds(s: Shell) {
         spawn_local(async move {
+            if let Ok(r) = api::list_guilds().await {
+                s.guilds.set(r.guilds);
+            }
+        });
+    }
+
+    /// Reorder the personal guild rail (#17/FB2). `idx` indexes `s.guilds` (the
+    /// caller's persisted order from `list_guilds`). We swap with the neighbor,
+    /// optimistically update the rail, then PUT the full new id order and reload
+    /// to confirm. The server replaces the caller's `user_guild_order` rows.
+    pub fn swap_guild(s: Shell, idx: usize, up: bool) {
+        let mut list = s.guilds.get_untracked();
+        let other = if up {
+            if idx == 0 {
+                return;
+            }
+            idx - 1
+        } else {
+            if idx + 1 >= list.len() {
+                return;
+            }
+            idx + 1
+        };
+        list.swap(idx, other);
+        s.guilds.set(list.clone());
+        let order: Vec<String> = list.iter().map(|g| g.id.clone()).collect();
+        spawn_local(async move {
+            if let Err(e) = api::set_rail_order(order).await {
+                s.status.set(api::humanize(&e));
+            }
             if let Ok(r) = api::list_guilds().await {
                 s.guilds.set(r.guilds);
             }
@@ -1296,6 +1363,53 @@ mod act {
             if let Ok(r) = api::list_personas().await {
                 s.personas.set(r.personas);
             }
+        });
+    }
+
+    /// Reorder a channel within the open guild's sidebar list. `idx` indexes
+    /// `s.channels` (already position-sorted from the server). We swap it with
+    /// its neighbor, renumber the whole list to its array index, and PATCH every
+    /// channel whose `position` changed. Renumbering (rather than swapping two
+    /// values) keeps the list gap-free and stable even though existing channels
+    /// all start at position 0. Mirrors `swap_persona`. Owner-gated in the UI.
+    pub fn swap_channel(s: Shell, idx: usize, up: bool) {
+        let Some(gid) = s.sel_server.get_untracked() else {
+            return;
+        };
+        let mut list = s.channels.get_untracked();
+        let other = if up {
+            if idx == 0 {
+                return;
+            }
+            idx - 1
+        } else {
+            if idx + 1 >= list.len() {
+                return;
+            }
+            idx + 1
+        };
+        list.swap(idx, other);
+        // Optimistic local reorder so the sidebar updates immediately; the
+        // server reload after the PATCHes confirms it.
+        s.channels.set(list.clone());
+        // Persist each channel whose stored position no longer matches its index.
+        let patches: Vec<(String, i64)> = list
+            .iter()
+            .enumerate()
+            .filter(|(i, c)| c.position != *i as i64)
+            .map(|(i, c)| (c.id.clone(), i as i64))
+            .collect();
+        if patches.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            for (cid, pos) in patches {
+                if let Err(e) = api::set_channel_position(&gid, &cid, pos).await {
+                    s.status.set(api::humanize(&e));
+                    break;
+                }
+            }
+            open_server(s, gid);
         });
     }
 
@@ -2290,6 +2404,7 @@ mod act {
 
     pub fn logout(_auth: AuthCtx) {}
     pub fn refresh_guilds(_s: Shell) {}
+    pub fn swap_guild(_s: Shell, _idx: usize, _up: bool) {}
     pub fn start_sync(_s: Shell) {}
     pub fn load_muted(_s: Shell) {}
     pub fn load_last_seen(_s: Shell) {}
@@ -2356,6 +2471,7 @@ mod act {
     pub fn remove_persona(_s: Shell, _pid: String) {}
     pub fn leave_shared_persona(_s: Shell, _pid: String) {}
     pub fn swap_persona(_s: Shell, _idx: usize, _up: bool) {}
+    pub fn swap_channel(_s: Shell, _idx: usize, _up: bool) {}
     pub fn load_persona_sharing(
         _s: Shell,
         _pid: String,

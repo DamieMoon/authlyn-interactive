@@ -25,7 +25,7 @@ use surrealdb::types::SurrealValue;
 use crate::protocol::{
     ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody,
     GuildDetail, GuildSummary, InviteMemberRequest, ListGuildsResponse, ListMembersResponse,
-    MemberSummary, PatchChannelRequest, PatchGuildRequest, SetMemberRoleRequest,
+    MemberSummary, PatchChannelRequest, PatchGuildRequest, RailOrderRequest, SetMemberRoleRequest,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -55,24 +55,149 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
         id_key: String,
         name: String,
     }
+    #[derive(SurrealValue)]
+    struct OrderRow {
+        guild_key: String,
+        position: i64,
+    }
+    // Personal rail order (#17/FB2). Two reads in one round-trip: the caller's
+    // memberships, and their `user_guild_order` rows. We sort the memberships in
+    // Rust by the per-guild position (guilds with no order row sort last via a
+    // sentinel, `name` is the stable tiebreak). Sorting server-side would need a
+    // correlated subquery; doing it here keeps the query trivially correct.
     let mut resp = state
         .db
         .query(
             "SELECT meta::id(guild) AS id_key, guild.name AS name FROM guild_member
+                WHERE account = type::record('account', $account)
+                  AND guild.deleted_at = NONE;
+             SELECT meta::id(guild) AS guild_key, position FROM user_guild_order
+                WHERE account = type::record('account', $account);",
+        )
+        .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    let rows: Vec<Row> = resp.take(0)?;
+    let orders: Vec<OrderRow> = resp.take(1)?;
+    let pos_of = |gid: &str| -> i64 {
+        orders
+            .iter()
+            .find(|o| o.guild_key == gid)
+            .map_or(i64::MAX, |o| o.position)
+    };
+    let mut guilds: Vec<GuildSummary> = rows
+        .into_iter()
+        .map(|r| GuildSummary {
+            id: r.id_key,
+            name: r.name,
+        })
+        .collect();
+    guilds.sort_by(|a, b| {
+        pos_of(&a.id)
+            .cmp(&pos_of(&b.id))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(guilds)
+}
+
+// ---------------------------------------------------------------------------
+// PUT /rail/order
+// ---------------------------------------------------------------------------
+
+/// Replace the caller's personal guild-rail order (#17/FB2). The body is the
+/// full rail in display order; we validate every id is a guild the caller is a
+/// member of (drops junk/stale ids), then delete the caller's existing
+/// `user_guild_order` rows and insert one per id with its index as position —
+/// all in one transaction so the rail never reads half-updated.
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn set_rail_order(
+    State(state): State<AppState>,
+    account: AuthAccount,
+    payload: Result<Json<RailOrderRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+
+    // Keep only ids the caller is actually a member of, preserving request order.
+    let members: Vec<String> = match my_guild_ids(&state, &account.0).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "my_guild_ids failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    let ordered: Vec<String> = req
+        .guild_ids
+        .into_iter()
+        .filter(|gid| members.contains(gid))
+        .collect();
+
+    match persist_rail_order(&state, &account.0, &ordered).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "persist_rail_order failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+/// The record-id keys of every (live) guild the caller is a member of.
+async fn my_guild_ids(state: &AppState, account: &str) -> surrealdb::Result<Vec<String>> {
+    let mut resp = state
+        .db
+        .query(
+            "SELECT VALUE meta::id(guild) FROM guild_member
                 WHERE account = type::record('account', $account)
                   AND guild.deleted_at = NONE;",
         )
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    let rows: Vec<Row> = resp.take(0)?;
-    Ok(rows
-        .into_iter()
-        .map(|r| GuildSummary {
-            id: r.id_key,
-            name: r.name,
-        })
-        .collect())
+    resp.take::<Vec<String>>(0)
+}
+
+/// Wipe the caller's order rows and re-insert one per id (index = position),
+/// in one transaction so the rail never reads half-updated. The CREATEs are
+/// generated with per-row bind names (`$g0`, `$g1`, …) since the count is
+/// dynamic; positions are the literal array index. Mirrors the BEGIN/COMMIT
+/// shape of `persist_create_guild`.
+async fn persist_rail_order(
+    state: &AppState,
+    account: &str,
+    ordered: &[String],
+) -> surrealdb::Result<()> {
+    let mut sql = String::from(
+        "BEGIN TRANSACTION;\n\
+         DELETE user_guild_order WHERE account = type::record('account', $account);\n",
+    );
+    for i in 0..ordered.len() {
+        sql.push_str(&format!(
+            "CREATE user_guild_order SET \
+                account = type::record('account', $account), \
+                guild = type::record('guild', $g{i}), \
+                position = {i};\n"
+        ));
+    }
+    sql.push_str("COMMIT TRANSACTION;");
+
+    let ordered = ordered.to_vec();
+    let account = account.to_string();
+    with_write_conflict_retry(|| {
+        let sql = sql.clone();
+        let ordered = ordered.clone();
+        let account = account.clone();
+        async move {
+            let mut q = state.db.query(&sql).bind(("account", account));
+            for (i, gid) in ordered.iter().enumerate() {
+                q = q.bind((format!("g{i}"), gid.clone()));
+            }
+            q.await?.check()?;
+            Ok(())
+        }
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -200,9 +325,9 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
         .query(
             "SELECT name, meta::id(owner) AS owner_key FROM type::record('guild', $gid)
                 WHERE deleted_at = NONE;
-             SELECT meta::id(id) AS id_key, name, kind, position FROM channel
+             SELECT meta::id(id) AS id_key, name, kind, position, created_at FROM channel
                 WHERE guild = type::record('guild', $gid)
-                  AND deleted_at = NONE ORDER BY position;",
+                  AND deleted_at = NONE ORDER BY position, created_at;",
         )
         .bind(("gid", gid.to_string()))
         .await?
