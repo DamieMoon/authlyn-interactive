@@ -50,6 +50,10 @@ DEFINE FIELD IF NOT EXISTS color       ON persona TYPE string DEFAULT '';  -- ma
 DEFINE FIELD IF NOT EXISTS avatar      ON persona TYPE option<record<media_blob>>;  -- primary image
 DEFINE FIELD IF NOT EXISTS share_key   ON persona TYPE string DEFAULT '';  -- redeem token granting edit access
 DEFINE FIELD IF NOT EXISTS created_at  ON persona TYPE datetime DEFAULT time::now();
+-- Wardrobe display order. Added after rows existed, so it must be `option<int>`:
+-- old rows hold NONE (valid, no backfill) and a later UPDATE re-validating all
+-- fields won't crash. NONE sorts last in `list_personas` (coalesced).
+DEFINE FIELD IF NOT EXISTS position    ON persona TYPE option<int>;
 DEFINE INDEX IF NOT EXISTS persona_owner ON persona FIELDS owner;
 -- Non-unique: every fresh persona gets a random 22-char token (collision-free
 -- in practice); a plain index keeps the redeem lookup fast without rejecting

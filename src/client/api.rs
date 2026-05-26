@@ -298,6 +298,22 @@ pub async fn patch_persona(
             name,
             description,
             color,
+            position: None,
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Persist a persona's wardrobe display order (owner/editor). 204. Used by the
+/// reorder ↑/↓ controls, which swap two personas' positions.
+pub async fn set_persona_position(pid: &str, position: i64) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/personas/{pid}"))
+        .json(&PatchPersonaRequest {
+            position: Some(position),
+            ..Default::default()
         })
         .map_err(codec)?
         .send()

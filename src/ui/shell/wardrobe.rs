@@ -150,6 +150,10 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
     let selected = RwSignal::new(None::<String>);
     // Which persona's read-only info popup is open (clicking a card name), if any.
     let info = RwSignal::new(None::<crate::protocol::PersonaSummary>);
+    // Client-side search filter over the already-loaded persona list (name +
+    // description, case-insensitive). Reorder controls are hidden while a query
+    // is active, since card indices then wouldn't map to the full list.
+    let search = RwSignal::new(String::new());
 
     view! {
         <div class="pane wardrobe">
@@ -210,10 +214,31 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                 }
             })}
 
+            <input class="persona-search"
+                prop:value=move || search.get()
+                on:input=move |ev| search.set(event_target_value(&ev))
+                placeholder="search personas"/>
             <div class="persona-grid">
-                {move || s.personas.get().into_iter().map(|p| {
-                    view! { <PersonaCard s=s p=p selected=selected info=info/> }
-                }).collect_view()}
+                {move || {
+                    let q = search.get().trim().to_lowercase();
+                    let filtering = !q.is_empty();
+                    let all = s.personas.get();
+                    let len = all.len();
+                    all.into_iter()
+                        .enumerate()
+                        .filter(|(_, p)| {
+                            q.is_empty()
+                                || p.name.to_lowercase().contains(&q)
+                                || p.description.to_lowercase().contains(&q)
+                        })
+                        .map(|(idx, p)| {
+                            view! {
+                                <PersonaCard s=s p=p selected=selected info=info
+                                    idx=idx len=len reorder=!filtering/>
+                            }
+                        })
+                        .collect_view()
+                }}
             </div>
         </div>
     }
@@ -228,6 +253,11 @@ fn PersonaCard(
     p: crate::protocol::PersonaSummary,
     selected: RwSignal<Option<String>>,
     info: RwSignal<Option<crate::protocol::PersonaSummary>>,
+    // This card's index in the full (unfiltered) wardrobe list, the list
+    // length, and whether reorder controls should show (false while searching).
+    idx: usize,
+    len: usize,
+    reorder: bool,
 ) -> impl IntoView {
     let pid = p.id.clone();
     let pid_worn = pid.clone();
@@ -241,6 +271,10 @@ fn PersonaCard(
     let owned = p.owned;
     let info_p = p.clone();
     let remove_name = p.name.clone();
+
+    // Suppress spurious "unused" warnings: clippy can't always trace captures
+    // through the view! macro (mirrors the lorebook reorder workaround).
+    let _ = (idx, len, reorder);
 
     view! {
         <div class="persona-card" class:worn=move || worn.get()>
@@ -260,6 +294,17 @@ fn PersonaCard(
                 }}
             </button>
             <div class="card-actions">
+                // Reorder ↑/↓ — mirrors the lorebook `.lore-reorder` pattern.
+                // Hidden while a search filter is active (indices wouldn't map
+                // to the full list). ↑ disabled on the first card, ↓ on the last.
+                {reorder.then(|| view! {
+                    <button class="persona-reorder" title="Move up"
+                        disabled=idx == 0
+                        on:click=move |_| act::swap_persona(s, idx, true)>"↑"</button>
+                    <button class="persona-reorder" title="Move down"
+                        disabled=idx + 1 >= len
+                        on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
+                })}
                 <Show when=move || worn.get()
                     fallback=move || {
                         let pid = pid_wear.clone();

@@ -553,10 +553,38 @@ textarea {
 	}
 }
 
+// Client-side filter box above the grid (#18/FB4).
+.persona-search {
+	width: 100%;
+	margin-bottom: 0.75rem;
+}
+
 .persona-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 	gap: 0.75rem;
+}
+
+// Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
+.persona-reorder {
+	padding: 0.1rem 0.45rem;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	background: $panel;
+	color: $text;
+	cursor: pointer;
+	font-size: 0.8rem;
+	line-height: 1.5;
+
+	&:hover:not(:disabled) {
+		border-color: $accent;
+		color: $accent;
+	}
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
 }
 
 .persona-card {
