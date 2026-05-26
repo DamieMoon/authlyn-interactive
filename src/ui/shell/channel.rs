@@ -5,6 +5,7 @@ use leptos::prelude::*;
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
+use crate::ui::emoji::data::{self, GROUPS};
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
 
@@ -102,6 +103,145 @@ fn apply_markup(s: Shell, _ta_ref: NodeRef<leptos::html::Textarea>, open: &str, 
         c.push_str(open);
         c.push_str(close);
     });
+}
+
+/// Trailing emoji token `:query` before the caret (`:` then ≥1 of [a-z0-9_],
+/// the `:` not preceded by an alphanumeric so `12:30`/`http:` don't trigger).
+/// Returns (query, token_len) where token_len = the `:`+query length (ASCII,
+/// == UTF-16 units).
+///
+/// Pure (not cfg-gated) so the unit tests reach it, but only *called* from the
+/// hydrate-only composer handlers — hence dead on the ssr non-test build.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+fn active_shortcode_token(before: &str) -> Option<(String, u32)> {
+    let b = before.as_bytes();
+    let mut i = b.len();
+    while i > 0 && (b[i - 1].is_ascii_lowercase() || b[i - 1].is_ascii_digit() || b[i - 1] == b'_')
+    {
+        i -= 1;
+    }
+    if i == b.len() || i == 0 || b[i - 1] != b':' {
+        return None;
+    }
+    let colon = i - 1;
+    if colon > 0 && b[colon - 1].is_ascii_alphanumeric() {
+        return None;
+    }
+    Some((before[i..].to_string(), (before.len() - colon) as u32))
+}
+
+/// One `:`-autocomplete row: a guild custom emoji (image) or a standard-unicode
+/// glyph. `name` is the shortcode (sans colons) that gets inserted on accept.
+struct Suggestion {
+    name: String,
+    media: Option<String>,
+    glyph: Option<&'static str>,
+}
+
+/// Autocomplete candidates for a `:query`: the open guild's custom emoji whose
+/// name starts with the query first, then the standard-unicode matches, capped
+/// at 8. `data::search` is empty on ssr, so on the server this only ever returns
+/// custom-emoji rows (and the popover never renders without a caret anyway).
+fn emoji_suggestions(s: Shell, query: &str) -> Vec<Suggestion> {
+    let q = query.to_lowercase();
+    let mut out: Vec<Suggestion> = s
+        .guild_emoji
+        .get()
+        .into_iter()
+        .filter(|e| e.name.to_lowercase().starts_with(&q))
+        .map(|e| Suggestion {
+            name: e.name,
+            media: Some(e.media_id),
+            glyph: None,
+        })
+        .collect();
+    for e in data::search(query, 8) {
+        out.push(Suggestion {
+            name: e.shortcode.to_string(),
+            media: None,
+            glyph: Some(e.glyph),
+        });
+    }
+    out.truncate(8);
+    out
+}
+
+/// Replace the `start..end` (UTF-16) `:query` token in the composer with the
+/// chosen `:name: ` and place the caret just after it. Hydrate-only DOM work
+/// (selection ranges are UTF-16 units, so we splice in JS-string space).
+#[cfg(feature = "hydrate")]
+fn replace_shortcode_token(
+    s: Shell,
+    ta: NodeRef<leptos::html::Textarea>,
+    start: u32,
+    end: u32,
+    name: &str,
+) {
+    let Some(el) = ta.get() else { return };
+    let v = js_sys::JsString::from(el.value().as_str());
+    let before = v.slice(0, start).as_string().unwrap_or_default();
+    let after = v.slice(end, v.length()).as_string().unwrap_or_default();
+    let insert = format!(":{name}: ");
+    s.compose.set(format!("{before}{insert}{after}"));
+    let caret = start + insert.encode_utf16().count() as u32;
+    leptos::task::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(0).await;
+        let _ = el.set_selection_range(caret, caret);
+        let _ = el.focus();
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn replace_shortcode_token(
+    _s: Shell,
+    _ta: NodeRef<leptos::html::Textarea>,
+    _start: u32,
+    _end: u32,
+    _name: &str,
+) {
+}
+
+/// One custom-emoji button in the picker grid: its image, inserting `:name: `
+/// at the caret and closing the picker on click.
+fn custom_emoji_btn(
+    s: Shell,
+    composer_ref: NodeRef<leptos::html::Textarea>,
+    emoji_open: RwSignal<bool>,
+    name: String,
+    media_id: String,
+) -> impl IntoView {
+    let title = format!(":{name}:");
+    let alt = title.clone();
+    let src = format!("/media/{media_id}?w=32");
+    view! {
+        <button class="emoji-btn" title=title
+            on:click=move |_| {
+                apply_markup(s, composer_ref, &format!(":{name}: "), "");
+                emoji_open.set(false);
+            }>
+            <img src=src alt=alt/>
+        </button>
+    }
+}
+
+/// One standard-unicode emoji button in the picker grid: its glyph, inserting
+/// `:shortcode: ` at the caret and closing the picker on click.
+fn unicode_emoji_btn(
+    s: Shell,
+    composer_ref: NodeRef<leptos::html::Textarea>,
+    emoji_open: RwSignal<bool>,
+    shortcode: &'static str,
+    glyph: &'static str,
+) -> impl IntoView {
+    view! {
+        <button class="emoji-btn" title=format!(":{shortcode}:")
+            on:click=move |_| {
+                apply_markup(s, composer_ref, &format!(":{shortcode}: "), "");
+                emoji_open.set(false);
+            }>
+            {glyph}
+        </button>
+    }
 }
 
 /// Format an RFC3339 timestamp for display beside the author name.
@@ -222,6 +362,15 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     // pattern: which message id is being edited (if any), and its buffer.
     let editing_msg = RwSignal::new(None::<String>);
     let msg_edit_buf = RwSignal::new(String::new());
+
+    // Composer emoji picker + `:`-autocomplete + live preview state (all
+    // component-local). `ac_token` holds the active `:query` token as
+    // (start_utf16, end_utf16, query); `ac_index` is the highlighted suggestion.
+    let emoji_open = RwSignal::new(false);
+    let emoji_query = RwSignal::new(String::new());
+    let preview_on = RwSignal::new(act::compose_preview_enabled());
+    let ac_token = RwSignal::new(None::<(u32, u32, String)>);
+    let ac_index = RwSignal::new(0usize);
 
     // Auto-grow the composer to fit its content, up to the CSS max-height
     // (then it scrolls). Tracking `compose` covers both typing and the
@@ -647,7 +796,79 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                             </button>
                         }
                     }).collect_view()}
+                    // Emoji picker toggle + live-preview toggle. The preview
+                    // toggle persists per-user (localStorage) like the other
+                    // composer prefs.
+                    <button class="fmt" title="emoji"
+                        on:click=move |_| emoji_open.update(|o| *o = !*o)>
+                        "😀"
+                    </button>
+                    <button class="fmt" title="preview"
+                        on:click=move |_| {
+                            let v = !preview_on.get_untracked();
+                            preview_on.set(v);
+                            act::set_compose_preview(v);
+                        }>
+                        "👁"
+                    </button>
                 </div>
+                // Emoji picker popover: a search box over a categorised grid of
+                // the open guild's custom emoji plus the standard-unicode set.
+                // A full-viewport backdrop closes it on an outside click.
+                {move || emoji_open.get().then(|| view! {
+                    <div class="emoji-backdrop" on:click=move |_| emoji_open.set(false)></div>
+                    <div class="emoji-picker">
+                        <input class="emoji-search" placeholder="search emoji"
+                            prop:value=move || emoji_query.get()
+                            on:input=move |ev| emoji_query.set(event_target_value(&ev))/>
+                        <div class="emoji-grid">
+                            {move || {
+                                let q = emoji_query.get().trim().to_lowercase();
+                                let custom = s.guild_emoji.get();
+                                if q.is_empty() {
+                                    // Server custom emoji first, then each unicode category.
+                                    let server = (!custom.is_empty()).then(|| view! {
+                                        <div class="emoji-cat">"Server"</div>
+                                        <div class="emoji-cat-items">
+                                            {custom.iter().cloned().map(|e| custom_emoji_btn(
+                                                s, composer_ref, emoji_open, e.name, e.media_id,
+                                            )).collect_view()}
+                                        </div>
+                                    });
+                                    let cats = GROUPS.iter().map(|label| {
+                                        let items = data::by_group(label);
+                                        view! {
+                                            <div class="emoji-cat">{*label}</div>
+                                            <div class="emoji-cat-items">
+                                                {items.into_iter().map(|e| unicode_emoji_btn(
+                                                    s, composer_ref, emoji_open,
+                                                    e.shortcode, e.glyph,
+                                                )).collect_view()}
+                                            </div>
+                                        }
+                                    }).collect_view();
+                                    view! { {server} {cats} }.into_any()
+                                } else {
+                                    // Filtered: matching custom emoji, then unicode hits.
+                                    let custom_hits = custom.into_iter()
+                                        .filter(|e| e.name.to_lowercase().contains(&q))
+                                        .map(|e| custom_emoji_btn(
+                                            s, composer_ref, emoji_open, e.name, e.media_id,
+                                        ))
+                                        .collect_view();
+                                    let std_hits = data::search(&q, 80).into_iter()
+                                        .map(|e| unicode_emoji_btn(
+                                            s, composer_ref, emoji_open, e.shortcode, e.glyph,
+                                        ))
+                                        .collect_view();
+                                    view! {
+                                        <div class="emoji-cat-items">{custom_hits}{std_hits}</div>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                    </div>
+                })}
                 // Pending attachments: thumbnails of staged uploads, each with a
                 // remove button. Sent (and cleared) on the next message.
                 {move || {
@@ -669,10 +890,36 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         </div>
                     })
                 }}
+                // Live formatting preview (opt-in via the 👁 toggle): renders the
+                // draft with the same pipeline as a sent message.
+                {move || (preview_on.get() && !s.compose.get().trim().is_empty()).then(|| view! {
+                    <div class="compose-preview">{render_body(&s.compose.get())}</div>
+                })}
                 <textarea
                     node_ref=composer_ref
                     prop:value=move || s.compose.get()
-                    on:input=move |ev| s.compose.set(event_target_value(&ev))
+                    on:input=move |ev| {
+                        s.compose.set(event_target_value(&ev));
+                        // Track the trailing `:query` token under the caret to
+                        // drive the autocomplete popover.
+                        #[cfg(feature = "hydrate")]
+                        {
+                            if let Some(el) = composer_ref.get() {
+                                let caret = el.selection_start().ok().flatten().unwrap_or(0);
+                                let before = js_sys::JsString::from(el.value().as_str())
+                                    .slice(0, caret)
+                                    .as_string()
+                                    .unwrap_or_default();
+                                match active_shortcode_token(&before) {
+                                    Some((q, len)) => {
+                                        ac_token.set(Some((caret - len, caret, q)));
+                                        ac_index.set(0);
+                                    }
+                                    None => ac_token.set(None),
+                                }
+                            }
+                        }
+                    }
                     on:paste=move |_ev| {
                         // Paste-to-upload images (#27): stage any image items on
                         // the clipboard and suppress their default text paste.
@@ -701,6 +948,41 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     on:keydown=move |ev| {
                         #[cfg(feature = "hydrate")]
                         {
+                            // While the autocomplete popover is open it owns the
+                            // arrow/Enter/Tab/Escape keys; only when it's closed
+                            // does Enter fall through to send.
+                            if let Some((st, en, q)) = ac_token.get() {
+                                let sugg = emoji_suggestions(s, &q);
+                                match ev.key().as_str() {
+                                    "ArrowDown" => {
+                                        ev.prevent_default();
+                                        let max = sugg.len().saturating_sub(1);
+                                        ac_index.update(|i| *i = (*i + 1).min(max));
+                                        return;
+                                    }
+                                    "ArrowUp" => {
+                                        ev.prevent_default();
+                                        ac_index.update(|i| *i = i.saturating_sub(1));
+                                        return;
+                                    }
+                                    "Escape" => {
+                                        ev.prevent_default();
+                                        ac_token.set(None);
+                                        return;
+                                    }
+                                    "Enter" | "Tab" => {
+                                        ev.prevent_default();
+                                        if let Some(sg) = sugg.get(ac_index.get_untracked()) {
+                                            replace_shortcode_token(
+                                                s, composer_ref, st, en, &sg.name,
+                                            );
+                                        }
+                                        ac_token.set(None);
+                                        return;
+                                    }
+                                    _ => {}
+                                }
+                            }
                             // Send on plain Enter only on desktop. On touch
                             // devices (no Shift) and mid-IME-composition, Enter
                             // falls through to insert a newline; use the Send button.
@@ -718,6 +1000,38 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     }
                     placeholder="type a message — **bold**, *italic*, [red]color[/red]"
                 ></textarea>
+                // `:`-autocomplete popover: matches for the trailing `:query`
+                // under the caret. Arrow/Enter/Tab navigate (handled in
+                // on:keydown); a click accepts directly.
+                {move || ac_token.get().map(|(st, en, q)| {
+                    let sugg = emoji_suggestions(s, &q);
+                    view! {
+                        <ul class="emoji-suggest">
+                            {sugg.into_iter().enumerate().map(|(i, sg)| {
+                                let name = sg.name.clone();
+                                let title = format!(":{name}:");
+                                let icon = match (sg.media, sg.glyph) {
+                                    (Some(media), _) => view! {
+                                        <img class="inline-emoji"
+                                            src=format!("/media/{media}?w=32") alt=title.clone()/>
+                                    }.into_any(),
+                                    (None, Some(g)) => g.into_any(),
+                                    (None, None) => title.clone().into_any(),
+                                };
+                                view! {
+                                    <li class:active=move || ac_index.get() == i
+                                        on:click=move |_| {
+                                            replace_shortcode_token(s, composer_ref, st, en, &name);
+                                            ac_token.set(None);
+                                        }>
+                                        <span class="sg-emoji">{icon}</span>
+                                        <span class="sg-code">{title}</span>
+                                    </li>
+                                }
+                            }).collect_view()}
+                        </ul>
+                    }
+                })}
                 <button class="send" on:click=move |_| act::send_message(s)>"Send"</button>
             </div>
 
@@ -766,5 +1080,33 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 }
             })}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_shortcode_token;
+
+    #[test]
+    fn detects_a_trailing_shortcode_token() {
+        // `:` + query, token_len counts the colon too.
+        assert_eq!(active_shortcode_token(":smi"), Some(("smi".into(), 4)));
+        // A leading space (non-alphanumeric) before the colon is fine.
+        assert_eq!(active_shortcode_token("x :tada"), Some(("tada".into(), 5)));
+        // Digits and underscores are valid token chars.
+        assert_eq!(active_shortcode_token(":joy_2"), Some(("joy_2".into(), 6)));
+    }
+
+    #[test]
+    fn rejects_non_tokens() {
+        // No colon at all.
+        assert_eq!(active_shortcode_token("hi"), None);
+        // Time-like `12:30`: the colon is preceded by a digit.
+        assert_eq!(active_shortcode_token("12:30"), None);
+        // URL-scheme-like `http:` would-be empty query — and the bare colon
+        // also yields no query.
+        assert_eq!(active_shortcode_token(":"), None);
+        // A bare colon following text is still an empty query → no token.
+        assert_eq!(active_shortcode_token("foo:"), None);
     }
 }

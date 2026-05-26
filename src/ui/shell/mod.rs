@@ -978,6 +978,22 @@ mod act {
         let _ = LocalStorage::set(KEY_CONFIRM_DELETE_MSG, if on { "1" } else { "0" });
     }
 
+    // localStorage key for the composer's live formatting-preview toggle. "1" =
+    // on; absent or anything else = off (the preview is opt-in).
+    const KEY_COMPOSE_PREVIEW: &str = "authlyn.compose_preview";
+
+    /// Whether the composer shows a live rendered preview (default OFF).
+    pub fn compose_preview_enabled() -> bool {
+        LocalStorage::get::<String>(KEY_COMPOSE_PREVIEW)
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    }
+
+    /// Persist the composer preview toggle.
+    pub fn set_compose_preview(on: bool) {
+        let _ = LocalStorage::set(KEY_COMPOSE_PREVIEW, if on { "1" } else { "0" });
+    }
+
     // localStorage key for the per-user "style RP dialogue" toggle. "1" = on;
     // absent or anything else = off (the styling is opt-in).
     const KEY_DIALOGUE_STYLE: &str = "authlyn.dialogue_style";
@@ -2170,6 +2186,10 @@ mod act {
         true
     }
     pub fn set_confirm_delete_message(_on: bool) {}
+    pub fn compose_preview_enabled() -> bool {
+        false
+    }
+    pub fn set_compose_preview(_on: bool) {}
     pub fn rp_dialogue_style_enabled() -> bool {
         false
     }
