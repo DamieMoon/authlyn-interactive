@@ -527,7 +527,7 @@ textarea {
 		.add-desc {
 			flex: 1;
 			min-width: 8rem;
-			min-height: 2.4rem;
+			min-height: 4rem;
 			resize: vertical;
 		}
 	}
@@ -653,7 +653,7 @@ textarea {
 		}
 
 		textarea {
-			min-height: 6rem;
+			min-height: 9rem;
 			resize: vertical;
 		}
 	}
@@ -693,6 +693,74 @@ textarea {
 			}
 		}
 	}
+}
+
+// ---- persona detail gallery ----
+// Gallery container sits inside .persona-detail > .field.gallery-field.
+// Thumbnails are square, auto-fill the available width; the pick button fills
+// each cell and the remove button overlaps the top-right corner.
+.gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+	gap: 0.5rem;
+	margin-top: 0.25rem;
+}
+
+.gallery-thumb {
+	position: relative;
+	aspect-ratio: 1 / 1;
+	border-radius: 0.4rem;
+	overflow: visible; // allow remove-button to bleed past the corner
+	border: 2px solid transparent;
+
+	// Active-avatar indicator: accent ring around the current portrait choice.
+	&.is-avatar {
+		border-color: $accent;
+	}
+}
+
+// The main clickable area for "set as avatar" — fills the thumb cell.
+.gallery-pick {
+	display: block;
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	padding: 0;
+	background: $panel-2;
+	border: none;
+	border-radius: 0.35rem;
+	cursor: pointer;
+	overflow: hidden;
+	position: relative; // for the badge overlay
+}
+
+// Star badge indicating current avatar, overlaid center-bottom of the thumb.
+.gallery-badge {
+	position: absolute;
+	bottom: 0.15rem;
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 0.75rem;
+	color: $accent;
+	pointer-events: none;
+	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+// Remove (✕) button: floats above the top-right corner of the thumbnail.
+.gallery-remove {
+	position: absolute;
+	top: -0.4rem;
+	right: -0.4rem;
+	width: 1.4rem;
+	height: 1.4rem;
+	padding: 0;
+	border-radius: 50%;
+	border: none;
+	background: #1c1a2b;
+	color: $text;
+	cursor: pointer;
+	line-height: 1;
+	font-size: 0.75rem;
+	z-index: 1;
 }
 
 // ---- message markup palette ----
@@ -884,8 +952,8 @@ $persona-palette: (
 // Reserved persona-image slot in the info popup (monogram placeholder for now).
 .modal .info-portrait {
 	align-self: center;
-	width: 64px;
-	height: 64px;
+	width: 88px;
+	height: 88px;
 	border-radius: 0.5rem;
 	background: $panel-2;
 	border: 1px solid $line;
@@ -1035,6 +1103,56 @@ $persona-palette: (
 	.content .messages .msg .msg-edit .rename-input {
 		min-height: 6rem;
 		max-height: 50vh;
+	}
+
+	// ---- wardrobe / persona mobile overrides ----
+
+	// Modal: nearly full-width on narrow screens, with tighter padding so the
+	// inner content has maximum room. Applies to all modals (persona-detail,
+	// info popup, confirm dialog, account modal).
+	.modal {
+		max-width: 92vw;
+		padding: 0.75rem 0.9rem;
+	}
+
+	// Info popup portrait: larger so faces are readable on phone screens.
+	.modal .info-portrait {
+		width: 96px;
+		height: 96px;
+	}
+
+	// Card portrait: a touch taller so it's more prominent in the card grid.
+	.persona-card .card-portrait {
+		height: 6.5rem;
+	}
+
+	// Detail-editor portrait: bump it up so the uploaded avatar is clearly visible.
+	.persona-detail .detail-portrait {
+		height: 8rem;
+	}
+
+	// Create-form description textarea: more room for initial typing on mobile.
+	.wardrobe .add-row .add-desc {
+		min-height: 5rem;
+	}
+
+	// Persona description in the detail editor: big box so long character sheets
+	// are comfortable to scroll and type without fighting the soft keyboard.
+	.persona-detail .field textarea {
+		min-height: 42vh;
+	}
+
+	// Color swatches: bigger tap targets on mobile.
+	.persona-detail .color-row .swatch-pick {
+		width: 2.2rem;
+		height: 2.2rem;
+	}
+
+	// Share-row labels: at least 44px tall so the checkbox + name hit target is
+	// comfortable for thumbs (WCAG 2.5.8 minimum).
+	.persona-detail .share-block .share-row {
+		min-height: 44px;
+		padding: 0.4rem 0.6rem;
 	}
 }
 
