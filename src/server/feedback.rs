@@ -23,7 +23,7 @@ use axum::Json;
 use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{ErrorBody, FeedbackItem, ListFeedbackResponse, SubmitFeedbackRequest};
-use crate::server::auth::AuthAccount;
+use crate::server::auth::{is_admin, AuthAccount};
 use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::state::AppState;
 
@@ -163,56 +163,6 @@ fn coerce_kind(kind: &str) -> &'static str {
         "idea" => "idea",
         _ => "other",
     }
-}
-
-/// Admin guard: fail-closed. The caller (identified by account id) is an admin
-/// iff their stored `username_ci` is in the configured admin set. The set is the
-/// union of `AUTHLYN_ADMIN_USERNAMES` (comma/whitespace-separated) and the legacy
-/// singular `AUTHLYN_ADMIN_USERNAME`, each entry trimmed and lowercased. If the
-/// set is empty (neither var set, or both blank) no one is authorized.
-async fn is_admin(state: &AppState, account_id: &str) -> surrealdb::Result<bool> {
-    let admins = admin_username_set();
-    if admins.is_empty() {
-        return Ok(false);
-    }
-
-    #[derive(SurrealValue)]
-    struct Row {
-        username_ci: String,
-    }
-    let mut resp = state
-        .db
-        .query("SELECT username_ci FROM type::record('account', $account_id);")
-        .bind(("account_id", account_id.to_string()))
-        .await?
-        .check()?;
-    let row: Option<Row> = resp.take(0)?;
-    Ok(row
-        .map(|r| admins.contains(&r.username_ci))
-        .unwrap_or(false))
-}
-
-/// Build the lowercased admin-username set from the environment. Unions
-/// `AUTHLYN_ADMIN_USERNAMES` (comma- and/or whitespace-separated) with the
-/// legacy singular `AUTHLYN_ADMIN_USERNAME`. Entries are trimmed, lowercased,
-/// and empties dropped.
-fn admin_username_set() -> std::collections::HashSet<String> {
-    let mut set = std::collections::HashSet::new();
-    if let Ok(list) = std::env::var("AUTHLYN_ADMIN_USERNAMES") {
-        for entry in list.split([',', ' ', '\t', '\n', '\r']) {
-            let e = entry.trim();
-            if !e.is_empty() {
-                set.insert(e.to_lowercase());
-            }
-        }
-    }
-    if let Ok(single) = std::env::var("AUTHLYN_ADMIN_USERNAME") {
-        let e = single.trim();
-        if !e.is_empty() {
-            set.insert(e.to_lowercase());
-        }
-    }
-    set
 }
 
 fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {

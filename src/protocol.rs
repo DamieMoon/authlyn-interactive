@@ -73,6 +73,39 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+/// Body of `POST /auth/admin/reset-password` (admin-only). Sets `username`'s
+/// password to `new_password` without needing the target's current password.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AdminResetPasswordRequest {
+    pub username: String,
+    pub new_password: String,
+}
+
+/// Body of `POST /auth/security-question` (auth-required). Sets the caller's
+/// self-service recovery question and answer (the answer is stored hashed).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetSecurityQuestionRequest {
+    pub question: String,
+    pub answer: String,
+}
+
+/// Response from `GET /auth/reset/question?username=…`. `question` is `None`
+/// when the user is unknown OR has no question set (indistinguishable, to limit
+/// username enumeration).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResetQuestionResponse {
+    pub question: Option<String>,
+}
+
+/// Body of `POST /auth/reset/confirm` (public). Resets `username`'s password to
+/// `new_password` iff `answer` matches the stored (hashed) security answer.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfirmResetRequest {
+    pub username: String,
+    pub answer: String,
+    pub new_password: String,
+}
+
 // ---------------------------------------------------------------------------
 // Guilds (servers), channels, membership
 // ---------------------------------------------------------------------------

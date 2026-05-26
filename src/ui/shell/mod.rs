@@ -821,6 +821,28 @@ mod act {
         });
     }
 
+    /// Set/replace the caller's self-service recovery question + answer.
+    pub fn set_security_question(s: Shell, question: String, answer: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::set_security_question(&question, &answer).await {
+                Ok(()) => s.status.set("security question saved".to_string()),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Admin-only: reset another account's password by username.
+    pub fn admin_reset_password(s: Shell, username: String, new_password: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::admin_reset_password(&username, &new_password).await {
+                Ok(()) => s.status.set(format!("password reset for {username}")),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn open_server(s: Shell, gid: String) {
         let _ = LocalStorage::set(KEY_SERVER, &gid);
         s.sel_server.set(Some(gid.clone()));
@@ -2454,6 +2476,8 @@ mod act {
     pub fn load_last_seen(_s: Shell) {}
     pub fn toggle_mute(_s: Shell, _cid: String) {}
     pub fn change_password(_s: Shell, _current: String, _new: String) {}
+    pub fn set_security_question(_s: Shell, _question: String, _answer: String) {}
+    pub fn admin_reset_password(_s: Shell, _username: String, _new_password: String) {}
     pub fn restore_session(_s: Shell) -> bool {
         false
     }

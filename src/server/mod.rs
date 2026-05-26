@@ -46,6 +46,15 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/logout", post(auth::logout))
         .route("/auth/change-password", post(auth::change_password))
         .route("/auth/me", get(auth::me))
+        // Password recovery: admin reset (admin-only), set the self-service
+        // security question (authed), and the public reset flow.
+        .route(
+            "/auth/admin/reset-password",
+            post(auth::admin_reset_password),
+        )
+        .route("/auth/security-question", post(auth::set_security_question))
+        .route("/auth/reset/question", get(auth::get_reset_question))
+        .route("/auth/reset/confirm", post(auth::confirm_password_reset))
         .route(
             "/guilds",
             get(guilds::list_guilds).post(guilds::create_guild),

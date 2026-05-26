@@ -5,7 +5,7 @@ use leptos_router::{
     StaticSegment,
 };
 
-use crate::ui::auth::{LoginPage, RegisterPage};
+use crate::ui::auth::{LoginPage, RegisterPage, ResetPage};
 use crate::ui::shell::Home;
 use crate::ui::AuthCtx;
 
@@ -73,6 +73,7 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=StaticSegment("login") view=LoginPage/>
                     <Route path=StaticSegment("register") view=RegisterPage/>
+                    <Route path=StaticSegment("reset") view=ResetPage/>
                     <Route path=StaticSegment("") view=Home/>
                 </Routes>
             </main>

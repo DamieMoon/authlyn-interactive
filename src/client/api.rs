@@ -7,16 +7,17 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::{
-    AddGalleryImageRequest, AddGalleryImageResponse, AuthResponse, ChangePasswordRequest,
-    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateEmojiRequest,
-    CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
-    CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
-    InviteMemberRequest, ListEmojiResponse, ListFeedbackResponse, ListFriendsResponse,
-    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
-    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
-    PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SetMemberRoleRequest,
+    AddGalleryImageRequest, AddGalleryImageResponse, AdminResetPasswordRequest, AuthResponse,
+    ChangePasswordRequest, ChannelListResponse, ChannelSummary, ConfirmResetRequest,
+    CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
+    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
+    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListEmojiResponse,
+    ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
+    ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
+    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
+    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest,
+    RegisterRequest, ResetQuestionResponse, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
     SubmitFeedbackRequest, VapidKeyResponse,
 };
 
@@ -78,6 +79,62 @@ pub async fn change_password(current: &str, new: &str) -> Result<(), ApiError> {
         .json(&ChangePasswordRequest {
             current_password: current.to_string(),
             new_password: new.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Admin-only: set another user's password (by username). 204, no body.
+pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<(), ApiError> {
+    let resp = Request::post("/auth/admin/reset-password")
+        .json(&AdminResetPasswordRequest {
+            username: username.to_string(),
+            new_password: new_password.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Set/replace the signed-in account's self-service recovery question + answer.
+pub async fn set_security_question(question: &str, answer: &str) -> Result<(), ApiError> {
+    let resp = Request::post("/auth/security-question")
+        .json(&SetSecurityQuestionRequest {
+            question: question.to_string(),
+            answer: answer.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Public: fetch a username's security question for the reset form. `question`
+/// is `None` for unknown users and users with no question set (no enumeration).
+pub async fn reset_question(username: &str) -> Result<ResetQuestionResponse, ApiError> {
+    let q = js_sys::encode_uri_component(username)
+        .as_string()
+        .unwrap_or_default();
+    get(&format!("/auth/reset/question?username={q}")).await
+}
+
+/// Public: complete a self-service reset by answering the security question.
+pub async fn confirm_reset(
+    username: &str,
+    answer: &str,
+    new_password: &str,
+) -> Result<(), ApiError> {
+    let resp = Request::post("/auth/reset/confirm")
+        .json(&ConfirmResetRequest {
+            username: username.to_string(),
+            answer: answer.to_string(),
+            new_password: new_password.to_string(),
         })
         .map_err(codec)?
         .send()

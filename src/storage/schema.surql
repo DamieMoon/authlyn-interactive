@@ -17,6 +17,10 @@ DEFINE FIELD IF NOT EXISTS username      ON account TYPE string;
 DEFINE FIELD IF NOT EXISTS username_ci   ON account TYPE string;  -- lowercased, for case-insensitive uniqueness
 DEFINE FIELD IF NOT EXISTS display_name  ON account TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS password_hash ON account TYPE string;  -- argon2id PHC string
+-- Self-service password recovery (option<> ⇒ NONE is valid on old rows, so no
+-- backfill is needed and adding these can't trip the SCHEMAFULL NONE-coercion crash).
+DEFINE FIELD IF NOT EXISTS security_question    ON account TYPE option<string>;  -- user-set reset prompt
+DEFINE FIELD IF NOT EXISTS security_answer_hash ON account TYPE option<string>;  -- argon2id hash of the normalized answer
 DEFINE FIELD IF NOT EXISTS avatar        ON account TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS created_at    ON account TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS account_username_ci ON account FIELDS username_ci UNIQUE;

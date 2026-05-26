@@ -30,7 +30,8 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    AuthResponse, ChangePasswordRequest, ErrorBody, LoginRequest, MeResponse, RegisterRequest,
+    AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest, ConfirmResetRequest, ErrorBody,
+    LoginRequest, MeResponse, RegisterRequest, ResetQuestionResponse, SetSecurityQuestionRequest,
 };
 use crate::server::retry::is_unique_violation;
 use crate::server::state::AppState;
@@ -42,6 +43,7 @@ const MIN_USERNAME_CHARS: usize = 3;
 const MAX_USERNAME_CHARS: usize = 32;
 const MIN_PASSWORD_BYTES: usize = 8;
 const MAX_PASSWORD_BYTES: usize = 4096;
+const MIN_SECURITY_ANSWER_CHARS: usize = 3;
 
 // ---------------------------------------------------------------------------
 // Extractor: cookie -> account id
@@ -302,6 +304,199 @@ pub async fn change_password(
 }
 
 // ---------------------------------------------------------------------------
+// POST /auth/admin/reset-password  (admin only)
+// ---------------------------------------------------------------------------
+
+/// Admin-only: set another account's password without the target's current one.
+/// Gated by [`is_admin`]; the target is looked up by username. Invalidates the
+/// target's sessions so a reset always forces a fresh login.
+#[tracing::instrument(skip_all, fields(admin = %account.0))]
+pub async fn admin_reset_password(
+    State(state): State<AppState>,
+    account: AuthAccount,
+    payload: Result<Json<AdminResetPasswordRequest>, JsonRejection>,
+) -> Response {
+    match is_admin(&state, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::FORBIDDEN, "forbidden"),
+        Err(e) => {
+            tracing::error!(error = %e, "admin check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    if let Err(msg) = validate_password(&req.new_password) {
+        return error_response(StatusCode::BAD_REQUEST, msg);
+    }
+
+    let username_ci = req.username.trim().to_lowercase();
+    let target = match account_by_username_ci(&state, &username_ci).await {
+        Ok(Some((id, _hash, _username))) => id,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "no such user"),
+        Err(e) => {
+            tracing::error!(error = %e, "account lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+
+    let new_hash = match hash_on_blocking_pool(req.new_password.clone()).await {
+        Ok(h) => h,
+        Err(resp) => return resp,
+    };
+    if let Err(e) = update_password_hash(&state, &target, &new_hash).await {
+        tracing::error!(error = %e, "update_password_hash failed");
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+    }
+    if let Err(e) = delete_sessions_for_account(&state, &target).await {
+        tracing::warn!(error = %e, "post-reset session invalidation failed");
+    }
+
+    tracing::info!(admin = %account.0, target_account = %target, "admin reset a user's password");
+    StatusCode::NO_CONTENT.into_response()
+}
+
+// ---------------------------------------------------------------------------
+// POST /auth/security-question  (auth required)
+// ---------------------------------------------------------------------------
+
+/// Set (or replace) the caller's self-service recovery question + answer. The
+/// answer is normalized then argon2id-hashed — never stored in the clear.
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn set_security_question(
+    State(state): State<AppState>,
+    account: AuthAccount,
+    payload: Result<Json<SetSecurityQuestionRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+
+    let question = req.question.trim().to_string();
+    if !(1..=200).contains(&question.chars().count()) {
+        return error_response(StatusCode::BAD_REQUEST, "question must be 1–200 characters");
+    }
+    let answer = normalize_answer(&req.answer);
+    if answer.chars().count() < MIN_SECURITY_ANSWER_CHARS {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "answer must be at least 3 characters",
+        );
+    }
+
+    let answer_hash = match hash_on_blocking_pool(answer).await {
+        Ok(h) => h,
+        Err(resp) => return resp,
+    };
+
+    let result = state
+        .db
+        .query(
+            "UPDATE type::record('account', $account_id) SET
+                security_question = $question,
+                security_answer_hash = $answer_hash;",
+        )
+        .bind(("account_id", account.0.clone()))
+        .bind(("question", question))
+        .bind(("answer_hash", answer_hash))
+        .await
+        .and_then(|r| r.check());
+
+    match result {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "set_security_question failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /auth/reset/question?username=…   (public)
+// POST /auth/reset/confirm              (public)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+pub struct ResetQuestionQuery {
+    username: String,
+}
+
+/// Public: return the security question for a username so the unauthenticated
+/// reset form can show it. Returns `None` for both "no such user" and "no
+/// question set" so the response can't be used to enumerate accounts.
+#[tracing::instrument(skip_all)]
+pub async fn get_reset_question(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<ResetQuestionQuery>,
+) -> Response {
+    let username_ci = q.username.trim().to_lowercase();
+    let question = match security_question_for_username(&state, &username_ci).await {
+        Ok(q) => q,
+        Err(e) => {
+            tracing::error!(error = %e, "security_question lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    (StatusCode::OK, Json(ResetQuestionResponse { question })).into_response()
+}
+
+/// Public: reset a password by answering the security question. Unknown user,
+/// no-question-set, and wrong-answer all return the same generic 401.
+#[tracing::instrument(skip_all)]
+pub async fn confirm_password_reset(
+    State(state): State<AppState>,
+    payload: Result<Json<ConfirmResetRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    if let Err(msg) = validate_password(&req.new_password) {
+        return error_response(StatusCode::BAD_REQUEST, msg);
+    }
+
+    let username_ci = req.username.trim().to_lowercase();
+    let (account_id, answer_hash) = match account_security(&state, &username_ci).await {
+        Ok(Some((id, Some(hash)))) => (id, hash),
+        Ok(Some((_, None))) | Ok(None) => return reset_rejected(),
+        Err(e) => {
+            tracing::error!(error = %e, "account_security lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+
+    match verify_on_blocking_pool(normalize_answer(&req.answer), answer_hash).await {
+        Ok(true) => {}
+        Ok(false) => return reset_rejected(),
+        Err(resp) => return resp,
+    }
+
+    let new_hash = match hash_on_blocking_pool(req.new_password.clone()).await {
+        Ok(h) => h,
+        Err(resp) => return resp,
+    };
+    if let Err(e) = update_password_hash(&state, &account_id, &new_hash).await {
+        tracing::error!(error = %e, "update_password_hash failed");
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+    }
+    if let Err(e) = delete_sessions_for_account(&state, &account_id).await {
+        tracing::warn!(error = %e, "post-reset session invalidation failed");
+    }
+
+    tracing::info!(account = %account_id, "self-service password reset");
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// The single generic rejection for the public reset path (no enumeration).
+fn reset_rejected() -> Response {
+    error_response(StatusCode::UNAUTHORIZED, "could not verify your answer")
+}
+
+// ---------------------------------------------------------------------------
 // DB helpers
 // ---------------------------------------------------------------------------
 
@@ -451,6 +646,109 @@ async fn update_password_hash(
     Ok(())
 }
 
+/// The security question for a username (case-insensitive), if the account
+/// exists AND has one set; `None` otherwise. The two cases are deliberately
+/// indistinguishable to the caller.
+async fn security_question_for_username(
+    state: &AppState,
+    username_ci: &str,
+) -> surrealdb::Result<Option<String>> {
+    #[derive(SurrealValue)]
+    struct Row {
+        security_question: Option<String>,
+    }
+    let mut resp = state
+        .db
+        .query("SELECT security_question FROM account WHERE username_ci = $username_ci;")
+        .bind(("username_ci", username_ci.to_string()))
+        .await?
+        .check()?;
+    let row: Option<Row> = resp.take(0)?;
+    Ok(row.and_then(|r| r.security_question))
+}
+
+/// `(account_id, security_answer_hash)` for a username (case-insensitive), if
+/// the account exists. The hash is `None` when no question has been set.
+async fn account_security(
+    state: &AppState,
+    username_ci: &str,
+) -> surrealdb::Result<Option<(String, Option<String>)>> {
+    #[derive(SurrealValue)]
+    struct Row {
+        id_key: String,
+        security_answer_hash: Option<String>,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(id) AS id_key, security_answer_hash FROM account
+                WHERE username_ci = $username_ci;",
+        )
+        .bind(("username_ci", username_ci.to_string()))
+        .await?
+        .check()?;
+    let row: Option<Row> = resp.take(0)?;
+    Ok(row.map(|r| (r.id_key, r.security_answer_hash)))
+}
+
+/// Delete every session row for `account_id`. Called after a password reset so
+/// any pre-existing cookie (possibly an attacker's) stops authenticating.
+async fn delete_sessions_for_account(state: &AppState, account_id: &str) -> surrealdb::Result<()> {
+    state
+        .db
+        .query("DELETE FROM session WHERE account = type::record('account', $account_id);")
+        .bind(("account_id", account_id.to_string()))
+        .await?
+        .check()?;
+    Ok(())
+}
+
+/// Admin guard: fail-closed. The caller (by account id) is an admin iff their
+/// stored `username_ci` is in the configured admin set — the union of
+/// `AUTHLYN_ADMIN_USERNAMES` (comma/whitespace-separated) and the legacy
+/// singular `AUTHLYN_ADMIN_USERNAME`, each trimmed and lowercased. An empty set
+/// (neither var set, or both blank) authorizes no one.
+pub(crate) async fn is_admin(state: &AppState, account_id: &str) -> surrealdb::Result<bool> {
+    let admins = admin_username_set();
+    if admins.is_empty() {
+        return Ok(false);
+    }
+    #[derive(SurrealValue)]
+    struct Row {
+        username_ci: String,
+    }
+    let mut resp = state
+        .db
+        .query("SELECT username_ci FROM type::record('account', $account_id);")
+        .bind(("account_id", account_id.to_string()))
+        .await?
+        .check()?;
+    let row: Option<Row> = resp.take(0)?;
+    Ok(row
+        .map(|r| admins.contains(&r.username_ci))
+        .unwrap_or(false))
+}
+
+/// Build the lowercased admin-username set from the environment (see [`is_admin`]).
+pub(crate) fn admin_username_set() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(list) = std::env::var("AUTHLYN_ADMIN_USERNAMES") {
+        for entry in list.split([',', ' ', '\t', '\n', '\r']) {
+            let e = entry.trim();
+            if !e.is_empty() {
+                set.insert(e.to_lowercase());
+            }
+        }
+    }
+    if let Ok(single) = std::env::var("AUTHLYN_ADMIN_USERNAME") {
+        let e = single.trim();
+        if !e.is_empty() {
+            set.insert(e.to_lowercase());
+        }
+    }
+    set
+}
+
 // ---------------------------------------------------------------------------
 // Crypto / token helpers
 // ---------------------------------------------------------------------------
@@ -542,6 +840,12 @@ fn validate_password(password: &str) -> Result<(), &'static str> {
         return Err("password too long");
     }
     Ok(())
+}
+
+/// Normalize a security answer before hashing/verification: trim + lowercase,
+/// so "Fluffy " and "fluffy" match. A deliberate usability-for-entropy trade.
+fn normalize_answer(answer: &str) -> String {
+    answer.trim().to_lowercase()
 }
 
 fn session_cookie(token: String) -> Cookie<'static> {
