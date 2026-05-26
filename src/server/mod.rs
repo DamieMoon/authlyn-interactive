@@ -94,6 +94,10 @@ fn small_body_routes() -> Router<AppState> {
             put(personas::set_active_persona),
         )
         .route(
+            "/channels/{cid}/active-persona",
+            put(personas::set_channel_active_persona),
+        )
+        .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
         )

@@ -115,6 +115,15 @@ DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<per
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;
 
+-- Per-channel worn persona (supersedes per-guild guild_member.active_persona).
+-- One row per (account, channel); UPSERT on wear, DELETE on unwear. Brand-new
+-- table → no NONE-backfill hazard.
+DEFINE TABLE IF NOT EXISTS channel_active_persona SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS account ON channel_active_persona TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS channel ON channel_active_persona TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS persona ON channel_active_persona TYPE record<persona>;
+DEFINE INDEX IF NOT EXISTS channel_active_persona_pair ON channel_active_persona FIELDS account, channel UNIQUE;
+
 -- Messages (channel-scoped, plaintext, persona-aware) ------------------
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS channel ON message TYPE record<channel>;

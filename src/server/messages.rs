@@ -374,6 +374,7 @@ pub async fn list_deleted_messages(
             Json(ListMessagesResponse {
                 messages,
                 typing: Vec::new(),
+                active_persona: None,
             }),
         )
             .into_response(),
@@ -494,8 +495,8 @@ pub async fn list_messages(
         Err(msg) => return error_response(StatusCode::BAD_REQUEST, msg),
     };
 
-    match channel_access(&state, &cid, &account.0).await {
-        Ok(AccessOutcome::Ok(_)) => {}
+    let active_persona = match channel_access(&state, &cid, &account.0).await {
+        Ok(AccessOutcome::Ok(ctx)) => ctx.active_persona,
         Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
             return error_response(StatusCode::NOT_FOUND, "channel not found");
         }
@@ -503,7 +504,7 @@ pub async fn list_messages(
             tracing::error!(error = %e, "channel_access failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
-    }
+    };
 
     let messages = match load_messages(&state, &cid, parsed_cursor).await {
         Ok(m) => m,
@@ -548,7 +549,11 @@ pub async fn list_messages(
 
     (
         StatusCode::OK,
-        Json(ListMessagesResponse { messages, typing }),
+        Json(ListMessagesResponse {
+            messages,
+            typing,
+            active_persona,
+        }),
     )
         .into_response()
 }
@@ -808,7 +813,11 @@ async fn channel_access(
     }
     #[derive(SurrealValue)]
     struct MemRow {
-        persona_id: Option<String>,
+        member: bool,
+    }
+    #[derive(SurrealValue)]
+    struct PersonaRow {
+        persona_id: String,
     }
 
     let mut resp = state
@@ -824,11 +833,13 @@ async fn channel_access(
         return Ok(AccessOutcome::ChannelNotFound);
     };
 
+    // Membership gate is still per-guild (guild_member). The worn persona,
+    // however, is now per-CHANNEL (channel_active_persona): no row → speak as
+    // the account.
     let mut resp = state
         .db
         .query(
-            "SELECT (IF active_persona != NONE THEN meta::id(active_persona) ELSE NONE END)
-                AS persona_id
+            "SELECT true AS member
                 FROM guild_member
                 WHERE guild = type::record('guild', $gid)
                   AND account = type::record('account', $account);",
@@ -837,13 +848,27 @@ async fn channel_access(
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    let Some(mem) = resp.take::<Option<MemRow>>(0)? else {
+    if resp.take::<Option<MemRow>>(0)?.is_none() {
         return Ok(AccessOutcome::NotMember);
-    };
+    }
+
+    let mut resp = state
+        .db
+        .query(
+            "SELECT meta::id(persona) AS persona_id
+                FROM channel_active_persona
+                WHERE channel = type::record('channel', $cid)
+                  AND account = type::record('account', $account);",
+        )
+        .bind(("cid", cid.to_string()))
+        .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    let active_persona = resp.take::<Option<PersonaRow>>(0)?.map(|r| r.persona_id);
 
     Ok(AccessOutcome::Ok(ChannelCtx {
         kind: chan.kind,
-        active_persona: mem.persona_id,
+        active_persona,
     }))
 }
 
