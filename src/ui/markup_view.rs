@@ -7,6 +7,7 @@
 use leptos::prelude::*;
 
 use crate::markup::{self, Node};
+use crate::ui::emoji::EmojiResolver;
 
 /// Parse `body` and render its markup. Unknown/unmatched markers render as
 /// literal text (the parser is lenient).
@@ -43,9 +44,12 @@ fn render_node(node: Node) -> AnyView {
             view! { <span class="mk-dialogue">{"\""}{render_nodes(children)}{"\""}</span> }
                 .into_any()
         }
-        // Lenient literal fallback. Upgraded to a custom-emoji image / unicode
-        // glyph by the `EmojiResolver` context (emoji subsystem, build step U1).
-        Node::Emoji(name) => format!(":{name}:").into_any(),
+        // Custom guild emoji → image, standard unicode → glyph, else literal —
+        // via the `EmojiResolver` context provided by `AppShell`. An absent
+        // context (ssr / outside a guild) falls back to the literal `:name:`.
+        Node::Emoji(name) => use_context::<EmojiResolver>()
+            .map(|r| r.resolve(&name))
+            .unwrap_or_else(|| format!(":{name}:").into_any()),
         Node::Image(alt, url) => {
             view! { <img class="mk-image" src=url alt=alt loading="lazy" /> }.into_any()
         }

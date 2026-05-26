@@ -107,6 +107,13 @@ rmcp     = { version = "0.8", features = ["server", "macros", "transport-streama
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies"], optional = true }
 anyhow   = { version = "1", optional = true }
 
+# Standard-unicode emoji dataset — the picker's full set + `:shortcode:` render
+# resolution. A static `phf` table (phf is already vendored transitively), so
+# the new surface is tiny. Hydrate-only (gated into the `hydrate` feature below)
+# so it never enters the ssr graph; every `emojis::*` reference is isolated in
+# `src/ui/emoji/data.rs`, keeping a future lazy-JSON swap local to that file.
+emojis   = { version = "0.8.2", optional = true }
+
 # `rand` pulls getrandom 0.2 into the WASM (hydrate) build; that target needs
 # the "js" feature so getrandom can borrow the browser's `crypto.getRandomValues`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -135,6 +142,7 @@ hydrate = [
     "dep:gloo-storage",
     "dep:gloo-timers",
     "dep:wasm-bindgen-futures",
+    "dep:emojis",
 ]
 ssr = [
     "dep:axum",

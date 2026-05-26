@@ -16,12 +16,13 @@ use std::collections::{HashMap, HashSet};
 use leptos::prelude::*;
 
 use crate::protocol::{
-    ChannelSummary, GuildSummary, ListFriendsResponse, LorebookEntry, MessageEnvelope,
+    ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry, MessageEnvelope,
     PersonaSummary,
 };
 
 // Trash DTOs reused from protocol (no new types needed — server returns the
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
+use crate::ui::emoji::EmojiResolver;
 use crate::ui::AuthCtx;
 
 mod account;
@@ -90,6 +91,10 @@ pub(crate) struct Shell {
     /// owner account id of the currently-open server (gates the invite control).
     sel_owner: RwSignal<Option<String>>,
     channels: RwSignal<Vec<ChannelSummary>>,
+    /// Custom emoji of the currently-open guild. Powers the composer picker,
+    /// `:`-autocomplete, and `:name:` render resolution via the `EmojiResolver`
+    /// context built in `AppShell`.
+    guild_emoji: RwSignal<Vec<CustomEmoji>>,
     sel_channel: RwSignal<Option<ChannelSummary>>,
     messages: RwSignal<Vec<MessageEnvelope>>,
     cursor: RwSignal<Option<(String, String)>>,
@@ -150,6 +155,7 @@ fn AppShell() -> impl IntoView {
         sel_server: RwSignal::new(None),
         sel_owner: RwSignal::new(None),
         channels: RwSignal::new(Vec::new()),
+        guild_emoji: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
         messages: RwSignal::new(Vec::new()),
         cursor: RwSignal::new(None),
@@ -182,6 +188,17 @@ fn AppShell() -> impl IntoView {
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
     };
+    // Provide the emoji resolver to the whole shell subtree so the markup
+    // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
+    // without threading a parameter through every render call site.
+    let emoji_map = Memo::new(move |_| {
+        s.guild_emoji
+            .get()
+            .into_iter()
+            .map(|e| (e.name, e.media_id))
+            .collect::<HashMap<String, String>>()
+    });
+    provide_context(EmojiResolver::new(emoji_map));
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
     let new_invite = RwSignal::new(String::new());
@@ -681,6 +698,17 @@ mod act {
         });
     }
 
+    /// Load the open guild's custom emoji into `guild_emoji` (drives the picker,
+    /// `:`-autocomplete, and `:name:` render resolution). The resolver `Memo`
+    /// recomputes from this signal, so an upload is usable without a reload.
+    pub fn refresh_guild_emoji(s: Shell, gid: String) {
+        spawn_local(async move {
+            if let Ok(r) = api::list_emoji(&gid).await {
+                s.guild_emoji.set(r.emoji);
+            }
+        });
+    }
+
     /// Change the signed-in account's password. The new==confirm check is the
     /// caller's (the modal's) job; this just hits the API and reports.
     pub fn change_password(s: Shell, current: String, new: String) {
@@ -698,6 +726,8 @@ mod act {
         s.sel_server.set(Some(gid.clone()));
         s.sel_owner.set(None);
         s.channels.set(Vec::new());
+        s.guild_emoji.set(Vec::new());
+        refresh_guild_emoji(s, gid.clone());
         spawn_local(async move {
             if let Ok(d) = api::get_guild(&gid).await {
                 s.sel_owner.set(Some(d.owner_id.clone()));
@@ -785,6 +815,7 @@ mod act {
             s.sel_server.set(Some(gid.clone()));
             s.sel_owner.set(Some(d.owner_id.clone()));
             s.channels.set(d.channels.clone());
+            refresh_guild_emoji(s, gid.clone());
 
             // Prefer the stored channel; fall back to the first text channel,
             // then to the first channel of any kind (matches `open_server`).
