@@ -340,9 +340,16 @@ fn attachment_grid(atts: Vec<Attachment>, lightbox: RwSignal<Option<Attachment>>
                             on:click=move |_| lightbox.set(Some(open.clone()))></video>
                     }.into_any()
                 } else {
+                    // GIFs must use the raw blob: the `?w=512` thumbnail re-encodes
+                    // to a STATIC JPEG (first frame). Other images keep the thumb.
+                    let src = if att.mime == "image/gif" {
+                        format!("/media/{id}")
+                    } else {
+                        format!("/media/{id}?w=512")
+                    };
                     view! {
                         <img class="att-thumb" loading="lazy" alt="attachment"
-                            src=format!("/media/{id}?w=512")
+                            src=src
                             on:click=move |_| lightbox.set(Some(open.clone()))/>
                     }.into_any()
                 }
@@ -374,8 +381,15 @@ fn attachment_grid(
                             src=format!("/media/{id}")></video>
                     }.into_any()
                 } else {
+                    // GIFs use the raw blob (the thumbnail re-encodes to a static
+                    // JPEG); other images use the downscaled thumb.
+                    let src = if att.mime == "image/gif" {
+                        format!("/media/{id}")
+                    } else {
+                        format!("/media/{id}?w=512")
+                    };
                     view! {
-                        <img class="att-thumb" alt="attachment" src=format!("/media/{id}?w=512")/>
+                        <img class="att-thumb" alt="attachment" src=src/>
                     }.into_any()
                 }
             }).collect_view()}
@@ -988,8 +1002,15 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         <video src=format!("/media/{id}") muted preload="metadata"></video>
                                     }.into_any()
                                 } else {
+                                    // GIFs raw so the preview animates; the ?w= thumb
+                                    // would flatten them to a static JPEG frame.
+                                    let src = if att.mime == "image/gif" {
+                                        format!("/media/{id}")
+                                    } else {
+                                        format!("/media/{id}?w=256")
+                                    };
                                     view! {
-                                        <img src=format!("/media/{id}?w=256") alt="pending attachment"/>
+                                        <img src=src alt="pending attachment"/>
                                     }.into_any()
                                 };
                                 view! {

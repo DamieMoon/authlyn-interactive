@@ -26,6 +26,24 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let fb_kind = RwSignal::new("other".to_string());
     let fb_body = RwSignal::new(String::new());
 
+    // ---- feedback INBOX (admin only): None until loaded; stays None for
+    // non-admins (the server 403s GET /feedback), so the section never renders.
+    // Loaded when the modal opens. ----
+    let inbox = RwSignal::new(None::<Vec<crate::protocol::FeedbackItem>>);
+    Effect::new(move |_| {
+        let is_open = open.get();
+        #[cfg(feature = "hydrate")]
+        if is_open && inbox.get_untracked().is_none() {
+            leptos::task::spawn_local(async move {
+                if let Ok(r) = crate::client::api::list_feedback().await {
+                    inbox.set(Some(r.items));
+                }
+            });
+        }
+        #[cfg(not(feature = "hydrate"))]
+        let _ = is_open;
+    });
+
     let save = move |_| {
         let cur = current.get_untracked();
         let new = new_pw.get_untracked();
@@ -153,6 +171,44 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         }.into_any()
                     }}
                 </section>
+
+                // ---- Feedback inbox (admin only; renders only once GET /feedback
+                // succeeds, i.e. the caller is in AUTHLYN_ADMIN_USERNAMES) ----
+                {move || inbox.get().map(|items| {
+                    let n = items.len();
+                    view! {
+                        <section class="account-section feedback-inbox">
+                            <h3>{format!("Feedback inbox ({n})")}</h3>
+                            {if items.is_empty() {
+                                view! { <p class="muted">"No feedback submitted yet."</p> }.into_any()
+                            } else {
+                                view! {
+                                    <ul class="fb-list">
+                                        {items.into_iter().map(|it| {
+                                            let crate::protocol::FeedbackItem {
+                                                author_username, kind, body, context, created_at, ..
+                                            } = it;
+                                            let kind_class = format!("fb-kind fb-{kind}");
+                                            view! {
+                                                <li class="fb-item">
+                                                    <div class="fb-meta">
+                                                        <span class=kind_class>{kind}</span>
+                                                        <span class="fb-who">{author_username}</span>
+                                                        <time class="fb-when">{created_at}</time>
+                                                    </div>
+                                                    <p class="fb-body">{body}</p>
+                                                    {context.map(|c| view! {
+                                                        <p class="fb-ctx muted">{c}</p>
+                                                    })}
+                                                </li>
+                                            }
+                                        }).collect_view()}
+                                    </ul>
+                                }.into_any()
+                            }}
+                        </section>
+                    }
+                })}
 
                 <p class="account-status">{move || s.status.get()}</p>
             </div>

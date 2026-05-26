@@ -11,13 +11,13 @@ use crate::protocol::{
     ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateEmojiRequest,
     CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
     CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
-    InviteMemberRequest, ListEmojiResponse, ListFriendsResponse, ListGuildsResponse,
-    ListLorebookResponse, ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse,
-    ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
-    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    PushSubscribeRequest, RailOrderRequest, RegisterRequest, SendMessageRequest,
-    SendMessageResponse, SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest,
-    VapidKeyResponse,
+    InviteMemberRequest, ListEmojiResponse, ListFeedbackResponse, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
+    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
+    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
+    PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest, RegisterRequest,
+    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SetMemberRoleRequest,
+    SubmitFeedbackRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -630,6 +630,13 @@ pub async fn push_subscribe(req: &PushSubscribeRequest) -> Result<(), ApiError> 
 // ---------------------------------------------------------------------------
 // Feedback / bug reports (#31)
 // ---------------------------------------------------------------------------
+
+/// List submitted feedback (admin only — the server gates on
+/// `AUTHLYN_ADMIN_USERNAMES`). Non-admins get a 403, surfaced as an `ApiError`
+/// the caller can treat as "no inbox for you".
+pub async fn list_feedback() -> Result<ListFeedbackResponse, ApiError> {
+    get("/feedback").await
+}
 
 /// Submit a feedback item (bug | idea | other). 201, no body on success.
 pub async fn submit_feedback(req: &SubmitFeedbackRequest) -> Result<(), ApiError> {

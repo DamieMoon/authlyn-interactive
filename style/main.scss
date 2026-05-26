@@ -1203,6 +1203,76 @@ $persona-palette: (
 	}
 }
 
+// ---- feedback inbox (admin only; nested in .account-modal .account-section) ----
+.feedback-inbox {
+	.fb-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		max-height: 18rem;
+		overflow-y: auto;
+	}
+
+	.fb-item {
+		padding: 0.5rem 0.6rem;
+		background: $panel-2;
+		border: 1px solid $line;
+		border-radius: 0.5rem;
+	}
+
+	.fb-meta {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.fb-kind {
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		padding: 0.05rem 0.4rem;
+		border-radius: 0.3rem;
+		background: $panel;
+		border: 1px solid $line;
+
+		&.fb-bug {
+			color: #f0828c;
+			border-color: #f0828c;
+		}
+
+		&.fb-idea {
+			color: $accent;
+			border-color: $accent;
+		}
+	}
+
+	.fb-who {
+		font-weight: 600;
+	}
+
+	.fb-when {
+		font-size: 0.7rem;
+		color: $muted;
+		margin-left: auto;
+	}
+
+	.fb-body {
+		margin: 0;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	.fb-ctx {
+		margin: 0.3rem 0 0;
+		font-size: 0.7rem;
+		overflow-wrap: anywhere;
+	}
+}
+
 // `.who` is now a clickable button (opens the persona-info popup); strip the
 // default button chrome so it still reads as the author name.
 .msg .who {
