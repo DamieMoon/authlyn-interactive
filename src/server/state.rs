@@ -6,8 +6,10 @@
 //! while our own routes can still extract the full [`AppState`] when
 //! they need the DB or `media_dir`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use axum::extract::FromRef;
 use leptos::prelude::LeptosOptions;
@@ -39,6 +41,12 @@ pub struct AppState {
     /// Web Push sender (#30), built from VAPID env at startup. `None` = push
     /// disabled (tests, or env unset) — every push path becomes a silent no-op.
     pub push: Option<Arc<PushSender>>,
+    /// Ephemeral "is typing" state (#19), keyed channel_id → account_id →
+    /// last-ping `Instant`. Deliberately NOT in the DB: it's transient,
+    /// high-churn, and surfaced by piggybacking on the message poll. Guarded by
+    /// a plain `std::sync::Mutex`; the critical section is only ever a map
+    /// insert / read / prune and is NEVER held across an `.await`.
+    pub typing: Arc<Mutex<HashMap<String, HashMap<String, Instant>>>>,
 }
 
 impl AppState {
@@ -55,6 +63,7 @@ impl AppState {
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push: None,
+            typing: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -71,6 +80,7 @@ impl AppState {
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push,
+            typing: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

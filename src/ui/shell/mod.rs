@@ -154,6 +154,10 @@ pub(crate) struct Shell {
     deleted_messages: RwSignal<Vec<MessageEnvelope>>,
     /// Whether the channel's trash overlay is open.
     show_msg_trash: RwSignal<bool>,
+    /// Display names of OTHER members currently typing in the open channel
+    /// (#19), refreshed from each message-poll response. Cleared on channel
+    /// switch; drives the `.typing-indicator` line above the composer.
+    typing: RwSignal<Vec<String>>,
 }
 
 #[component]
@@ -197,6 +201,7 @@ fn AppShell() -> impl IntoView {
         deleted_channels: RwSignal::new(Vec::new()),
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
+        typing: RwSignal::new(Vec::new()),
     };
     // Provide the emoji resolver to the whole shell subtree so the markup
     // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
@@ -781,6 +786,9 @@ mod act {
             s.more_history.set(true);
             s.anchor_to.set(None);
             s.seen.update(|h| h.clear());
+            // Drop the previous channel's typing indicator at once; the poll
+            // repopulates it from the new channel's response.
+            s.typing.set(Vec::new());
             // Opening clears the unread glow at once; the high-water mark
             // advances once messages load below.
             s.unread.update(|u| {
@@ -2245,6 +2253,7 @@ mod act {
                 match api::list_messages(&ch.id, None).await {
                     Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
                         let fresh = unseen(s, &l.messages);
+                        s.typing.set(l.typing);
                         sync_messages(s, l.messages);
                         notify_messages(s, &ch, &fresh);
                     }
@@ -2254,6 +2263,7 @@ mod act {
                         let cur = s.cursor.get_untracked();
                         if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
                             let fresh = unseen(s, &l.messages);
+                            s.typing.set(l.typing);
                             ingest(s, l.messages);
                             notify_messages(s, &ch, &fresh);
                         }

@@ -474,6 +474,18 @@ textarea {
 		}
 	}
 
+	// "%name% is typing…" line (#19): a thin muted strip just above the
+	// composer. Sits in normal flow so it nudges the composer down only while
+	// someone is typing; renders nothing (no element) otherwise.
+	.typing-indicator {
+		padding: 0.1rem clamp(0.5rem, 2vw, 1rem) 0;
+		font-size: 0.78rem;
+		font-style: italic;
+		color: $muted;
+		line-height: 1.3;
+		user-select: none;
+	}
+
 	.composer {
 		border-top: 1px solid $line;
 		// Positioned ancestor for the absolute emoji popovers (.emoji-picker /

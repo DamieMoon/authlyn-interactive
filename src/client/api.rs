@@ -239,6 +239,13 @@ pub async fn post_message(
     .await
 }
 
+/// Ping "I am typing" in a channel (#19). Fire-and-forget: the composer calls
+/// this at most every ~2s while typing; errors are ignored by the caller. 204,
+/// no body.
+pub async fn post_typing(cid: &str) -> Result<(), ApiError> {
+    post_empty(&format!("/channels/{cid}/typing")).await
+}
+
 /// Edit one of your own messages. 204, no body.
 pub async fn edit_message(cid: &str, mid: &str, body: &str) -> Result<(), ApiError> {
     let resp = Request::patch(&format!("/channels/{cid}/messages/{mid}"))
