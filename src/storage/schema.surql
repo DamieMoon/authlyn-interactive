@@ -177,6 +177,22 @@ DEFINE FIELD IF NOT EXISTS created_at ON friendship TYPE datetime DEFAULT time::
 DEFINE FIELD IF NOT EXISTS updated_at ON friendship TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS friendship_pair ON friendship FIELDS requester, addressee UNIQUE;
 
+-- Feedback / bug reports (#31): user-submitted feedback items ---------------
+-- `author`: the account that submitted the report.
+-- `kind`: bug | idea | other (coerced server-side; DEFAULT guards old rows).
+-- `body`: the user's free-text content (1–4000 chars, validated on write).
+-- `context`: optional JSON string from the client (channel id, version, UA).
+-- `status`: workflow state (new | read | resolved), advanced by the operator.
+-- No NONE-coercion backfill needed: this is a new table with no pre-existing rows.
+DEFINE TABLE IF NOT EXISTS feedback SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS author     ON feedback TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS kind       ON feedback TYPE string DEFAULT 'other';
+DEFINE FIELD IF NOT EXISTS body       ON feedback TYPE string;
+DEFINE FIELD IF NOT EXISTS context    ON feedback TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS status     ON feedback TYPE string DEFAULT 'new';
+DEFINE FIELD IF NOT EXISTS created_at ON feedback TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS feedback_created ON feedback FIELDS created_at;
+
 -- Web Push subscriptions (#30): one row per browser push endpoint ----------
 -- The client subscribes via the Push API and POSTs the resulting endpoint +
 -- receiver keys; the server encrypts (aes128gcm) + VAPID-signs a payload per

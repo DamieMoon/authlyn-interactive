@@ -1035,6 +1035,43 @@ $persona-palette: (
 	}
 }
 
+// ---- feedback form (nested inside .account-modal .account-section) ----
+.feedback-form {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+
+	.feedback-kind-row {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.feedback-body {
+		width: 100%;
+		resize: vertical;
+		min-height: 6rem;
+		background: $panel-2;
+		border: 1px solid $line;
+		border-radius: 0.35rem;
+		color: inherit;
+		font: inherit;
+		font-size: 0.9rem;
+		padding: 0.4rem 0.5rem;
+		box-sizing: border-box;
+
+		&:focus {
+			outline: none;
+			border-color: $accent;
+		}
+	}
+
+	.feedback-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+}
+
 // `.who` is now a clickable button (opens the persona-info popup); strip the
 // default button chrome so it still reads as the author name.
 .msg .who {

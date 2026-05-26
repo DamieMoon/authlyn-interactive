@@ -513,3 +513,39 @@ pub struct CustomEmoji {
 pub struct ListEmojiResponse {
     pub emoji: Vec<CustomEmoji>,
 }
+
+// ---------------------------------------------------------------------------
+// Feedback / bug reports (#31 — submit side only; admin inbox is out of scope)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /feedback` — a user-submitted feedback item. `kind` is
+/// `"bug"`, `"idea"`, or `"other"` (the server coerces anything else to
+/// `"other"`). `context` is an optional JSON string from the client
+/// (channel id, app version, user agent).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SubmitFeedbackRequest {
+    pub kind: String,
+    pub body: String,
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+/// One feedback item as returned by `GET /feedback` (admin only). `id` is the
+/// opaque row id; `author_username` is the submitting account's display name;
+/// `created_at` is a fixed-9-digit RFC 3339 string (lex-monotonic cursor key).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FeedbackItem {
+    pub id: String,
+    pub author_username: String,
+    pub kind: String,
+    pub body: String,
+    pub context: Option<String>,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// Response from `GET /feedback` (admin only) — newest-first list.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListFeedbackResponse {
+    pub items: Vec<FeedbackItem>,
+}

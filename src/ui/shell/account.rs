@@ -1,10 +1,7 @@
 //! The account-management modal.
 //!
-//! First (and so far only) feature: change password. The modal is structured
-//! as a list of independent account "sections" so future options — e.g. a
-//! notification opt-in, a display-name editor, account deletion — can be added
-//! by dropping another `<section class="account-section">…</section>` block
-//! below the change-password one. Each section owns its own local form state.
+//! Sections: change password, preferences, send feedback / report a bug.
+//! Each section owns its own local form state.
 
 use leptos::prelude::*;
 
@@ -24,6 +21,11 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // Seeded from localStorage (default ON); each change persists immediately.
     let confirm_delete_msg = RwSignal::new(act::confirm_delete_message_enabled());
 
+    // ---- feedback section: local form state ----
+    let feedback_open = RwSignal::new(false);
+    let fb_kind = RwSignal::new("other".to_string());
+    let fb_body = RwSignal::new(String::new());
+
     let save = move |_| {
         let cur = current.get_untracked();
         let new = new_pw.get_untracked();
@@ -38,6 +40,19 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         current.set(String::new());
         new_pw.set(String::new());
         confirm.set(String::new());
+    };
+
+    let send_feedback = move |_| {
+        let kind = fb_kind.get_untracked();
+        let body = fb_body.get_untracked();
+        if body.trim().is_empty() {
+            s.status.set("feedback body must not be empty".to_string());
+            return;
+        }
+        // Build context JSON — hydrate-gated via act so web_sys never runs on ssr.
+        let context = act::build_feedback_context(s);
+        act::submit_feedback(s, kind, body, context, feedback_open);
+        fb_body.set(String::new());
     };
 
     view! {
@@ -80,9 +95,55 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     </label>
                 </section>
 
-                // Future account options go here as further
-                // `<section class="account-section">…</section>` blocks
-                // (e.g. notification opt-in, display name, delete account).
+                // ---- Feedback / bug report ----
+                <section class="account-section">
+                    <h3>"Send feedback / Report a bug"</h3>
+                    {move || if feedback_open.get() {
+                        view! {
+                            <div class="feedback-form">
+                                <div class="feedback-kind-row">
+                                    <label class="pref-row">
+                                        <input type="radio" name="fb-kind" value="bug"
+                                            prop:checked=move || fb_kind.get() == "bug"
+                                            on:change=move |_| fb_kind.set("bug".to_string())/>
+                                        <span>"Bug"</span>
+                                    </label>
+                                    <label class="pref-row">
+                                        <input type="radio" name="fb-kind" value="idea"
+                                            prop:checked=move || fb_kind.get() == "idea"
+                                            on:change=move |_| fb_kind.set("idea".to_string())/>
+                                        <span>"Idea"</span>
+                                    </label>
+                                    <label class="pref-row">
+                                        <input type="radio" name="fb-kind" value="other"
+                                            prop:checked=move || fb_kind.get() == "other"
+                                            on:change=move |_| fb_kind.set("other".to_string())/>
+                                        <span>"Other"</span>
+                                    </label>
+                                </div>
+                                <textarea class="feedback-body" rows="5"
+                                    placeholder="Describe the bug or your idea…"
+                                    prop:value=move || fb_body.get()
+                                    on:input=move |ev| fb_body.set(event_target_value(&ev))/>
+                                <div class="feedback-actions">
+                                    <button class="account-save" on:click=send_feedback>"Send"</button>
+                                    <button on:click=move |_| {
+                                        feedback_open.set(false);
+                                        fb_body.set(String::new());
+                                        fb_kind.set("other".to_string());
+                                    }>"Cancel"</button>
+                                </div>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <button class="account-save"
+                                on:click=move |_| feedback_open.set(true)>
+                                "Open feedback form"
+                            </button>
+                        }.into_any()
+                    }}
+                </section>
 
                 <p class="account-status">{move || s.status.get()}</p>
             </div>

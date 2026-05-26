@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod emoji;
+pub mod feedback;
 pub mod friends;
 pub mod guilds;
 pub mod lorebook;
@@ -145,6 +146,11 @@ fn small_body_routes() -> Router<AppState> {
         .route("/push/vapid-key", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
         .route("/push/unsubscribe", post(push::unsubscribe))
+        // Feedback / bug reports (#31): submit (any authed) + list (admin only).
+        .route(
+            "/feedback",
+            get(feedback::list_feedback).post(feedback::submit_feedback),
+        )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
         // Dynamic JSON API responses must never be cached (by the service
         // worker or the browser HTTP cache); a cached message list flashed

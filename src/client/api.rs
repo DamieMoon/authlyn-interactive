@@ -15,7 +15,8 @@ use crate::protocol::{
     ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest,
     MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
     PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, VapidKeyResponse,
+    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SubmitFeedbackRequest,
+    VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -473,6 +474,21 @@ pub async fn push_vapid_key() -> Result<VapidKeyResponse, ApiError> {
 /// Register this browser's push subscription with the server. 204, no body.
 pub async fn push_subscribe(req: &PushSubscribeRequest) -> Result<(), ApiError> {
     let resp = Request::post("/push/subscribe")
+        .json(req)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+// ---------------------------------------------------------------------------
+// Feedback / bug reports (#31)
+// ---------------------------------------------------------------------------
+
+/// Submit a feedback item (bug | idea | other). 201, no body on success.
+pub async fn submit_feedback(req: &SubmitFeedbackRequest) -> Result<(), ApiError> {
+    let resp = Request::post("/feedback")
         .json(req)
         .map_err(codec)?
         .send()
