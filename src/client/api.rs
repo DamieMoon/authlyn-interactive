@@ -8,12 +8,12 @@ use serde::Serialize;
 
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AuthResponse, ChangePasswordRequest,
-    ChannelSummary, CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest,
-    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
-    EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
-    ListEmojiResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
-    ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest,
-    MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateEmojiRequest,
+    CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
+    CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
+    InviteMemberRequest, ListEmojiResponse, ListFriendsResponse, ListGuildsResponse,
+    ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
+    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
     PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
     SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SubmitFeedbackRequest,
     VapidKeyResponse,
@@ -217,6 +217,40 @@ pub async fn edit_message(cid: &str, mid: &str, body: &str) -> Result<(), ApiErr
 /// Delete one of your own messages. 204, no body.
 pub async fn delete_message(cid: &str, mid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/channels/{cid}/messages/{mid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Trash + restore (#22 soft-delete)
+// ---------------------------------------------------------------------------
+
+/// List the caller's own soft-deleted guilds. Returns `ListGuildsResponse`.
+pub async fn list_deleted_guilds() -> Result<ListGuildsResponse, ApiError> {
+    get("/guilds/trash").await
+}
+
+/// Restore a soft-deleted guild (owner only). 204, no body.
+pub async fn restore_guild(gid: &str) -> Result<(), ApiError> {
+    post_empty(&format!("/guilds/{gid}/restore")).await
+}
+
+/// List soft-deleted channels in a guild (owner/admin only).
+pub async fn list_deleted_channels(gid: &str) -> Result<ChannelListResponse, ApiError> {
+    get(&format!("/guilds/{gid}/trash/channels")).await
+}
+
+/// Restore a soft-deleted channel (owner/admin only). 204, no body.
+pub async fn restore_channel(gid: &str, cid: &str) -> Result<(), ApiError> {
+    post_empty(&format!("/guilds/{gid}/channels/{cid}/restore")).await
+}
+
+/// List soft-deleted messages in a channel (any member).
+pub async fn list_deleted_messages(cid: &str) -> Result<ListMessagesResponse, ApiError> {
+    get(&format!("/channels/{cid}/messages/trash")).await
+}
+
+/// Restore one of your own soft-deleted messages. 204, no body.
+pub async fn restore_message(cid: &str, mid: &str) -> Result<(), ApiError> {
+    post_empty(&format!("/channels/{cid}/messages/{mid}/restore")).await
 }
 
 // ---------------------------------------------------------------------------

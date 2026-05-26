@@ -8,6 +8,43 @@ use crate::protocol::MessageEnvelope;
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
 
+/// One row in the deleted-messages panel: the message snippet plus a Restore button.
+fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) -> impl IntoView {
+    let cid = s
+        .sel_channel
+        .get_untracked()
+        .map(|c| c.id)
+        .unwrap_or_default();
+    let mid_restore = m.id.clone();
+    let who = m
+        .persona_name
+        .clone()
+        .unwrap_or_else(|| m.author_display.clone());
+    let when = format_local_time(&m.sent_at);
+    let body_preview: String = m.body.chars().take(120).collect();
+    // Only the message's own author can restore it (mirrors server-side require_own_message).
+    let is_mine = auth_id.as_deref() == Some(m.author_id.as_str());
+    view! {
+        <li class="trash-item trash-msg-item">
+            <div class="trash-msg-meta">
+                <span class="trash-msg-who">{who}</span>
+                <time class="when trash-msg-when">{when}</time>
+            </div>
+            <p class="trash-msg-body">{body_preview}</p>
+            {is_mine.then(|| {
+                let cid = cid.clone();
+                view! {
+                    <button class="trash-restore"
+                        on:click=move |_| act::restore_deleted_message(s, cid.clone(), mid_restore.clone())>
+                        "Restore"
+                    </button>
+                }
+            })}
+        </li>
+    }
+    .into_any()
+}
+
 /// True on touch-primary devices (phones/tablets), where the on-screen
 /// keyboard's Enter must insert a newline rather than send — there's no
 /// Shift+Enter, so Enter-to-send would make multi-line messages impossible.
@@ -485,6 +522,30 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     }
                 })
             }}
+
+            // Deleted-messages panel — shown when "Show deleted" is toggled.
+            {move || s.show_msg_trash.get().then(|| {
+                let me = auth.user.get().map(|u| u.account_id);
+                let msgs = s.deleted_messages.get();
+                view! {
+                    <div class="trash-msg-panel">
+                        <div class="trash-panel-header">
+                            <span>"🗑 Deleted messages"</span>
+                        </div>
+                        {if msgs.is_empty() {
+                            view! { <p class="muted pad">"No deleted messages."</p> }.into_any()
+                        } else {
+                            view! {
+                                <ul class="trash-list">
+                                    {msgs.into_iter().map(|m| {
+                                        deleted_message_row(s, m, me.clone())
+                                    }).collect_view()}
+                                </ul>
+                            }.into_any()
+                        }}
+                    </div>
+                }
+            })}
 
             <div class="composer">
                 <div class="toolbar">

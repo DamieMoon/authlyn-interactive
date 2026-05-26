@@ -1464,3 +1464,166 @@ $persona-palette: (
 		cursor: pointer;
 	}
 }
+
+// ---- Trash UIs (#22 Phase 2) ----
+
+// Rail trash button (mirrors rail-guild style).
+.rail-trash {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.8rem;
+	height: 2.8rem;
+	border-radius: 50%;
+	border: 1px solid $line;
+	background: $panel-2;
+	color: $muted;
+	font-size: 1rem;
+	cursor: pointer;
+	flex-shrink: 0;
+
+	&:hover,
+	&.active {
+		color: $text;
+		border-color: $accent;
+		background: $panel;
+	}
+}
+
+// Sidebar-slot panel for trashed servers (same layout as the normal sidebar).
+.sidebar-trash {
+	.server-header {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+
+		.server-title {
+			flex: 1;
+			font-weight: 600;
+		}
+	}
+}
+
+// Deleted-channels toggle in the sidebar.
+.trash-section {
+	padding: 0 0.5rem 0.5rem;
+
+	.trash-toggle {
+		width: 100%;
+		text-align: left;
+		background: transparent;
+		border: none;
+		color: $muted;
+		font-size: 0.8rem;
+		padding: 0.35rem 0.3rem;
+		cursor: pointer;
+		border-radius: 0.3rem;
+
+		&:hover,
+		&.active {
+			color: $text;
+			background: $panel-2;
+		}
+	}
+
+	.trash-empty {
+		font-size: 0.82rem;
+		padding: 0.3rem 0.5rem;
+	}
+}
+
+// Shared trash list (guilds + channels + messages).
+.trash-list {
+	list-style: none;
+	padding: 0;
+	margin: 0.2rem 0 0;
+}
+
+.trash-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.35rem 0.5rem;
+	border-radius: 0.3rem;
+
+	&:hover {
+		background: $panel-2;
+	}
+
+	.trash-name {
+		flex: 1;
+		font-size: 0.88rem;
+		color: $text;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.trash-restore {
+		flex-shrink: 0;
+		font-size: 0.78rem;
+		padding: 0.2rem 0.5rem;
+		color: $accent;
+		border-color: $accent;
+		background: transparent;
+
+		&:hover {
+			background: rgba($accent, 0.12);
+		}
+	}
+}
+
+// Deleted-messages panel inside the channel view (above the composer).
+.trash-msg-panel {
+	border-top: 1px solid $line;
+	background: $panel;
+	max-height: 14rem;
+	overflow-y: auto;
+	flex-shrink: 0;
+
+	.trash-panel-header {
+		padding: 0.4rem 1rem;
+		font-size: 0.8rem;
+		color: $muted;
+		font-weight: 600;
+		border-bottom: 1px solid $line;
+	}
+}
+
+.trash-msg-item {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.2rem;
+	padding: 0.4rem 1rem;
+
+	.trash-msg-meta {
+		display: flex;
+		gap: 0.5rem;
+		align-items: baseline;
+
+		.trash-msg-who {
+			font-weight: 600;
+			font-size: 0.85rem;
+		}
+
+		.trash-msg-when {
+			font-size: 0.75rem;
+			color: $muted;
+		}
+	}
+
+	.trash-msg-body {
+		margin: 0;
+		font-size: 0.85rem;
+		color: $muted;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
+	}
+
+	.trash-restore {
+		align-self: flex-end;
+	}
+}
+}

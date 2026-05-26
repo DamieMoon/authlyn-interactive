@@ -19,6 +19,9 @@ use crate::protocol::{
     ChannelSummary, GuildSummary, ListFriendsResponse, LorebookEntry, MessageEnvelope,
     PersonaSummary,
 };
+
+// Trash DTOs reused from protocol (no new types needed — server returns the
+// existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
 use crate::ui::AuthCtx;
 
 mod account;
@@ -118,6 +121,15 @@ pub(crate) struct Shell {
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.
     last_seen: RwSignal<HashMap<String, (String, String)>>,
+    // ---- Trash (#22 Phase 2) ----
+    /// Caller's own soft-deleted guilds (populated on demand, guild rail trash view).
+    deleted_guilds: RwSignal<Vec<GuildSummary>>,
+    /// Soft-deleted channels in the open guild (populated on demand, sidebar trash list).
+    deleted_channels: RwSignal<Vec<ChannelSummary>>,
+    /// Soft-deleted messages in the open channel (populated on demand).
+    deleted_messages: RwSignal<Vec<MessageEnvelope>>,
+    /// Whether the channel's trash overlay is open.
+    show_msg_trash: RwSignal<bool>,
 }
 
 #[component]
@@ -151,12 +163,20 @@ fn AppShell() -> impl IntoView {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
+        deleted_guilds: RwSignal::new(Vec::new()),
+        deleted_channels: RwSignal::new(Vec::new()),
+        deleted_messages: RwSignal::new(Vec::new()),
+        show_msg_trash: RwSignal::new(false),
     };
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
     let new_invite = RwSignal::new(String::new());
     // Account-management modal visibility (change password, future options).
     let account_open = RwSignal::new(false);
+    // Guild-trash panel open/closed (rail trash button toggles it).
+    let guild_trash_open = RwSignal::new(false);
+    // Deleted-channel list open/closed in the sidebar (owner-only).
+    let chan_trash_open = RwSignal::new(false);
     // Inline-rename edit state (owner only): the server title and per-channel rows.
     let editing_server = RwSignal::new(false);
     let server_edit_buf = RwSignal::new(String::new());
@@ -213,6 +233,17 @@ fn AppShell() -> impl IntoView {
                         </button>
                     }
                 }).collect_view()}
+                // Guild trash button — loads + opens the deleted-guilds panel.
+                <button class="rail-trash" title="Trashed servers"
+                    class:active=move || guild_trash_open.get()
+                    on:click=move |_| {
+                        let now_open = !guild_trash_open.get_untracked();
+                        guild_trash_open.set(now_open);
+                        if now_open {
+                            act::load_deleted_guilds(s);
+                        }
+                        s.nav_open.set(false);
+                    }>"🗑"</button>
                 <div class="rail-add">
                     <input prop:value=move || new_server.get()
                         on:input=move |ev| new_server.set(event_target_value(&ev))
@@ -224,6 +255,41 @@ fn AppShell() -> impl IntoView {
                     }>"+"</button>
                 </div>
             </nav>
+
+            // Guild trash panel — shown in the sidebar slot when the rail trash button is active.
+            {move || guild_trash_open.get().then(|| {
+                let guilds = s.deleted_guilds.get();
+                view! {
+                    <aside class="sidebar sidebar-trash">
+                        <div class="server-header">
+                            <span class="server-title">"🗑 Trashed Servers"</span>
+                            <button class="row-edit" title="close"
+                                on:click=move |_| guild_trash_open.set(false)>"✕"</button>
+                        </div>
+                        {if guilds.is_empty() {
+                            view! { <p class="muted pad">"No trashed servers."</p> }.into_any()
+                        } else {
+                            view! {
+                                <ul class="trash-list">
+                                    {guilds.into_iter().map(|g| {
+                                        let gid = g.id.clone();
+                                        let name = g.name.clone();
+                                        view! {
+                                            <li class="trash-item">
+                                                <span class="trash-name">{name}</span>
+                                                <button class="trash-restore"
+                                                    on:click=move |_| {
+                                                        act::restore_deleted_guild(s, gid.clone());
+                                                    }>"Restore"</button>
+                                            </li>
+                                        }
+                                    }).collect_view()}
+                                </ul>
+                            }.into_any()
+                        }}
+                    </aside>
+                }
+            })}
 
             <aside class="sidebar">
                 <Show when=move || s.sel_server.get().is_some()
@@ -307,6 +373,52 @@ fn AppShell() -> impl IntoView {
                             }>"+"</button>
                         </div>
                     </Show>
+                    // Deleted-channels panel (owner only).
+                    <Show when=is_owner fallback=|| ()>
+                        <div class="trash-section">
+                            <button class="trash-toggle"
+                                class:active=move || chan_trash_open.get()
+                                on:click=move |_| {
+                                    let now_open = !chan_trash_open.get_untracked();
+                                    chan_trash_open.set(now_open);
+                                    if now_open {
+                                        if let Some(gid) = s.sel_server.get_untracked() {
+                                            act::load_deleted_channels(s, gid);
+                                        }
+                                    }
+                                }>
+                                "🗑 Trashed channels"
+                            </button>
+                            {move || chan_trash_open.get().then(|| {
+                                let chans = s.deleted_channels.get();
+                                if chans.is_empty() {
+                                    view! {
+                                        <p class="muted trash-empty">"No trashed channels."</p>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <ul class="trash-list">
+                                            {chans.into_iter().map(|c| {
+                                                let cid = c.id.clone();
+                                                let name = c.name.clone();
+                                                view! {
+                                                    <li class="trash-item">
+                                                        <span class="trash-name">"# "{name}</span>
+                                                        <button class="trash-restore"
+                                                            on:click=move |_| {
+                                                                if let Some(gid) = s.sel_server.get_untracked() {
+                                                                    act::restore_channel(s, gid, cid.clone());
+                                                                }
+                                                            }>"Restore"</button>
+                                                    </li>
+                                                }
+                                            }).collect_view()}
+                                        </ul>
+                                    }.into_any()
+                                }
+                            })}
+                        </div>
+                    </Show>
                     <Show when=is_owner fallback=|| ()>
                         <div class="invite-row">
                             <input prop:value=move || new_invite.get()
@@ -338,11 +450,26 @@ fn AppShell() -> impl IntoView {
                             let cid = c.id.clone();
                             let cid_t = c.id.clone();
                             let cid_b = c.id.clone();
+                            let cid_trash = c.id.clone();
                             view! {
                                 <button class="row-edit"
                                     title=move || if s.muted.get().contains(&cid_t) { "Unmute channel" } else { "Mute channel" }
                                     on:click=move |_| act::toggle_mute(s, cid.clone())>
                                     {move || if s.muted.get().contains(&cid_b) { "🔕" } else { "🔔" }}
+                                </button>
+                                // Trash toggle: load and show deleted messages in this channel.
+                                <button class="row-edit"
+                                    title=move || if s.show_msg_trash.get() { "Hide deleted" } else { "Show deleted" }
+                                    on:click=move |_| {
+                                        let now_open = !s.show_msg_trash.get_untracked();
+                                        s.show_msg_trash.set(now_open);
+                                        if now_open {
+                                            act::load_deleted_messages(s, cid_trash.clone());
+                                        } else {
+                                            s.deleted_messages.set(Vec::new());
+                                        }
+                                    }>
+                                    {move || if s.show_msg_trash.get() { "🗑✓" } else { "🗑" }}
                                 </button>
                             }
                         })
@@ -1242,6 +1369,18 @@ mod act {
         });
     }
 
+    // ---- Trash (#22 Phase 2) ----
+
+    /// Load the caller's own soft-deleted guilds into `s.deleted_guilds`.
+    pub fn load_deleted_guilds(s: Shell) {
+        spawn_local(async move {
+            match api::list_deleted_guilds().await {
+                Ok(r) => s.deleted_guilds.set(r.guilds),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     /// Build the context JSON string to attach to a feedback submission.
     /// Reads the currently-selected channel id (from Shell signals), the app
     /// version (compile-time constant), and navigator.userAgent (browser API).
@@ -1270,6 +1409,80 @@ mod act {
             channel_id, version, user_agent
         );
         Some(ctx)
+    }
+
+    /// Restore a soft-deleted guild (owner). On success, refresh the rail and
+    /// the deleted-guilds list so the restored server reappears and leaves trash.
+    pub fn restore_deleted_guild(s: Shell, gid: String) {
+        spawn_local(async move {
+            match api::restore_guild(&gid).await {
+                Ok(()) => {
+                    refresh_guilds(s);
+                    load_deleted_guilds(s);
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Load soft-deleted channels for the given guild into `s.deleted_channels`.
+    pub fn load_deleted_channels(s: Shell, gid: String) {
+        spawn_local(async move {
+            match api::list_deleted_channels(&gid).await {
+                Ok(r) => s.deleted_channels.set(r.channels),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Restore a soft-deleted channel (owner/admin). On success, reload the
+    /// server so the channel reappears in the sidebar, and refresh the deleted list.
+    pub fn restore_channel(s: Shell, gid: String, cid: String) {
+        spawn_local(async move {
+            match api::restore_channel(&gid, &cid).await {
+                Ok(()) => {
+                    load_deleted_channels(s, gid.clone());
+                    open_server(s, gid);
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Load soft-deleted messages for the given channel into `s.deleted_messages`.
+    pub fn load_deleted_messages(s: Shell, cid: String) {
+        spawn_local(async move {
+            match api::list_deleted_messages(&cid).await {
+                Ok(r) => s.deleted_messages.set(r.messages),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Restore one of the caller's own deleted messages. On success, remove it
+    /// from the trash list and reload the channel messages.
+    pub fn restore_deleted_message(s: Shell, cid: String, mid: String) {
+        spawn_local(async move {
+            match api::restore_message(&cid, &mid).await {
+                Ok(()) => {
+                    // Drop from the trash list immediately (no re-load needed).
+                    s.deleted_messages.update(|v| v.retain(|m| m.id != mid));
+                    // Reload channel messages so the restored one reappears.
+                    if let Ok(l) = api::list_messages(&cid, None).await {
+                        s.messages.set(l.messages.clone());
+                        s.seen.update(|h| {
+                            h.clear();
+                            for m in &l.messages {
+                                h.insert(m.id.clone());
+                            }
+                        });
+                        s.cursor
+                            .set(l.messages.last().map(|m| (m.sent_at.clone(), m.id.clone())));
+                    }
+                }
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
     }
 
     // ---- internal ----
@@ -1903,4 +2116,11 @@ mod act {
     pub fn build_feedback_context(_s: Shell) -> Option<String> {
         None
     }
+    // Trash (#22 Phase 2) stubs
+    pub fn load_deleted_guilds(_s: Shell) {}
+    pub fn restore_deleted_guild(_s: Shell, _gid: String) {}
+    pub fn load_deleted_channels(_s: Shell, _gid: String) {}
+    pub fn restore_channel(_s: Shell, _gid: String, _cid: String) {}
+    pub fn load_deleted_messages(_s: Shell, _cid: String) {}
+    pub fn restore_deleted_message(_s: Shell, _cid: String, _mid: String) {}
 }
