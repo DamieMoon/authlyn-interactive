@@ -140,6 +140,18 @@ fn small_body_routes() -> Router<AppState> {
         .route("/push/subscribe", post(push::subscribe))
         .route("/push/unsubscribe", post(push::unsubscribe))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
+        // Dynamic JSON API responses must never be cached (by the service
+        // worker or the browser HTTP cache); a cached message list flashed
+        // ancient messages on cold open before the live fetch landed.
+        .layer(axum::middleware::map_response(
+            |mut res: axum::response::Response| async move {
+                res.headers_mut().insert(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("no-store"),
+                );
+                res
+            },
+        ))
 }
 
 /// Media upload/download, under the larger body cap.

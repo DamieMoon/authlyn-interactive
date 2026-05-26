@@ -11,7 +11,7 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v5";
+const CACHE_VERSION = "authlyn-v6";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
@@ -42,14 +42,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Network-first with cache fallback. Successful GET responses for precache-able
-// assets get refreshed into the cache so the offline fallback stays current.
-async function networkFirst(request, { offlineFallback } = {}) {
+// Network-first. Caches successful GETs only when `cache` is set (static,
+// versioned assets) so the offline fallback stays current. Dynamic API data is
+// NEVER cached here — use networkOnly for that.
+async function networkFirst(request, { cache = false, offlineFallback } = {}) {
   try {
     const response = await fetch(request);
-    if (request.method === "GET" && response && response.ok) {
+    if (cache && request.method === "GET" && response && response.ok) {
       const copy = response.clone();
-      caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+      caches.open(CACHE_VERSION).then((c) => c.put(request, copy));
     }
     return response;
   } catch (err) {
@@ -63,6 +64,13 @@ async function networkFirst(request, { offlineFallback } = {}) {
   }
 }
 
+// Network-only, bypassing the HTTP cache. For dynamic API responses (messages,
+// guilds, personas, …) that must never be served stale — caching these flashed
+// ancient messages on cold open before the live fetch landed.
+async function networkOnly(request) {
+  return fetch(request, { cache: "no-store" });
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
@@ -72,16 +80,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navigations: network-first, fall back to the offline page when offline.
-  if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request, { offlineFallback: "/offline.html" }));
-    return;
-  }
-
   // App bundle (JS/WASM/CSS under /pkg/): network-first so app code never
   // goes stale; cached copy only as an offline fallback.
   if (url.pathname.startsWith("/pkg/")) {
-    event.respondWith(networkFirst(request));
+    event.respondWith(networkFirst(request, { cache: true }));
+    return;
+  }
+
+  // Media blobs are immutable (keyed by id + width) — safe to cache for
+  // performance and offline use.
+  if (url.pathname.startsWith("/media/")) {
+    event.respondWith(networkFirst(request, { cache: true }));
     return;
   }
 
@@ -89,13 +98,23 @@ self.addEventListener("fetch", (event) => {
   // on activate via the precache list).
   if (PRECACHE.includes(url.pathname)) {
     event.respondWith(
-      caches.match(request).then((cached) => cached || networkFirst(request))
+      caches.match(request).then((cached) => cached || networkFirst(request, { cache: true }))
     );
     return;
   }
 
-  // Everything else: network-first, cache as offline fallback.
-  event.respondWith(networkFirst(request));
+  // Navigations (SSR shell): network-first for fresh app code, offline page
+  // when offline. NOT cached — the shell is session-specific and a cached copy
+  // can paint a stale view on cold open.
+  if (request.mode === "navigate") {
+    event.respondWith(networkFirst(request, { offlineFallback: "/offline.html" }));
+    return;
+  }
+
+  // Everything else — dynamic JSON API (/channels, /guilds, /personas,
+  // /friends, /auth, /push, …): network-only, never cached, HTTP cache
+  // bypassed. This is the stale-message-flash fix.
+  event.respondWith(networkOnly(request));
 });
 
 // ---------------------------------------------------------------------------
