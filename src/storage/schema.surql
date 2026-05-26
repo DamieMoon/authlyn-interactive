@@ -193,3 +193,17 @@ DEFINE FIELD IF NOT EXISTS created_at ON push_subscription TYPE datetime DEFAULT
 -- trap that only applies to fields added to tables with existing rows).
 DEFINE INDEX IF NOT EXISTS push_subscription_endpoint ON push_subscription FIELDS endpoint UNIQUE;
 DEFINE INDEX IF NOT EXISTS push_subscription_account ON push_subscription FIELDS account;
+
+-- Custom emoji (Discord-style shortcodes, scoped to a guild) ---------------
+-- `name` is the shortcode (`:name:`), validated server-side to ^[a-z0-9_]{2,32}$.
+-- `media` reuses the existing media_blob pipeline — client uploads via POST /media
+-- (gets back a media id), then creates the emoji row referencing that id.
+-- New table; no rows predate these fields, so no NONE-coercion backfill needed.
+DEFINE TABLE IF NOT EXISTS custom_emoji SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS guild      ON custom_emoji TYPE record<guild>;
+DEFINE FIELD IF NOT EXISTS name       ON custom_emoji TYPE string;
+DEFINE FIELD IF NOT EXISTS media      ON custom_emoji TYPE record<media_blob>;
+DEFINE FIELD IF NOT EXISTS creator    ON custom_emoji TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS created_at ON custom_emoji TYPE datetime DEFAULT time::now();
+-- Per-guild uniqueness: one shortcode per guild (same name OK in different guilds).
+DEFINE INDEX IF NOT EXISTS custom_emoji_guild_name ON custom_emoji FIELDS guild, name UNIQUE;

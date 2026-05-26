@@ -8,6 +8,7 @@
 //! one, so the two caps must live on disjoint route groups.
 
 pub mod auth;
+pub mod emoji;
 pub mod friends;
 pub mod guilds;
 pub mod lorebook;
@@ -77,6 +78,11 @@ fn small_body_routes() -> Router<AppState> {
             "/guilds/{id}/members/{aid}/role",
             put(guilds::set_member_role),
         )
+        .route(
+            "/guilds/{id}/emoji",
+            get(emoji::list_emoji).post(emoji::create_emoji),
+        )
+        .route("/guilds/{id}/emoji/{name}", delete(emoji::delete_emoji))
         .route(
             "/guilds/{id}/active-persona",
             put(personas::set_active_persona),

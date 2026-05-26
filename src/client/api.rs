@@ -8,14 +8,14 @@ use serde::Serialize;
 
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AuthResponse, ChangePasswordRequest,
-    ChannelSummary, CreateChannelRequest, CreateGuildRequest, CreateLorebookEntryRequest,
-    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
-    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
-    ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse,
-    ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
-    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    PushSubscribeRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest, VapidKeyResponse,
+    ChannelSummary, CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest,
+    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
+    EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest,
+    ListEmojiResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
+    ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest,
+    MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
+    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
+    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -433,6 +433,30 @@ pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
 
 pub async fn remove_friend(aid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/friends/{aid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Custom emoji
+// ---------------------------------------------------------------------------
+
+/// List all custom emoji in a guild (member required).
+pub async fn list_emoji(guild_id: &str) -> Result<ListEmojiResponse, ApiError> {
+    get(&format!("/guilds/{guild_id}/emoji")).await
+}
+
+/// Create a custom emoji. `req.media_id` must be an id returned by a prior
+/// `POST /media` upload. `req.name` must match `^[a-z0-9_]{2,32}$`.
+/// Returns the created emoji on success (201). Member required.
+pub async fn create_emoji(
+    guild_id: &str,
+    req: &CreateEmojiRequest,
+) -> Result<crate::protocol::CustomEmoji, ApiError> {
+    post_json(&format!("/guilds/{guild_id}/emoji"), req).await
+}
+
+/// Delete a custom emoji by its shortcode name (manager/admin required). 204.
+pub async fn delete_emoji(guild_id: &str, name: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/guilds/{guild_id}/emoji/{name}")).await
 }
 
 // ---------------------------------------------------------------------------

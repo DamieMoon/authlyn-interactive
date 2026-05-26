@@ -846,7 +846,7 @@ pub async fn set_member_role(
 
 /// The caller's `role` in a guild, or `None` if they're not a member (which
 /// callers map to a privacy-404 / 403 as appropriate).
-async fn caller_role(
+pub(crate) async fn caller_role(
     state: &AppState,
     gid: &str,
     account: &str,

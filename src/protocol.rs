@@ -484,3 +484,32 @@ pub struct PushSubscriptionKeys {
 pub struct PushUnsubscribeRequest {
     pub endpoint: String,
 }
+
+// ---------------------------------------------------------------------------
+// Custom emoji (Discord-style shortcodes, per-guild)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /guilds/{id}/emoji`. `media_id` is the id returned by a prior
+/// `POST /media` upload — the client uploads the image first, then registers
+/// the emoji shortcode against it. `name` must match `^[a-z0-9_]{2,32}$`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateEmojiRequest {
+    pub name: String,
+    pub media_id: String,
+}
+
+/// One custom emoji as stored in the guild. `media_id` is a `/media/{id}` key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomEmoji {
+    pub id: String,
+    pub name: String,
+    pub media_id: String,
+    pub creator_id: String,
+    pub created_at: String,
+}
+
+/// Response from `GET /guilds/{id}/emoji`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListEmojiResponse {
+    pub emoji: Vec<CustomEmoji>,
+}
