@@ -1241,6 +1241,56 @@ mod act {
         });
     }
 
+    /// Move a persona up/down in the wardrobe grid and persist the new order.
+    ///
+    /// `idx` is the card's position in the *currently displayed* (already
+    /// server-sorted) `s.personas` list. We swap it with its neighbor, then
+    /// renumber the whole list to its array index and PATCH every persona whose
+    /// position changed. Renumbering (rather than swapping two `position`
+    /// values) is robust against old rows whose `position` is still NONE: after
+    /// one reorder the entire list is fully ordered with no gaps. Reorder is
+    /// only offered when the search filter is empty (see wardrobe.rs), so `idx`
+    /// always indexes the full list.
+    pub fn swap_persona(s: Shell, idx: usize, up: bool) {
+        let mut list = s.personas.get_untracked();
+        let other = if up {
+            if idx == 0 {
+                return;
+            }
+            idx - 1
+        } else {
+            if idx + 1 >= list.len() {
+                return;
+            }
+            idx + 1
+        };
+        list.swap(idx, other);
+        // Optimistic local reorder so the grid updates immediately; the server
+        // reload after the PATCHes confirms it.
+        s.personas.set(list.clone());
+        // Persist each card whose stored position no longer matches its index.
+        let patches: Vec<(String, i64)> = list
+            .iter()
+            .enumerate()
+            .filter(|(i, p)| p.position != Some(*i as i64))
+            .map(|(i, p)| (p.id.clone(), i as i64))
+            .collect();
+        if patches.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            for (pid, pos) in patches {
+                if let Err(e) = api::set_persona_position(&pid, pos).await {
+                    s.status.set(api::humanize(&e));
+                    break;
+                }
+            }
+            if let Ok(r) = api::list_personas().await {
+                s.personas.set(r.personas);
+            }
+        });
+    }
+
     /// Load the owner-only sharing state for the detail editor's friends
     /// checklist: the caller's friends, plus who already has editor access.
     pub fn load_persona_sharing(
@@ -2295,6 +2345,7 @@ mod act {
     }
     pub fn remove_persona(_s: Shell, _pid: String) {}
     pub fn leave_shared_persona(_s: Shell, _pid: String) {}
+    pub fn swap_persona(_s: Shell, _idx: usize, _up: bool) {}
     pub fn load_persona_sharing(
         _s: Shell,
         _pid: String,

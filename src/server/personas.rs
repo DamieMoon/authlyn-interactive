@@ -64,21 +64,31 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         color: Option<String>,
         avatar_id: Option<String>,
         owned: bool,
+        // Raw position (NONE on rows predating the field). Echoed to the client
+        // so a reload preserves the persisted order without a re-fetch.
+        position: Option<i64>,
+        // Coalesced sort key: NONE → a sentinel that sorts after every real
+        // position so unordered rows fall to the end of the grid.
+        sort_pos: i64,
     }
     // Personas the caller owns OR can edit (a persona_editor row exists). The
     // editor set is resolved from the join table; `owned` flags which controls
-    // the UI shows. Ordered by name for a stable wardrobe grid.
+    // the UI shows. Ordered by the persisted `position`; rows without one (old
+    // data, NONE) coalesce to a large sentinel so they sort last, tie-broken by
+    // name for a stable grid.
     let mut resp = state
         .db
         .query(
             "SELECT meta::id(id) AS id_key, name, description, (color ?? '') AS color,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
-                (owner = type::record('account', $account)) AS owned
+                (owner = type::record('account', $account)) AS owned,
+                position,
+                (position ?? 9223372036854775807) AS sort_pos
                 FROM persona
                 WHERE owner = type::record('account', $account)
                    OR id IN (SELECT VALUE persona FROM persona_editor
                              WHERE account = type::record('account', $account))
-                ORDER BY name;",
+                ORDER BY sort_pos, name;",
         )
         .bind(("account", account.to_string()))
         .await?
@@ -93,6 +103,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             avatar_id: r.avatar_id,
             color: r.color.unwrap_or_default(),
             owned: r.owned,
+            position: r.position,
         })
         .collect())
 }
@@ -166,6 +177,7 @@ pub async fn create_persona(
                 avatar_id: None,
                 color: color_echo,
                 owned: true,
+                position: None,
             }),
         )
             .into_response(),
@@ -320,6 +332,12 @@ pub async fn patch_persona(
         }
         sets.push("color = $color");
     }
+    if let Some(pos) = req.position {
+        if pos < 0 {
+            return error_response(StatusCode::BAD_REQUEST, "position must be >= 0");
+        }
+        sets.push("position = $position");
+    }
     if sets.is_empty() {
         return StatusCode::NO_CONTENT.into_response();
     }
@@ -337,6 +355,9 @@ pub async fn patch_persona(
     }
     if let Some(color) = req.color {
         q = q.bind(("color", color));
+    }
+    if let Some(pos) = req.position {
+        q = q.bind(("position", pos));
     }
     match q.await.and_then(|r| r.check()) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),

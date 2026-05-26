@@ -294,6 +294,8 @@ pub struct PatchPersonaRequest {
     pub description: Option<String>,
     /// Markup palette name (red…gray) or empty string to clear the tint.
     pub color: Option<String>,
+    /// Wardrobe display order (0-based). Set when reordering cards.
+    pub position: Option<i64>,
 }
 
 /// One persona in a list (the wardrobe grid). Carries `description` so the
@@ -311,6 +313,10 @@ pub struct PersonaSummary {
     /// share key (editor access — can wear + edit, but not delete/share).
     #[serde(default)]
     pub owned: bool,
+    /// Wardrobe display order. `None` for rows predating the field (sorted last
+    /// by the server, which orders the list before sending it).
+    #[serde(default)]
+    pub position: Option<i64>,
 }
 
 /// Response from `GET /personas`.
