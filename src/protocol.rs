@@ -148,6 +148,26 @@ pub struct SetMemberRoleRequest {
     pub role: String,
 }
 
+/// One member of a guild, as returned by `GET /guilds/{id}/members`.
+/// `role` is `"owner"`, `"admin"`, or `"member"`. `avatar_id` is the account's
+/// avatar media id (used directly as a `/media/{id}` `<img>` source), `None`
+/// when the account has no avatar set.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemberSummary {
+    pub account_id: String,
+    pub username: String,
+    pub display_name: String,
+    pub role: String,
+    #[serde(default)]
+    pub avatar_id: Option<String>,
+}
+
+/// Response from `GET /guilds/{id}/members` — the guild's full member roster.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListMembersResponse {
+    pub members: Vec<MemberSummary>,
+}
+
 // ---------------------------------------------------------------------------
 // Messages (channel-scoped, plaintext body; markup rides inside `body`)
 // ---------------------------------------------------------------------------

@@ -73,7 +73,10 @@ fn small_body_routes() -> Router<AppState> {
             "/guilds/{id}/channels/{cid}/restore",
             post(guilds::restore_channel),
         )
-        .route("/guilds/{id}/members", post(guilds::invite_member))
+        .route(
+            "/guilds/{id}/members",
+            get(guilds::list_members).post(guilds::invite_member),
+        )
         .route("/guilds/{id}/members/{aid}", delete(guilds::remove_member))
         .route(
             "/guilds/{id}/members/{aid}/role",
