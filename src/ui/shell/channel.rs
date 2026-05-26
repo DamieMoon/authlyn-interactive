@@ -647,6 +647,43 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         }
                     }).collect_view()
                 }}
+                // Live draft preview (opt-in via the 👁 toggle): a non-persisted
+                // "ghost" row at the bottom of the list rendering the composer
+                // draft exactly as it'll appear when sent. Re-renders reactively
+                // off `s.compose`; vanishes when the draft is empty or after send.
+                {move || (preview_on.get() && !s.compose.get().trim().is_empty()).then(|| {
+                    // Use the currently-worn persona's name + avatar; fall back to
+                    // the signed-in account's display name (matching real-message
+                    // resolution) with no avatar if no persona is worn.
+                    let (who, avatar_id) = s
+                        .active_persona
+                        .get()
+                        .and_then(|pid| {
+                            s.personas
+                                .get()
+                                .into_iter()
+                                .find(|p| p.id == pid)
+                                .map(|p| (p.name, p.avatar_id))
+                        })
+                        .unwrap_or_else(|| {
+                            let name = auth
+                                .user
+                                .get()
+                                .map(|u| u.display_name)
+                                .unwrap_or_default();
+                            (name, None)
+                        });
+                    let avatar_el = chat_avatar(&avatar_id, &who, false);
+                    view! {
+                        <li class="msg msg-draft">
+                            <div class="meta">
+                                {avatar_el}
+                                <span class="who">{who}</span>
+                            </div>
+                            <span class="text">{render_body(&s.compose.get())}</span>
+                        </li>
+                    }
+                })}
             </ul>
 
             // Unread pill — shown only when messages arrived while the user was
@@ -890,11 +927,6 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         </div>
                     })
                 }}
-                // Live formatting preview (opt-in via the 👁 toggle): renders the
-                // draft with the same pipeline as a sent message.
-                {move || (preview_on.get() && !s.compose.get().trim().is_empty()).then(|| view! {
-                    <div class="compose-preview">{render_body(&s.compose.get())}</div>
-                })}
                 <textarea
                     node_ref=composer_ref
                     prop:value=move || s.compose.get()
@@ -970,7 +1002,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         ac_token.set(None);
                                         return;
                                     }
-                                    "Enter" | "Tab" => {
+                                    "Tab" => {
                                         ev.prevent_default();
                                         if let Some(sg) = sugg.get(ac_index.get_untracked()) {
                                             replace_shortcode_token(
@@ -993,6 +1025,9 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                             {
                                 ev.prevent_default();
                                 act::send_message(s);
+                                // Close any lingering autocomplete popover so it
+                                // doesn't hover over the now-cleared composer.
+                                ac_token.set(None);
                             }
                         }
                         #[cfg(not(feature = "hydrate"))]
