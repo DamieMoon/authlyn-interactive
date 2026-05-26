@@ -476,6 +476,11 @@ textarea {
 
 	.composer {
 		border-top: 1px solid $line;
+		// Positioned ancestor for the absolute emoji popovers (.emoji-picker /
+		// .emoji-suggest are direct children using bottom:100%). Without this they
+		// anchor to .channel-view (full height) and open entirely above the
+		// viewport top — the picker's top rows become unclickable.
+		position: relative;
 		// Snug to its content: trimmed vertical padding + a smaller inter-row gap
 		// so the toolbar row and the textarea row don't leave a dead band below
 		// the chat. .messages (flex:1) reclaims the freed vertical space.
@@ -486,10 +491,6 @@ textarea {
 		align-items: flex-start;
 
 		.toolbar {
-			// Anchor for the emoji-picker popover (.emoji-picker is absolute,
-			// bottom:100%); without this it positions against a far ancestor and
-			// its top row scrolls off the viewport top, becoming unclickable.
-			position: relative;
 			display: flex;
 			flex-wrap: wrap;
 			gap: 0.25rem;
