@@ -76,7 +76,7 @@ pub(crate) fn LorebookPane(s: Shell) -> impl IntoView {
                                     <button
                                         class="lore-reorder"
                                         title="Move down"
-                                        disabled=move || idx + 1 >= len
+                                        disabled=move || idx == len.saturating_sub(1)
                                         on:click=move |_|
                                             act::swap_lore(s, cid_down.clone(), eid_down.clone(), position, false)>
                                         "↓"

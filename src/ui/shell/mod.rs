@@ -291,7 +291,7 @@ fn AppShell() -> impl IntoView {
                                         disabled=move || idx == 0
                                         on:click=move |_| act::swap_guild(s, idx, true)>"↑"</button>
                                     <button class="rail-reorder-btn" title="Move down"
-                                        disabled=move || idx + 1 >= len
+                                        disabled=move || idx == len.saturating_sub(1)
                                         on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
                                 </div>
                             </div>
@@ -686,7 +686,7 @@ fn ChannelRow(
                                 disabled=move || idx == 0
                                 on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
                             <button class="channel-reorder" title="Move down"
-                                disabled=move || idx + 1 >= len
+                                disabled=move || idx == len.saturating_sub(1)
                                 on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
                             <button class="row-edit" title="rename channel" on:click={
                                 let start_cid = start_cid.clone();

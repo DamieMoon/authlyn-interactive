@@ -302,7 +302,7 @@ fn PersonaCard(
                         disabled=move || idx == 0
                         on:click=move |_| act::swap_persona(s, idx, true)>"↑"</button>
                     <button class="persona-reorder" title="Move down"
-                        disabled=move || idx + 1 >= len
+                        disabled=move || idx == len.saturating_sub(1)
                         on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
                 })}
                 <Show when=move || worn.get()
