@@ -158,10 +158,6 @@ pub(crate) struct Shell {
     /// (#19), refreshed from each message-poll response. Cleared on channel
     /// switch; drives the `.typing-indicator` line above the composer.
     typing: RwSignal<Vec<String>>,
-    /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
-    /// (e.g. the notification poll) can filter out the user's OWN messages
-    /// without reaching into reactive context from a spawned future (FB10b).
-    me: RwSignal<Option<String>>,
 }
 
 #[component]
@@ -206,12 +202,7 @@ fn AppShell() -> impl IntoView {
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
         typing: RwSignal::new(Vec::new()),
-        me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
     };
-    // Keep `s.me` in sync with the auth context (it resolves async after mount).
-    Effect::new(move |_| {
-        s.me.set(auth.user.get().map(|u| u.account_id));
-    });
     // Provide the emoji resolver to the whole shell subtree so the markup
     // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
     // without threading a parameter through every render call site.
@@ -750,6 +741,7 @@ mod act {
     // localStorage keys for the last-used selection, restored on reload.
     const KEY_SERVER: &str = "authlyn.last_server";
     const KEY_CHANNEL: &str = "authlyn.last_channel";
+    const KEY_PERSONA: &str = "authlyn.active_persona";
 
     pub fn logout(auth: AuthCtx) {
         let nav = leptos_router::hooks::use_navigate();
@@ -881,9 +873,6 @@ mod act {
                         .first()
                         .map(|m| (m.sent_at.clone(), m.id.clone()));
                     let full_page = l.messages.len() == MESSAGES_PAGE_LIMIT;
-                    // The worn persona is now per-channel: restore this channel's
-                    // value (or None = speak as account) from the response.
-                    s.active_persona.set(l.active_persona);
                     ingest(s, l.messages);
                     s.oldest.set(oldest);
                     s.more_history.set(full_page);
@@ -909,6 +898,7 @@ mod act {
             return false;
         };
         let stored_channel = LocalStorage::get::<String>(KEY_CHANNEL).ok();
+        let stored_persona = LocalStorage::get::<String>(KEY_PERSONA).ok();
 
         spawn_local(async move {
             let Ok(d) = api::get_guild(&gid).await else {
@@ -930,10 +920,14 @@ mod act {
                 .or_else(|| d.channels.iter().find(|c| c.kind == "text"))
                 .or_else(|| d.channels.first())
                 .cloned();
-            // The worn persona is per-channel now — `open_channel` restores it
-            // from the channel's `list_messages` response, so no global restore.
             if let Some(ch) = target {
                 open_channel(s, ch);
+            }
+
+            // Re-assert the worn persona for the restored server.
+            if let Some(pid) = stored_persona {
+                s.active_persona.set(Some(pid.clone()));
+                let _ = api::set_active_persona(&gid, Some(pid)).await;
             }
         });
         true
@@ -991,12 +985,6 @@ mod act {
                     let cur = s.cursor.get_untracked();
                     if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
                         ingest(s, l.messages);
-                        // FB10a: advance this channel's last-seen to the new
-                        // cursor so `refresh_unread` doesn't glow the channel
-                        // for the user's OWN just-sent message.
-                        if let Some(cur) = s.cursor.get_untracked() {
-                            set_last_seen(s, &ch.id, cur);
-                        }
                     }
                 }
                 Err(e) => s.status.set(api::humanize(&e)),
@@ -1295,9 +1283,9 @@ mod act {
         spawn_local(async move {
             match api::delete_persona(&pid).await {
                 Ok(()) => {
-                    // If the removed persona was being worn in the open channel,
-                    // take it off locally (per-channel signal).
+                    // If the removed persona was being worn, take it off locally.
                     if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                        LocalStorage::delete(KEY_PERSONA);
                         s.active_persona.set(None);
                     }
                     if let Ok(r) = api::list_personas().await {
@@ -1316,6 +1304,7 @@ mod act {
             match api::leave_persona(&pid).await {
                 Ok(()) => {
                     if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                        LocalStorage::delete(KEY_PERSONA);
                         s.active_persona.set(None);
                     }
                     if let Ok(r) = api::list_personas().await {
@@ -1494,25 +1483,23 @@ mod act {
     }
 
     pub fn wear_persona(s: Shell, pid: String) {
-        // Per-channel now: wear into the currently-open channel. No open channel
-        // → no-op (there's nowhere to wear it).
-        let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) else {
-            return;
-        };
+        let _ = LocalStorage::set(KEY_PERSONA, &pid);
         s.active_persona.set(Some(pid.clone()));
-        spawn_local(async move {
-            let _ = api::set_channel_active_persona(&cid, Some(pid)).await;
-        });
+        if let Some(gid) = s.sel_server.get_untracked() {
+            spawn_local(async move {
+                let _ = api::set_active_persona(&gid, Some(pid)).await;
+            });
+        }
     }
 
     pub fn unwear(s: Shell) {
-        let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) else {
-            return;
-        };
+        LocalStorage::delete(KEY_PERSONA);
         s.active_persona.set(None);
-        spawn_local(async move {
-            let _ = api::set_channel_active_persona(&cid, None).await;
-        });
+        if let Some(gid) = s.sel_server.get_untracked() {
+            spawn_local(async move {
+                let _ = api::set_active_persona(&gid, None).await;
+            });
+        }
     }
 
     pub fn add_friend(s: Shell, username: String) {
@@ -2219,13 +2206,6 @@ mod act {
     /// permission was granted. Title-only to keep the web-sys surface minimal.
     fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnvelope]) {
         use leptos::web_sys::{Notification, NotificationPermission};
-        // FB10b: never locally notify for the user's OWN messages (server
-        // web-push already excludes the author; this is the client `Notification`).
-        let me = s.me.get_untracked();
-        let fresh: Vec<&MessageEnvelope> = fresh
-            .iter()
-            .filter(|m| me.as_deref() != Some(m.author_id.as_str()))
-            .collect();
         if fresh.is_empty() || !tab_hidden() {
             return;
         }
