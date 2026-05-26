@@ -830,14 +830,13 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     // Each pick uploads immediately and stages the media id.
                     <label class="fmt attach" title="attach image or video">
                         "📎"
-                        // NO `accept`: on Android an `accept="image/*"`/`video/*`
-                        // hint forces the system PHOTO PICKER (Google Photos),
-                        // which the user doesn't want — omitting it gives the
-                        // generic Files chooser. Trade-off: the picker lists all
-                        // file types, so we filter to image/video client-side below
-                        // (the picker hint isn't binding and the server stores any
-                        // upload regardless).
+                        // `accept="image/*,video/*"` makes Android open the system
+                        // photo picker (gallery) directly — the desired "just open
+                        // the gallery" behaviour — and scopes desktop dialogs to
+                        // media. We still filter client-side below (the hint isn't
+                        // binding and the server stores any upload).
                         <input type="file" multiple style="display:none"
+                            accept="image/*,video/*"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
                                 {
