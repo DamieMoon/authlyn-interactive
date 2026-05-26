@@ -575,10 +575,11 @@ pub async fn list_messages(
         .into_response()
 }
 
-/// Resolve typing account ids to display names for the channel's guild,
-/// preferring each member's worn persona name (`guild_member.active_persona`
-/// → `persona.name`), falling back to the account's `display_name`/`username`.
-/// Order is not significant (the client formats "A and B are typing").
+/// Resolve typing account ids to display names, preferring each typist's worn
+/// persona name IN THIS CHANNEL (`channel_active_persona` → `persona.name`) so
+/// the indicator matches how their messages are attributed, falling back to the
+/// account's `display_name`/`username`. Order is not significant (the client
+/// formats "A and B are typing").
 async fn resolve_typing_names(
     state: &AppState,
     cid: &str,
@@ -589,18 +590,18 @@ async fn resolve_typing_names(
     }
     // One round-trip per account keeps the SurrealQL simple and proven (no
     // correlated sub-SELECT in a projection, which 3.1.0-beta.3 handles
-    // unevenly). For each: prefer the worn-persona name in THIS channel's guild
-    // (resolved through the guild_member row), else the account nickname
-    // (display_name defaults to '' so guard the empty case), else username.
+    // unevenly). For each: prefer the worn-persona name in THIS channel
+    // (channel_active_persona), else the account nickname (display_name defaults
+    // to '' so guard the empty case), else username.
     let mut names = Vec::with_capacity(accounts.len());
     for acct in accounts {
         let mut resp = state
             .db
             .query(
-                "LET $g = (SELECT VALUE guild FROM ONLY type::record('channel', $cid));
-                 SELECT VALUE
-                   ( (SELECT VALUE active_persona.name FROM ONLY guild_member
-                        WHERE guild = $g AND account = type::record('account', $acct))
+                "SELECT VALUE
+                   ( (SELECT VALUE persona.name FROM ONLY channel_active_persona
+                        WHERE channel = type::record('channel', $cid)
+                          AND account = type::record('account', $acct))
                      ?? (IF display_name != '' THEN display_name ELSE username END)
                    ) AS name
                    FROM ONLY type::record('account', $acct);",
@@ -611,7 +612,7 @@ async fn resolve_typing_names(
             .check()?;
         // `SELECT VALUE ... FROM ONLY` yields the bare string (or None for a
         // vanished account); skip the latter rather than surface a blank.
-        if let Some(name) = resp.take::<Option<String>>(1)? {
+        if let Some(name) = resp.take::<Option<String>>(0)? {
             names.push(name);
         }
     }
