@@ -2,7 +2,7 @@
 
 ## What this is
 
-A self-hosted roleplay chat application with end-to-end encryption, reached from the public internet via DDNS. Solo project; Damien is the only developer and tester. He tests the running app mostly remotely (not from the LAN), so anything that only works from `localhost`/`192.168.*` will block him.
+A self-hosted, **server-trusted** roleplay chat platform — Discord + SillyTavern style (guilds → channels, personas, lorebooks, friends) — reached from the public internet via DDNS. Originally a two-person encrypted-chat app; pivoted to a server-trusted model on 2026-05-25 (the server now handles plaintext — groundwork for server-side AI; full pivot record in ctx, `ctx query "authlyn pivot"`). Solo project; Damien is the only developer and tester. He tests the running app mostly remotely (not from the LAN), so anything that only works from `localhost`/`192.168.*` will block him.
 
 ## Persistence
 
@@ -10,20 +10,22 @@ Durable project knowledge (architecture decisions, gotchas, bugs, machine state,
 
 ## Stack
 
-- **Backend / SSR:** axum + Leptos `ssr` feature
-- **Frontend:** Leptos `hydrate` feature (WASM, single crate)
+- **Backend / SSR:** axum + Leptos 0.8 `ssr` feature
+- **Frontend:** Leptos 0.8 `hydrate` feature (WASM, single crate)
 - **Database:** SurrealDB, run as an external server (dev script: `./scripts/dev-db.sh`)
-- **E2EE:** Signal-style Double Ratchet via [`vodozemac`](https://crates.io/crates/vodozemac) (Matrix's audited implementation)
+- **Auth:** session cookies — argon2 password hashing + `axum-extra` cookie jar. No browser-side cryptography; the server is trusted with plaintext.
+- **Notifications:** Web Push (VAPID) for background/PWA notifications — `src/server/push.rs`.
 
-Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[cfg(feature = "ssr")]` so it never compiles into the WASM bundle.
+Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[cfg(feature = "ssr")]` so it never compiles into the WASM bundle. A second binary `src/bin/nova-mcp.rs` (behind the optional `nova` feature) is a standalone MCP bridge that lets a local AI act as a special in-app user — a separate build target, not part of the web app.
 
 **Module map.**
 
 - `src/app.rs` — Leptos root component; shared by ssr and hydrate.
-- `src/client/` (hydrate-only) — browser-side E2EE client (`api`, `session`, `store`); added in step 10.
-- `src/protocol.rs` — shared wire-format DTOs (serde-JSON, no ssr gate).
-- `src/crypto/` — vodozemac wrappers: `identity`, `olm`, `megolm`, `prekey`, `pickle` (libolm-compat pickle for at-rest Account encryption), plus `attachment` (AES-256-CTR + SHA-256 + JWK, Matrix `m.encrypted` v2). Built for both ssr and hydrate.
-- `src/server/` (ssr-only) — axum routing layer: `keys`, `keyshare`, `rooms`, `messages`, `media`, plus `retry` (SurrealDB write-conflict backoff), `state` (`AppState`), `datetime` (RFC3339 fixed-nanos helper — see gotcha below).
+- `src/protocol.rs` — shared wire-format DTOs (serde-JSON REST payloads, no ssr gate).
+- `src/markup.rs` — shared chat-markup parsing/rendering.
+- `src/client/` (hydrate-only) — browser-side REST client (`api`): `gloo-net` fetch wrappers over the server API, session-cookie auth. No cryptography.
+- `src/server/` (ssr-only) — axum routing layer, one module per area: `auth`, `guilds` (guild/channel/member CRUD + soft-delete trash/restore), `personas`, `messages`, `lorebook`, `emoji`, `friends`, `media`, `push` (Web Push), `feedback` (submit + admin list), plus `state` (`AppState`), `datetime` (RFC3339 fixed-nanos helper — see gotcha below), `retry` (SurrealDB write-conflict backoff). The router (`mod.rs`) also runs the hourly soft-delete purge sweep.
+- `src/ui/` (shared ssr + hydrate) — Leptos components: `auth` (login/register), `markup_view`, and `shell/` — the authenticated Discord-style app shell (`mod` = AppShell + Home + shared Shell state; submodules `channel`, `wardrobe` (personas), `lorebook`, `friends`, `account`).
 - `src/storage/` (ssr-only) — SurrealDB schema (`schema.surql`) + bootstrap.
 - `src/db.rs` (ssr-only) — DB connection + the connect-with-retry wrapper.
 
@@ -32,13 +34,12 @@ Single crate, no workspace. Server-only code (e.g. `src/db.rs`) lives behind `#[
 - **Rust toolchain:** pinned via `rust-toolchain.toml` to `channel = "stable"` (plus rustfmt + clippy + wasm32 target). Run `cargo fmt --all` before committing; idiomatic Rust naming (`snake_case` fns/vars, `PascalCase` types).
 - **Pre-commit lint gate:** `./scripts/precommit.sh` runs `cargo fmt --check` + clippy on **both** targets (ssr native + hydrate wasm, `-D warnings`) + the no-remnants guard. Wire it once per clone with `git config core.hooksPath .githooks`; bypass a WIP commit with `git commit --no-verify`. CI builds but runs **no** lints, so this hook is the only lint gate — keep it green or `release` ships unlinted.
 - **Versioning:** CalVer (`YYYY.M.D`). Each release also gets a random codename — generate one with `./scripts/release-name.sh` and set `[package.metadata.release].codename` in `Cargo.toml`.
-- **WASM gotcha:** `vodozemac` pulls `getrandom 0.2`, which needs the `js` feature when compiling to `wasm32-unknown-unknown`. The fix lives under `[target.'cfg(target_arch = "wasm32")'.dependencies]` in `Cargo.toml` — leave it there.
+- **WASM gotcha:** `rand` pulls `getrandom 0.2` into the `wasm32-unknown-unknown` (hydrate) build, which needs the `js` feature to borrow the browser's `crypto.getRandomValues`. The fix lives under `[target.'cfg(target_arch = "wasm32")'.dependencies]` in `Cargo.toml` — leave it there. (This block predates the pivot but is still load-bearing.)
 - **Lockfile:** `Cargo.lock` is committed (this is an app, not a library).
 - **No license file** (private repo, internal use).
 - **SurrealDB datetime serialization:** never `<string>` cast in a query that drives an `ORDER BY` or a cursor — the cast produces variable-precision sub-second output that lex-mis-orders rows at format-class boundaries. Project raw `datetime` columns and format on the Rust side via `src/server/datetime.rs::to_rfc3339_fixed`. Background: commit `d39f892`; full write-up in ctx (`ctx query "surrealdb datetime cast ordering"`).
 - **SurrealDB SDK pin:** `surrealdb = "=3.1.0-beta.3"` is exact — the WebSocket subprotocol must match the on-machine `surreal` 3.x binary. Don't `cargo update -p surrealdb` blind; bump the on-host `surreal` binary in lockstep (novahome runs `v3.0.4`).
 - **Media storage root:** `$MEDIA_STORAGE_DIR` (defaults to `./media` in dev, `/data/authlyn/media` on novahome via the systemd unit's `ReadWritePaths`). `main.rs` creates the dir at startup; `AppState` canonicalizes the path once at construction so the GET path-traversal `starts_with` check is a free comparison. Local `./media/` is gitignored.
-- **Matrix `m.encrypted` v2 base64 conventions:** `iv` and `hashes.sha256` are **unpadded** (`STANDARD_NO_PAD`); the JWK `k` field is base64url-no-pad. Padded base64 here silently breaks wire compat with every other Matrix client. The convention lives in `src/crypto/attachment.rs:55-60`; the spec reviewer for step 9 caught this against MSC1420 + matrix-js-sdk.
 
 ## Dev loop
 

@@ -1,15 +1,15 @@
 # authlyn-interactive
 
-Rust + Leptos + SurrealDB chat application with end-to-end encryption.
+Self-hosted, server-trusted roleplay chat platform — Discord + SillyTavern style: guilds → channels, personas, lorebooks, friends. Single Rust crate.
 
-Work in progress.
+Work in progress. Private / internal use.
 
 ## Stack
 
-- **Backend / SSR:** axum + Leptos `ssr`
-- **Frontend:** Leptos `hydrate` (WASM)
+- **Backend / SSR:** axum + Leptos 0.8 (`ssr`)
+- **Frontend:** Leptos 0.8 (`hydrate`, WASM)
 - **Database:** SurrealDB (external server)
-- **E2EE:** Signal-style Double Ratchet via [`vodozemac`](https://crates.io/crates/vodozemac)
+- **Auth:** session cookies (argon2 password hashing); no browser-side cryptography
 
 ## Versioning
 
@@ -38,11 +38,18 @@ The app serves at <http://127.0.0.1:3000>; SurrealDB at `ws://127.0.0.1:8000`.
 
 ```
 src/
-  app.rs       Leptos UI (shared between ssr & hydrate)
-  lib.rs       Module wiring + hydrate entrypoint
-  main.rs      axum server entrypoint (ssr only)
-  db.rs        SurrealDB connection helper (ssr only)
-  crypto/      Double Ratchet primitives (vodozemac)
+  app.rs           Leptos root (shared ssr & hydrate)
+  lib.rs           module wiring + hydrate entrypoint
+  main.rs          axum server entrypoint (ssr only)
+  db.rs            SurrealDB connection helper (ssr only)
+  protocol.rs      shared REST JSON DTOs
+  markup.rs        chat markup rendering
+  client/          hydrate-only REST client (gloo-net)
+  server/          axum routes (ssr only): auth, guilds, personas,
+                   messages, lorebook, emoji, friends, media, push, feedback
+  storage/         SurrealDB schema (schema.surql)
+  ui/              Leptos UI: auth + shell/ (Discord-style app shell)
+  bin/nova-mcp.rs  standalone MCP bridge (optional `nova` feature)
 scripts/
   dev-db.sh
   release-name.sh
