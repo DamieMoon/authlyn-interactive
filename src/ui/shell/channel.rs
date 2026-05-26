@@ -790,7 +790,13 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     // Each pick uploads immediately and stages the media id.
                     <label class="fmt attach" title="attach image">
                         "📎"
-                        <input type="file" accept="image/*" multiple style="display:none"
+                        // No `accept="image/*"`: that hint routes Android (and the
+                        // installed PWA) straight to Google Photos. Omitting it opens
+                        // the generic file/document chooser the user expects on both
+                        // Android and iOS — at the cost of allowing non-images, so we
+                        // filter to image/* client-side below (the server stores any
+                        // upload and chat renders attachments as <img>).
+                        <input type="file" multiple style="display:none"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
                                 {
@@ -799,10 +805,22 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
                                     }) {
                                         if let Some(files) = input.files() {
+                                            let mut skipped = false;
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
-                                                    act::add_compose_attachment(s, file);
+                                                    // Generic picker can return any file;
+                                                    // only images are valid attachments.
+                                                    if file.type_().starts_with("image/") {
+                                                        act::add_compose_attachment(s, file);
+                                                    } else {
+                                                        skipped = true;
+                                                    }
                                                 }
+                                            }
+                                            if skipped {
+                                                s.status.set(
+                                                    "Only image files can be attached.".to_string(),
+                                                );
                                             }
                                         }
                                         // Clear so re-picking the same file re-fires.
