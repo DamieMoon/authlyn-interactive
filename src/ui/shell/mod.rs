@@ -93,6 +93,16 @@ pub(crate) struct Shell {
     sel_channel: RwSignal<Option<ChannelSummary>>,
     messages: RwSignal<Vec<MessageEnvelope>>,
     cursor: RwSignal<Option<(String, String)>>,
+    /// Oldest `(sent_at, id)` currently loaded — the cursor for scroll-up
+    /// backfill of older history. `None` until the first page lands.
+    oldest: RwSignal<Option<(String, String)>>,
+    /// Guards against overlapping scroll-up backfills.
+    loading_older: RwSignal<bool>,
+    /// `false` once a backfill returns a short page (start of history reached).
+    more_history: RwSignal<bool>,
+    /// After an older-history prepend, the message id to re-anchor to the top
+    /// so the viewport doesn't jump; the channel pane scrolls it into view.
+    anchor_to: RwSignal<Option<String>>,
     seen: RwSignal<HashSet<String>>,
     compose: RwSignal<String>,
     /// Media ids already uploaded and staged to send with the next message
@@ -143,6 +153,10 @@ fn AppShell() -> impl IntoView {
         sel_channel: RwSignal::new(None),
         messages: RwSignal::new(Vec::new()),
         cursor: RwSignal::new(None),
+        oldest: RwSignal::new(None),
+        loading_older: RwSignal::new(false),
+        more_history: RwSignal::new(true),
+        anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         compose: RwSignal::new(String::new()),
         compose_attachments: RwSignal::new(Vec::new()),
@@ -712,6 +726,10 @@ mod act {
             s.pane.set(Pane::Channel);
             s.messages.set(Vec::new());
             s.cursor.set(None);
+            s.oldest.set(None);
+            s.loading_older.set(false);
+            s.more_history.set(true);
+            s.anchor_to.set(None);
             s.seen.update(|h| h.clear());
             // Opening clears the unread glow at once; the high-water mark
             // advances once messages load below.
@@ -722,7 +740,17 @@ mod act {
             let seen_cid = cid.clone();
             spawn_local(async move {
                 if let Ok(l) = api::list_messages(&cid, None).await {
+                    // The initial page is the NEWEST messages (ASC); remember the
+                    // oldest of it as the scroll-up cursor, and whether a full page
+                    // came back (i.e. older history may exist).
+                    let oldest = l
+                        .messages
+                        .first()
+                        .map(|m| (m.sent_at.clone(), m.id.clone()));
+                    let full_page = l.messages.len() == MESSAGES_PAGE_LIMIT;
                     ingest(s, l.messages);
+                    s.oldest.set(oldest);
+                    s.more_history.set(full_page);
                     if let Some(cur) = s.cursor.get_untracked() {
                         set_last_seen(s, &seen_cid, cur);
                     }
@@ -1959,6 +1987,56 @@ mod act {
     /// Every tick it refreshes the open channel's messages; every ~6s it also
     /// refreshes the lists. Started on shell mount via [`start_sync`] so the
     /// lists stay live even on the Friends pane. SEAM: replace with SSE.
+    /// Backfill older history when the user scrolls near the top: fetch the
+    /// page immediately before `oldest`, prepend it, and ask the channel pane
+    /// to re-anchor so the viewport stays put. Guarded against overlap and
+    /// against running past the start of history.
+    pub fn load_older(s: Shell) {
+        if s.loading_older.get_untracked() || !s.more_history.get_untracked() {
+            return;
+        }
+        let Some(oldest) = s.oldest.get_untracked() else {
+            return;
+        };
+        let Some(ch) = s.sel_channel.get_untracked() else {
+            return;
+        };
+        s.loading_older.set(true);
+        spawn_local(async move {
+            if let Ok(l) = api::list_messages_before(&ch.id, &oldest).await {
+                if l.messages.len() < MESSAGES_PAGE_LIMIT {
+                    s.more_history.set(false);
+                }
+                let fresh: Vec<_> = l
+                    .messages
+                    .into_iter()
+                    .filter(|m| !s.seen.with_untracked(|h| h.contains(&m.id)))
+                    .collect();
+                if !fresh.is_empty() {
+                    s.oldest
+                        .set(fresh.first().map(|m| (m.sent_at.clone(), m.id.clone())));
+                    s.seen.update(|h| {
+                        for m in &fresh {
+                            h.insert(m.id.clone());
+                        }
+                    });
+                    // Anchor to the row currently at the top before everything
+                    // shifts down, so the viewport doesn't jump.
+                    let anchor = s
+                        .messages
+                        .with_untracked(|v| v.first().map(|m| m.id.clone()));
+                    s.anchor_to.set(anchor);
+                    s.messages.update(|v| {
+                        let mut nw = fresh;
+                        nw.append(v);
+                        *v = nw;
+                    });
+                }
+            }
+            s.loading_older.set(false);
+        });
+    }
+
     fn start_poll(s: Shell) {
         if s.polling.get_untracked() {
             return;

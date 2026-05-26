@@ -186,6 +186,19 @@ pub async fn list_messages(
     get(&url).await
 }
 
+/// Load the page of older history immediately before a `(sent_at, id)` cursor
+/// (scroll-up backfill). Returned ASC, ready to prepend.
+pub async fn list_messages_before(
+    cid: &str,
+    before: &(String, String),
+) -> Result<ListMessagesResponse, ApiError> {
+    let (before_ts, before_id) = before;
+    get(&format!(
+        "/channels/{cid}/messages?before={before_ts}&before_id={before_id}"
+    ))
+    .await
+}
+
 pub async fn post_message(
     cid: &str,
     body: &str,

@@ -293,6 +293,14 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         let msgs = s.messages.get();
+        // An older-history prepend grows the list at the FRONT; skip the
+        // append/scroll/unread logic here (the anchor effect below repositions
+        // the viewport instead), but keep prev_count in sync for the next real
+        // append.
+        if s.anchor_to.get_untracked().is_some() {
+            prev_count.set_value(Some(msgs.len()));
+            return;
+        }
         let me = auth.user.get_untracked().map(|u| u.account_id);
         let mine = msgs
             .last()
@@ -346,6 +354,25 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
         }
     });
 
+    // After an older-history prepend, bring the previously-top message back
+    // into view so the viewport doesn't jump, then clear the request.
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        let Some(id) = s.anchor_to.get() else {
+            return;
+        };
+        leptos::task::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(0).await;
+            if let Some(el) = leptos::web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.get_element_by_id(&format!("msg-{id}")))
+            {
+                el.scroll_into_view();
+            }
+            s.anchor_to.set(None);
+        });
+    });
+
     view! {
         <div class="channel-view">
             <ul class="messages" node_ref=list_ref
@@ -361,6 +388,10 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         scrolled_up.set(dist > 200.0);
                         if dist <= 4.0 {
                             mark_seen();
+                        }
+                        // Near the top → backfill the previous page of history.
+                        if el.scroll_top() < 200 {
+                            act::load_older(s);
                         }
                     }
                     #[cfg(not(feature = "hydrate"))]

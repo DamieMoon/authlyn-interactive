@@ -429,6 +429,8 @@ async fn message_author(
 pub struct ListMessagesQuery {
     pub since: Option<String>,
     pub after_id: Option<String>,
+    pub before: Option<String>,
+    pub before_id: Option<String>,
 }
 
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
@@ -464,11 +466,34 @@ pub async fn list_messages(
 }
 
 enum CursorState {
+    /// No cursor: the newest page (most recent `MESSAGES_PAGE_LIMIT`), ASC.
     None,
+    /// Forward from a cursor (the poll): messages newer than `(since, after_id)`.
     Both { since: String, after_id: String },
+    /// Older history (scroll-up backfill): messages older than `(before, before_id)`.
+    Before { before: String, before_id: String },
 }
 
 fn parse_cursor(q: &ListMessagesQuery) -> Result<CursorState, &'static str> {
+    // Older-history page (scroll-up) takes precedence when present.
+    match (&q.before, &q.before_id) {
+        (Some(before), Some(before_id)) => {
+            let before = before.trim();
+            let before_id = before_id.trim();
+            if !is_rfc3339(before) {
+                return Err("before must be RFC3339 datetime");
+            }
+            if before_id.is_empty() {
+                return Err("before_id must not be empty");
+            }
+            return Ok(CursorState::Before {
+                before: before.to_string(),
+                before_id: before_id.to_string(),
+            });
+        }
+        (None, None) => {}
+        _ => return Err("before and before_id must be provided together"),
+    }
     match (&q.since, &q.after_id) {
         (None, None) => Ok(CursorState::None),
         (Some(since), Some(after_id)) => {
@@ -563,15 +588,20 @@ async fn load_messages(
     cid: &str,
     cursor: CursorState,
 ) -> surrealdb::Result<Vec<MessageEnvelope>> {
-    let (sql, bound) = match cursor {
+    // `bound` carries the named (datetime, id) params for the cursor arms.
+    // `reverse` is set for the DESC-ordered arms (the newest page and the
+    // older-history page): they ORDER BY DESC so LIMIT keeps the rows nearest
+    // "now" / nearest the cursor, then we flip the page back to ASC for display.
+    let (sql, bound, reverse) = match cursor {
         CursorState::None => (
             format!(
                 "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
-                    ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
             ),
             None,
+            true,
         ),
         CursorState::Both { since, after_id } => (
             format!(
@@ -582,7 +612,20 @@ async fn load_messages(
                            OR (sent_at = type::datetime($since) AND meta::id(id) > $after_id))
                     ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
             ),
-            Some((since, after_id)),
+            Some(("since", since, "after_id", after_id)),
+            false,
+        ),
+        CursorState::Before { before, before_id } => (
+            format!(
+                "SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND (sent_at < type::datetime($before)
+                           OR (sent_at = type::datetime($before) AND meta::id(id) < $before_id))
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
+            ),
+            Some(("before", before, "before_id", before_id)),
+            true,
         ),
     };
 
@@ -591,12 +634,16 @@ async fn load_messages(
         .query(sql)
         .bind(("cid", cid.to_string()))
         .bind(("page_limit", MESSAGES_PAGE_LIMIT));
-    if let Some((since, after_id)) = bound {
-        q = q.bind(("since", since)).bind(("after_id", after_id));
+    if let Some((k1, v1, k2, v2)) = bound {
+        q = q.bind((k1, v1)).bind((k2, v2));
     }
     let mut resp = q.await?.check()?;
     let rows: Vec<MessageRow> = resp.take(0)?;
-    Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
+    let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
+    if reverse {
+        out.reverse();
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
