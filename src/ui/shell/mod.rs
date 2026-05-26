@@ -118,7 +118,7 @@ pub(crate) struct Shell {
     compose: RwSignal<String>,
     /// Media ids already uploaded and staged to send with the next message
     /// (the composer's pending image attachments, in pick order).
-    compose_attachments: RwSignal<Vec<String>>,
+    compose_attachments: RwSignal<Vec<crate::protocol::Attachment>>,
     status: RwSignal<String>,
     polling: RwSignal<bool>,
     pane: RwSignal<Pane>,
@@ -983,8 +983,14 @@ mod act {
             return;
         };
         let body = s.compose.get_untracked();
-        let attachments = s.compose_attachments.get_untracked();
-        // A message needs text OR at least one image.
+        // The wire SEND request is ids-only; map the staged attachments down.
+        let attachments: Vec<String> = s
+            .compose_attachments
+            .get_untracked()
+            .into_iter()
+            .map(|a| a.id)
+            .collect();
+        // A message needs text OR at least one attachment.
         if body.trim().is_empty() && attachments.is_empty() {
             return;
         }
@@ -1017,13 +1023,18 @@ mod act {
         });
     }
 
-    /// Upload a picked/pasted image and stage it as a pending composer
-    /// attachment (its media id is sent with the next message).
+    /// Upload a picked/pasted image or video and stage it as a pending composer
+    /// attachment (its media id is sent with the next message). The browser's
+    /// reported MIME (`file.type_()`) is kept locally so the pending thumbnail
+    /// renders image-vs-video correctly before the message round-trips.
     pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
         s.status.set(String::new());
+        let mime = file.type_();
         spawn_local(async move {
             match api::upload_media(&file).await {
-                Ok(id) => s.compose_attachments.update(|v| v.push(id)),
+                Ok(id) => s
+                    .compose_attachments
+                    .update(|v| v.push(crate::protocol::Attachment { id, mime })),
                 Err(e) => s.status.set(api::humanize(&e)),
             }
         });
@@ -1031,7 +1042,7 @@ mod act {
 
     /// Drop one staged attachment before sending.
     pub fn remove_compose_attachment(s: Shell, id: String) {
-        s.compose_attachments.update(|v| v.retain(|x| *x != id));
+        s.compose_attachments.update(|v| v.retain(|a| a.id != id));
     }
 
     /// Edit one of the caller's own messages, then patch `s.messages` in

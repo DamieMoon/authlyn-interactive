@@ -253,13 +253,23 @@ pub struct MessageEnvelope {
     #[serde(default)]
     pub persona_avatar_id: Option<String>,
     pub body: String,
-    /// Inline image attachments: media ids, in display order. Empty for a
-    /// plain text message. Rendered as a grid; each is a `/media/{id}` image.
+    /// Inline attachments (images, GIFs, videos), in display order. Empty for a
+    /// plain text message. Rendered as a grid; each is a `/media/{id}` blob whose
+    /// `mime` decides image-vs-video rendering.
     #[serde(default)]
-    pub attachments: Vec<String>,
+    pub attachments: Vec<Attachment>,
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,
     pub sent_at: String,
+}
+
+/// One inline attachment on a message: the media id plus its stored MIME type
+/// (e.g. `"image/png"`, `"image/gif"`, `"video/mp4"`). The client uses `mime`
+/// to pick `<img>` vs `<video>` rendering; an empty `mime` falls back to image.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Attachment {
+    pub id: String,
+    pub mime: String,
 }
 
 /// Successful response from `GET /channels/{cid}/messages`. Up to 100
