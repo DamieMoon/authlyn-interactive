@@ -267,6 +267,12 @@ pub struct ListMessagesResponse {
     /// response wire-compatible.
     #[serde(default)]
     pub typing: Vec<String>,
+    /// The caller's worn persona id for THIS channel (per-channel, #persona),
+    /// or `None` when speaking as the account. Lets the client restore the
+    /// "speaking as" state on channel open. `#[serde(default)]` keeps older
+    /// clients / the trash response wire-compatible.
+    #[serde(default)]
+    pub active_persona: Option<String>,
 }
 
 /// A flat list of channels — used by the soft-delete trash view
