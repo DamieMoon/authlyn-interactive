@@ -118,6 +118,9 @@ pub(crate) struct Shell {
     pane: RwSignal<Pane>,
     /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
     nav_open: RwSignal<bool>,
+    /// Per-user pref: when on, `"…"` dialogue is styled at render via a
+    /// `.dialogue-style` root class. Persisted to localStorage.
+    dialogue_style: RwSignal<bool>,
     friends: RwSignal<ListFriendsResponse>,
     personas: RwSignal<Vec<PersonaSummary>>,
     active_persona: RwSignal<Option<String>>,
@@ -170,6 +173,7 @@ fn AppShell() -> impl IntoView {
         polling: RwSignal::new(false),
         pane: RwSignal::new(Pane::Friends),
         nav_open: RwSignal::new(false),
+        dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
         friends: RwSignal::new(ListFriendsResponse {
             friends: Vec::new(),
             incoming: Vec::new(),
@@ -248,7 +252,7 @@ fn AppShell() -> impl IntoView {
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
 
     view! {
-        <div class="app" class:nav-open=move || s.nav_open.get()>
+        <div class="app" class:nav-open=move || s.nav_open.get() class:dialogue-style=move || s.dialogue_style.get()>
             <nav class="rail">
                 <button class="rail-home" title="Friends"
                     on:click=move |_| { act::show_friends(s); s.nav_open.set(false); }>"@"</button>
@@ -972,6 +976,22 @@ mod act {
     /// Persist the message-delete confirmation toggle.
     pub fn set_confirm_delete_message(on: bool) {
         let _ = LocalStorage::set(KEY_CONFIRM_DELETE_MSG, if on { "1" } else { "0" });
+    }
+
+    // localStorage key for the per-user "style RP dialogue" toggle. "1" = on;
+    // absent or anything else = off (the styling is opt-in).
+    const KEY_DIALOGUE_STYLE: &str = "authlyn.dialogue_style";
+
+    /// Whether `"…"` dialogue should be visually styled at render (default OFF).
+    pub fn rp_dialogue_style_enabled() -> bool {
+        LocalStorage::get::<String>(KEY_DIALOGUE_STYLE)
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    }
+
+    /// Persist the dialogue-styling toggle.
+    pub fn set_rp_dialogue_style(on: bool) {
+        let _ = LocalStorage::set(KEY_DIALOGUE_STYLE, if on { "1" } else { "0" });
     }
 
     /// Queue a destructive action behind the top-level confirm modal: stash the
@@ -2150,6 +2170,10 @@ mod act {
         true
     }
     pub fn set_confirm_delete_message(_on: bool) {}
+    pub fn rp_dialogue_style_enabled() -> bool {
+        false
+    }
+    pub fn set_rp_dialogue_style(_on: bool) {}
     pub fn ask_delete(_s: Shell, _prompt: String, _pending: PendingDelete) {}
     pub fn cancel_delete(_s: Shell) {}
     // Mirrors the hydrate dispatch shape so the per-action stubs stay "used".

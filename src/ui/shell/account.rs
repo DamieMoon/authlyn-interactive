@@ -93,6 +93,15 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Ask before deleting a message"</span>
                     </label>
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.dialogue_style.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.dialogue_style.set(on);
+                                act::set_rp_dialogue_style(on);
+                            }/>
+                        <span>"Style roleplay dialogue"</span>
+                    </label>
                 </section>
 
                 // ---- Feedback / bug report ----
