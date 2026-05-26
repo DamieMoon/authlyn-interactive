@@ -29,8 +29,8 @@ use serde::Deserialize;
 use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
-    EditMessageRequest, ErrorBody, ListMessagesResponse, MessageEnvelope, SendMessageRequest,
-    SendMessageResponse,
+    Attachment, EditMessageRequest, ErrorBody, ListMessagesResponse, MessageEnvelope,
+    SendMessageRequest, SendMessageResponse,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
@@ -420,7 +420,9 @@ async fn load_deleted_messages(
         .await?
         .check()?;
     let rows: Vec<MessageRow> = resp.take(0)?;
-    Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
+    let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
+    resolve_attachment_mimes(state, &mut out).await?;
+    Ok(out)
 }
 
 /// Gate for the per-message mutations (edit/delete): the caller must be a
@@ -708,7 +710,17 @@ impl MessageRow {
             persona_color: self.persona_color,
             persona_avatar_id: self.persona_avatar_id,
             body: self.body,
-            attachments: self.attachments,
+            // Mimes are resolved in a single batch query after the page is
+            // built (see `resolve_attachment_mimes`); placeholder empty mime
+            // until then (falls back to image render if a row is missing).
+            attachments: self
+                .attachments
+                .into_iter()
+                .map(|id| Attachment {
+                    id,
+                    mime: String::new(),
+                })
+                .collect(),
             tier: self.tier,
             sent_at: to_rfc3339_fixed(self.sent_at),
         }
@@ -797,6 +809,7 @@ async fn load_messages(
     if reverse {
         out.reverse();
     }
+    resolve_attachment_mimes(state, &mut out).await?;
     Ok(out)
 }
 
@@ -888,6 +901,51 @@ async fn channel_access(
         kind: chan.kind,
         active_persona,
     }))
+}
+
+/// Fill in each envelope's attachment `mime` from `media_blob` in ONE batch
+/// query across the whole page. The persisted message row only carries the
+/// media ids (`array<string>`); the MIME lives on the blob. Missing ids keep
+/// their placeholder empty mime (client falls back to image render). Order is
+/// preserved per envelope.
+async fn resolve_attachment_mimes(
+    state: &AppState,
+    envelopes: &mut [MessageEnvelope],
+) -> surrealdb::Result<()> {
+    let ids: Vec<String> = {
+        let mut v: Vec<String> = envelopes
+            .iter()
+            .flat_map(|e| e.attachments.iter().map(|a| a.id.clone()))
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    if ids.is_empty() {
+        return Ok(());
+    }
+    #[derive(SurrealValue)]
+    struct MimeRow {
+        id: String,
+        mime: String,
+    }
+    let mut resp = state
+        .db
+        .query("SELECT meta::id(id) AS id, mime FROM media_blob WHERE meta::id(id) IN $ids;")
+        .bind(("ids", ids))
+        .await?
+        .check()?;
+    let rows: Vec<MimeRow> = resp.take(0)?;
+    let map: std::collections::HashMap<String, String> =
+        rows.into_iter().map(|r| (r.id, r.mime)).collect();
+    for env in envelopes.iter_mut() {
+        for att in env.attachments.iter_mut() {
+            if let Some(mime) = map.get(&att.id) {
+                att.mime = mime.clone();
+            }
+        }
+    }
+    Ok(())
 }
 
 /// True when every id in `ids` names an existing `media_blob` (empty → true).

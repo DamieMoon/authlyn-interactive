@@ -6,7 +6,7 @@ use super::{act, PendingDelete, Shell};
 #[cfg(feature = "hydrate")]
 use crate::client::api;
 use crate::markup::Color;
-use crate::protocol::MessageEnvelope;
+use crate::protocol::{Attachment, MessageEnvelope};
 use crate::ui::emoji::data::{self, GROUPS};
 use crate::ui::markup_view::render_body;
 use crate::ui::AuthCtx;
@@ -319,20 +319,32 @@ fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoV
 /// Clicking one opens it in the lightbox. Thumbnails pull a downscaled JPEG
 /// (`?w=512`); the lightbox loads the full original.
 #[cfg(feature = "hydrate")]
-fn attachment_grid(ids: Vec<String>, lightbox: RwSignal<Option<String>>) -> impl IntoView {
-    let cols = match ids.len() {
+fn attachment_grid(atts: Vec<Attachment>, lightbox: RwSignal<Option<Attachment>>) -> impl IntoView {
+    let cols = match atts.len() {
         1 => 1,
         2 | 4 => 2,
         _ => 3,
     };
     view! {
         <div class=format!("attachments cols-{cols}")>
-            {ids.into_iter().map(|id| {
-                let open_id = id.clone();
-                view! {
-                    <img class="att-thumb" loading="lazy" alt="attachment"
-                        src=format!("/media/{id}?w=512")
-                        on:click=move |_| lightbox.set(Some(open_id.clone()))/>
+            {atts.into_iter().map(|att| {
+                let open = att.clone();
+                let is_video = att.mime.starts_with("video/");
+                let id = att.id.clone();
+                if is_video {
+                    // Videos use the raw blob (the `?w=512` thumbnail path is
+                    // image-only); play inline and open the lightbox on click.
+                    view! {
+                        <video class="att-thumb" controls preload="metadata"
+                            src=format!("/media/{id}")
+                            on:click=move |_| lightbox.set(Some(open.clone()))></video>
+                    }.into_any()
+                } else {
+                    view! {
+                        <img class="att-thumb" loading="lazy" alt="attachment"
+                            src=format!("/media/{id}?w=512")
+                            on:click=move |_| lightbox.set(Some(open.clone()))/>
+                    }.into_any()
                 }
             }).collect_view()}
         </div>
@@ -342,16 +354,30 @@ fn attachment_grid(ids: Vec<String>, lightbox: RwSignal<Option<String>>) -> impl
 /// SSR build has no lightbox interaction; render the grid as plain links so the
 /// markup still hydrates identically.
 #[cfg(not(feature = "hydrate"))]
-fn attachment_grid(ids: Vec<String>, _lightbox: RwSignal<Option<String>>) -> impl IntoView {
-    let cols = match ids.len() {
+fn attachment_grid(
+    atts: Vec<Attachment>,
+    _lightbox: RwSignal<Option<Attachment>>,
+) -> impl IntoView {
+    let cols = match atts.len() {
         1 => 1,
         2 | 4 => 2,
         _ => 3,
     };
     view! {
         <div class=format!("attachments cols-{cols}")>
-            {ids.into_iter().map(|id| view! {
-                <img class="att-thumb" alt="attachment" src=format!("/media/{id}?w=512")/>
+            {atts.into_iter().map(|att| {
+                let id = att.id.clone();
+                let is_video = att.mime.starts_with("video/");
+                if is_video {
+                    view! {
+                        <video class="att-thumb" controls preload="metadata"
+                            src=format!("/media/{id}")></video>
+                    }.into_any()
+                } else {
+                    view! {
+                        <img class="att-thumb" alt="attachment" src=format!("/media/{id}?w=512")/>
+                    }.into_any()
+                }
             }).collect_view()}
         </div>
     }
@@ -409,7 +435,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
     // Lightbox: media id of the attachment opened near-fullscreen, if any.
-    let lightbox = RwSignal::new(None::<String>);
+    let lightbox = RwSignal::new(None::<Attachment>);
 
     // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
     // the user's last scroll (i.e. pre-append). On a new message: your own →
@@ -788,15 +814,14 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 <div class="toolbar">
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.
-                    <label class="fmt attach" title="attach image">
+                    <label class="fmt attach" title="attach image or video">
                         "📎"
-                        // No `accept="image/*"`: that hint routes Android (and the
-                        // installed PWA) straight to Google Photos. Omitting it opens
-                        // the generic file/document chooser the user expects on both
-                        // Android and iOS — at the cost of allowing non-images, so we
-                        // filter to image/* client-side below (the server stores any
-                        // upload and chat renders attachments as <img>).
+                        // `accept="image/*,video/*"` scopes the picker to images
+                        // and videos (hiding documents). We still filter
+                        // client-side below since the picker hint isn't binding,
+                        // and the server stores any upload.
                         <input type="file" multiple style="display:none"
+                            accept="image/*,video/*"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
                                 {
@@ -809,8 +834,11 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
                                                     // Generic picker can return any file;
-                                                    // only images are valid attachments.
-                                                    if file.type_().starts_with("image/") {
+                                                    // only images and videos are valid.
+                                                    let t = file.type_();
+                                                    if t.starts_with("image/")
+                                                        || t.starts_with("video/")
+                                                    {
                                                         act::add_compose_attachment(s, file);
                                                     } else {
                                                         skipped = true;
@@ -819,7 +847,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                             }
                                             if skipped {
                                                 s.status.set(
-                                                    "Only image files can be attached.".to_string(),
+                                                    "Only images or videos can be attached."
+                                                        .to_string(),
                                                 );
                                             }
                                         }
@@ -950,11 +979,22 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     let atts = s.compose_attachments.get();
                     (!atts.is_empty()).then(|| view! {
                         <div class="compose-attachments">
-                            {atts.into_iter().map(|id| {
-                                let rid = id.clone();
+                            {atts.into_iter().map(|att| {
+                                let rid = att.id.clone();
+                                let id = att.id.clone();
+                                let is_video = att.mime.starts_with("video/");
+                                let thumb = if is_video {
+                                    view! {
+                                        <video src=format!("/media/{id}") muted preload="metadata"></video>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <img src=format!("/media/{id}?w=256") alt="pending attachment"/>
+                                    }.into_any()
+                                };
                                 view! {
                                     <div class="pending-att">
-                                        <img src=format!("/media/{id}?w=256") alt="pending attachment"/>
+                                        {thumb}
                                         <button class="att-remove" type="button" title="remove"
                                             on:click=move |_| act::remove_compose_attachment(s, rid.clone())>
                                             "✕"
@@ -1154,12 +1194,25 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             // Attachment lightbox — the clicked image near-fullscreen; click
             // anywhere (or the ✕) to close. Loads the full original, not the
             // grid thumbnail.
-            {move || lightbox.get().map(|id| {
+            {move || lightbox.get().map(|att| {
+                let id = att.id.clone();
+                let is_video = att.mime.starts_with("video/");
+                // Full original (no `?w=512`); video gets autoplay+controls.
+                let media = if is_video {
+                    view! {
+                        <video class="lightbox-img" controls autoplay
+                            src=format!("/media/{id}")></video>
+                    }.into_any()
+                } else {
+                    view! {
+                        <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
+                    }.into_any()
+                };
                 view! {
                     <div class="lightbox" on:click=move |_| lightbox.set(None)>
                         <button class="lightbox-close" title="close"
                             on:click=move |_| lightbox.set(None)>"✕"</button>
-                        <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
+                        {media}
                     </div>
                 }
             })}

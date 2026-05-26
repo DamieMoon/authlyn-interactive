@@ -2,7 +2,7 @@
 //! `main.rs` mounts (and the test harness consumes via [`make_router`]).
 //!
 //! Routes split into two body-limit groups: JSON routes under a tight 64 KiB
-//! cap, and media upload/download under a 16 MiB cap. The split is required
+//! cap, and media upload/download under a 64 MiB cap. The split is required
 //! because `RequestBodyLimitLayer` composes with min-limit semantics — a
 //! larger inner cap under a smaller outer one still rejects at the smaller
 //! one, so the two caps must live on disjoint route groups.
@@ -34,8 +34,8 @@ pub use self::state::AppState;
 /// Tight cap for JSON request bodies (auth, guilds, messages, personas, …).
 const REQUEST_BODY_LIMIT_BYTES: usize = 512 * 1024;
 
-/// Larger cap for `POST /media` image uploads.
-const MEDIA_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+/// Larger cap for `POST /media` image and video uploads.
+const MEDIA_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// JSON API routes, under the small body cap. Mutations self-gate via the
 /// [`auth::AuthAccount`] extractor; `register`/`login` are public.
