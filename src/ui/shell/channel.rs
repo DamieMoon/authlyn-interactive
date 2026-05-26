@@ -830,13 +830,13 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     // Each pick uploads immediately and stages the media id.
                     <label class="fmt attach" title="attach image or video">
                         "📎"
-                        // `accept="image/*,video/*"` makes Android open the system
-                        // photo picker (gallery) directly — the desired "just open
-                        // the gallery" behaviour — and scopes desktop dialogs to
-                        // media. We still filter client-side below (the hint isn't
-                        // binding and the server stores any upload).
+                        // NO `accept`: on Android a media `accept` hint makes Chrome
+                        // launch the system photo picker (Google Photos on this
+                        // device), which the user doesn't want; omitting it gives the
+                        // generic Files chooser instead. A PWA can't target a specific
+                        // gallery app, so this is the better of the two reachable
+                        // options. We filter to image/video client-side below.
                         <input type="file" multiple style="display:none"
-                            accept="image/*,video/*"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
                                 {
