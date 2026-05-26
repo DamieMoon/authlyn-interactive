@@ -8,9 +8,12 @@
 //!   the session extractor, never from the request body.
 //!
 //! - `GET  /feedback`  — ADMIN-ONLY: returns all rows newest-first with the
-//!   author's username joined. Admin is the account whose username matches
-//!   `AUTHLYN_ADMIN_USERNAME` in the environment; if the env var is unset or
-//!   does not match the caller the endpoint responds 403 (fail-closed).
+//!   author's username joined. Admins are configured via the environment:
+//!   `AUTHLYN_ADMIN_USERNAMES` (a comma/whitespace-separated list) plus the
+//!   legacy singular `AUTHLYN_ADMIN_USERNAME` (both are unioned). A caller is
+//!   authorized iff their username matches any configured entry
+//!   case-insensitively. If neither var is set (or both empty) no one is
+//!   authorized and the endpoint responds 403 (fail-closed).
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
@@ -85,8 +88,13 @@ pub async fn submit_feedback(
 
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn list_feedback(State(state): State<AppState>, account: AuthAccount) -> Response {
-    if !is_admin(&account.0) {
-        return error_response(StatusCode::FORBIDDEN, "forbidden");
+    match is_admin(&state, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::FORBIDDEN, "forbidden"),
+        Err(e) => {
+            tracing::error!(error = %e, "admin check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
     }
 
     match load_feedback(&state).await {
@@ -157,13 +165,54 @@ fn coerce_kind(kind: &str) -> &'static str {
     }
 }
 
-/// Admin guard: fail-closed. Returns `false` if `AUTHLYN_ADMIN_USERNAME` is
-/// unset, empty, or does not exactly match the caller's username.
-fn is_admin(username: &str) -> bool {
-    match std::env::var("AUTHLYN_ADMIN_USERNAME") {
-        Ok(admin) if !admin.is_empty() => admin == username,
-        _ => false,
+/// Admin guard: fail-closed. The caller (identified by account id) is an admin
+/// iff their stored `username_ci` is in the configured admin set. The set is the
+/// union of `AUTHLYN_ADMIN_USERNAMES` (comma/whitespace-separated) and the legacy
+/// singular `AUTHLYN_ADMIN_USERNAME`, each entry trimmed and lowercased. If the
+/// set is empty (neither var set, or both blank) no one is authorized.
+async fn is_admin(state: &AppState, account_id: &str) -> surrealdb::Result<bool> {
+    let admins = admin_username_set();
+    if admins.is_empty() {
+        return Ok(false);
     }
+
+    #[derive(SurrealValue)]
+    struct Row {
+        username_ci: String,
+    }
+    let mut resp = state
+        .db
+        .query("SELECT username_ci FROM type::record('account', $account_id);")
+        .bind(("account_id", account_id.to_string()))
+        .await?
+        .check()?;
+    let row: Option<Row> = resp.take(0)?;
+    Ok(row
+        .map(|r| admins.contains(&r.username_ci))
+        .unwrap_or(false))
+}
+
+/// Build the lowercased admin-username set from the environment. Unions
+/// `AUTHLYN_ADMIN_USERNAMES` (comma- and/or whitespace-separated) with the
+/// legacy singular `AUTHLYN_ADMIN_USERNAME`. Entries are trimmed, lowercased,
+/// and empties dropped.
+fn admin_username_set() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(list) = std::env::var("AUTHLYN_ADMIN_USERNAMES") {
+        for entry in list.split([',', ' ', '\t', '\n', '\r']) {
+            let e = entry.trim();
+            if !e.is_empty() {
+                set.insert(e.to_lowercase());
+            }
+        }
+    }
+    if let Ok(single) = std::env::var("AUTHLYN_ADMIN_USERNAME") {
+        let e = single.trim();
+        if !e.is_empty() {
+            set.insert(e.to_lowercase());
+        }
+    }
+    set
 }
 
 fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
