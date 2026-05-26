@@ -26,8 +26,17 @@ fn valid_emoji_name(name: &str) -> bool {
 #[component]
 pub(crate) fn EmojiManagerPane(s: Shell) -> impl IntoView {
     let new_name = RwSignal::new(String::new());
-    let err = RwSignal::new(String::new());
     let pending_media = RwSignal::new(None::<String>);
+
+    // Live name validity, derived from the staged name. Empty is "not yet typed"
+    // (no error shown, but Add stays disabled); a non-empty invalid name shows
+    // the `.emoji-mgr-err` message and keeps Add disabled.
+    let name_valid = move || valid_emoji_name(&new_name.get());
+    let name_error = move || {
+        let n = new_name.get();
+        (!n.is_empty() && !valid_emoji_name(&n))
+            .then(|| "Name must be 2–32 chars: a–z, 0–9, _".to_string())
+    };
 
     let gid = move || s.sel_server.get().unwrap_or_default();
 
@@ -92,20 +101,18 @@ pub(crate) fn EmojiManagerPane(s: Shell) -> impl IntoView {
                     on:input=move |ev| new_name.set(event_target_value(&ev))
                     placeholder="name (a-z 0-9 _)"/>
                 {move || {
-                    let e = err.get();
-                    (!e.is_empty()).then(|| view! { <div class="emoji-mgr-err">{e}</div> })
+                    name_error().map(|e| view! { <div class="emoji-mgr-err">{e}</div> })
                 }}
                 <button
-                    disabled=move || pending_media.get().is_none()
+                    disabled=move || pending_media.get().is_none() || !name_valid()
                     on:click=move |_| {
                         let name = new_name.get_untracked();
-                        if !valid_emoji_name(&name) {
-                            err.set("Name must be 2–32 chars: a–z, 0–9, _".to_string());
-                        } else if let Some(mid) = pending_media.get_untracked() {
-                            act::create_guild_emoji(s, gid(), name, mid);
-                            new_name.set(String::new());
-                            pending_media.set(None);
-                            err.set(String::new());
+                        if valid_emoji_name(&name) {
+                            if let Some(mid) = pending_media.get_untracked() {
+                                act::create_guild_emoji(s, gid(), name, mid);
+                                new_name.set(String::new());
+                                pending_media.set(None);
+                            }
                         }
                     }>
                     "Add"
