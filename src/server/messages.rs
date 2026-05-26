@@ -3,10 +3,11 @@
 //!
 //! Channel-scoped, server-trusted (plaintext) messages with the proven
 //! `(sent_at, id)` composite-cursor pagination. The author comes from the
-//! session ([`AuthAccount`]); the "speaking-as" persona is resolved
-//! server-side from the caller's `guild_member.active_persona` for the
-//! channel's guild — never trusted from the body. `body` is stored verbatim
-//! (it may contain [`crate::markup`] formatting, rendered client-side).
+//! session ([`AuthAccount`]); the "speaking-as" persona is PER-CHANNEL — the
+//! client sends the persona it's wearing in this channel and the server snapshots
+//! it after validating the caller may use it (`can_edit_persona`), falling back to
+//! the stored `channel_active_persona` row, else the account. `body` is stored
+//! verbatim (it may contain [`crate::markup`] formatting, rendered client-side).
 //!
 //! ## Privacy 404s
 //! Unknown channel and caller-not-a-member-of-the-channel's-guild both
@@ -104,7 +105,7 @@ pub async fn post_message(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    let active_persona = match access {
+    let stored_persona = match access {
         AccessOutcome::Ok(ctx) => {
             if ctx.kind != "text" {
                 return error_response(
@@ -117,6 +118,22 @@ pub async fn post_message(
         AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
             return error_response(StatusCode::NOT_FOUND, "channel not found");
         }
+    };
+    // Attribution is decided at send time, never racing the per-channel wear
+    // write: trust the persona the client says it's wearing here AFTER checking
+    // the caller may use it; if absent/invalid, fall back to the stored
+    // per-channel persona (`channel_active_persona`), else speak as the account.
+    let active_persona = match req.persona_id.as_deref() {
+        Some(pid) => match crate::server::personas::can_edit_persona(&state, pid, &account.0).await
+        {
+            Ok(true) => Some(pid.to_string()),
+            Ok(false) => stored_persona,
+            Err(e) => {
+                tracing::error!(error = %e, "can_edit_persona failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        },
+        None => stored_persona,
     };
 
     match persist_message(

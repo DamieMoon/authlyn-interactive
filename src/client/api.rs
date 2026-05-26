@@ -256,12 +256,14 @@ pub async fn post_message(
     cid: &str,
     body: &str,
     attachment_ids: Vec<String>,
+    persona_id: Option<String>,
 ) -> Result<SendMessageResponse, ApiError> {
     post_json(
         &format!("/channels/{cid}/messages"),
         &SendMessageRequest {
             body: body.to_string(),
             attachment_ids,
+            persona_id,
         },
     )
     .await

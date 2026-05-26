@@ -193,6 +193,13 @@ pub struct SendMessageRequest {
     /// order. May be empty. A message with attachments may have an empty body.
     #[serde(default)]
     pub attachment_ids: Vec<String>,
+    /// The persona the author is "wearing" in THIS channel, sent by the client
+    /// so attribution is decided at send time and never races a separate
+    /// per-channel write. The server VALIDATES the caller may use it
+    /// (`can_edit_persona`); if absent/invalid it falls back to the stored
+    /// per-channel persona (`channel_active_persona`), else speaks as the account.
+    #[serde(default)]
+    pub persona_id: Option<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.

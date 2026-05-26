@@ -1047,7 +1047,11 @@ async fn is_persona_editor(state: &AppState, pid: &str, account: &str) -> surrea
 }
 
 /// Edit access = owner OR a redeemed editor. Used to gate PATCH + wear.
-async fn can_edit_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
+pub(crate) async fn can_edit_persona(
+    state: &AppState,
+    pid: &str,
+    account: &str,
+) -> surrealdb::Result<bool> {
     if owns_persona(state, pid, account).await? {
         return Ok(true);
     }

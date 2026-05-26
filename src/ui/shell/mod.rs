@@ -847,6 +847,12 @@ mod act {
     pub fn open_channel(s: Shell, ch: ChannelSummary) {
         let cid = ch.id.clone();
         let kind = ch.kind.clone();
+        // Re-opening the channel you're already on (e.g. returning from the
+        // Wardrobe pane) must NOT reset the worn persona from the server — a
+        // just-worn value could be clobbered by a stale read before its write
+        // commits. Only adopt the server's remembered persona when SWITCHING
+        // to a different channel.
+        let same_channel = s.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
         let _ = LocalStorage::set(KEY_CHANNEL, &cid);
         s.sel_channel.set(Some(ch));
         if kind == "lorebook" {
@@ -881,9 +887,12 @@ mod act {
                         .first()
                         .map(|m| (m.sent_at.clone(), m.id.clone()));
                     let full_page = l.messages.len() == MESSAGES_PAGE_LIMIT;
-                    // The worn persona is now per-channel: restore this channel's
-                    // value (or None = speak as account) from the response.
-                    s.active_persona.set(l.active_persona);
+                    // The worn persona is per-channel: restore this channel's
+                    // remembered value (or None = speak as account) when SWITCHING
+                    // channels; preserve a just-worn value on same-channel re-open.
+                    if !same_channel {
+                        s.active_persona.set(l.active_persona);
+                    }
                     ingest(s, l.messages);
                     s.oldest.set(oldest);
                     s.more_history.set(full_page);
@@ -985,8 +994,12 @@ mod act {
         // Sending is a user gesture — a reliable point to request notification
         // permission so background channels can notify later.
         request_notify_permission();
+        // Carry the persona worn in THIS channel so attribution is decided at
+        // send time (race-proof) rather than depending on a separately-written
+        // per-channel row having committed.
+        let persona = s.active_persona.get_untracked();
         spawn_local(async move {
-            match api::post_message(&ch.id, &body, attachments).await {
+            match api::post_message(&ch.id, &body, attachments, persona).await {
                 Ok(_) => {
                     let cur = s.cursor.get_untracked();
                     if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
