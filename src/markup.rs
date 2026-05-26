@@ -14,6 +14,12 @@
 //! - color: `[name]text[/name]` where `name` is one of the fixed [`Color`]
 //!   palette (red, orange, yellow, green, blue, purple, pink, gray)
 //! - inline code: `` `text` `` (monospace; no inline markup applies inside)
+//! - dialogue: `"text"` (RP speech; the renderer keeps the quotes, and a
+//!   per-user toggle styles it at render time — see [`Node::Dialogue`])
+//! - emoji: `:shortcode:` (a custom per-guild emoji or a standard unicode
+//!   glyph; an unknown/ill-formed shortcode stays literal — see [`Node::Emoji`])
+//! - image: `![alt](url)` (embedded inline image — see [`Node::Image`])
+//! - spoiler: `||text||` (hidden until clicked — see [`Node::Spoiler`])
 //!
 //! Block / line-leading (Discord-style, marker must start a line + be followed
 //! by a space):
@@ -102,6 +108,18 @@ pub enum Node {
     Subtext(Vec<Node>),
     /// A fenced ```` ``` ```` code block. Verbatim, no inner markup.
     CodeBlock(String),
+    /// RP dialogue `"…"`. Children are parsed inline (nesting allowed). The
+    /// renderer re-emits the surrounding quotes, so the text reads identically
+    /// whether or not the per-user dialogue styling is active.
+    Dialogue(Vec<Node>),
+    /// Emoji shortcode `:name:` — the bare name. Resolved at render time to a
+    /// custom per-guild emoji image or a standard unicode glyph (lenient: an
+    /// unknown shortcode renders as the literal `:name:`).
+    Emoji(String),
+    /// Embedded image `![alt](url)`.
+    Image(String, String),
+    /// Spoiler `||…||`: hidden until clicked. Children parsed inline (nests).
+    Spoiler(Vec<Node>),
 }
 
 /// Parse a message body into a markup tree. Never fails (see module docs).
@@ -200,6 +218,14 @@ enum Tok {
     ColorClose(Color),
     /// A fully-formed inline code span; contents are already literal.
     Code(String),
+    /// `"` dialogue delimiter (toggles like bold/italic).
+    Dialogue,
+    /// `||` spoiler delimiter (toggles like bold/italic).
+    Spoiler,
+    /// A fully-formed `![alt](url)` image (alt, url).
+    Image(String, String),
+    /// A fully-formed `:name:` emoji shortcode (the bare name).
+    Emoji(String),
 }
 
 fn tokenize(s: &str) -> Vec<Tok> {
@@ -247,6 +273,32 @@ fn tokenize(s: &str) -> Vec<Tok> {
                 buf.push('[');
                 i += 1;
             }
+        } else if rest.starts_with("![") {
+            if let Some((tok, len)) = parse_image(rest) {
+                flush!();
+                tokens.push(tok);
+                i += len;
+            } else {
+                buf.push('!');
+                i += 1;
+            }
+        } else if rest.starts_with("||") {
+            flush!();
+            tokens.push(Tok::Spoiler);
+            i += 2;
+        } else if rest.starts_with('"') {
+            flush!();
+            tokens.push(Tok::Dialogue);
+            i += 1;
+        } else if rest.starts_with(':') {
+            if let Some((name, len)) = parse_emoji(rest) {
+                flush!();
+                tokens.push(Tok::Emoji(name));
+                i += len;
+            } else {
+                buf.push(':');
+                i += 1;
+            }
         } else {
             // Consume one full char (UTF-8 safe; `i` stays on a boundary).
             let ch = rest.chars().next().expect("non-empty rest");
@@ -273,6 +325,46 @@ fn parse_color_tag(rest: &str) -> Option<(Tok, usize)> {
     }
 }
 
+/// If `rest` (starting with `![`) opens a well-formed `![alt](url)` image,
+/// return the [`Tok::Image`] and the byte length consumed (through the closing
+/// `)`). Any malformation (missing `]`, missing `(`, missing `)`) returns
+/// `None`, so the leading `!` falls through to literal text. `alt` runs to the
+/// first `]`; `url` runs to the first `)`.
+fn parse_image(rest: &str) -> Option<(Tok, usize)> {
+    let after_bang = &rest[1..]; // "[alt](url)…"
+    let close_br = after_bang.find(']')?;
+    let alt = &after_bang[1..close_br];
+    let after_br = &after_bang[close_br + 1..]; // "(url)…"
+    let rest_paren = after_br.strip_prefix('(')?;
+    let close_par = rest_paren.find(')')?;
+    let url = &rest_paren[..close_par];
+    // '!' + '[' + alt + ']' + '(' + url + ')'
+    let consumed = 1 + 1 + alt.len() + 1 + 1 + url.len() + 1;
+    Some((Tok::Image(alt.to_string(), url.to_string()), consumed))
+}
+
+/// If `rest` (starting with `:`) opens a well-formed `:shortcode:` — one or more
+/// of `[a-z0-9_]` between two colons — return the bare name and the byte length
+/// consumed. An empty run, an unterminated run, or any other character returns
+/// `None`, so the leading `:` falls through to literal text (keeping `12:30`,
+/// `:)`, and `https://` intact).
+fn parse_emoji(rest: &str) -> Option<(String, usize)> {
+    let after = &rest[1..];
+    let close = after.find(':')?;
+    if close == 0 {
+        return None;
+    }
+    let name = &after[..close];
+    if name
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        Some((name.to_string(), 1 + name.len() + 1))
+    } else {
+        None
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tree builder (stack of open spans; unclosed spans unwind to literal text)
 // ---------------------------------------------------------------------------
@@ -282,6 +374,8 @@ enum FrameKind {
     Bold,
     Italic,
     Color(Color),
+    Dialogue,
+    Spoiler,
 }
 
 struct Frame {
@@ -317,6 +411,10 @@ fn build_tree(tokens: Vec<Tok>) -> Vec<Node> {
                     push_text(&mut top(&mut stack).children, &lit);
                 }
             }
+            Tok::Dialogue => toggle(&mut stack, FrameKind::Dialogue, "\""),
+            Tok::Spoiler => toggle(&mut stack, FrameKind::Spoiler, "||"),
+            Tok::Image(alt, url) => top(&mut stack).children.push(Node::Image(alt, url)),
+            Tok::Emoji(name) => top(&mut stack).children.push(Node::Emoji(name)),
         }
     }
 
@@ -343,7 +441,10 @@ fn top(stack: &mut [Frame]) -> &mut Frame {
 fn toggle(stack: &mut Vec<Frame>, kind: FrameKind, opener: &str) {
     let matches_top = matches!(
         (&top(stack).kind, &kind),
-        (FrameKind::Bold, FrameKind::Bold) | (FrameKind::Italic, FrameKind::Italic)
+        (FrameKind::Bold, FrameKind::Bold)
+            | (FrameKind::Italic, FrameKind::Italic)
+            | (FrameKind::Dialogue, FrameKind::Dialogue)
+            | (FrameKind::Spoiler, FrameKind::Spoiler)
     );
     if matches_top {
         close_top(stack);
@@ -362,6 +463,8 @@ fn close_top(stack: &mut Vec<Frame>) {
         FrameKind::Bold => Node::Bold(frame.children),
         FrameKind::Italic => Node::Italic(frame.children),
         FrameKind::Color(c) => Node::Color(c, frame.children),
+        FrameKind::Dialogue => Node::Dialogue(frame.children),
+        FrameKind::Spoiler => Node::Spoiler(frame.children),
         FrameKind::Root => unreachable!("the root frame is never closed"),
     };
     push_node(&mut top(stack).children, node);
@@ -592,6 +695,107 @@ mod tests {
                 Node::Heading(1, vec![text("Title")]),
                 text("body"),
             ]
+        );
+    }
+
+    // --- Wave B constructs: dialogue / emoji / image / spoiler -------------
+
+    #[test]
+    fn dialogue_quotes_become_a_node() {
+        assert_eq!(
+            parse("\"hello\""),
+            vec![Node::Dialogue(vec![text("hello")])]
+        );
+    }
+
+    #[test]
+    fn dialogue_nests_inline_markup() {
+        assert_eq!(
+            parse("\"she **waves**\""),
+            vec![Node::Dialogue(vec![
+                text("she "),
+                Node::Bold(vec![text("waves")]),
+            ])]
+        );
+    }
+
+    #[test]
+    fn two_dialogue_runs_with_narration_between() {
+        assert_eq!(
+            parse("\"a\" then \"b\""),
+            vec![
+                Node::Dialogue(vec![text("a")]),
+                text(" then "),
+                Node::Dialogue(vec![text("b")]),
+            ]
+        );
+    }
+
+    #[test]
+    fn unclosed_dialogue_is_literal_quote() {
+        assert_eq!(parse("\"hello"), vec![text("\"hello")]);
+    }
+
+    #[test]
+    fn emoji_shortcode_becomes_a_node() {
+        assert_eq!(parse(":smile:"), vec![Node::Emoji("smile".to_string())]);
+        assert_eq!(
+            parse("hi :wave: there"),
+            vec![text("hi "), Node::Emoji("wave".to_string()), text(" there"),]
+        );
+    }
+
+    #[test]
+    fn non_emoji_colons_stay_literal() {
+        // Times, smileys and URLs must survive untouched.
+        assert_eq!(parse("12:30"), vec![text("12:30")]);
+        assert_eq!(parse(":)"), vec![text(":)")]);
+        assert_eq!(parse("see https://x"), vec![text("see https://x")]);
+        assert_eq!(parse("a :: b"), vec![text("a :: b")]);
+        assert_eq!(
+            parse(":Caps:"),
+            vec![text(":Caps:")],
+            "shortcodes are lowercase-only"
+        );
+    }
+
+    #[test]
+    fn image_becomes_a_node() {
+        assert_eq!(
+            parse("![a cat](/media/abc)"),
+            vec![Node::Image("a cat".to_string(), "/media/abc".to_string())]
+        );
+    }
+
+    #[test]
+    fn malformed_image_is_literal() {
+        assert_eq!(parse("![a]"), vec![text("![a]")], "no url");
+        assert_eq!(parse("![a](u"), vec![text("![a](u")], "unterminated url");
+        assert_eq!(parse("text ! bang"), vec![text("text ! bang")], "lone bang");
+    }
+
+    #[test]
+    fn spoiler_becomes_a_node() {
+        assert_eq!(
+            parse("||secret||"),
+            vec![Node::Spoiler(vec![text("secret")])]
+        );
+    }
+
+    #[test]
+    fn unclosed_spoiler_and_single_pipe_are_literal() {
+        assert_eq!(parse("||oops"), vec![text("||oops")]);
+        assert_eq!(parse("a | b"), vec![text("a | b")]);
+    }
+
+    #[test]
+    fn spoiler_nests_inline_markup() {
+        assert_eq!(
+            parse("||a **secret**||"),
+            vec![Node::Spoiler(vec![
+                text("a "),
+                Node::Bold(vec![text("secret")]),
+            ])]
         );
     }
 }

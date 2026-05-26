@@ -37,5 +37,32 @@ fn render_node(node: Node) -> AnyView {
             view! { <small class="mk-subtext">{render_nodes(children)}</small> }.into_any()
         }
         Node::CodeBlock(s) => view! { <pre class="mk-pre"><code>{s}</code></pre> }.into_any(),
+        // The quotes are re-emitted so the text reads identically whether or not
+        // the per-user dialogue styling (a `.dialogue-style` root class) is on.
+        Node::Dialogue(children) => {
+            view! { <span class="mk-dialogue">{"\""}{render_nodes(children)}{"\""}</span> }
+                .into_any()
+        }
+        // Lenient literal fallback. Upgraded to a custom-emoji image / unicode
+        // glyph by the `EmojiResolver` context (emoji subsystem, build step U1).
+        Node::Emoji(name) => format!(":{name}:").into_any(),
+        Node::Image(alt, url) => {
+            view! { <img class="mk-image" src=url alt=alt loading="lazy" /> }.into_any()
+        }
+        // Hidden until clicked: a per-node signal flips a `revealed` class. No
+        // web_sys needed, so it compiles for ssr too (inert until hydrated).
+        Node::Spoiler(children) => {
+            let revealed = RwSignal::new(false);
+            view! {
+                <span
+                    class="mk-spoiler"
+                    class:revealed=move || revealed.get()
+                    on:click=move |_| revealed.set(true)
+                >
+                    {render_nodes(children)}
+                </span>
+            }
+            .into_any()
+        }
     }
 }
