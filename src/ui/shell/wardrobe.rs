@@ -299,10 +299,10 @@ fn PersonaCard(
                 // to the full list). ↑ disabled on the first card, ↓ on the last.
                 {reorder.then(|| view! {
                     <button class="persona-reorder" title="Move up"
-                        disabled=idx == 0
+                        disabled=move || idx == 0
                         on:click=move |_| act::swap_persona(s, idx, true)>"↑"</button>
                     <button class="persona-reorder" title="Move down"
-                        disabled=idx + 1 >= len
+                        disabled=move || idx + 1 >= len
                         on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
                 })}
                 <Show when=move || worn.get()
