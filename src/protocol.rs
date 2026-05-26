@@ -96,6 +96,15 @@ pub struct ListGuildsResponse {
     pub guilds: Vec<GuildSummary>,
 }
 
+/// Body of `PUT /rail/order` (#17/FB2) — the caller's personal guild-rail order.
+/// `guild_ids` is the full rail in the desired top-to-bottom order; the server
+/// replaces the caller's `user_guild_order` rows with one row per id (index =
+/// position). Ids the caller isn't a member of are rejected.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RailOrderRequest {
+    pub guild_ids: Vec<String>,
+}
+
 /// One channel within a guild. `kind` is `"text"` or `"lorebook"`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelSummary {

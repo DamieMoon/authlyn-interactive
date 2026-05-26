@@ -53,6 +53,8 @@ fn small_body_routes() -> Router<AppState> {
         // Soft-delete trash (#22). `/guilds/trash` is static so it wins over
         // `/guilds/{id}` in axum's router regardless of declaration order.
         .route("/guilds/trash", get(guilds::list_deleted_guilds))
+        // Per-user guild rail order (#17/FB2): replace the caller's order.
+        .route("/rail/order", put(guilds::set_rail_order))
         .route(
             "/guilds/{id}",
             get(guilds::get_guild)

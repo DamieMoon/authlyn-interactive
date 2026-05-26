@@ -227,3 +227,15 @@ DEFINE FIELD IF NOT EXISTS creator    ON custom_emoji TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS created_at ON custom_emoji TYPE datetime DEFAULT time::now();
 -- Per-guild uniqueness: one shortcode per guild (same name OK in different guilds).
 DEFINE INDEX IF NOT EXISTS custom_emoji_guild_name ON custom_emoji FIELDS guild, name UNIQUE;
+
+-- Per-user guild rail order (#17/FB2) --------------------------------------
+-- Each row records one account's chosen display position for one guild in
+-- their personal server rail. New table; no rows predate these fields, so no
+-- NONE-coercion backfill hazard. Guilds with no row sort last (stable key) in
+-- `list_guilds`. The PUT /rail/order handler replaces an account's rows wholesale.
+DEFINE TABLE IF NOT EXISTS user_guild_order SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS account  ON user_guild_order TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS guild    ON user_guild_order TYPE record<guild>;
+DEFINE FIELD IF NOT EXISTS position ON user_guild_order TYPE int;
+-- One ordering row per (account, guild). UNIQUE so a re-order can upsert cleanly.
+DEFINE INDEX IF NOT EXISTS user_guild_order_pair ON user_guild_order FIELDS account, guild UNIQUE;

@@ -15,8 +15,9 @@ use crate::protocol::{
     ListLorebookResponse, ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse,
     ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    PushSubscribeRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest, VapidKeyResponse,
+    PushSubscribeRequest, RailOrderRequest, RegisterRequest, SendMessageRequest,
+    SendMessageResponse, SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest,
+    VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -93,6 +94,18 @@ pub async fn list_guilds() -> Result<ListGuildsResponse, ApiError> {
     get("/guilds").await
 }
 
+/// Persist the caller's personal guild-rail order (#17/FB2). `guild_ids` is the
+/// full rail top-to-bottom; the server replaces the caller's order rows. 204.
+pub async fn set_rail_order(guild_ids: Vec<String>) -> Result<(), ApiError> {
+    let resp = Request::put("/rail/order")
+        .json(&RailOrderRequest { guild_ids })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
 pub async fn create_guild(name: &str) -> Result<GuildSummary, ApiError> {
     post_json(
         "/guilds",
@@ -163,6 +176,21 @@ pub async fn patch_channel(gid: &str, cid: &str, name: &str) -> Result<(), ApiEr
     let resp = Request::patch(&format!("/guilds/{gid}/channels/{cid}"))
         .json(&PatchChannelRequest {
             name: Some(name.to_string()),
+            ..Default::default()
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Persist a channel's per-guild display order (owner/admin only). 204. Used by
+/// the reorder ↑/↓ controls, which swap two channels' positions.
+pub async fn set_channel_position(gid: &str, cid: &str, position: i64) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/guilds/{gid}/channels/{cid}"))
+        .json(&PatchChannelRequest {
+            position: Some(position),
             ..Default::default()
         })
         .map_err(codec)?
