@@ -27,12 +27,14 @@ use crate::ui::AuthCtx;
 
 mod account;
 mod channel;
+mod emoji_manager;
 mod friends;
 mod lorebook;
 mod wardrobe;
 
 use account::AccountModal;
 use channel::ChannelPane;
+use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
 use wardrobe::WardrobePane;
@@ -65,6 +67,7 @@ enum Pane {
     Channel,
     Lorebook,
     Wardrobe,
+    Emoji,
 }
 
 /// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
@@ -391,6 +394,10 @@ fn AppShell() -> impl IntoView {
                         on:click=move |_| { act::show_wardrobe(s); s.nav_open.set(false); }>
                         "🎭 Wardrobe"
                     </button>
+                    <button class="wardrobe-btn"
+                        on:click=move |_| { act::show_emoji_manager(s); s.nav_open.set(false); }>
+                        "😀 Emoji"
+                    </button>
                     <ul class="channels">
                         {move || s.channels.get().into_iter().map(|c| {
                             view! { <ChannelRow s=s ch=c editing=editing_channel buf=channel_edit_buf/> }
@@ -521,6 +528,7 @@ fn AppShell() -> impl IntoView {
                     Pane::Channel => view! { <ChannelPane s=s/> }.into_any(),
                     Pane::Lorebook => view! { <LorebookPane s=s/> }.into_any(),
                     Pane::Wardrobe => view! { <WardrobePane s=s/> }.into_any(),
+                    Pane::Emoji => view! { <EmojiManagerPane s=s/> }.into_any(),
                 }}
                 <p class="error">{move || s.status.get()}</p>
             </section>
@@ -674,7 +682,7 @@ fn ChannelRow(
 mod act {
     use super::{Pane, PendingDelete, Shell};
     use crate::client::api;
-    use crate::protocol::{ChannelSummary, MessageEnvelope};
+    use crate::protocol::{ChannelSummary, CreateEmojiRequest, MessageEnvelope};
     use crate::ui::AuthCtx;
     use gloo_storage::{LocalStorage, Storage};
     use leptos::prelude::*;
@@ -1072,6 +1080,51 @@ mod act {
         spawn_local(async move {
             if let Ok(r) = api::list_personas().await {
                 s.personas.set(r.personas);
+            }
+        });
+    }
+
+    /// Open the per-guild custom-emoji manager. The list is already kept fresh
+    /// in `s.guild_emoji` (loaded when the guild opens, refreshed on each
+    /// create/delete), so this only flips the pane.
+    pub fn show_emoji_manager(s: Shell) {
+        s.pane.set(Pane::Emoji);
+    }
+
+    /// Create a named custom emoji from an already-uploaded media id, then
+    /// reload `s.guild_emoji` so the new emoji is immediately usable.
+    pub fn create_guild_emoji(s: Shell, gid: String, name: String, media_id: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::create_emoji(&gid, &CreateEmojiRequest { name, media_id }).await {
+                Ok(_) => refresh_guild_emoji(s, gid),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Delete a custom emoji by name (owner/admin only — backend enforces),
+    /// then reload `s.guild_emoji`.
+    pub fn delete_guild_emoji(s: Shell, gid: String, name: String) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::delete_emoji(&gid, &name).await {
+                Ok(()) => refresh_guild_emoji(s, gid),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Upload a picked image and stage its media id in `into` (the emoji
+    /// manager's pending-upload signal); "Add" then names it. Mirrors
+    /// `add_compose_attachment`'s upload, staging into a caller-owned signal
+    /// rather than the composer's attachment list.
+    pub fn upload_emoji_image(s: Shell, file: web_sys::File, into: RwSignal<Option<String>>) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::upload_media(&file).await {
+                Ok(id) => into.set(Some(id)),
+                Err(e) => s.status.set(api::humanize(&e)),
             }
         });
     }
@@ -2190,6 +2243,10 @@ mod act {
     pub fn delete_server(_s: Shell, _gid: String) {}
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}
+    pub fn show_emoji_manager(_s: Shell) {}
+    pub fn create_guild_emoji(_s: Shell, _gid: String, _name: String, _media_id: String) {}
+    pub fn delete_guild_emoji(_s: Shell, _gid: String, _name: String) {}
+    pub fn upload_emoji_image(_s: Shell, _into: leptos::prelude::RwSignal<Option<String>>) {}
     pub fn create_persona(_s: Shell, _name: String, _desc: String) {}
     pub fn update_persona(
         _s: Shell,
