@@ -625,6 +625,111 @@ pub async fn set_active_persona(
 }
 
 // ---------------------------------------------------------------------------
+// PUT /channels/{cid}/active-persona  — per-channel worn persona (#persona)
+// ---------------------------------------------------------------------------
+
+/// True when `account` is a member of the guild that owns channel `cid` (and
+/// the channel/guild aren't soft-deleted). Channel-scoped membership gate that
+/// mirrors `messages::channel_access`'s guild-membership check.
+async fn is_channel_member(state: &AppState, cid: &str, account: &str) -> surrealdb::Result<bool> {
+    #[derive(SurrealValue)]
+    struct IdRow {
+        id_key: String,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "LET $g = (SELECT VALUE guild FROM ONLY type::record('channel', $cid)
+                        WHERE deleted_at = NONE AND guild.deleted_at = NONE);
+             SELECT meta::id(id) AS id_key FROM guild_member
+                WHERE guild = $g AND account = type::record('account', $account);",
+        )
+        .bind(("cid", cid.to_string()))
+        .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    // Statement 0 is the LET; the SELECT is statement 1.
+    Ok(resp.take::<Option<IdRow>>(1)?.is_some())
+}
+
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
+pub async fn set_channel_active_persona(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    account: AuthAccount,
+    payload: Result<Json<SetActivePersonaRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+
+    // Caller must be a member of the channel's guild (privacy-404 otherwise).
+    match is_channel_member(&state, &cid, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::NOT_FOUND, "channel not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "is_channel_member failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    if let Some(ref pid) = req.persona_id {
+        // Editors (key-redeemed) may also wear the persona, not just the owner.
+        match can_edit_persona(&state, pid, &account.0).await {
+            Ok(true) => {}
+            Ok(false) => return error_response(StatusCode::NOT_FOUND, "persona not found"),
+            Err(e) => {
+                tracing::error!(error = %e, "can_edit_persona failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        }
+    }
+
+    // Pure per-channel state: delete any existing row for (account, channel)
+    // then, if wearing, create the new one — in one transaction so a wear is
+    // never observed as "both rows" or "no row".
+    let outcome = match req.persona_id {
+        Some(pid) => state
+            .db
+            .query(
+                "BEGIN TRANSACTION;
+                 DELETE FROM channel_active_persona
+                    WHERE account = type::record('account', $account)
+                      AND channel = type::record('channel', $cid);
+                 CREATE channel_active_persona SET
+                    account = type::record('account', $account),
+                    channel = type::record('channel', $cid),
+                    persona = type::record('persona', $pid);
+                 COMMIT TRANSACTION;",
+            )
+            .bind(("pid", pid))
+            .bind(("cid", cid))
+            .bind(("account", account.0))
+            .await
+            .and_then(|r| r.check()),
+        None => state
+            .db
+            .query(
+                "DELETE FROM channel_active_persona
+                    WHERE account = type::record('account', $account)
+                      AND channel = type::record('channel', $cid);",
+            )
+            .bind(("cid", cid))
+            .bind(("account", account.0))
+            .await
+            .and_then(|r| r.check()),
+    };
+    match outcome {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "set_channel_active_persona failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // POST /personas/redeem  — gain editor access via a share key
 // ---------------------------------------------------------------------------
 

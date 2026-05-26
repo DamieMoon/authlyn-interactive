@@ -412,8 +412,28 @@ pub async fn remove_persona_editor(pid: &str, aid: &str) -> Result<(), ApiError>
 }
 
 /// Wear (`Some`) or take off (`None`) a persona in a guild.
+///
+/// DEPRECATED: superseded by the per-channel `set_channel_active_persona`. The
+/// guild endpoint + `guild_member.active_persona` field remain server-side but
+/// the client no longer calls this. Kept to avoid churn.
+#[allow(dead_code)]
 pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result<(), ApiError> {
     let resp = Request::put(&format!("/guilds/{gid}/active-persona"))
+        .json(&SetActivePersonaRequest { persona_id })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Wear (`Some`) or take off (`None`) a persona in a specific channel
+/// (per-channel worn persona, #persona).
+pub async fn set_channel_active_persona(
+    cid: &str,
+    persona_id: Option<String>,
+) -> Result<(), ApiError> {
+    let resp = Request::put(&format!("/channels/{cid}/active-persona"))
         .json(&SetActivePersonaRequest { persona_id })
         .map_err(codec)?
         .send()
