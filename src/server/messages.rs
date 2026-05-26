@@ -46,6 +46,11 @@ const MAX_BODY_CHARS: usize = 50_000;
 /// Max inline image attachments per message.
 const MAX_ATTACHMENTS: usize = 10;
 
+/// How long a typing ping stays "live" (#19). A client re-pings at most every
+/// ~2s while typing, so 8s comfortably bridges a few missed pings without
+/// leaving a stale indicator hanging after someone stops.
+const TYPING_TTL: std::time::Duration = std::time::Duration::from_secs(8);
+
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/messages
 // ---------------------------------------------------------------------------
@@ -135,6 +140,43 @@ pub async fn post_message(
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// POST /channels/{cid}/typing  — ephemeral "I am typing" ping (#19)
+// ---------------------------------------------------------------------------
+
+/// Record that the caller is typing in this channel. Membership-gated like the
+/// message routes (privacy-404 for non-members / unknown channel). On success
+/// it stamps `typing[cid][account] = now` and returns 204; the indicator is
+/// surfaced later by `list_messages` (the poll). No body, no DB write — the
+/// state is purely in-memory.
+#[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
+pub async fn typing_ping(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    match channel_access(&state, &cid, &account.0).await {
+        Ok(AccessOutcome::Ok(_)) => {}
+        Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
+            return error_response(StatusCode::NOT_FOUND, "channel not found");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "channel_access failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    // Tiny critical section: lock → insert → drop. No `.await` is held while the
+    // mutex is locked (the membership check above already completed).
+    {
+        let now = std::time::Instant::now();
+        let mut map = state.typing.lock().expect("typing mutex poisoned");
+        map.entry(cid.clone()).or_default().insert(account.0, now);
+    }
+
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn persist_message(
@@ -327,7 +369,14 @@ pub async fn list_deleted_messages(
         }
     }
     match load_deleted_messages(&state, &cid).await {
-        Ok(messages) => (StatusCode::OK, Json(ListMessagesResponse { messages })).into_response(),
+        Ok(messages) => (
+            StatusCode::OK,
+            Json(ListMessagesResponse {
+                messages,
+                typing: Vec::new(),
+            }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!(error = %e, "load_deleted_messages failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -456,13 +505,95 @@ pub async fn list_messages(
         }
     }
 
-    match load_messages(&state, &cid, parsed_cursor).await {
-        Ok(messages) => (StatusCode::OK, Json(ListMessagesResponse { messages })).into_response(),
+    let messages = match load_messages(&state, &cid, parsed_cursor).await {
+        Ok(m) => m,
         Err(e) => {
             tracing::error!(error = %e, "load_messages failed");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+
+    // Collect the account ids still actively typing in this channel, pruning
+    // expired entries opportunistically. Tiny critical section: lock → read +
+    // prune → drop. The name resolution that follows (a DB read) happens AFTER
+    // the lock is released, so the mutex is never held across an `.await`.
+    let typing_accounts: Vec<String> = {
+        let now = std::time::Instant::now();
+        let mut map = state.typing.lock().expect("typing mutex poisoned");
+        let mut live = Vec::new();
+        if let Some(chan) = map.get_mut(&cid) {
+            chan.retain(|_acct, ts| now.duration_since(*ts) < TYPING_TTL);
+            // Exclude the caller — you never see "you are typing".
+            live = chan
+                .keys()
+                .filter(|acct| *acct != &account.0)
+                .cloned()
+                .collect();
+            if chan.is_empty() {
+                map.remove(&cid);
+            }
+        }
+        live
+    };
+
+    let typing = match resolve_typing_names(&state, &cid, &typing_accounts).await {
+        Ok(names) => names,
+        Err(e) => {
+            // A failed name lookup must not fail the poll — degrade to no
+            // indicator rather than a 500 that breaks message delivery.
+            tracing::warn!(error = %e, "resolve_typing_names failed; dropping typing list");
+            Vec::new()
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(ListMessagesResponse { messages, typing }),
+    )
+        .into_response()
+}
+
+/// Resolve typing account ids to display names for the channel's guild,
+/// preferring each member's worn persona name (`guild_member.active_persona`
+/// → `persona.name`), falling back to the account's `display_name`/`username`.
+/// Order is not significant (the client formats "A and B are typing").
+async fn resolve_typing_names(
+    state: &AppState,
+    cid: &str,
+    accounts: &[String],
+) -> surrealdb::Result<Vec<String>> {
+    if accounts.is_empty() {
+        return Ok(Vec::new());
+    }
+    // One round-trip per account keeps the SurrealQL simple and proven (no
+    // correlated sub-SELECT in a projection, which 3.1.0-beta.3 handles
+    // unevenly). For each: prefer the worn-persona name in THIS channel's guild
+    // (resolved through the guild_member row), else the account nickname
+    // (display_name defaults to '' so guard the empty case), else username.
+    let mut names = Vec::with_capacity(accounts.len());
+    for acct in accounts {
+        let mut resp = state
+            .db
+            .query(
+                "LET $g = (SELECT VALUE guild FROM ONLY type::record('channel', $cid));
+                 SELECT VALUE
+                   ( (SELECT VALUE active_persona.name FROM ONLY guild_member
+                        WHERE guild = $g AND account = type::record('account', $acct))
+                     ?? (IF display_name != '' THEN display_name ELSE username END)
+                   ) AS name
+                   FROM ONLY type::record('account', $acct);",
+            )
+            .bind(("cid", cid.to_string()))
+            .bind(("acct", acct.to_string()))
+            .await?
+            .check()?;
+        // `SELECT VALUE ... FROM ONLY` yields the bare string (or None for a
+        // vanished account); skip the latter rather than surface a blank.
+        if let Some(name) = resp.take::<Option<String>>(1)? {
+            names.push(name);
         }
     }
+    Ok(names)
 }
 
 enum CursorState {

@@ -3,6 +3,8 @@
 use leptos::prelude::*;
 
 use super::{act, PendingDelete, Shell};
+#[cfg(feature = "hydrate")]
+use crate::client::api;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
 use crate::ui::emoji::data::{self, GROUPS};
@@ -371,6 +373,11 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
+    // Typing-ping throttle (#19): epoch-ms of the last `POST /typing` we fired,
+    // so on:input pings at most once every ~2s while the user types instead of
+    // every keystroke. `StoredValue` (not a signal) — it's plumbing, not UI.
+    #[cfg(feature = "hydrate")]
+    let last_typing_ping = StoredValue::new(0.0_f64);
 
     // Auto-grow the composer to fit its content, up to the CSS max-height
     // (then it scrolls). Tracking `compose` covers both typing and the
@@ -764,6 +771,19 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 }
             })}
 
+            // "%name% is typing…" line (#19), fed by the message poll. Renders
+            // nothing when nobody else is typing.
+            {move || {
+                let names = s.typing.get();
+                let line = match names.len() {
+                    0 => return ().into_any(),
+                    1 => format!("{} is typing…", names[0]),
+                    2 => format!("{} and {} are typing…", names[0], names[1]),
+                    _ => "Several people are typing…".to_string(),
+                };
+                view! { <div class="typing-indicator">{line}</div> }.into_any()
+            }}
+
             <div class="composer">
                 <div class="toolbar">
                     // Attach images: a hidden multi-file input behind a 📎 label.
@@ -948,6 +968,17 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         ac_index.set(0);
                                     }
                                     None => ac_token.set(None),
+                                }
+                            }
+                            // Throttled "is typing" ping (#19): fire at most once
+                            // per ~2s while typing. Fire-and-forget; ignore errors.
+                            let now = js_sys::Date::now();
+                            if now - last_typing_ping.get_value() >= 2000.0 {
+                                if let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) {
+                                    last_typing_ping.set_value(now);
+                                    leptos::task::spawn_local(async move {
+                                        let _ = api::post_typing(&cid).await;
+                                    });
                                 }
                             }
                         }

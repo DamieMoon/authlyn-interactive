@@ -231,6 +231,13 @@ pub struct MessageEnvelope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListMessagesResponse {
     pub messages: Vec<MessageEnvelope>,
+    /// Display names of OTHER channel members currently typing (#19), surfaced
+    /// by piggybacking on the message poll. Ephemeral server state with an ~8s
+    /// TTL; empty when nobody else is typing (and on the trash list, which never
+    /// populates it). `#[serde(default)]` keeps older clients / the trash
+    /// response wire-compatible.
+    #[serde(default)]
+    pub typing: Vec<String>,
 }
 
 /// A flat list of channels — used by the soft-delete trash view

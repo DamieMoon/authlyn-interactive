@@ -105,6 +105,8 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/messages/{mid}/restore",
             post(messages::restore_message),
         )
+        // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
+        .route("/channels/{cid}/typing", post(messages::typing_ping))
         .route(
             "/channels/{cid}/lorebook",
             get(lorebook::list_entries).post(lorebook::create_entry),
