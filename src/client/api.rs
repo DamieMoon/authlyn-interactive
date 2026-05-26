@@ -13,8 +13,9 @@ use crate::protocol::{
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListFriendsResponse,
     ListGuildsResponse, ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse,
     ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
-    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, VapidKeyResponse,
+    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
+    PushSubscribeRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -386,6 +387,20 @@ pub async fn create_lore(
         },
     )
     .await
+}
+
+pub async fn patch_lore(
+    cid: &str,
+    eid: &str,
+    req: &PatchLorebookEntryRequest,
+) -> Result<(), ApiError> {
+    let resp = Request::patch(&format!("/channels/{cid}/lorebook/{eid}"))
+        .json(req)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 pub async fn delete_lore(cid: &str, eid: &str) -> Result<(), ApiError> {

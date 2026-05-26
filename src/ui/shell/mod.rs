@@ -1135,6 +1135,81 @@ mod act {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn patch_lore(
+        s: Shell,
+        cid: String,
+        eid: String,
+        title: Option<String>,
+        keys: Option<Vec<String>>,
+        content: Option<String>,
+        enabled: Option<bool>,
+        position: Option<i64>,
+    ) {
+        use crate::protocol::PatchLorebookEntryRequest;
+        spawn_local(async move {
+            let req = PatchLorebookEntryRequest {
+                title,
+                keys,
+                content,
+                enabled,
+                position,
+            };
+            match api::patch_lore(&cid, &eid, &req).await {
+                Ok(()) => load_lore(s, cid),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
+    /// Swap `eid` with the neighbor above (`up = true`) or below (`up = false`)
+    /// by exchanging their `position` values, then reload the list.
+    pub fn swap_lore(s: Shell, cid: String, eid: String, position: i64, up: bool) {
+        use crate::protocol::PatchLorebookEntryRequest;
+        let entries = s.lore.get_untracked();
+        let neighbor = if up {
+            entries
+                .iter()
+                .filter(|e| e.position < position)
+                .max_by_key(|e| e.position)
+                .cloned()
+        } else {
+            entries
+                .iter()
+                .filter(|e| e.position > position)
+                .min_by_key(|e| e.position)
+                .cloned()
+        };
+        let Some(nbr) = neighbor else { return };
+        let nbr_pos = nbr.position;
+        let nbr_id = nbr.id.clone();
+        let cid2 = cid.clone();
+        spawn_local(async move {
+            let r1 = api::patch_lore(
+                &cid,
+                &eid,
+                &PatchLorebookEntryRequest {
+                    position: Some(nbr_pos),
+                    ..Default::default()
+                },
+            )
+            .await;
+            let r2 = api::patch_lore(
+                &cid2,
+                &nbr_id,
+                &PatchLorebookEntryRequest {
+                    position: Some(position),
+                    ..Default::default()
+                },
+            )
+            .await;
+            match (r1, r2) {
+                (Ok(()), Ok(())) => load_lore(s, cid),
+                (Err(e), _) | (_, Err(e)) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     pub fn delete_lore(s: Shell, cid: String, eid: String) {
         spawn_local(async move {
             let _ = api::delete_lore(&cid, &eid).await;
@@ -1748,5 +1823,18 @@ mod act {
     pub fn accept_friend(_s: Shell, _aid: String) {}
     pub fn remove_friend(_s: Shell, _aid: String) {}
     pub fn create_lore(_s: Shell, _cid: String, _keys: Vec<String>, _content: String) {}
+    #[allow(clippy::too_many_arguments)]
+    pub fn patch_lore(
+        _s: Shell,
+        _cid: String,
+        _eid: String,
+        _title: Option<String>,
+        _keys: Option<Vec<String>>,
+        _content: Option<String>,
+        _enabled: Option<bool>,
+        _position: Option<i64>,
+    ) {
+    }
+    pub fn swap_lore(_s: Shell, _cid: String, _eid: String, _position: i64, _up: bool) {}
     pub fn delete_lore(_s: Shell, _cid: String, _eid: String) {}
 }
