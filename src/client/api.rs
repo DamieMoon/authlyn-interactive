@@ -12,11 +12,11 @@ use crate::protocol::{
     CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
     CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
     InviteMemberRequest, ListEmojiResponse, ListFriendsResponse, ListGuildsResponse,
-    ListLorebookResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
-    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SubmitFeedbackRequest,
-    VapidKeyResponse,
+    ListLorebookResponse, ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse,
+    ListPersonasResponse, LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
+    PushSubscribeRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -118,6 +118,31 @@ pub async fn invite_member(gid: &str, username: &str) -> Result<(), ApiError> {
         .await
         .map_err(net)?;
     decode_empty(resp).await
+}
+
+/// List the guild's members (any member may read). The owner-only mutations
+/// (`set_member_role`/`remove_member`) gate themselves server-side.
+pub async fn list_members(gid: &str) -> Result<ListMembersResponse, ApiError> {
+    get(&format!("/guilds/{gid}/members")).await
+}
+
+/// Promote/demote a member (`role` is `"admin"` or `"member"`; owner/admin
+/// only, owner's role is fixed). 204, no body.
+pub async fn set_member_role(gid: &str, aid: &str, role: &str) -> Result<(), ApiError> {
+    let resp = Request::put(&format!("/guilds/{gid}/members/{aid}/role"))
+        .json(&SetMemberRoleRequest {
+            role: role.to_string(),
+        })
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// Kick a member (owner/admin only; the owner can't be removed). 204, no body.
+pub async fn remove_member(gid: &str, aid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/guilds/{gid}/members/{aid}")).await
 }
 
 /// Rename a guild (owner/admin only). 204, no body.

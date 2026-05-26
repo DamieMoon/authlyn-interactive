@@ -30,6 +30,7 @@ mod channel;
 mod emoji_manager;
 mod friends;
 mod lorebook;
+mod members;
 mod wardrobe;
 
 use account::AccountModal;
@@ -37,6 +38,7 @@ use channel::ChannelPane;
 use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
+use members::MembersPane;
 use wardrobe::WardrobePane;
 
 #[component]
@@ -68,6 +70,7 @@ enum Pane {
     Lorebook,
     Wardrobe,
     Emoji,
+    Members,
 }
 
 /// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
@@ -398,6 +401,10 @@ fn AppShell() -> impl IntoView {
                         on:click=move |_| { act::show_emoji_manager(s); s.nav_open.set(false); }>
                         "😀 Emoji"
                     </button>
+                    <button class="wardrobe-btn"
+                        on:click=move |_| { act::show_members(s); s.nav_open.set(false); }>
+                        "👥 Members"
+                    </button>
                     <ul class="channels">
                         {move || s.channels.get().into_iter().map(|c| {
                             view! { <ChannelRow s=s ch=c editing=editing_channel buf=channel_edit_buf/> }
@@ -529,6 +536,7 @@ fn AppShell() -> impl IntoView {
                     Pane::Lorebook => view! { <LorebookPane s=s/> }.into_any(),
                     Pane::Wardrobe => view! { <WardrobePane s=s/> }.into_any(),
                     Pane::Emoji => view! { <EmojiManagerPane s=s/> }.into_any(),
+                    Pane::Members => view! { <MembersPane s=s/> }.into_any(),
                 }}
                 <p class="error">{move || s.status.get()}</p>
             </section>
@@ -1105,6 +1113,13 @@ mod act {
     /// create/delete), so this only flips the pane.
     pub fn show_emoji_manager(s: Shell) {
         s.pane.set(Pane::Emoji);
+    }
+
+    /// Open the member-management pane. The roster is local to the pane and
+    /// fetched there on mount (an Effect keyed on the selected guild), so this
+    /// only flips the pane.
+    pub fn show_members(s: Shell) {
+        s.pane.set(Pane::Members);
     }
 
     /// Create a named custom emoji from an already-uploaded media id, then
@@ -2264,6 +2279,7 @@ mod act {
     pub fn show_friends(_s: Shell) {}
     pub fn show_wardrobe(_s: Shell) {}
     pub fn show_emoji_manager(_s: Shell) {}
+    pub fn show_members(_s: Shell) {}
     pub fn create_guild_emoji(_s: Shell, _gid: String, _name: String, _media_id: String) {}
     pub fn delete_guild_emoji(_s: Shell, _gid: String, _name: String) {}
     pub fn upload_emoji_image(_s: Shell, _into: leptos::prelude::RwSignal<Option<String>>) {}

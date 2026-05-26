@@ -1939,6 +1939,98 @@ $persona-palette: (
 	}
 }
 
+// Member-management pane (#16/FB5): a roster of the open guild's members.
+.member-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+}
+
+.member-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.35rem 0.5rem;
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.4rem;
+}
+
+.member-avatar {
+	height: 1.8rem;
+	width: 1.8rem;
+	border-radius: 50%;
+	object-fit: cover;
+	flex: 0 0 auto;
+}
+
+.member-avatar-mono {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: $line;
+	color: $text;
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.member-name {
+	flex: 1;
+	color: $text;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.member-role {
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	padding: 0.1rem 0.45rem;
+	border-radius: 0.7rem;
+	border: 1px solid $line;
+	color: $text;
+}
+
+.member-role-owner {
+	border-color: $accent;
+	color: $accent;
+}
+
+.member-role-admin {
+	border-color: #6aa3d6;
+	color: #6aa3d6;
+}
+
+.member-actions {
+	display: flex;
+	gap: 0.35rem;
+	flex: 0 0 auto;
+}
+
+.member-role-btn {
+	padding: 0.2rem 0.55rem;
+	border: 1px solid $accent;
+	border-radius: 0.3rem;
+	background: $panel;
+	color: $accent;
+	cursor: pointer;
+	font-size: 0.8rem;
+}
+
+.member-kick {
+	border: 1px solid #b4566a;
+	background: $panel;
+	color: #e88;
+	border-radius: 0.3rem;
+	padding: 0.2rem 0.5rem;
+	cursor: pointer;
+
+	&:hover {
+		background: rgba(180, 86, 106, 0.15);
+	}
+}
+
 // Mobile: the emoji picker becomes a bottom sheet (thumb-reachable).
 @media (max-width: 768px) {
 	.emoji-picker {

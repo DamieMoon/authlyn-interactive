@@ -24,8 +24,8 @@ use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
     ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateGuildRequest, ErrorBody,
-    GuildDetail, GuildSummary, InviteMemberRequest, ListGuildsResponse, PatchChannelRequest,
-    PatchGuildRequest, SetMemberRoleRequest,
+    GuildDetail, GuildSummary, InviteMemberRequest, ListGuildsResponse, ListMembersResponse,
+    MemberSummary, PatchChannelRequest, PatchGuildRequest, SetMemberRoleRequest,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -225,6 +225,78 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
             })
             .collect(),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// GET /guilds/{id}/members
+// ---------------------------------------------------------------------------
+
+/// List the guild's members. Membership-gated like `get_guild`: non-members
+/// (and missing guilds) get a privacy-404 so membership stays non-leaky. Every
+/// member can read the roster; the owner-only mutation controls live in the
+/// client pane and the `/role` + DELETE endpoints.
+#[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
+pub async fn list_members(
+    State(state): State<AppState>,
+    Path(gid): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    // Membership gate (privacy 404 for non-members and missing guilds alike).
+    match caller_role(&state, &gid, &account.0).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "guild not found"),
+        Err(e) => {
+            tracing::error!(error = %e, "caller_role failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    match load_members(&state, &gid).await {
+        Ok(members) => (StatusCode::OK, Json(ListMembersResponse { members })).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "load_members failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
+}
+
+async fn load_members(state: &AppState, gid: &str) -> surrealdb::Result<Vec<MemberSummary>> {
+    #[derive(SurrealValue)]
+    struct MemberRow {
+        account_key: String,
+        username: String,
+        display_name: String,
+        role: String,
+        avatar_id: Option<String>,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT
+                meta::id(account) AS account_key,
+                account.username AS username,
+                account.display_name AS display_name,
+                role,
+                (IF account.avatar != NONE THEN meta::id(account.avatar) ELSE NONE END)
+                    AS avatar_id
+             FROM guild_member
+             WHERE guild = type::record('guild', $gid)
+             ORDER BY role, username;",
+        )
+        .bind(("gid", gid.to_string()))
+        .await?
+        .check()?;
+    let rows: Vec<MemberRow> = resp.take(0)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| MemberSummary {
+            account_id: r.account_key,
+            username: r.username,
+            display_name: r.display_name,
+            role: r.role,
+            avatar_id: r.avatar_id,
+        })
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
