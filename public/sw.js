@@ -144,11 +144,13 @@ self.addEventListener("push", (event) => {
         badge = "/icons/icon-192.png",
         tag,
         channel,
+        guild,
+        message,
         // accept a pre-built data blob or synthesise one from top-level fields
         data,
       } = parsePushPayload(event);
 
-      const notifData = data ?? (channel ? { channel } : {});
+      const notifData = data ?? (channel ? { channel, guild, message } : {});
 
       // ALWAYS show a notification on a push. iOS revokes the subscription if a
       // push event resolves without a showNotification() call (the
@@ -175,8 +177,14 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const { channel } = event.notification.data ?? {};
-  const target = channel ? `/?channel=${encodeURIComponent(channel)}` : "/";
+  const { channel, guild, message } = event.notification.data ?? {};
+  let target = "/";
+  if (channel) {
+    const params = new URLSearchParams({ channel });
+    if (guild) params.set("server", guild);
+    if (message) params.set("m", message);
+    target = `/?${params.toString()}`;
+  }
 
   event.waitUntil(
     (async () => {
@@ -198,7 +206,13 @@ self.addEventListener("notificationclick", (event) => {
         try {
           await existing.navigate(target);
         } catch {
-          existing.postMessage({ type: "NOTIFICATION_CLICK", channel: channel ?? null, url: target });
+          existing.postMessage({
+            type: "NOTIFICATION_CLICK",
+            channel: channel ?? null,
+            server: guild ?? null,
+            message: message ?? null,
+            url: target,
+          });
         }
         await existing.focus();
         return;

@@ -253,14 +253,43 @@ fn AppShell() -> impl IntoView {
             .unwrap_or_default()
     };
 
-    // On mount: load the guild rail, then try to restore the last session.
-    // If nothing was stored, fall back to the Friends home. When a session is
-    // restored, its channel/pane wins (we don't show Friends over it).
+    // A notification deep-link arrives as `/?server=&channel=&m=` (set by the
+    // service worker's notificationclick handler). Read it once at mount; when
+    // present it wins over the stored-session restore. Router-driven, so it
+    // needs no extra web-sys features. None on ssr (the Effect is client-only).
+    #[cfg(feature = "hydrate")]
+    let deep_link: Option<(String, String, Option<String>)> = {
+        let q = leptos_router::hooks::use_query_map().get_untracked();
+        match (q.get("channel"), q.get("server")) {
+            (Some(cid), Some(gid)) => Some((gid, cid, q.get("m"))),
+            _ => None,
+        }
+    };
+    #[cfg(not(feature = "hydrate"))]
+    let deep_link: Option<(String, String, Option<String>)> = None;
+    #[cfg(feature = "hydrate")]
+    let nav = leptos_router::hooks::use_navigate();
+
+    // On mount: load the guild rail, then either follow a notification
+    // deep-link or restore the last session (falling back to the Friends home).
+    // A deep-linked/restored channel wins; we don't show Friends over it.
     // (No-ops on ssr; the stub `restore_session` returns false so ssr still
     // lands on Friends.)
     Effect::new(move |_| {
         act::refresh_guilds(s);
-        if !act::restore_session(s) {
+        if let Some((gid, cid, message)) = deep_link.clone() {
+            act::open_deep_link(s, gid, cid, message);
+            // Strip the query so a manual refresh doesn't yank us back here.
+            #[cfg(feature = "hydrate")]
+            nav(
+                "/",
+                leptos_router::NavigateOptions {
+                    replace: true,
+                    scroll: false,
+                    ..Default::default()
+                },
+            );
+        } else if !act::restore_session(s) {
             act::show_friends(s);
         }
         // Keep the rail/sidebar/friends + open channel live (idempotent).
@@ -867,6 +896,13 @@ mod act {
     }
 
     pub fn open_channel(s: Shell, ch: ChannelSummary) {
+        open_channel_at(s, ch, None);
+    }
+
+    /// Like [`open_channel`] but, after the first page loads, asks the scroll
+    /// Effect to bring message `anchor` into view — for the notification
+    /// deep-link. The jump only lands if the target is on the newest page.
+    pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         let cid = ch.id.clone();
         let kind = ch.kind.clone();
         // Re-opening the channel you're already on (e.g. returning from the
@@ -918,12 +954,36 @@ mod act {
                     ingest(s, l.messages);
                     s.oldest.set(oldest);
                     s.more_history.set(full_page);
+                    // Deep-link: now the page is in the DOM, ask the scroll
+                    // Effect to bring the notified message into view.
+                    if let Some(mid) = anchor {
+                        s.anchor_to.set(Some(mid));
+                    }
                     if let Some(cur) = s.cursor.get_untracked() {
                         set_last_seen(s, &seen_cid, cur);
                     }
                 }
             });
         }
+    }
+
+    /// Open a channel from a notification deep-link: fetch its guild, select
+    /// it, then open the channel and (via `open_channel_at`) jump to the
+    /// notified message. Mirrors `restore_session`'s guild→channel resolution.
+    pub fn open_deep_link(s: Shell, gid: String, cid: String, message: Option<String>) {
+        spawn_local(async move {
+            let Ok(d) = api::get_guild(&gid).await else {
+                return;
+            };
+            let _ = LocalStorage::set(KEY_SERVER, &gid);
+            s.sel_server.set(Some(gid.clone()));
+            s.sel_owner.set(Some(d.owner_id.clone()));
+            s.channels.set(d.channels.clone());
+            refresh_guild_emoji(s, gid.clone());
+            if let Some(ch) = d.channels.iter().find(|c| c.id == cid).cloned() {
+                open_channel_at(s, ch, message);
+            }
+        });
     }
 
     /// Restore the last server / channel / worn persona from localStorage.
@@ -2504,6 +2564,7 @@ mod act {
     }
     pub fn open_server(_s: Shell, _gid: String) {}
     pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
+    pub fn open_deep_link(_s: Shell, _gid: String, _cid: String, _message: Option<String>) {}
     pub fn create_server(_s: Shell, _name: String) {}
     pub fn create_channel(_s: Shell, _name: String) {}
     pub fn invite_member(_s: Shell, _gid: String, _username: String) {}
