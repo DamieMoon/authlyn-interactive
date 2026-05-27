@@ -13,7 +13,7 @@ Self-hosted, **server-trusted** roleplay chat platform (Discord + SillyTavern st
 Single Rust crate: axum + Leptos 0.8 (ssr + hydrate), SurrealDB (external). Server code behind `#[cfg(feature = "ssr")]`; browser client = gloo-net REST + cookie auth. `ctx query "authlyn module map"` for the layout.
 
 ## Hard constraints
-- **Deploy:** no auto-deploy *pipeline* (user decision 2026-05-25). The **manual deploy may be agent-run** — verbatim steps via `ctx query "novahome deploy commands"`.
+- **Deploy:** no auto-deploy *pipeline* (user decision 2026-05-25). Canonical deploy = **`./scripts/deploy.sh`** (manual, agent-runnable; `--help` for usage). What it automates / by-hand fallback: `ctx query "novahome deploy commands"`.
 - **Port-collision:** before binding a new public port on novahome or the Pi, SSH and check `ss -tlnp`; record the port in ctx.
 - **Lint gate:** `./scripts/precommit.sh` is the only lint gate (CI runs none) — keep it green. It does NOT compile SCSS; use `cargo leptos build` for that.
 - **SurrealDB SDK** pinned `=3.1.0-beta.3` — don't bump blind. Never `<string>`-cast a datetime feeding `ORDER BY`/cursor (`ctx query "surrealdb datetime ordering"`).
