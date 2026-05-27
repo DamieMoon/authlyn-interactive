@@ -16,7 +16,7 @@
 //!   authorized and the endpoint responds 403 (fail-closed).
 
 use axum::extract::rejection::JsonRejection;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -130,6 +130,7 @@ async fn load_feedback(state: &AppState) -> surrealdb::Result<ListFeedbackRespon
                 status,
                 created_at
             FROM feedback
+            WHERE status != 'deleted'
             ORDER BY created_at DESC;",
         )
         .await?
@@ -150,6 +151,44 @@ async fn load_feedback(state: &AppState) -> surrealdb::Result<ListFeedbackRespon
         .collect();
 
     Ok(ListFeedbackResponse { items })
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /feedback/{id} (admin only) — soft delete (archive)
+// ---------------------------------------------------------------------------
+
+/// Soft-delete one feedback item: flip its `status` to `"deleted"` so it drops
+/// out of the admin inbox (the `status != 'deleted'` filter in `load_feedback`)
+/// while the row itself is retained. Admin-gated, mirroring `list_feedback`.
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn delete_feedback(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    account: AuthAccount,
+) -> Response {
+    match is_admin(&state, &account.0).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::FORBIDDEN, "forbidden"),
+        Err(e) => {
+            tracing::error!(error = %e, "admin check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    let result = state
+        .db
+        .query("UPDATE feedback SET status = 'deleted' WHERE id = type::record('feedback', $id);")
+        .bind(("id", id))
+        .await
+        .and_then(|r| r.check());
+
+    match result {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "delete_feedback failed");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

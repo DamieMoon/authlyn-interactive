@@ -171,6 +171,7 @@ fn small_body_routes() -> Router<AppState> {
             "/feedback",
             get(feedback::list_feedback).post(feedback::submit_feedback),
         )
+        .route("/feedback/{id}", delete(feedback::delete_feedback))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
         // Dynamic JSON API responses must never be cached (by the service
         // worker or the browser HTTP cache); a cached message list flashed

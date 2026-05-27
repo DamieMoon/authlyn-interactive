@@ -247,7 +247,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                     <ul class="fb-list">
                                         {items.into_iter().map(|it| {
                                             let crate::protocol::FeedbackItem {
-                                                author_username, kind, body, context, created_at, ..
+                                                id, author_username, kind, body, context, created_at, ..
                                             } = it;
                                             let kind_class = format!("fb-kind fb-{kind}");
                                             view! {
@@ -256,6 +256,24 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                                         <span class=kind_class>{kind}</span>
                                                         <span class="fb-who">{author_username}</span>
                                                         <time class="fb-when">{created_at}</time>
+                                                        <button class="fb-del" title="Delete feedback"
+                                                            on:click=move |_| {
+                                                                let confirmed = {
+                                                                    #[cfg(feature = "hydrate")]
+                                                                    {
+                                                                        leptos::web_sys::window()
+                                                                            .and_then(|w| w.confirm_with_message("Delete this feedback?").ok())
+                                                                            .unwrap_or(false)
+                                                                    }
+                                                                    #[cfg(not(feature = "hydrate"))]
+                                                                    {
+                                                                        false
+                                                                    }
+                                                                };
+                                                                if confirmed {
+                                                                    act::archive_feedback(s, inbox, id.clone());
+                                                                }
+                                                            }>"✕"</button>
                                                     </div>
                                                     <p class="fb-body">{body}</p>
                                                     {context.map(|c| view! {

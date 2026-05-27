@@ -1763,6 +1763,27 @@ mod act {
         });
     }
 
+    /// Soft-delete (archive) a feedback item — admin only. The server flips the
+    /// row's `status` to "deleted" (the row is kept); on success drop it from
+    /// the loaded inbox so the list updates without a re-fetch.
+    pub fn archive_feedback(
+        s: Shell,
+        inbox: RwSignal<Option<Vec<crate::protocol::FeedbackItem>>>,
+        id: String,
+    ) {
+        s.status.set(String::new());
+        spawn_local(async move {
+            match api::delete_feedback(&id).await {
+                Ok(()) => inbox.update(|opt| {
+                    if let Some(items) = opt {
+                        items.retain(|it| it.id != id);
+                    }
+                }),
+                Err(e) => s.status.set(api::humanize(&e)),
+            }
+        });
+    }
+
     // ---- Trash (#22 Phase 2) ----
 
     /// Load the caller's own soft-deleted guilds into `s.deleted_guilds`.
@@ -2586,6 +2607,12 @@ mod act {
     }
     pub fn build_feedback_context(_s: Shell) -> Option<String> {
         None
+    }
+    pub fn archive_feedback(
+        _s: Shell,
+        _inbox: RwSignal<Option<Vec<crate::protocol::FeedbackItem>>>,
+        _id: String,
+    ) {
     }
     // Trash (#22 Phase 2) stubs
     pub fn load_deleted_guilds(_s: Shell) {}

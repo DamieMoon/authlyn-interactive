@@ -706,6 +706,11 @@ pub async fn submit_feedback(req: &SubmitFeedbackRequest) -> Result<(), ApiError
     decode_empty(resp).await
 }
 
+/// Soft-delete (archive) a feedback item by id (admin only). 204, no body.
+pub async fn delete_feedback(id: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/feedback/{id}")).await
+}
+
 // ---------------------------------------------------------------------------
 // Low-level helpers (reused by later slices)
 // ---------------------------------------------------------------------------

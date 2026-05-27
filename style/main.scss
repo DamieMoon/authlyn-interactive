@@ -1271,6 +1271,21 @@ $persona-palette: (
 		font-size: 0.7rem;
 		overflow-wrap: anywhere;
 	}
+
+	.fb-del {
+		margin-left: 0.4rem;
+		padding: 0 0.3rem;
+		background: none;
+		border: none;
+		color: $muted;
+		cursor: pointer;
+		font-size: 0.85rem;
+		line-height: 1;
+
+		&:hover {
+			color: #f0828c;
+		}
+	}
 }
 
 // `.who` is now a clickable button (opens the persona-info popup); strip the
