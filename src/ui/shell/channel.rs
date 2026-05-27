@@ -1178,7 +1178,13 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         </ul>
                     }
                 })}
-                <button class="send" on:click=move |_| act::send_message(s)>"Send"</button>
+                <button class="send" on:click=move |_| {
+                    act::send_message(s);
+                    // Close any lingering `:`-autocomplete popover — on touch the
+                    // Send button is the only send path (Enter inserts a newline),
+                    // so this is where a `:3`-style send must dismiss it.
+                    ac_token.set(None);
+                }>"Send"</button>
             </div>
 
             // Persona info popup — opened by clicking a message's author name.
