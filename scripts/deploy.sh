@@ -27,9 +27,19 @@
 # =============================================================================
 
 set -euo pipefail
-# Run from the repo root no matter where we're invoked, so the
-# `< scripts/novahome-deploy.sh` path and the git commands below are stable.
-cd "$(git rev-parse --show-toplevel)"
+
+# Resolve this script's REAL directory (following symlinks) so the command works
+# from any cwd AND when invoked via a PATH symlink like `authlyn-deploy`. The repo
+# root is the parent of scripts/; cd there so the git commands and the relative
+# `< scripts/novahome-deploy.sh` path below are stable.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  dir="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  case "$SOURCE" in /*) ;; *) SOURCE="$dir/$SOURCE" ;; esac   # relative symlink -> absolute
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+cd "$SCRIPT_DIR/.." || { echo "[deploy] cannot find repo root from $SCRIPT_DIR" >&2; exit 1; }
 
 HOST=damien@novahome              # ssh target (resolves via ssh config / DNS)
 REMOTE_SCRIPT=scripts/novahome-deploy.sh
