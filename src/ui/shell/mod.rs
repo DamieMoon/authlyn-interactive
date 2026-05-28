@@ -305,6 +305,12 @@ fn AppShell() -> impl IntoView {
         act::start_sync(s);
         act::load_muted(s);
         act::load_last_seen(s);
+        // Window-focus listener: when the user returns to the tab with a
+        // channel already open, clear any tray notifications that arrived
+        // for that channel while we were backgrounded (feedback row
+        // kx24k2cwftdppidhmh0e).
+        #[cfg(feature = "hydrate")]
+        act::wire_focus_clears_notifs(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();

@@ -52,6 +52,11 @@ pub use message::{
 // re-exporting it on ssr fires "unused import" because nothing calls it there.
 #[cfg(feature = "hydrate")]
 pub use message::load_older;
+// Notification-tray bookkeeping (feedback row kx24k2cwftdppidhmh0e). Hydrate-
+// only. `clear_notifs_for_channel` is referenced via `super::notify::…` from
+// `channel.rs`; only the one-time AppShell-mount installer is re-exported.
+#[cfg(feature = "hydrate")]
+pub use notify::wire_focus_clears_notifs;
 pub use persona::{
     create_persona, leave_shared_persona, load_persona_sharing, set_persona_avatar,
     set_persona_share, swap_persona, unwear, update_persona, wear_persona,

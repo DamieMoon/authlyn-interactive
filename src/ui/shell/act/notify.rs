@@ -285,6 +285,70 @@ fn tab_hidden() -> bool {
         .unwrap_or(false)
 }
 
+/// Ask the active service worker to close any tray notifications tagged
+/// with `cid` (server-side push payload uses the channel id as `tag` — see
+/// `src/server/push.rs::send_for_message`). Called from `open_channel_at`
+/// (so opening a channel clears its notifs) and from the window-focus
+/// handler (so re-focusing the window with a channel already open clears
+/// anything that arrived while away). Feedback row kx24k2cwftdppidhmh0e.
+///
+/// Reflection-driven (same `Reflect::get + Function::call` pattern as the
+/// push subscribe path) so we don't pull a new `Navigator`/`ServiceWorker`
+/// web-sys feature. Silent no-op when any link in the chain is missing —
+/// e.g. browsers without service workers or before the SW has activated.
+#[cfg(feature = "hydrate")]
+pub fn clear_notifs_for_channel(cid: &str) {
+    use wasm_bindgen::{JsCast, JsValue};
+    let _ = (|| -> Option<()> {
+        let win = leptos::web_sys::window()?;
+        let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+        let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+        if sw.is_undefined() || sw.is_null() {
+            return None;
+        }
+        let ctrl = js_sys::Reflect::get(&sw, &JsValue::from_str("controller")).ok()?;
+        if ctrl.is_undefined() || ctrl.is_null() {
+            // SW not yet controlling the page (first load before claim()).
+            return None;
+        }
+        let post: js_sys::Function = js_sys::Reflect::get(&ctrl, &JsValue::from_str("postMessage"))
+            .ok()?
+            .dyn_into()
+            .ok()?;
+        let msg = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &msg,
+            &JsValue::from_str("type"),
+            &JsValue::from_str("CLEAR_NOTIFS_TAG"),
+        )
+        .ok()?;
+        js_sys::Reflect::set(&msg, &JsValue::from_str("tag"), &JsValue::from_str(cid)).ok()?;
+        post.call1(&ctrl, &msg).ok()?;
+        Some(())
+    })();
+}
+
+/// Add a `focus` listener to `window` that asks the SW to close any tray
+/// notifications tagged with the currently-open channel. Runs once at
+/// AppShell mount. The closure stays alive for the page lifetime via
+/// `forget()` — we don't want to remove the listener when the AppShell
+/// unmounts (the page is gone at that point).
+#[cfg(feature = "hydrate")]
+pub fn wire_focus_clears_notifs(s: Shell) {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
+    let Some(win) = leptos::web_sys::window() else {
+        return;
+    };
+    let on_focus = Closure::<dyn FnMut()>::new(move || {
+        if let Some(ch) = s.sel.sel_channel.get_untracked() {
+            clear_notifs_for_channel(&ch.id);
+        }
+    });
+    let _ = win.add_event_listener_with_callback("focus", on_focus.as_ref().unchecked_ref());
+    on_focus.forget();
+}
+
 /// Fire a Web Notification for new messages in `ch` — but only when the tab
 /// is backgrounded (you'd see them otherwise), the channel isn't muted, and
 /// permission was granted. Title-only to keep the web-sys surface minimal.

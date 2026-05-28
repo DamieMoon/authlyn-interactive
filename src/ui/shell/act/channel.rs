@@ -58,6 +58,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.notify.unread.update(|u| {
             u.remove(&cid);
         });
+        // Ask the SW to close any tray notifications for this channel so a
+        // burst of stacked notifs disappears once the user lands on the
+        // channel that produced them (feedback row kx24k2cwftdppidhmh0e).
+        super::notify::clear_notifs_for_channel(&cid);
         super::message::start_poll(s);
         let seen_cid = cid.clone();
         spawn_local(async move {

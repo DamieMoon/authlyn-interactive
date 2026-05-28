@@ -11,7 +11,7 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v6";
+const CACHE_VERSION = "authlyn-v7";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
@@ -168,6 +168,26 @@ self.addEventListener("push", (event) => {
       });
     })()
   );
+});
+
+// ---------------------------------------------------------------------------
+// Page → SW messages: the client posts {type: "CLEAR_NOTIFS_TAG", tag} when a
+// channel becomes the open / focused channel, so we close any notifications
+// the user has now visibly seen (feedback row kx24k2cwftdppidhmh0e). Without
+// this, mobile notifications stack indefinitely in the OS tray even after the
+// user reads the channel that produced them.
+// ---------------------------------------------------------------------------
+self.addEventListener("message", (event) => {
+  const msg = event.data;
+  if (!msg || typeof msg !== "object") return;
+  if (msg.type === "CLEAR_NOTIFS_TAG" && typeof msg.tag === "string") {
+    event.waitUntil(
+      self.registration
+        .getNotifications({ tag: msg.tag })
+        .then((notifs) => notifs.forEach((n) => n.close()))
+        .catch(() => {})
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
