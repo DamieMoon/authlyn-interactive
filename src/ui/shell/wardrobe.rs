@@ -139,7 +139,8 @@ fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
+pub(crate) fn WardrobePane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let name = RwSignal::new(String::new());
     let desc = RwSignal::new(String::new());
     // Which persona's detail editor is open (by id), if any.

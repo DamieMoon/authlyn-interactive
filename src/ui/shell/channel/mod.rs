@@ -156,7 +156,8 @@ pub(super) fn apply_markup(
 }
 
 #[component]
-pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
+pub(crate) fn ChannelPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     // Inline edit state, shared across message rows: which message id is
     // being edited (if any). The draft buffer lives inside <InlineRename>

@@ -204,6 +204,9 @@ fn AppShell() -> impl IntoView {
         trash,
         prefs,
     };
+    // Make the aggregate available to pane components (W6/C8) so they can drop
+    // their `s: Shell` prop in favour of `use_context::<Shell>()`.
+    provide_context(s);
 
     // Keep `s.sync.me` in sync with the auth context (it resolves async after mount).
     Effect::new(move |_| {
@@ -578,12 +581,12 @@ fn AppShell() -> impl IntoView {
                     <button on:click=move |_| act::logout(auth)>"Log out"</button>
                 </header>
                 {move || match s.sync.pane.get() {
-                    Pane::Friends => view! { <FriendsPane s=s/> }.into_any(),
-                    Pane::Channel => view! { <ChannelPane s=s/> }.into_any(),
-                    Pane::Lorebook => view! { <LorebookPane s=s/> }.into_any(),
-                    Pane::Wardrobe => view! { <WardrobePane s=s/> }.into_any(),
-                    Pane::Emoji => view! { <EmojiManagerPane s=s/> }.into_any(),
-                    Pane::Members => view! { <MembersPane s=s/> }.into_any(),
+                    Pane::Friends => view! { <FriendsPane/> }.into_any(),
+                    Pane::Channel => view! { <ChannelPane/> }.into_any(),
+                    Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
+                    Pane::Wardrobe => view! { <WardrobePane/> }.into_any(),
+                    Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
+                    Pane::Members => view! { <MembersPane/> }.into_any(),
                 }}
                 <p class="error">{move || s.composer.status.get()}</p>
             </section>

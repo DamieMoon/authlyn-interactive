@@ -5,7 +5,8 @@ use leptos::prelude::*;
 use super::{act, Shell};
 
 #[component]
-pub(crate) fn LorebookPane(s: Shell) -> impl IntoView {
+pub(crate) fn LorebookPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let keys = RwSignal::new(String::new());
     let content = RwSignal::new(String::new());
     let cid = move || s.sel.sel_channel.get().map(|c| c.id).unwrap_or_default();

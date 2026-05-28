@@ -24,7 +24,8 @@ fn valid_emoji_name(name: &str) -> bool {
 }
 
 #[component]
-pub(crate) fn EmojiManagerPane(s: Shell) -> impl IntoView {
+pub(crate) fn EmojiManagerPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let new_name = RwSignal::new(String::new());
     let pending_media = RwSignal::new(None::<String>);
 

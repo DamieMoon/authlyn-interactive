@@ -5,7 +5,8 @@ use leptos::prelude::*;
 use super::{act, Shell};
 
 #[component]
-pub(crate) fn FriendsPane(s: Shell) -> impl IntoView {
+pub(crate) fn FriendsPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let username = RwSignal::new(String::new());
     view! {
         <div class="pane">

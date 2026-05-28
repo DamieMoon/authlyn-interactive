@@ -106,7 +106,8 @@ fn avatar(m: &MemberSummary) -> impl IntoView {
 }
 
 #[component]
-pub(crate) fn MembersPane(s: Shell) -> impl IntoView {
+pub(crate) fn MembersPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let members = RwSignal::new(Vec::<MemberSummary>::new());
 
     // Current guild id + viewer ownership come from the same Shell signals the
