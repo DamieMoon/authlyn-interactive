@@ -70,6 +70,13 @@ pub(crate) struct MessageView {
     pub(crate) typing: RwSignal<Vec<String>>,
 }
 
+/// Max staged attachments per message (composer cap). Matches the server-side
+/// `MAX_ATTACHMENTS` in `src/server/messages/mod.rs` (W7/B1) — the server
+/// rejects POSTs over this; the client gates earlier so the user gets a clean
+/// toast instead of upload-then-reject. Keep the two in sync by intent.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) const COMPOSER_MAX_ATTACHMENTS: usize = 100;
+
 /// Compose box (draft text + staged attachments + last status line).
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]

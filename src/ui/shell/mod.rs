@@ -34,6 +34,8 @@ mod members;
 mod state;
 mod wardrobe;
 
+#[cfg(feature = "hydrate")]
+pub(crate) use state::COMPOSER_MAX_ATTACHMENTS;
 pub(crate) use state::{
     Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Trash,
 };

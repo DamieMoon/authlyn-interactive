@@ -30,6 +30,8 @@ use meta::message_meta;
 
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use super::COMPOSER_MAX_ATTACHMENTS;
 use super::{act, Shell};
 #[cfg(feature = "hydrate")]
 use crate::client::api;
@@ -552,22 +554,39 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
                                     }) {
                                         if let Some(files) = input.files() {
+                                            // Soft cap (W7/B1-client): refuse to queue uploads
+                                            // beyond COMPOSER_MAX_ATTACHMENTS so the user gets a
+                                            // toast instead of an upload-then-server-reject
+                                            // roundtrip. The server enforces the same ceiling
+                                            // (`MAX_ATTACHMENTS` in src/server/messages/mod.rs).
+                                            let mut current =
+                                                s.composer.compose_attachments.get_untracked().len();
                                             let mut skipped = false;
+                                            let mut overflowed = false;
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
                                                     // Generic picker can return any file;
                                                     // only images and videos are valid.
                                                     let t = file.type_();
-                                                    if t.starts_with("image/")
-                                                        || t.starts_with("video/")
+                                                    if !(t.starts_with("image/")
+                                                        || t.starts_with("video/"))
                                                     {
-                                                        act::add_compose_attachment(s, file);
-                                                    } else {
                                                         skipped = true;
+                                                        continue;
                                                     }
+                                                    if current >= COMPOSER_MAX_ATTACHMENTS {
+                                                        overflowed = true;
+                                                        break;
+                                                    }
+                                                    act::add_compose_attachment(s, file);
+                                                    current += 1;
                                                 }
                                             }
-                                            if skipped {
+                                            if overflowed {
+                                                s.composer.status.set(format!(
+                                                    "Attachment limit ({COMPOSER_MAX_ATTACHMENTS}) reached"
+                                                ));
+                                            } else if skipped {
                                                 s.composer.status.set(
                                                     "Only images or videos can be attached."
                                                         .to_string(),
@@ -779,8 +798,20 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         {
                             let files = crate::ui::clipboard::read_pasted_images(&_ev);
                             let handled = !files.is_empty();
-                            for file in files {
+                            // Soft cap (W7/B1-client) — same ceiling as the file
+                            // picker. Drop overflow files and toast once.
+                            let current =
+                                s.composer.compose_attachments.get_untracked().len();
+                            let slots_left =
+                                COMPOSER_MAX_ATTACHMENTS.saturating_sub(current);
+                            let overflowed = files.len() > slots_left;
+                            for file in files.into_iter().take(slots_left) {
                                 act::add_compose_attachment(s, file);
+                            }
+                            if overflowed {
+                                s.composer.status.set(format!(
+                                    "Attachment limit ({COMPOSER_MAX_ATTACHMENTS}) reached"
+                                ));
                             }
                             if handled {
                                 _ev.prevent_default();
