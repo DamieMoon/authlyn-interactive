@@ -75,44 +75,38 @@ pub async fn logout() -> Result<(), ApiError> {
 
 /// Change the signed-in account's password. 204, no body.
 pub async fn change_password(current: &str, new: &str) -> Result<(), ApiError> {
-    let resp = Request::post("/auth/change-password")
-        .json(&ChangePasswordRequest {
+    post_json_empty(
+        "/auth/change-password",
+        &ChangePasswordRequest {
             current_password: current.to_string(),
             new_password: new.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Admin-only: set another user's password (by username). 204, no body.
 pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<(), ApiError> {
-    let resp = Request::post("/auth/admin/reset-password")
-        .json(&AdminResetPasswordRequest {
+    post_json_empty(
+        "/auth/admin/reset-password",
+        &AdminResetPasswordRequest {
             username: username.to_string(),
             new_password: new_password.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Set/replace the signed-in account's self-service recovery question + answer.
 pub async fn set_security_question(question: &str, answer: &str) -> Result<(), ApiError> {
-    let resp = Request::post("/auth/security-question")
-        .json(&SetSecurityQuestionRequest {
+    post_json_empty(
+        "/auth/security-question",
+        &SetSecurityQuestionRequest {
             question: question.to_string(),
             answer: answer.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Public: fetch a username's security question for the reset form. `question`
@@ -130,17 +124,15 @@ pub async fn confirm_reset(
     answer: &str,
     new_password: &str,
 ) -> Result<(), ApiError> {
-    let resp = Request::post("/auth/reset/confirm")
-        .json(&ConfirmResetRequest {
+    post_json_empty(
+        "/auth/reset/confirm",
+        &ConfirmResetRequest {
             username: username.to_string(),
             answer: answer.to_string(),
             new_password: new_password.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -154,13 +146,7 @@ pub async fn list_guilds() -> Result<ListGuildsResponse, ApiError> {
 /// Persist the caller's personal guild-rail order (#17/FB2). `guild_ids` is the
 /// full rail top-to-bottom; the server replaces the caller's order rows. 204.
 pub async fn set_rail_order(guild_ids: Vec<String>) -> Result<(), ApiError> {
-    let resp = Request::put("/rail/order")
-        .json(&RailOrderRequest { guild_ids })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    put_json("/rail/order", &RailOrderRequest { guild_ids }).await
 }
 
 pub async fn create_guild(name: &str) -> Result<GuildSummary, ApiError> {
@@ -179,15 +165,13 @@ pub async fn get_guild(gid: &str) -> Result<GuildDetail, ApiError> {
 
 /// Invite a user to a guild by username (owner/admin only). 201 with no body.
 pub async fn invite_member(gid: &str, username: &str) -> Result<(), ApiError> {
-    let resp = Request::post(&format!("/guilds/{gid}/members"))
-        .json(&InviteMemberRequest {
+    post_json_empty(
+        &format!("/guilds/{gid}/members"),
+        &InviteMemberRequest {
             username: username.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// List the guild's members (any member may read). The owner-only mutations
@@ -199,15 +183,13 @@ pub async fn list_members(gid: &str) -> Result<ListMembersResponse, ApiError> {
 /// Promote/demote a member (`role` is `"admin"` or `"member"`; owner/admin
 /// only, owner's role is fixed). 204, no body.
 pub async fn set_member_role(gid: &str, aid: &str, role: &str) -> Result<(), ApiError> {
-    let resp = Request::put(&format!("/guilds/{gid}/members/{aid}/role"))
-        .json(&SetMemberRoleRequest {
+    put_json(
+        &format!("/guilds/{gid}/members/{aid}/role"),
+        &SetMemberRoleRequest {
             role: role.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Kick a member (owner/admin only; the owner can't be removed). 204, no body.
@@ -217,44 +199,38 @@ pub async fn remove_member(gid: &str, aid: &str) -> Result<(), ApiError> {
 
 /// Rename a guild (owner/admin only). 204, no body.
 pub async fn patch_guild(gid: &str, name: &str) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/guilds/{gid}"))
-        .json(&PatchGuildRequest {
+    patch_json(
+        &format!("/guilds/{gid}"),
+        &PatchGuildRequest {
             name: Some(name.to_string()),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Rename a channel (owner/admin only). 204, no body.
 pub async fn patch_channel(gid: &str, cid: &str, name: &str) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/guilds/{gid}/channels/{cid}"))
-        .json(&PatchChannelRequest {
+    patch_json(
+        &format!("/guilds/{gid}/channels/{cid}"),
+        &PatchChannelRequest {
             name: Some(name.to_string()),
             ..Default::default()
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Persist a channel's per-guild display order (owner/admin only). 204. Used by
 /// the reorder ↑/↓ controls, which swap two channels' positions.
 pub async fn set_channel_position(gid: &str, cid: &str, position: i64) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/guilds/{gid}/channels/{cid}"))
-        .json(&PatchChannelRequest {
+    patch_json(
+        &format!("/guilds/{gid}/channels/{cid}"),
+        &PatchChannelRequest {
             position: Some(position),
             ..Default::default()
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Delete a guild (owner/admin only). 204, no body.
@@ -335,15 +311,13 @@ pub async fn post_typing(cid: &str) -> Result<(), ApiError> {
 
 /// Edit one of your own messages. 204, no body.
 pub async fn edit_message(cid: &str, mid: &str, body: &str) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/channels/{cid}/messages/{mid}"))
-        .json(&EditMessageRequest {
+    patch_json(
+        &format!("/channels/{cid}/messages/{mid}"),
+        &EditMessageRequest {
             body: body.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Delete one of your own messages. 204, no body.
@@ -412,33 +386,29 @@ pub async fn patch_persona(
     description: Option<String>,
     color: Option<String>,
 ) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/personas/{pid}"))
-        .json(&PatchPersonaRequest {
+    patch_json(
+        &format!("/personas/{pid}"),
+        &PatchPersonaRequest {
             name,
             description,
             color,
             position: None,
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Persist a persona's wardrobe display order (owner/editor). 204. Used by the
 /// reorder ↑/↓ controls, which swap two personas' positions.
 pub async fn set_persona_position(pid: &str, position: i64) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/personas/{pid}"))
-        .json(&PatchPersonaRequest {
+    patch_json(
+        &format!("/personas/{pid}"),
+        &PatchPersonaRequest {
             position: Some(position),
             ..Default::default()
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 /// Delete a persona (owner only). 204, no body.
@@ -458,11 +428,7 @@ pub async fn list_persona_editors(pid: &str) -> Result<ListPersonaEditorsRespons
 
 /// Share a persona with a friend — grant editor access (owner only). 204.
 pub async fn add_persona_editor(pid: &str, aid: &str) -> Result<(), ApiError> {
-    let resp = Request::put(&format!("/personas/{pid}/editors/{aid}"))
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    put_empty(&format!("/personas/{pid}/editors/{aid}")).await
 }
 
 /// Revoke an editor's access to a persona (owner only). 204, no body.
@@ -477,13 +443,11 @@ pub async fn remove_persona_editor(pid: &str, aid: &str) -> Result<(), ApiError>
 /// the client no longer calls this. Kept to avoid churn.
 #[allow(dead_code)]
 pub async fn set_active_persona(gid: &str, persona_id: Option<String>) -> Result<(), ApiError> {
-    let resp = Request::put(&format!("/guilds/{gid}/active-persona"))
-        .json(&SetActivePersonaRequest { persona_id })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    put_json(
+        &format!("/guilds/{gid}/active-persona"),
+        &SetActivePersonaRequest { persona_id },
+    )
+    .await
 }
 
 /// Wear (`Some`) or take off (`None`) a persona in a specific channel
@@ -492,13 +456,11 @@ pub async fn set_channel_active_persona(
     cid: &str,
     persona_id: Option<String>,
 ) -> Result<(), ApiError> {
-    let resp = Request::put(&format!("/channels/{cid}/active-persona"))
-        .json(&SetActivePersonaRequest { persona_id })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    put_json(
+        &format!("/channels/{cid}/active-persona"),
+        &SetActivePersonaRequest { persona_id },
+    )
+    .await
 }
 
 /// Fetch a persona's detail (name, description, avatar, gallery, and — for the
@@ -529,15 +491,13 @@ pub async fn remove_gallery_image(pid: &str, img: &str) -> Result<(), ApiError> 
 
 /// Set a persona's primary avatar to an already-uploaded media id. 204, no body.
 pub async fn set_persona_avatar(pid: &str, media_id: &str) -> Result<(), ApiError> {
-    let resp = Request::put(&format!("/personas/{pid}/avatar"))
-        .json(&crate::protocol::SetAvatarRequest {
+    put_json(
+        &format!("/personas/{pid}/avatar"),
+        &crate::protocol::SetAvatarRequest {
             media_id: media_id.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -597,13 +557,7 @@ pub async fn patch_lore(
     eid: &str,
     req: &PatchLorebookEntryRequest,
 ) -> Result<(), ApiError> {
-    let resp = Request::patch(&format!("/channels/{cid}/lorebook/{eid}"))
-        .json(req)
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    patch_json(&format!("/channels/{cid}/lorebook/{eid}"), req).await
 }
 
 pub async fn delete_lore(cid: &str, eid: &str) -> Result<(), ApiError> {
@@ -619,15 +573,13 @@ pub async fn list_friends() -> Result<ListFriendsResponse, ApiError> {
 }
 
 pub async fn add_friend(username: &str) -> Result<(), ApiError> {
-    let resp = Request::post("/friends")
-        .json(&FriendRequest {
+    post_json_empty(
+        "/friends",
+        &FriendRequest {
             username: username.to_string(),
-        })
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+        },
+    )
+    .await
 }
 
 pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
@@ -675,13 +627,7 @@ pub async fn push_vapid_key() -> Result<VapidKeyResponse, ApiError> {
 
 /// Register this browser's push subscription with the server. 204, no body.
 pub async fn push_subscribe(req: &PushSubscribeRequest) -> Result<(), ApiError> {
-    let resp = Request::post("/push/subscribe")
-        .json(req)
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    post_json_empty("/push/subscribe", req).await
 }
 
 // ---------------------------------------------------------------------------
@@ -697,13 +643,7 @@ pub async fn list_feedback() -> Result<ListFeedbackResponse, ApiError> {
 
 /// Submit a feedback item (bug | idea | other). 201, no body on success.
 pub async fn submit_feedback(req: &SubmitFeedbackRequest) -> Result<(), ApiError> {
-    let resp = Request::post("/feedback")
-        .json(req)
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    decode_empty(resp).await
+    post_json_empty("/feedback", req).await
 }
 
 /// Soft-delete (archive) a feedback item by id (admin only). 204, no body.
@@ -741,6 +681,47 @@ pub(crate) async fn post_json<B: Serialize, T: DeserializeOwned>(
         .await
         .map_err(net)?;
     decode(resp).await
+}
+
+/// PATCH `url` with a JSON body; decode a 2xx no-body response as `()`.
+/// Mirrors [`post_json`] for the dozen+ PATCH-with-204 sites.
+async fn patch_json<B: Serialize>(url: &str, body: &B) -> Result<(), ApiError> {
+    let resp = Request::patch(url)
+        .json(body)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// PUT `url` with a JSON body; decode a 2xx no-body response as `()`.
+async fn put_json<B: Serialize>(url: &str, body: &B) -> Result<(), ApiError> {
+    let resp = Request::put(url)
+        .json(body)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// PUT `url` with no body; decode a 2xx no-body response as `()`.
+async fn put_empty(url: &str) -> Result<(), ApiError> {
+    let resp = Request::put(url).send().await.map_err(net)?;
+    decode_empty(resp).await
+}
+
+/// POST `url` with a JSON body; decode a 2xx no-body response as `()`.
+/// Mirrors [`post_json`] for sites that POST a body but want only the status.
+async fn post_json_empty<B: Serialize>(url: &str, body: &B) -> Result<(), ApiError> {
+    let resp = Request::post(url)
+        .json(body)
+        .map_err(codec)?
+        .send()
+        .await
+        .map_err(net)?;
+    decode_empty(resp).await
 }
 
 fn net(e: gloo_net::Error) -> ApiError {
