@@ -66,4 +66,12 @@ $accent: #c89b3c;
 		"Crimson Pro", Georgia, "Iowan Old Style", Cambria, "Times New Roman", serif;
 	--font-display: "EB Garamond", "Crimson Pro", Georgia, "Times New Roman", serif;
 	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	// Motion — durations + easings. Modal open + transitions read these so
+	// the redesign / reduced-motion override is a single-file change.
+	--ease-page: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-quick: cubic-bezier(0.4, 0, 0.6, 1);
+	--dur-quick: 80ms;
+	--dur-base: 180ms;
+	--dur-page: 220ms;
 }

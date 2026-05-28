@@ -10,7 +10,7 @@
 		top: 0;
 		bottom: 0;
 		z-index: 30; // above the scrim (20) and the content
-		transition: transform 0.2s ease;
+		transition: transform var(--dur-base) var(--ease-page);
 	}
 
 	.rail {

@@ -41,8 +41,8 @@
 	padding: 0 0.2rem;
 	cursor: pointer;
 	transition:
-		color 0.08s ease,
-		background 0.08s ease;
+		color var(--dur-quick) var(--ease-quick),
+		background var(--dur-quick) var(--ease-quick);
 
 	* {
 		visibility: hidden;

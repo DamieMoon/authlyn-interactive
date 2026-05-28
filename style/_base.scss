@@ -68,3 +68,17 @@ textarea {
 	padding: 2rem;
 	color: var(--ink-muted);
 }
+
+// Honor OS-level reduced-motion: skip the modal entrance animation, collapse
+// transitions to near-zero. `0.01ms` (not `0ms`) keeps animation/transition
+// events firing for any JS that listens.
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

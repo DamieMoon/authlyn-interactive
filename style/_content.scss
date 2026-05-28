@@ -81,7 +81,7 @@
 				display: flex;
 				gap: 0.15rem;
 				opacity: 0;
-				transition: opacity 0.1s ease-in;
+				transition: opacity var(--dur-quick) var(--ease-quick);
 			}
 
 			&:hover .msg-actions,

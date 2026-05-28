@@ -1,6 +1,22 @@
 @use "tokens" as *;
 
 // ---- modal overlay (persona-info popup, etc.) ----
+@keyframes modal-backdrop-enter {
+	from { opacity: 0; }
+	to   { opacity: 1; }
+}
+
+@keyframes modal-enter {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 .modal-backdrop {
 	position: fixed;
 	inset: 0;
@@ -10,6 +26,7 @@
 	justify-content: center;
 	padding: 1rem;
 	background: rgba(0, 0, 0, 0.55);
+	animation: modal-backdrop-enter var(--dur-base) var(--ease-page);
 }
 
 .modal {
@@ -26,6 +43,7 @@
 	// close control off-screen (the backdrop also closes on click).
 	max-height: 85vh;
 	overflow-y: auto;
+	animation: modal-enter var(--dur-page) var(--ease-page);
 }
 
 // In the read-only info popup the description shows in full (no card clamp).
