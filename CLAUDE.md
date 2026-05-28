@@ -9,8 +9,8 @@ Self-hosted, **server-trusted** roleplay chat platform (Discord + SillyTavern st
 - Orient each session: `ctx query "authlyn current status"`.
 - Knowledge → ctx (`ctx query` / `ctx save`). Subagents auto-get a ctx brief on start; the main session does not — so query ctx yourself.
 
-## Stack (thin — full map in ctx)
-Single Rust crate: axum + Leptos 0.8 (ssr + hydrate), SurrealDB (external). Server code behind `#[cfg(feature = "ssr")]`; browser client = gloo-net REST + cookie auth. `ctx query "authlyn module map"` for the layout.
+## Stack (thin — canonical static map: `docs/ARCHITECTURE.md`)
+Single Rust crate: axum + Leptos 0.8 (ssr + hydrate), SurrealDB (external). Server code behind `#[cfg(feature = "ssr")]`; browser client = gloo-net REST + cookie auth. See `docs/ARCHITECTURE.md` for crate layout, request lifecycle, data model, and the 15-point invariant gate.
 
 ## Hard constraints
 - **Deploy:** no auto-deploy *pipeline* (user decision 2026-05-25). Canonical deploy = **`authlyn-deploy`** (= `./scripts/deploy.sh`; manual, agent-runnable; `--help` for usage; (re)install the command via `scripts/install-deploy-command.sh`). What it automates / by-hand fallback: `ctx query "novahome deploy commands"`.
@@ -18,5 +18,8 @@ Single Rust crate: axum + Leptos 0.8 (ssr + hydrate), SurrealDB (external). Serv
 - **Lint gate:** `./scripts/precommit.sh` is the only lint gate (CI runs none) — keep it green. It does NOT compile SCSS; use `cargo leptos build` for that.
 - **SurrealDB SDK** pinned `=3.1.0-beta.3` — don't bump blind. Never `<string>`-cast a datetime feeding `ORDER BY`/cursor (`ctx query "surrealdb datetime ordering"`).
 
+## Map → repo (canonical static map)
+`docs/ARCHITECTURE.md` — crate layout · three feature sets · request lifecycle · data model · 15-point invariant gate · conventions. This is the durable structural reference; ctx holds the living/episodic layer below.
+
 ## Map → ctx (query by topic)
-status/backlog · architecture & module map · novahome + Pi machine state & deploy · conventions & gotchas · pivot/decision history.
+status/backlog · novahome + Pi machine state & deploy · pivot/decision history · per-topic gotchas not covered in `docs/ARCHITECTURE.md`.
