@@ -30,6 +30,7 @@ use crate::protocol::{
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
+use crate::server::permissions::{caller_role, require_manager, require_owner};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 use crate::server::validate::validate_name;
@@ -1034,69 +1035,6 @@ pub async fn set_member_role(
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/// The caller's `role` in a guild, or `None` if they're not a member (which
-/// callers map to a privacy-404 / 403 as appropriate).
-pub(crate) async fn caller_role(
-    state: &AppState,
-    gid: &str,
-    account: &str,
-) -> surrealdb::Result<Option<String>> {
-    #[derive(SurrealValue)]
-    struct Row {
-        role: String,
-    }
-    let mut resp = state
-        .db
-        .query(
-            "SELECT role FROM guild_member
-                WHERE guild = type::record('guild', $gid)
-                  AND account = type::record('account', $account);",
-        )
-        .bind(("gid", gid.to_string()))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    let row: Option<Row> = resp.take(0)?;
-    Ok(row.map(|r| r.role))
-}
-
-/// `Ok(())` if the caller can manage the guild (owner **or** admin);
-/// otherwise an early-return response: 404 for non-members (privacy), 403 for
-/// plain members. This gates the everyday management actions (channels,
-/// invites, kicks, rename) — admins are deliberately near-peers of the owner
-/// so granting admin is the easy, sufficient way to share control.
-async fn require_manager(state: &AppState, gid: &str, account: &str) -> Result<(), Response> {
-    match caller_role(state, gid, account).await {
-        Ok(Some(role)) if role == "owner" || role == "admin" => Ok(()),
-        Ok(Some(_)) => Err(error_response(StatusCode::FORBIDDEN, "admin only")),
-        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "guild not found")),
-        Err(e) => {
-            tracing::error!(error = %e, "require_manager lookup failed");
-            Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "storage error",
-            ))
-        }
-    }
-}
-
-/// `Ok(())` only if the caller is the guild **owner**. Reserved for the few
-/// irreversible/structural actions (deleting the guild).
-async fn require_owner(state: &AppState, gid: &str, account: &str) -> Result<(), Response> {
-    match caller_role(state, gid, account).await {
-        Ok(Some(role)) if role == "owner" => Ok(()),
-        Ok(Some(_)) => Err(error_response(StatusCode::FORBIDDEN, "owner only")),
-        Ok(None) => Err(error_response(StatusCode::NOT_FOUND, "guild not found")),
-        Err(e) => {
-            tracing::error!(error = %e, "require_owner lookup failed");
-            Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "storage error",
-            ))
-        }
-    }
-}
 
 async fn channel_in_guild(state: &AppState, gid: &str, cid: &str) -> surrealdb::Result<bool> {
     let mut resp = state

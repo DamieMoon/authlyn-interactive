@@ -35,6 +35,7 @@ use crate::protocol::{
 };
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
+use crate::server::permissions::is_admin;
 use crate::server::retry::is_unique_violation;
 use crate::server::state::AppState;
 
@@ -699,52 +700,6 @@ async fn delete_sessions_for_account(state: &AppState, account_id: &str) -> surr
         .await?
         .check()?;
     Ok(())
-}
-
-/// Admin guard: fail-closed. The caller (by account id) is an admin iff their
-/// stored `username_ci` is in the configured admin set — the union of
-/// `AUTHLYN_ADMIN_USERNAMES` (comma/whitespace-separated) and the legacy
-/// singular `AUTHLYN_ADMIN_USERNAME`, each trimmed and lowercased. An empty set
-/// (neither var set, or both blank) authorizes no one.
-pub(crate) async fn is_admin(state: &AppState, account_id: &str) -> surrealdb::Result<bool> {
-    let admins = admin_username_set();
-    if admins.is_empty() {
-        return Ok(false);
-    }
-    #[derive(SurrealValue)]
-    struct Row {
-        username_ci: String,
-    }
-    let mut resp = state
-        .db
-        .query("SELECT username_ci FROM type::record('account', $account_id);")
-        .bind(("account_id", account_id.to_string()))
-        .await?
-        .check()?;
-    let row: Option<Row> = resp.take(0)?;
-    Ok(row
-        .map(|r| admins.contains(&r.username_ci))
-        .unwrap_or(false))
-}
-
-/// Build the lowercased admin-username set from the environment (see [`is_admin`]).
-pub(crate) fn admin_username_set() -> std::collections::HashSet<String> {
-    let mut set = std::collections::HashSet::new();
-    if let Ok(list) = std::env::var("AUTHLYN_ADMIN_USERNAMES") {
-        for entry in list.split([',', ' ', '\t', '\n', '\r']) {
-            let e = entry.trim();
-            if !e.is_empty() {
-                set.insert(e.to_lowercase());
-            }
-        }
-    }
-    if let Ok(single) = std::env::var("AUTHLYN_ADMIN_USERNAME") {
-        let e = single.trim();
-        if !e.is_empty() {
-            set.insert(e.to_lowercase());
-        }
-    }
-    set
 }
 
 // ---------------------------------------------------------------------------

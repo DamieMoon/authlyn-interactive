@@ -20,7 +20,7 @@ use crate::protocol::{CreateEmojiRequest, CustomEmoji, ListEmojiResponse};
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::errors::{error_response, json_rejection_response};
-use crate::server::guilds;
+use crate::server::permissions::{caller_role, require_manager};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 use crate::server::validate::validate_emoji_name;
@@ -42,7 +42,7 @@ pub async fn create_emoji(
     };
 
     // Member gate: any role suffices.
-    match guilds::caller_role(&state, &gid, &account.0).await {
+    match caller_role(&state, &gid, &account.0).await {
         Ok(Some(_)) => {}
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "guild not found"),
         Err(e) => {
@@ -132,7 +132,7 @@ pub async fn list_emoji(
     account: AuthAccount,
 ) -> Response {
     // Member gate.
-    match guilds::caller_role(&state, &gid, &account.0).await {
+    match caller_role(&state, &gid, &account.0).await {
         Ok(Some(_)) => {}
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "guild not found"),
         Err(e) => {
@@ -199,15 +199,9 @@ pub async fn delete_emoji(
     Path((gid, ename)): Path<(String, String)>,
     account: AuthAccount,
 ) -> Response {
-    // Manager gate (owner or admin): mirrors the pattern in guilds.rs.
-    match guilds::caller_role(&state, &gid, &account.0).await {
-        Ok(Some(role)) if role == "owner" || role == "admin" => {}
-        Ok(Some(_)) => return error_response(StatusCode::FORBIDDEN, "admin only"),
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, "guild not found"),
-        Err(e) => {
-            tracing::error!(error = %e, "caller_role failed");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-        }
+    // Manager gate (owner or admin): the shared helper used across guilds.
+    if let Err(r) = require_manager(&state, &gid, &account.0).await {
+        return r;
     }
 
     match state

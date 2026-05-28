@@ -23,9 +23,10 @@ use axum::Json;
 use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{FeedbackItem, ListFeedbackResponse, SubmitFeedbackRequest};
-use crate::server::auth::{is_admin, AuthAccount};
+use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::errors::{error_response, json_rejection_response};
+use crate::server::permissions::is_admin;
 use crate::server::state::AppState;
 
 // ---------------------------------------------------------------------------

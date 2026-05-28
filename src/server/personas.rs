@@ -24,6 +24,7 @@ use crate::protocol::{
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
+use crate::server::permissions::{can_edit_persona, is_persona_editor, owns_persona};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 use crate::server::validate::validate_name;
@@ -974,21 +975,6 @@ pub async fn leave_persona(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-async fn owns_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
-    let mut resp = state
-        .db
-        .query(
-            "SELECT meta::id(id) AS id_key FROM persona
-                WHERE id = type::record('persona', $pid)
-                  AND owner = type::record('account', $account);",
-        )
-        .bind(("pid", pid.to_string()))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    Ok(resp.take::<Option<IdRow>>(0)?.is_some())
-}
-
 /// True when `me` and `other` have an accepted friendship (either direction).
 async fn is_accepted_friend(state: &AppState, me: &str, other: &str) -> surrealdb::Result<bool> {
     let mut resp = state
@@ -1006,34 +992,6 @@ async fn is_accepted_friend(state: &AppState, me: &str, other: &str) -> surreald
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.is_some())
-}
-
-/// True when a `persona_editor` row links this persona to the account.
-async fn is_persona_editor(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
-    let mut resp = state
-        .db
-        .query(
-            "SELECT meta::id(id) AS id_key FROM persona_editor
-                WHERE persona = type::record('persona', $pid)
-                  AND account = type::record('account', $account);",
-        )
-        .bind(("pid", pid.to_string()))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    Ok(resp.take::<Option<IdRow>>(0)?.is_some())
-}
-
-/// Edit access = owner OR a redeemed editor. Used to gate PATCH + wear.
-pub(crate) async fn can_edit_persona(
-    state: &AppState,
-    pid: &str,
-    account: &str,
-) -> surrealdb::Result<bool> {
-    if owns_persona(state, pid, account).await? {
-        return Ok(true);
-    }
-    is_persona_editor(state, pid, account).await
 }
 
 /// The editor roster for a persona (owner-only view).

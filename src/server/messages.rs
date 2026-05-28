@@ -126,15 +126,16 @@ pub async fn post_message(
     // the caller may use it; if absent/invalid, fall back to the stored
     // per-channel persona (`channel_active_persona`), else speak as the account.
     let active_persona = match req.persona_id.as_deref() {
-        Some(pid) => match crate::server::personas::can_edit_persona(&state, pid, &account.0).await
-        {
-            Ok(true) => Some(pid.to_string()),
-            Ok(false) => stored_persona,
-            Err(e) => {
-                tracing::error!(error = %e, "can_edit_persona failed");
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        Some(pid) => {
+            match crate::server::permissions::can_edit_persona(&state, pid, &account.0).await {
+                Ok(true) => Some(pid.to_string()),
+                Ok(false) => stored_persona,
+                Err(e) => {
+                    tracing::error!(error = %e, "can_edit_persona failed");
+                    return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+                }
             }
-        },
+        }
         None => stored_persona,
     };
 

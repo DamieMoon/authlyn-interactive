@@ -35,6 +35,10 @@ mod db_helpers;
 // Crate-internal.
 mod validate;
 
+// Shared authorization helpers (guild role gates, persona edit-access, admin
+// guard). Crate-internal.
+mod permissions;
+
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
