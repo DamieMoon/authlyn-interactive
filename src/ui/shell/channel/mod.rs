@@ -17,6 +17,7 @@
 mod attachments;
 mod avatar;
 mod emoji_suggest;
+mod meta;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};
@@ -25,10 +26,11 @@ use emoji_suggest::active_shortcode_token;
 use emoji_suggest::{
     custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
 };
+use meta::message_meta;
 
 use leptos::prelude::*;
 
-use super::{act, PendingDelete, Shell};
+use super::{act, Shell};
 #[cfg(feature = "hydrate")]
 use crate::client::api;
 use crate::markup::Color;
@@ -356,65 +358,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel.sel_channel.get().map(|c| c.id);
                     s.msg.messages.get().into_iter().map(|m| {
-                        // Worn persona's frozen name, else the "default" identity
-                        // (the controlling account's nickname).
-                        let who = display_name(&m);
-                        // Tint the name with the persona's chosen palette color
-                        // (validated against the markup palette before trusting it).
-                        let who_class = m.persona_color.as_deref()
-                            .filter(|c| Color::from_name(c).is_some())
-                            .map(|c| format!("who mk-{c}"))
-                            .unwrap_or_else(|| "who".to_string());
-                        let when = format_local_time(&m.sent_at);
-                        // Circular persona avatar (send-time snapshot) left of the name.
-                        let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
                         let atts = m.attachments.clone();
-                        let info_m = m.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let mid = m.id.clone();
                         let body = m.body.clone();
                         let cid = cid.clone();
                         let dom_id = format!("msg-{}", m.id);
+                        let meta = message_meta(s, &m, &cid, mine, editing_msg, info);
                         view! {
                             <li class="msg" id=dom_id>
-                                <div class="meta">
-                                    {avatar_el}
-                                    <button class=who_class title="persona info"
-                                        on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
-                                    <time class="when">{when}</time>
-                                    {mine.then(|| {
-                                        let edit_mid = mid.clone();
-                                        let del_mid = mid.clone();
-                                        let del_cid = cid.clone();
-                                        view! {
-                                            <span class="msg-actions">
-                                                <button class="row-edit" title="edit"
-                                                    on:click=move |_| editing_msg.set(Some(edit_mid.clone()))>"✎"</button>
-                                                <button class="row-edit" title="delete"
-                                                    on:click=move |_| {
-                                                        if let Some(cid) = del_cid.clone() {
-                                                            // Message deletes confirm unless the
-                                                            // user opted out in account settings;
-                                                            // other deletes always confirm.
-                                                            if act::confirm_delete_message_enabled() {
-                                                                act::ask_delete(
-                                                                    s,
-                                                                    "Delete this message? This cannot be undone."
-                                                                        .to_string(),
-                                                                    PendingDelete::Message {
-                                                                        cid,
-                                                                        mid: del_mid.clone(),
-                                                                    },
-                                                                );
-                                                            } else {
-                                                                act::delete_message(s, cid, del_mid.clone());
-                                                            }
-                                                        }
-                                                    }>"🗑"</button>
-                                            </span>
-                                        }
-                                    })}
-                                </div>
+                                {meta}
                                 {move || {
                                     let mid = mid.clone();
                                     let body = body.clone();
