@@ -8,8 +8,8 @@
 	flex-direction: column;
 	gap: 0.6rem;
 	padding: 1.5rem;
-	background: $panel;
-	border: 1px solid $line;
+	background: var(--vellum);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.6rem;
 
 	h1 {
@@ -21,11 +21,11 @@
 		margin: 0;
 		font-size: 1rem;
 		font-weight: 500;
-		color: $muted;
+		color: var(--ink-muted);
 	}
 
 	a {
-		color: $accent;
+		color: var(--gold);
 		font-size: 0.85rem;
 		text-decoration: none;
 	}

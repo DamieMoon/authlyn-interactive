@@ -49,17 +49,17 @@
 // as the persona/lorebook reorder controls but sized for the channel row.
 .channel-reorder {
 	padding: 0 0.3rem;
-	border: 1px solid $line;
+	border: 1px solid var(--rule-line);
 	border-radius: 0.3rem;
-	background: $panel;
-	color: $text;
+	background: var(--vellum);
+	color: var(--ink);
 	cursor: pointer;
 	font-size: 0.7rem;
 	line-height: 1.4;
 
 	&:hover:not(:disabled) {
-		border-color: $accent;
-		color: $accent;
+		border-color: var(--gold);
+		color: var(--gold);
 	}
 
 	&:disabled {
@@ -71,17 +71,17 @@
 // Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
 .persona-reorder {
 	padding: 0.1rem 0.45rem;
-	border: 1px solid $line;
+	border: 1px solid var(--rule-line);
 	border-radius: 0.3rem;
-	background: $panel;
-	color: $text;
+	background: var(--vellum);
+	color: var(--ink);
 	cursor: pointer;
 	font-size: 0.8rem;
 	line-height: 1.5;
 
 	&:hover:not(:disabled) {
-		border-color: $accent;
-		color: $accent;
+		border-color: var(--gold);
+		color: var(--gold);
 	}
 
 	&:disabled {
@@ -95,13 +95,13 @@
 	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.75rem;
-	background: $panel-2;
-	border: 1px solid $line;
+	background: var(--vellum-2);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.6rem;
 
 	&.worn {
-		border-color: $accent;
-		box-shadow: 0 0 0 1px $accent inset;
+		border-color: var(--gold);
+		box-shadow: 0 0 0 1px var(--gold) inset;
 	}
 
 	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
@@ -111,9 +111,9 @@
 		justify-content: center;
 		height: 5rem;
 		border-radius: 0.5rem;
-		background: $panel;
-		border: 1px dashed $line;
-		color: $accent;
+		background: var(--vellum);
+		border: 1px dashed var(--rule-line);
+		color: var(--gold);
 		font-size: 2rem;
 		font-weight: 700;
 		user-select: none;
@@ -130,19 +130,19 @@
 		padding: 0;
 
 		&:hover .card-name {
-			color: $accent;
+			color: var(--gold);
 		}
 	}
 
 	.card-name {
 		font-size: 1.05rem;
 		font-weight: 700;
-		color: $text;
+		color: var(--ink);
 	}
 
 	.card-desc {
 		font-size: 0.85rem;
-		color: $text;
+		color: var(--ink);
 		// Preserve author newlines (Shift+Enter) in the blurb.
 		white-space: pre-wrap;
 		// Clamp the blurb to a few lines so cards stay uniform.
@@ -159,8 +159,8 @@
 		gap: 0.4rem;
 
 		.worn {
-			border-color: $accent;
-			color: $accent;
+			border-color: var(--gold);
+			color: var(--gold);
 		}
 	}
 }
@@ -169,7 +169,7 @@
 // its inner layout. The accent border distinguishes it from other modals.
 .persona-detail {
 	gap: 0.6rem;
-	border-color: $accent;
+	border-color: var(--gold);
 
 	.detail-head {
 		display: flex;
@@ -187,8 +187,8 @@
 		justify-content: center;
 		height: 6rem;
 		border-radius: 0.5rem;
-		background: $panel-2;
-		border: 1px dashed $line;
+		background: var(--vellum-2);
+		border: 1px dashed var(--rule-line);
 		font-size: 0.85rem;
 	}
 
@@ -197,11 +197,11 @@
 		flex-direction: column;
 		gap: 0.25rem;
 		font-size: 0.85rem;
-		color: $muted;
+		color: var(--ink-muted);
 
 		input,
 		textarea {
-			color: $text;
+			color: var(--ink);
 		}
 
 		textarea {
@@ -215,8 +215,8 @@
 		gap: 0.4rem;
 
 		.save {
-			border-color: $accent;
-			color: $accent;
+			border-color: var(--gold);
+			color: var(--gold);
 		}
 	}
 
@@ -226,7 +226,7 @@
 		flex-direction: column;
 		gap: 0.3rem;
 		padding-top: 0.4rem;
-		border-top: 1px solid $line;
+		border-top: 1px solid var(--rule-line);
 		font-size: 0.85rem;
 
 		.share-row {
@@ -234,8 +234,8 @@
 			align-items: center;
 			gap: 0.5rem;
 			padding: 0.25rem 0.4rem;
-			background: $panel-2;
-			border: 1px solid $line;
+			background: var(--vellum-2);
+			border: 1px solid var(--rule-line);
 			border-radius: 0.4rem;
 			cursor: pointer;
 
@@ -267,7 +267,7 @@
 
 	// Active-avatar indicator: accent ring around the current portrait choice.
 	&.is-avatar {
-		border-color: $accent;
+		border-color: var(--gold);
 	}
 }
 
@@ -277,7 +277,7 @@
 	width: 100%;
 	aspect-ratio: 1 / 1;
 	padding: 0;
-	background: $panel-2;
+	background: var(--vellum-2);
 	border: none;
 	border-radius: 0.35rem;
 	cursor: pointer;
@@ -292,7 +292,7 @@
 	left: 50%;
 	transform: translateX(-50%);
 	font-size: 0.75rem;
-	color: $accent;
+	color: var(--gold);
 	pointer-events: none;
 	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
@@ -307,8 +307,8 @@
 	padding: 0;
 	border-radius: 50%;
 	border: none;
-	background: #1c1a2b;
-	color: $text;
+	background: var(--backdrop-deep);
+	color: var(--ink);
 	cursor: pointer;
 	line-height: 1;
 	font-size: 0.75rem;

@@ -1,8 +1,8 @@
 @use "tokens" as *;
 
 .sidebar {
-	background: $panel;
-	border-right: 1px solid $line;
+	background: var(--vellum);
+	border-right: 1px solid var(--rule-line);
 	display: flex;
 	flex-direction: column;
 	overflow-y: auto;
@@ -12,7 +12,7 @@
 		align-items: center;
 		gap: 0.25rem;
 		padding: 0.6rem 0.75rem;
-		border-bottom: 1px solid $line;
+		border-bottom: 1px solid var(--rule-line);
 
 		.server-title {
 			flex: 1;
@@ -46,24 +46,24 @@
 			text-align: left;
 			background: transparent;
 			border: none;
-			color: $muted;
+			color: var(--ink-muted);
 			padding: 0.35rem 0.5rem;
 			border-radius: 0.375rem;
 
 			&:hover {
-				background: $panel-2;
-				color: $text;
+				background: var(--vellum-2);
+				color: var(--ink);
 			}
 
 			&.active {
-				background: $panel-2;
-				color: $text;
+				background: var(--vellum-2);
+				color: var(--ink);
 			}
 
 			// Unread (#23): brighten the name and add an orange glow so a
 			// channel with new messages stands out in the sidebar.
 			&.unread {
-				color: #eea160;
+				color: var(--tint-orange);
 				font-weight: 600;
 				text-shadow: 0 0 6px rgba(238, 161, 96, 0.7);
 			}
@@ -79,12 +79,12 @@
 	.row-edit {
 		background: transparent;
 		border: none;
-		color: $muted;
+		color: var(--ink-muted);
 		padding: 0.2rem 0.35rem;
 		font-size: 0.85rem;
 
 		&:hover {
-			color: $text;
+			color: var(--ink);
 		}
 	}
 
@@ -104,7 +104,7 @@
 		display: flex;
 		gap: 0.25rem;
 		padding: 0.5rem;
-		border-top: 1px solid $line;
+		border-top: 1px solid var(--rule-line);
 
 		input {
 			flex: 1;

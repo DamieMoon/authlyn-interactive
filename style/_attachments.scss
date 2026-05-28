@@ -26,7 +26,7 @@
 		object-fit: cover;
 		border-radius: 8px;
 		cursor: pointer;
-		background: #2a2740;
+		background: var(--attachment-bg);
 		display: block;
 	}
 
@@ -70,7 +70,7 @@
 			height: 100%;
 			object-fit: cover;
 			border-radius: 8px;
-			background: #2a2740;
+			background: var(--attachment-bg);
 		}
 
 		.att-remove {
@@ -82,8 +82,8 @@
 			padding: 0;
 			border-radius: 50%;
 			border: none;
-			background: #1c1a2b;
-			color: $text;
+			background: var(--backdrop-deep);
+			color: var(--ink);
 			cursor: pointer;
 			line-height: 1;
 			font-size: 0.8rem;

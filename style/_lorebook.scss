@@ -12,8 +12,8 @@
 }
 
 .lore-entry {
-	background: $panel-2;
-	border: 1px solid $line;
+	background: var(--vellum-2);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.5rem;
 	padding: 0.6rem 0.75rem;
 
@@ -51,17 +51,17 @@
 .lore-cancel,
 .lore-delete {
 	padding: 0.1rem 0.45rem;
-	border: 1px solid $line;
+	border: 1px solid var(--rule-line);
 	border-radius: 0.3rem;
-	background: $panel;
-	color: $text;
+	background: var(--vellum);
+	color: var(--ink);
 	cursor: pointer;
 	font-size: 0.8rem;
 	line-height: 1.5;
 
 	&:hover:not(:disabled) {
-		border-color: $accent;
-		color: $accent;
+		border-color: var(--gold);
+		color: var(--gold);
 	}
 
 	&:disabled {
@@ -71,18 +71,18 @@
 }
 
 .lore-delete:hover {
-	border-color: #e66a6a;
-	color: #e66a6a;
+	border-color: var(--ink-danger-hover);
+	color: var(--ink-danger-hover);
 }
 
 .lore-save {
-	border-color: $accent;
-	color: $accent;
+	border-color: var(--gold);
+	color: var(--gold);
 }
 
 .lore-content {
 	font-size: 0.9rem;
-	color: $muted;
+	color: var(--ink-muted);
 	white-space: pre-wrap;
 	word-break: break-word;
 }
@@ -98,10 +98,10 @@
 .lore-edit-keys {
 	width: 100%;
 	padding: 0.3rem 0.5rem;
-	background: $panel;
-	border: 1px solid $line;
+	background: var(--vellum);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.3rem;
-	color: $text;
+	color: var(--ink);
 	font: inherit;
 	font-size: 0.9rem;
 }
@@ -110,10 +110,10 @@
 	width: 100%;
 	min-height: 4rem;
 	padding: 0.3rem 0.5rem;
-	background: $panel;
-	border: 1px solid $line;
+	background: var(--vellum);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.3rem;
-	color: $text;
+	color: var(--ink);
 	font: inherit;
 	font-size: 0.9rem;
 	resize: vertical;
@@ -128,10 +128,10 @@
 	textarea {
 		width: 100%;
 		padding: 0.35rem 0.5rem;
-		background: $panel;
-		border: 1px solid $line;
+		background: var(--vellum);
+		border: 1px solid var(--rule-line);
 		border-radius: 0.3rem;
-		color: $text;
+		color: var(--ink);
 		font: inherit;
 	}
 
@@ -143,14 +143,14 @@
 	button {
 		align-self: flex-start;
 		padding: 0.3rem 0.8rem;
-		border: 1px solid $accent;
+		border: 1px solid var(--gold);
 		border-radius: 0.3rem;
-		background: $panel;
-		color: $accent;
+		background: var(--vellum);
+		color: var(--gold);
 		cursor: pointer;
 
 		&:hover {
-			background: $panel-2;
+			background: var(--vellum-2);
 		}
 	}
 }

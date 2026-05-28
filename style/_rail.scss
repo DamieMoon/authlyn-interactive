@@ -1,7 +1,7 @@
 @use "tokens" as *;
 
 .rail {
-	background: #16181d;
+	background: var(--parchment-deep);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -18,9 +18,9 @@
 		padding: 0;
 
 		&.active {
-			border-color: $accent;
-			box-shadow: 0 0 0 2px $accent;
-			color: $text;
+			border-color: var(--gold);
+			box-shadow: 0 0 0 2px var(--gold);
+			color: var(--ink);
 		}
 	}
 
@@ -44,17 +44,17 @@
 
 		.rail-reorder-btn {
 			padding: 0 0.25rem;
-			border: 1px solid $line;
+			border: 1px solid var(--rule-line);
 			border-radius: 0.25rem;
-			background: $panel;
-			color: $text;
+			background: var(--vellum);
+			color: var(--ink);
 			cursor: pointer;
 			font-size: 0.6rem;
 			line-height: 1.3;
 
 			&:hover:not(:disabled) {
-				border-color: $accent;
-				color: $accent;
+				border-color: var(--gold);
+				color: var(--gold);
 			}
 
 			&:disabled {

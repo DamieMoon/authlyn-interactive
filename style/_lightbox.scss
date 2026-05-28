@@ -27,7 +27,7 @@
 		border-radius: 50%;
 		border: none;
 		background: rgba(28, 26, 43, 0.9);
-		color: $text;
+		color: var(--ink);
 		font-size: 1.1rem;
 		cursor: pointer;
 	}

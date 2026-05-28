@@ -13,8 +13,8 @@
 }
 
 .modal {
-	background: $panel;
-	border: 1px solid $line;
+	background: var(--vellum);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.6rem;
 	padding: 1rem 1.2rem;
 	width: 100%;
@@ -49,14 +49,14 @@
 	max-height: min(60vh, 420px);
 	overflow: hidden;
 	border-radius: 0.5rem;
-	background: $panel-2;
-	border: 1px solid $line;
+	background: var(--vellum-2);
+	border: 1px solid var(--rule-line);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 2.4rem; // larger monogram fallback to suit the bigger box
 	font-weight: 700;
-	color: $accent;
+	color: var(--gold);
 }
 
 // ---- confirm dialog (reuses .modal / .modal-backdrop) ----
@@ -68,7 +68,7 @@
 
 	p {
 		margin: 0;
-		color: $muted;
+		color: var(--ink-muted);
 	}
 
 	.confirm-actions {
@@ -98,12 +98,12 @@
 		gap: 0.4rem;
 		padding-top: 0.5rem;
 		margin-top: 0.5rem;
-		border-top: 1px solid $line;
+		border-top: 1px solid var(--rule-line);
 
 		h3 {
 			margin: 0;
 			font-size: 0.9rem;
-			color: $muted;
+			color: var(--ink-muted);
 		}
 
 		.account-save {
@@ -125,7 +125,7 @@
 	.account-status {
 		min-height: 1em;
 		margin: 0.25rem 0 0;
-		color: #cdb8f0;
+		color: var(--ink-soft);
 	}
 }
 
@@ -145,8 +145,8 @@
 		width: 100%;
 		resize: vertical;
 		min-height: 6rem;
-		background: $panel-2;
-		border: 1px solid $line;
+		background: var(--vellum-2);
+		border: 1px solid var(--rule-line);
 		border-radius: 0.35rem;
 		color: inherit;
 		font: inherit;
@@ -156,7 +156,7 @@
 
 		&:focus {
 			outline: none;
-			border-color: $accent;
+			border-color: var(--gold);
 		}
 	}
 
@@ -181,8 +181,8 @@
 
 	.fb-item {
 		padding: 0.5rem 0.6rem;
-		background: $panel-2;
-		border: 1px solid $line;
+		background: var(--vellum-2);
+		border: 1px solid var(--rule-line);
 		border-radius: 0.5rem;
 	}
 
@@ -199,17 +199,17 @@
 		text-transform: uppercase;
 		padding: 0.05rem 0.4rem;
 		border-radius: 0.3rem;
-		background: $panel;
-		border: 1px solid $line;
+		background: var(--vellum);
+		border: 1px solid var(--rule-line);
 
 		&.fb-bug {
-			color: #f0828c;
-			border-color: #f0828c;
+			color: var(--ink-danger);
+			border-color: var(--ink-danger);
 		}
 
 		&.fb-idea {
-			color: $accent;
-			border-color: $accent;
+			color: var(--gold);
+			border-color: var(--gold);
 		}
 	}
 
@@ -219,7 +219,7 @@
 
 	.fb-when {
 		font-size: 0.7rem;
-		color: $muted;
+		color: var(--ink-muted);
 		margin-left: auto;
 	}
 
@@ -240,13 +240,13 @@
 		padding: 0 0.3rem;
 		background: none;
 		border: none;
-		color: $muted;
+		color: var(--ink-muted);
 		cursor: pointer;
 		font-size: 0.85rem;
 		line-height: 1;
 
 		&:hover {
-			color: #f0828c;
+			color: var(--ink-danger);
 		}
 	}
 }

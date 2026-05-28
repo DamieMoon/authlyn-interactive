@@ -2,73 +2,66 @@
 
 // ---- message markup palette ----
 .mk-red {
-	color: #f0828c;
+	color: var(--tint-red);
 }
 .mk-orange {
-	color: #eea160;
+	color: var(--tint-orange);
 }
 .mk-yellow {
-	color: #e6d36b;
+	color: var(--tint-yellow);
 }
 .mk-green {
-	color: #7cc47f;
+	color: var(--tint-green);
 }
 .mk-blue {
-	color: #6ea8e6;
+	color: var(--tint-blue);
 }
 .mk-purple {
-	color: #b58be0;
+	color: var(--tint-purple);
 }
 .mk-pink {
-	color: #e88fc0;
+	color: var(--tint-pink);
 }
 .mk-gray {
-	color: #9aa3af;
+	color: var(--tint-gray);
 }
 
 .mk-bg-red {
-	background: #f0828c;
+	background: var(--tint-red);
 }
 .mk-bg-orange {
-	background: #eea160;
+	background: var(--tint-orange);
 }
 .mk-bg-yellow {
-	background: #e6d36b;
+	background: var(--tint-yellow);
 }
 .mk-bg-green {
-	background: #7cc47f;
+	background: var(--tint-green);
 }
 .mk-bg-blue {
-	background: #6ea8e6;
+	background: var(--tint-blue);
 }
 .mk-bg-purple {
-	background: #b58be0;
+	background: var(--tint-purple);
 }
 .mk-bg-pink {
-	background: #e88fc0;
+	background: var(--tint-pink);
 }
 .mk-bg-gray {
-	background: #9aa3af;
+	background: var(--tint-gray);
 }
 
 // ---- per-persona name tint (#9) ----
-// Palette name → hex (matches the .mk-* text colors). The default `.who` color is
-// set by the nested rule that compiles to `.content .messages .msg .who` (0,4,0),
-// so the persona tint must match that depth to win — a bare `.msg .who.mk-*`
-// (0,3,0) loses and the name stays the default purple.
-$persona-palette: (
-	"red": #f0828c,
-	"orange": #eea160,
-	"yellow": #e6d36b,
-	"green": #7cc47f,
-	"blue": #6ea8e6,
-	"purple": #b58be0,
-	"pink": #e88fc0,
-	"gray": #9aa3af,
-);
-@each $n, $c in $persona-palette {
+// The default `.who` color comes from the nested rule that compiles to
+// `.content .messages .msg .who` (specificity 0,4,0), so the persona tint
+// must match that depth to win — a bare `.msg .who.mk-*` (0,3,0) loses and
+// the name stays the default purple. Do not "simplify" the long selector.
+//
+// Each persona slot reads its color from the `--tint-{name}` token declared
+// in _tokens.scss, so a single token swap retints the chat author column.
+@each $n in (red, orange, yellow, green, blue, purple, pink, gray) {
 	.content .messages .msg .who.mk-#{$n} {
-		color: $c;
+		color: var(--tint-#{$n});
 	}
 }
 
@@ -88,8 +81,8 @@ $persona-palette: (
 		border-radius: 50%;
 
 		&.active {
-			border-color: $text;
-			box-shadow: 0 0 0 1px $text;
+			border-color: var(--ink);
+			box-shadow: 0 0 0 1px var(--ink);
 		}
 	}
 }
@@ -117,22 +110,22 @@ $persona-palette: (
 .mk-subtext {
 	display: block;
 	font-size: 0.8rem;
-	color: $muted;
+	color: var(--ink-muted);
 }
 
 .mk-code {
 	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 	font-size: 0.88em;
-	background: $panel;
-	border: 1px solid $line;
+	background: var(--vellum);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.25rem;
 	padding: 0.05rem 0.3rem;
 }
 
 .mk-pre {
 	margin: 0.3rem 0;
-	background: $panel-2;
-	border: 1px solid $line;
+	background: var(--vellum-2);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.375rem;
 	padding: 0.5rem 0.7rem;
 	// Wrap long lines rather than overflow the message card; preserve newlines.

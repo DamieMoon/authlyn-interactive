@@ -12,29 +12,29 @@ body {
 
 body {
 	font-family: system-ui, -apple-system, sans-serif;
-	background: $bg;
-	color: $text;
+	background: var(--parchment);
+	color: var(--ink);
 	line-height: 1.45;
 }
 
 button {
 	font: inherit;
-	color: $text;
-	background: $panel-2;
-	border: 1px solid $line;
+	color: var(--ink);
+	background: var(--vellum-2);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.375rem;
 	padding: 0.35rem 0.6rem;
 	cursor: pointer;
 
 	&:hover {
-		border-color: $accent;
+		border-color: var(--gold);
 	}
 
 	&.danger {
-		color: #f0828c;
+		color: var(--ink-danger);
 
 		&:hover {
-			border-color: #f0828c;
+			border-color: var(--ink-danger);
 		}
 	}
 }
@@ -42,15 +42,15 @@ button {
 input,
 textarea {
 	font: inherit;
-	color: $text;
-	background: #1b1e24;
-	border: 1px solid $line;
+	color: var(--ink);
+	background: var(--input-bg);
+	border: 1px solid var(--rule-line);
 	border-radius: 0.375rem;
 	padding: 0.4rem 0.55rem;
 }
 
 .muted {
-	color: $muted;
+	color: var(--ink-muted);
 }
 
 .pad {
@@ -58,7 +58,7 @@ textarea {
 }
 
 .error {
-	color: #f0828c;
+	color: var(--ink-danger);
 	min-height: 1rem;
 	font-size: 0.85rem;
 	padding: 0 1rem;
@@ -66,5 +66,5 @@ textarea {
 
 .loading {
 	padding: 2rem;
-	color: $muted;
+	color: var(--ink-muted);
 }

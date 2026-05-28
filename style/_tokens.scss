@@ -1,4 +1,14 @@
-// authlyn — dark roleplay-platform theme.
+// Design tokens — the only file in `style/` that carries hex literals.
+//
+// Tokens are dual-tracked: SCSS `$vars` (compile-time substitution; kept for
+// the few `rgba($var, alpha)` sites that still compile to a literal rgb)
+// AND CSS custom properties on `:root` (runtime swap; what every consuming
+// partial actually references via `var(--token)`).
+//
+// Names are Grimoire-flavoured (--parchment / --vellum / --ink / --gold) so
+// the redesign in W6/C5 is a pure value swap inside this file. The values
+// below are the *current dark-mode hex set* — C2 is a pixel-identical
+// declaration-shape change; C5 swaps the values to the parchment palette.
 
 $bg: #1e2127;
 $panel: #262a31;
@@ -7,3 +17,45 @@ $line: #353b45;
 $text: #d6dae0;
 $muted: #8b929c;
 $accent: #6ea8e6;
+
+:root {
+	// Core surface + ink (current dark values; Grimoire-named for C5 swap)
+	--parchment: #1e2127; // page surface (was $bg)
+	--parchment-deep: #16181d; // darkest panel (rail bg)
+	--vellum: #262a31; // raised panels (was $panel)
+	--vellum-2: #2d323b; // hover / active surface (was $panel-2)
+	--rule-line: #353b45; // ruled borders (was $line)
+	--ink: #d6dae0; // primary text (was $text)
+	--ink-soft: #cdb8f0; // secondary text / chat author name
+	--ink-muted: #8b929c; // tertiary text (was $muted)
+	--input-bg: #1b1e24; // form-input background
+
+	// Accent (becomes parchment-gold in C5; today it is the dark-mode blue)
+	--gold: #6ea8e6; // primary accent (was $accent)
+	--gold-warm: #6ea8e6; // hover/highlight (currently identical; C5 splits to a warmer tone)
+	--gold-soft: #6ea8e6; // subdued accent (currently identical; C5 splits to a deeper tone)
+
+	// Danger family
+	--ink-danger: #f0828c; // primary danger red
+	--ink-danger-soft: #e88; // softer red for delete buttons (= #ee8888)
+	--ink-danger-hover: #e66a6a; // delete-button hover
+	--ink-danger-border: #b4566a; // delete-button border
+
+	// Role / status colors
+	--role-admin: #6aa3d6; // admin-tag blue
+
+	// Attachment + backdrop surfaces
+	--attachment-bg: #2a2740; // image-thumb placeholder
+	--backdrop-deep: #1c1a2b; // small floating button bg (gallery-remove, lightbox-close)
+
+	// Persona-tint palette — referenced by .mk-{red|orange|…} text + bg classes
+	// and the `.content .messages .msg .who.mk-*` specificity chain in _markup.scss.
+	--tint-red: #f0828c;
+	--tint-orange: #eea160;
+	--tint-yellow: #e6d36b;
+	--tint-green: #7cc47f;
+	--tint-blue: #6ea8e6;
+	--tint-purple: #b58be0;
+	--tint-pink: #e88fc0;
+	--tint-gray: #9aa3af;
+}
