@@ -21,6 +21,7 @@ use crate::protocol::{ChannelSummary, ListFriendsResponse};
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
 use crate::ui::avatar::monogram;
 use crate::ui::emoji::EmojiResolver;
+use crate::ui::inline_rename::InlineRename;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
@@ -230,10 +231,10 @@ fn AppShell() -> impl IntoView {
     // Deleted-channel list open/closed in the sidebar (owner-only).
     let chan_trash_open = RwSignal::new(false);
     // Inline-rename edit state (owner only): the server title and per-channel rows.
+    // The edit buffers live INSIDE `<InlineRename>` now (W6/C7); these signals
+    // just gate whether the input is rendered at all.
     let editing_server = RwSignal::new(false);
-    let server_edit_buf = RwSignal::new(String::new());
     let editing_channel = RwSignal::new(None::<String>);
-    let channel_edit_buf = RwSignal::new(String::new());
     // The invite/manage controls show only to the owner of the open server.
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
@@ -400,41 +401,23 @@ fn AppShell() -> impl IntoView {
                     <div class="server-header">
                         {move || if editing_server.get() {
                             view! {
-                                <input class="rename-input" prop:value=move || server_edit_buf.get()
-                                    on:input=move |ev| server_edit_buf.set(event_target_value(&ev))
-                                    on:keydown=move |ev| {
-                                        #[cfg(feature = "hydrate")]
-                                        match ev.key().as_str() {
-                                            "Enter" => {
-                                                ev.prevent_default();
-                                                if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                                    act::rename_server(s, gid, server_edit_buf.get_untracked());
-                                                }
-                                                editing_server.set(false);
-                                            }
-                                            "Escape" => editing_server.set(false),
-                                            _ => {}
+                                <InlineRename
+                                    value=server_name()
+                                    on_save=move |v| {
+                                        if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                            act::rename_server(s, gid, v);
                                         }
-                                        #[cfg(not(feature = "hydrate"))]
-                                        let _ = &ev;
-                                    }/>
-                                <button class="row-edit" title="save" on:click=move |_| {
-                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                        act::rename_server(s, gid, server_edit_buf.get_untracked());
+                                        editing_server.set(false);
                                     }
-                                    editing_server.set(false);
-                                }>"✓"</button>
-                                <button class="row-edit" title="cancel"
-                                    on:click=move |_| editing_server.set(false)>"✕"</button>
+                                    on_cancel=move || editing_server.set(false)
+                                />
                             }.into_any()
                         } else {
                             view! {
                                 <span class="server-title">{server_name()}</span>
                                 <Show when=is_owner fallback=|| ()>
-                                    <button class="row-edit" title="rename server" on:click=move |_| {
-                                        server_edit_buf.set(server_name());
-                                        editing_server.set(true);
-                                    }>"✎"</button>
+                                    <button class="row-edit" title="rename server"
+                                        on:click=move |_| editing_server.set(true)>"✎"</button>
                                     <button class="row-edit danger" title="delete server"
                                         on:click=move |_| {
                                             if let Some(gid) = s.sel.sel_server.get_untracked() {
@@ -470,7 +453,7 @@ fn AppShell() -> impl IntoView {
                             let chans = s.sel.channels.get();
                             let len = chans.len();
                             chans.into_iter().enumerate().map(|(idx, c)| {
-                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel buf=channel_edit_buf/> }
+                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel/> }
                             }).collect_view()
                         }}
                     </ul>
@@ -637,7 +620,8 @@ fn AppShell() -> impl IntoView {
 
 /// One channel row in the sidebar: the open-channel button, plus an owner-only
 /// inline rename (✎ → input + ✓/✕). Edit state is shared across rows via the
-/// `editing` (which cid, if any) and `buf` signals owned by `AppShell`.
+/// `editing` (which cid, if any) signal owned by `AppShell`; the rename
+/// draft buffer lives inside `<InlineRename>` itself (W6/C7).
 #[component]
 fn ChannelRow(
     s: Shell,
@@ -645,7 +629,6 @@ fn ChannelRow(
     idx: usize,
     len: usize,
     editing: RwSignal<Option<String>>,
-    buf: RwSignal<String>,
 ) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_owner = move || {
@@ -666,37 +649,18 @@ fn ChannelRow(
                 let name0 = name0.clone();
                 let ch = ch.clone();
                 if editing.get().as_deref() == Some(cid.as_str()) {
-                    let cid_save = cid.clone();
+                    let save_cid = cid.clone();
                     view! {
-                        <input class="rename-input" prop:value=move || buf.get()
-                            on:input=move |ev| buf.set(event_target_value(&ev))
-                            on:keydown={
-                                let cid_kd = cid.clone();
-                                move |ev| {
-                                    #[cfg(feature = "hydrate")]
-                                    match ev.key().as_str() {
-                                        "Enter" => {
-                                            ev.prevent_default();
-                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                                act::rename_channel(s, gid, cid_kd.clone(), buf.get_untracked());
-                                            }
-                                            editing.set(None);
-                                        }
-                                        "Escape" => editing.set(None),
-                                        _ => {}
-                                    }
-                                    #[cfg(not(feature = "hydrate"))]
-                                    let _ = (&ev, &cid_kd);
+                        <InlineRename
+                            value=name0.clone()
+                            on_save=move |v| {
+                                if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                    act::rename_channel(s, gid, save_cid.clone(), v);
                                 }
-                            }/>
-                        <button class="row-edit" title="save" on:click=move |_| {
-                            if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                act::rename_channel(s, gid, cid_save.clone(), buf.get_untracked());
+                                editing.set(None);
                             }
-                            editing.set(None);
-                        }>"✓"</button>
-                        <button class="row-edit" title="cancel"
-                            on:click=move |_| editing.set(None)>"✕"</button>
+                            on_cancel=move || editing.set(None)
+                        />
                     }.into_any()
                 } else {
                     let active_cid = cid.clone();
@@ -721,11 +685,7 @@ fn ChannelRow(
                                 on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
                             <button class="row-edit" title="rename channel" on:click={
                                 let start_cid = start_cid.clone();
-                                let start_name = start_name.clone();
-                                move |_| {
-                                    buf.set(start_name.clone());
-                                    editing.set(Some(start_cid.clone()));
-                                }
+                                move |_| editing.set(Some(start_cid.clone()))
                             }>"✎"</button>
                             <button class="row-edit danger" title="delete channel" on:click={
                                 let del_cid = start_cid.clone();

@@ -9,6 +9,7 @@ use crate::protocol::MeResponse;
 pub mod auth;
 pub mod avatar;
 pub mod emoji;
+pub mod inline_rename;
 pub mod markup_view;
 pub mod modal;
 pub mod shell;

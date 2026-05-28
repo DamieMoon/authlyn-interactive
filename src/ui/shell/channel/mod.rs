@@ -34,6 +34,7 @@ use crate::client::api;
 use crate::markup::Color;
 use crate::protocol::{Attachment, MessageEnvelope};
 use crate::ui::emoji::data::{self, GROUPS};
+use crate::ui::inline_rename::InlineRename;
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
@@ -157,10 +158,10 @@ pub(super) fn apply_markup(
 #[component]
 pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
-    // Inline edit state, shared across message rows like the channel-rename
-    // pattern: which message id is being edited (if any), and its buffer.
+    // Inline edit state, shared across message rows: which message id is
+    // being edited (if any). The draft buffer lives inside <InlineRename>
+    // (W6/C7).
     let editing_msg = RwSignal::new(None::<String>);
-    let msg_edit_buf = RwSignal::new(String::new());
 
     // Composer emoji picker + `:`-autocomplete + live preview state (all
     // component-local). `ac_token` holds the active `:query` token as
@@ -382,16 +383,12 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                     <time class="when">{when}</time>
                                     {mine.then(|| {
                                         let edit_mid = mid.clone();
-                                        let edit_body = body.clone();
                                         let del_mid = mid.clone();
                                         let del_cid = cid.clone();
                                         view! {
                                             <span class="msg-actions">
                                                 <button class="row-edit" title="edit"
-                                                    on:click=move |_| {
-                                                        msg_edit_buf.set(edit_body.clone());
-                                                        editing_msg.set(Some(edit_mid.clone()));
-                                                    }>"✎"</button>
+                                                    on:click=move |_| editing_msg.set(Some(edit_mid.clone()))>"✎"</button>
                                                 <button class="row-edit" title="delete"
                                                     on:click=move |_| {
                                                         if let Some(cid) = del_cid.clone() {
@@ -426,17 +423,17 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                         let save_cid = cid.clone();
                                         view! {
                                             <div class="msg-edit">
-                                                <textarea class="rename-input"
-                                                    prop:value=move || msg_edit_buf.get()
-                                                    on:input=move |ev| msg_edit_buf.set(event_target_value(&ev))></textarea>
-                                                <button class="row-edit" title="save" on:click=move |_| {
-                                                    if let Some(cid) = save_cid.clone() {
-                                                        act::edit_message(s, cid, save_mid.clone(), msg_edit_buf.get_untracked());
+                                                <InlineRename
+                                                    value=body.clone()
+                                                    multiline=true
+                                                    on_save=move |v| {
+                                                        if let Some(cid) = save_cid.clone() {
+                                                            act::edit_message(s, cid, save_mid.clone(), v);
+                                                        }
+                                                        editing_msg.set(None);
                                                     }
-                                                    editing_msg.set(None);
-                                                }>"✓"</button>
-                                                <button class="row-edit" title="cancel"
-                                                    on:click=move |_| editing_msg.set(None)>"✕"</button>
+                                                    on_cancel=move || editing_msg.set(None)
+                                                />
                                             </div>
                                         }.into_any()
                                     } else {
