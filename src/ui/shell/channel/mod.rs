@@ -1,4 +1,30 @@
 //! The channel message pane: the message list and the markup composer.
+//!
+//! Pure-helper carve-outs live in sibling submodules:
+//! - [`avatar`] — `chat_avatar` (circular monogram-fallback portrait) +
+//!   `format_local_time` (RFC3339 → viewer locale).
+//! - [`attachments`] — `attachment_grid` (image/video grid with lightbox).
+//! - [`emoji_suggest`] — the `:`-autocomplete primitives (`Suggestion`,
+//!   `emoji_suggestions`, `active_shortcode_token`,
+//!   `replace_shortcode_token`) + the picker-grid buttons
+//!   (`custom_emoji_btn`, `unicode_emoji_btn`). Its `active_shortcode_token`
+//!   unit test is co-located there.
+//!
+//! This file owns `ChannelPane` itself (the message-list/composer view), the
+//! composer's caret-aware `apply_markup`, the touch-vs-desktop Enter helper,
+//! and the small `deleted_message_row`.
+
+mod attachments;
+mod avatar;
+mod emoji_suggest;
+
+use attachments::attachment_grid;
+use avatar::{chat_avatar, format_local_time};
+#[cfg(feature = "hydrate")]
+use emoji_suggest::active_shortcode_token;
+use emoji_suggest::{
+    custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
+};
 
 use leptos::prelude::*;
 
@@ -66,7 +92,12 @@ fn enter_inserts_newline() -> bool {
 /// Hydrate-only DOM work (selection ranges are in UTF-16 units, so we splice in
 /// JS-string space); the ssr fallback just appends the markers.
 #[cfg(feature = "hydrate")]
-fn apply_markup(s: Shell, ta_ref: NodeRef<leptos::html::Textarea>, open: &str, close: &str) {
+pub(super) fn apply_markup(
+    s: Shell,
+    ta_ref: NodeRef<leptos::html::Textarea>,
+    open: &str,
+    close: &str,
+) {
     let Some(el) = ta_ref.get() else {
         s.compose.update(|c| {
             c.push_str(open);
@@ -100,301 +131,16 @@ fn apply_markup(s: Shell, ta_ref: NodeRef<leptos::html::Textarea>, open: &str, c
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn apply_markup(s: Shell, _ta_ref: NodeRef<leptos::html::Textarea>, open: &str, close: &str) {
+pub(super) fn apply_markup(
+    s: Shell,
+    _ta_ref: NodeRef<leptos::html::Textarea>,
+    open: &str,
+    close: &str,
+) {
     s.compose.update(|c| {
         c.push_str(open);
         c.push_str(close);
     });
-}
-
-/// Trailing emoji token `:query` before the caret (`:` then ≥1 of [a-z0-9_],
-/// the `:` not preceded by an alphanumeric so `12:30`/`http:` don't trigger).
-/// Returns (query, token_len) where token_len = the `:`+query length (ASCII,
-/// == UTF-16 units).
-///
-/// Pure (not cfg-gated) so the unit tests reach it, but only *called* from the
-/// hydrate-only composer handlers — hence dead on the ssr non-test build.
-#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
-fn active_shortcode_token(before: &str) -> Option<(String, u32)> {
-    let b = before.as_bytes();
-    let mut i = b.len();
-    while i > 0 && (b[i - 1].is_ascii_lowercase() || b[i - 1].is_ascii_digit() || b[i - 1] == b'_')
-    {
-        i -= 1;
-    }
-    if i == b.len() || i == 0 || b[i - 1] != b':' {
-        return None;
-    }
-    let colon = i - 1;
-    if colon > 0 && b[colon - 1].is_ascii_alphanumeric() {
-        return None;
-    }
-    Some((before[i..].to_string(), (before.len() - colon) as u32))
-}
-
-/// One `:`-autocomplete row: a guild custom emoji (image) or a standard-unicode
-/// glyph. `name` is the shortcode (sans colons) that gets inserted on accept.
-struct Suggestion {
-    name: String,
-    media: Option<String>,
-    glyph: Option<&'static str>,
-}
-
-/// Autocomplete candidates for a `:query`: the open guild's custom emoji whose
-/// name starts with the query first, then the standard-unicode matches, capped
-/// at 8. `data::search` is empty on ssr, so on the server this only ever returns
-/// custom-emoji rows (and the popover never renders without a caret anyway).
-fn emoji_suggestions(s: Shell, query: &str) -> Vec<Suggestion> {
-    let q = query.to_lowercase();
-    let mut out: Vec<Suggestion> = s
-        .guild_emoji
-        .get()
-        .into_iter()
-        .filter(|e| e.name.to_lowercase().starts_with(&q))
-        .map(|e| Suggestion {
-            name: e.name,
-            media: Some(e.media_id),
-            glyph: None,
-        })
-        .collect();
-    for e in data::search(query, 8) {
-        out.push(Suggestion {
-            name: e.shortcode.to_string(),
-            media: None,
-            glyph: Some(e.glyph),
-        });
-    }
-    out.truncate(8);
-    out
-}
-
-/// Replace the `start..end` (UTF-16) `:query` token in the composer with the
-/// chosen `:name: ` and place the caret just after it. Hydrate-only DOM work
-/// (selection ranges are UTF-16 units, so we splice in JS-string space).
-#[cfg(feature = "hydrate")]
-fn replace_shortcode_token(
-    s: Shell,
-    ta: NodeRef<leptos::html::Textarea>,
-    start: u32,
-    end: u32,
-    name: &str,
-) {
-    let Some(el) = ta.get() else { return };
-    let v = js_sys::JsString::from(el.value().as_str());
-    let before = v.slice(0, start).as_string().unwrap_or_default();
-    let after = v.slice(end, v.length()).as_string().unwrap_or_default();
-    let insert = format!(":{name}: ");
-    s.compose.set(format!("{before}{insert}{after}"));
-    let caret = start + insert.encode_utf16().count() as u32;
-    leptos::task::spawn_local(async move {
-        gloo_timers::future::TimeoutFuture::new(0).await;
-        let _ = el.set_selection_range(caret, caret);
-        let _ = el.focus();
-    });
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn replace_shortcode_token(
-    _s: Shell,
-    _ta: NodeRef<leptos::html::Textarea>,
-    _start: u32,
-    _end: u32,
-    _name: &str,
-) {
-}
-
-/// One custom-emoji button in the picker grid: its image, inserting `:name: `
-/// at the caret and closing the picker on click.
-fn custom_emoji_btn(
-    s: Shell,
-    composer_ref: NodeRef<leptos::html::Textarea>,
-    emoji_open: RwSignal<bool>,
-    name: String,
-    media_id: String,
-) -> impl IntoView {
-    let title = format!(":{name}:");
-    let alt = title.clone();
-    let src = format!("/media/{media_id}?w=32");
-    view! {
-        <button class="emoji-btn" title=title
-            on:click=move |_| {
-                apply_markup(s, composer_ref, &format!(":{name}: "), "");
-                emoji_open.set(false);
-            }>
-            <img src=src alt=alt/>
-        </button>
-    }
-}
-
-/// One standard-unicode emoji button in the picker grid: its glyph, inserting
-/// `:shortcode: ` at the caret and closing the picker on click.
-fn unicode_emoji_btn(
-    s: Shell,
-    composer_ref: NodeRef<leptos::html::Textarea>,
-    emoji_open: RwSignal<bool>,
-    shortcode: &'static str,
-    glyph: &'static str,
-) -> impl IntoView {
-    view! {
-        <button class="emoji-btn" title=format!(":{shortcode}:")
-            on:click=move |_| {
-                apply_markup(s, composer_ref, &format!(":{shortcode}: "), "");
-                emoji_open.set(false);
-            }>
-            {glyph}
-        </button>
-    }
-}
-
-/// Format an RFC3339 timestamp for display beside the author name.
-///
-/// On hydrate (browser) we hand the string to JavaScript's `Date`, which
-/// parses RFC3339 and renders in the viewer's local timezone + locale.
-/// On ssr (native) there is no browser timezone, so we fall back to the
-/// raw timestamp — the value is replaced by the localized one as soon as
-/// the client hydrates.
-#[cfg(feature = "hydrate")]
-fn format_local_time(sent_at: &str) -> String {
-    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(sent_at));
-    // NaN time => unparseable input; keep the raw string rather than show
-    // "Invalid Date".
-    if date.get_time().is_nan() {
-        return sent_at.to_string();
-    }
-    let undef = wasm_bindgen::JsValue::UNDEFINED;
-    let day = String::from(date.to_locale_date_string("default", &undef));
-    let time = String::from(date.to_locale_time_string("default"));
-    format!("{day} {time}")
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn format_local_time(sent_at: &str) -> String {
-    sent_at.to_string()
-}
-
-/// A circular persona avatar for chat: the send-time snapshot image (served at
-/// `/media/{id}`) when present, else the name's first letter as a monogram.
-/// `fill` true makes it fill its parent slot (the info popup's `.info-portrait`);
-/// false renders a fixed small inline circle (the per-message meta row). Styled
-/// inline because `main.scss` is owned by a parallel work stream.
-fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoView {
-    let frame = if fill {
-        "width:100%;height:100%;border-radius:inherit;overflow:hidden;display:flex;\
-         align-items:center;justify-content:center"
-            .to_string()
-    } else {
-        "width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;flex:0 0 auto;\
-         display:inline-flex;align-items:center;justify-content:center;\
-         background:#3a3550;color:#cdb8f0;font-weight:600;font-size:1.05rem;\
-         vertical-align:middle;margin-right:0.5rem"
-            .to_string()
-    };
-    match avatar_id {
-        Some(id) => {
-            // Request a downscaled JPEG thumbnail instead of the full upload so
-            // avatars load fast: the small row circle needs ~128px, the popup ~256.
-            let tw = if fill { 256 } else { 128 };
-            let src = format!("/media/{id}?w={tw}");
-            view! {
-                <span class="chat-avatar" style=frame>
-                    <img src=src alt="" style="width:100%;height:100%;object-fit:cover"/>
-                </span>
-            }
-            .into_any()
-        }
-        None => {
-            let monogram = name
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
-            view! { <span class="chat-avatar" style=frame>{monogram}</span> }.into_any()
-        }
-    }
-}
-
-/// Render a message's inline image attachments as a Discord-style grid: the
-/// more images, the more compact (column count climbs, cells go square).
-/// Clicking one opens it in the lightbox. Thumbnails pull a downscaled JPEG
-/// (`?w=512`); the lightbox loads the full original.
-#[cfg(feature = "hydrate")]
-fn attachment_grid(atts: Vec<Attachment>, lightbox: RwSignal<Option<Attachment>>) -> impl IntoView {
-    let cols = match atts.len() {
-        1 => 1,
-        2 | 4 => 2,
-        _ => 3,
-    };
-    view! {
-        <div class=format!("attachments cols-{cols}")>
-            {atts.into_iter().map(|att| {
-                let open = att.clone();
-                let is_video = att.mime.starts_with("video/");
-                let id = att.id.clone();
-                if is_video {
-                    // Videos use the raw blob (the `?w=512` thumbnail path is
-                    // image-only); play inline and open the lightbox on click.
-                    view! {
-                        <video class="att-thumb" controls preload="metadata"
-                            src=format!("/media/{id}")
-                            on:click=move |_| lightbox.set(Some(open.clone()))></video>
-                    }.into_any()
-                } else {
-                    // GIFs must use the raw blob: the `?w=512` thumbnail re-encodes
-                    // to a STATIC JPEG (first frame). Other images keep the thumb.
-                    let src = if att.mime == "image/gif" {
-                        format!("/media/{id}")
-                    } else {
-                        format!("/media/{id}?w=512")
-                    };
-                    view! {
-                        <img class="att-thumb" loading="lazy" alt="attachment"
-                            src=src
-                            on:click=move |_| lightbox.set(Some(open.clone()))/>
-                    }.into_any()
-                }
-            }).collect_view()}
-        </div>
-    }
-}
-
-/// SSR build has no lightbox interaction; render the grid as plain links so the
-/// markup still hydrates identically.
-#[cfg(not(feature = "hydrate"))]
-fn attachment_grid(
-    atts: Vec<Attachment>,
-    _lightbox: RwSignal<Option<Attachment>>,
-) -> impl IntoView {
-    let cols = match atts.len() {
-        1 => 1,
-        2 | 4 => 2,
-        _ => 3,
-    };
-    view! {
-        <div class=format!("attachments cols-{cols}")>
-            {atts.into_iter().map(|att| {
-                let id = att.id.clone();
-                let is_video = att.mime.starts_with("video/");
-                if is_video {
-                    view! {
-                        <video class="att-thumb" controls preload="metadata"
-                            src=format!("/media/{id}")></video>
-                    }.into_any()
-                } else {
-                    // GIFs use the raw blob (the thumbnail re-encodes to a static
-                    // JPEG); other images use the downscaled thumb.
-                    let src = if att.mime == "image/gif" {
-                        format!("/media/{id}")
-                    } else {
-                        format!("/media/{id}?w=512")
-                    };
-                    view! {
-                        <img class="att-thumb" alt="attachment" src=src/>
-                    }.into_any()
-                }
-            }).collect_view()}
-        </div>
-    }
 }
 
 #[component]
@@ -1245,33 +991,5 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 }
             })}
         </div>
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::active_shortcode_token;
-
-    #[test]
-    fn detects_a_trailing_shortcode_token() {
-        // `:` + query, token_len counts the colon too.
-        assert_eq!(active_shortcode_token(":smi"), Some(("smi".into(), 4)));
-        // A leading space (non-alphanumeric) before the colon is fine.
-        assert_eq!(active_shortcode_token("x :tada"), Some(("tada".into(), 5)));
-        // Digits and underscores are valid token chars.
-        assert_eq!(active_shortcode_token(":joy_2"), Some(("joy_2".into(), 6)));
-    }
-
-    #[test]
-    fn rejects_non_tokens() {
-        // No colon at all.
-        assert_eq!(active_shortcode_token("hi"), None);
-        // Time-like `12:30`: the colon is preceded by a digit.
-        assert_eq!(active_shortcode_token("12:30"), None);
-        // URL-scheme-like `http:` would-be empty query — and the bare colon
-        // also yields no query.
-        assert_eq!(active_shortcode_token(":"), None);
-        // A bare colon following text is still an empty query → no token.
-        assert_eq!(active_shortcode_token("foo:"), None);
     }
 }
