@@ -45,7 +45,6 @@ pub use self::typing::typing_ping;
 
 use surrealdb::types::SurrealValue;
 
-use crate::server::access::{resolve_membership, Membership};
 use crate::server::state::AppState;
 
 /// Max characters in a message body (markup included).
@@ -69,49 +68,82 @@ pub(super) enum AccessOutcome {
     NotMember,
 }
 
-/// Resolve a channel to its guild + kind, then check the caller's membership
-/// of that guild and read their active persona for it. The two unknowns
-/// (no such channel / caller not a member) are distinct internally but the
-/// handlers collapse both to a privacy-404.
+/// Resolve a channel to its guild + kind, check the caller's guild membership,
+/// AND read their per-channel active persona — all in ONE SurrealDB round-trip.
 ///
-/// The resolve + membership check is the shared [`crate::server::access`] core
-/// (with the soft-delete filter on); this layers the per-channel active-persona
-/// read on top.
+/// Splits the three resolutions into a single multi-statement query and folds
+/// them into a returned object. Previously this was three sequential round-trips
+/// (channel → guild_member → channel_active_persona) on every message poll;
+/// W5/H1 collapsed it to one.
+///
+/// The two unknowns (no such channel / caller not a member) remain distinct
+/// internally but the handlers collapse both to a privacy-404. Soft-delete
+/// filter is always on here (the messages contract); the shared
+/// [`crate::server::access::resolve_membership`] core stays available for the
+/// `lorebook` no-filter and `personas` bool-only callers.
 pub(super) async fn channel_access(
     state: &AppState,
     cid: &str,
     account: &str,
 ) -> surrealdb::Result<AccessOutcome> {
     #[derive(SurrealValue)]
-    struct PersonaRow {
-        persona_id: String,
+    struct CombinedRow {
+        /// `kind` of the (live, non-soft-deleted) channel, or `NONE` when the
+        /// channel doesn't exist (or it / its guild are soft-deleted).
+        chan_kind: Option<String>,
+        /// `Some(true)` when the caller is a guild_member; `None` otherwise
+        /// (sub-SELECT returns no row). The `IF $chan = NONE` guard skips the
+        /// `type::record('guild', NONE)` construction when the channel is
+        /// missing — order of evaluation across an `AND` is not contractual
+        /// in SurrealQL.
+        is_member: Option<bool>,
+        /// The caller's worn persona id IN THIS CHANNEL (no row → speak as
+        /// the account).
+        active_persona: Option<String>,
     }
 
-    let kind = match resolve_membership(state, cid, account, true).await? {
-        Membership::Member { kind } => kind,
-        Membership::ChannelNotFound => return Ok(AccessOutcome::ChannelNotFound),
-        Membership::NotMember => return Ok(AccessOutcome::NotMember),
-    };
-
-    // Membership gate is per-guild (handled by the core). The worn persona,
-    // however, is per-CHANNEL (channel_active_persona): no row → speak as the
-    // account.
+    // One round-trip, two SurrealQL statements:
+    //   stmt 0  LET $chan       (channel + soft-delete gate)
+    //   stmt 1  RETURN { ... }  (member check + persona read folded in)
+    // Only the RETURN materializes a result row, but the surrealdb driver
+    // still indexes through the LET — hence `.take(1)` for the object.
+    let sql = "
+        LET $chan = (
+            SELECT meta::id(guild) AS guild_key, kind
+            FROM ONLY type::record('channel', $cid)
+            WHERE deleted_at = NONE AND guild.deleted_at = NONE
+        );
+        RETURN {
+            chan_kind: $chan.kind,
+            is_member: IF $chan = NONE THEN NONE ELSE
+                (SELECT VALUE true FROM ONLY guild_member
+                    WHERE guild = type::record('guild', $chan.guild_key)
+                      AND account = type::record('account', $account))
+            END,
+            active_persona: (
+                SELECT VALUE meta::id(persona)
+                FROM ONLY channel_active_persona
+                WHERE channel = type::record('channel', $cid)
+                  AND account = type::record('account', $account)
+            ),
+        };
+    ";
     let mut resp = state
         .db
-        .query(
-            "SELECT meta::id(persona) AS persona_id
-                FROM channel_active_persona
-                WHERE channel = type::record('channel', $cid)
-                  AND account = type::record('account', $account);",
-        )
+        .query(sql)
         .bind(("cid", cid.to_string()))
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    let active_persona = resp.take::<Option<PersonaRow>>(0)?.map(|r| r.persona_id);
+    let row: Option<CombinedRow> = resp.take(1)?;
+    let row = row.expect("RETURN always materializes an object");
 
-    Ok(AccessOutcome::Ok(ChannelCtx {
-        kind,
-        active_persona,
-    }))
+    match (row.chan_kind, row.is_member) {
+        (None, _) => Ok(AccessOutcome::ChannelNotFound),
+        (Some(_), None) => Ok(AccessOutcome::NotMember),
+        (Some(kind), Some(_)) => Ok(AccessOutcome::Ok(ChannelCtx {
+            kind,
+            active_persona: row.active_persona,
+        })),
+    }
 }
