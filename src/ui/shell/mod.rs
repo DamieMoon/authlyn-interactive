@@ -226,6 +226,10 @@ fn AppShell() -> impl IntoView {
             .collect::<HashMap<String, String>>()
     });
     provide_context(EmojiResolver::new(emoji_map));
+    // W7/D1: kick off the lazy `/emoji.json` fetch at shell mount so the
+    // picker and `:shortcode:` resolver are warm by the time the first
+    // composer renders. No-op if already loaded or in flight.
+    crate::ui::emoji::data::warm();
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
     let new_invite = RwSignal::new(String::new());

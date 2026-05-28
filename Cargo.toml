@@ -114,12 +114,12 @@ rmcp     = { version = "0.8", features = ["server", "macros", "transport-streama
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies"], optional = true }
 anyhow   = { version = "1", optional = true }
 
-# Standard-unicode emoji dataset — the picker's full set + `:shortcode:` render
-# resolution. A static `phf` table (phf is already vendored transitively), so
-# the new surface is tiny. Hydrate-only (gated into the `hydrate` feature below)
-# so it never enters the ssr graph; every `emojis::*` reference is isolated in
-# `src/ui/emoji/data.rs`, keeping a future lazy-JSON swap local to that file.
-emojis   = { version = "0.8.2", optional = true }
+# `Send + Sync` shim for !Send wasm types. Already vendored transitively via
+# leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
+# across the `Effect` / `on_cleanup` boundary (W7/D2 focus-restoration). Wasm
+# is single-threaded, the wrapper panics on cross-thread access — exactly the
+# semantics we want for the !Send web-sys types. Hydrate-only.
+send_wrapper = { version = "0.6", optional = true }
 
 # `rand` pulls getrandom 0.2 into the WASM (hydrate) build; that target needs
 # the "js" feature so getrandom can borrow the browser's `crypto.getRandomValues`.
@@ -138,6 +138,13 @@ tower = { version = "0.5", features = ["util"] }
 # preserves the no-extra-runtime-deps invariant for the shipping binary.
 futures = "0.3"
 
+# Build-time only: feeds the `examples/gen_emoji_json.rs` one-shot generator
+# that emits `public/emoji.json` (W7/D1). `emojis` is a static phf table; the
+# generator pulls it once, writes the JSON to the repo, and the wasm hydrate
+# build then ships only the JSON asset — not the crate. Dev-deps don't enter
+# the lib graph, so the wasm bundle stays free of this ~80 KB brotli payload.
+emojis = "0.8.2"
+
 [features]
 hydrate = [
     "leptos/hydrate",
@@ -150,7 +157,7 @@ hydrate = [
     "dep:gloo-timers",
     "dep:wasm-bindgen-futures",
     "dep:futures-util",
-    "dep:emojis",
+    "dep:send_wrapper",
 ]
 ssr = [
     "dep:axum",
