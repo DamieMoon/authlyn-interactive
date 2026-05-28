@@ -24,6 +24,10 @@ pub mod state;
 // Used by `messages::load_messages`; kept private to the server module.
 mod datetime;
 
+// Shared HTTP error-response helpers (`error_response`, `json_rejection_response`),
+// used by every JSON handler module. Crate-internal.
+mod errors;
+
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;

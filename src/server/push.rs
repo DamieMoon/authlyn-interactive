@@ -31,8 +31,9 @@ use web_push::{
     WebPushError, WebPushMessageBuilder,
 };
 
-use crate::protocol::{ErrorBody, PushSubscribeRequest, PushUnsubscribeRequest, VapidKeyResponse};
+use crate::protocol::{PushSubscribeRequest, PushUnsubscribeRequest, VapidKeyResponse};
 use crate::server::auth::AuthAccount;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::state::AppState;
 
 /// How long the push service should hold an undelivered message. A chat ping
@@ -377,23 +378,4 @@ fn notification_body(body: &str) -> String {
     } else {
         t.to_string()
     }
-}
-
-// ---------------------------------------------------------------------------
-// Shaping (local copies, matching the per-module style in messages.rs/auth.rs)
-// ---------------------------------------------------------------------------
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }

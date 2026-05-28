@@ -16,12 +16,13 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    AddGalleryImageRequest, AddGalleryImageResponse, CreatePersonaRequest, ErrorBody, GalleryImage,
+    AddGalleryImageRequest, AddGalleryImageResponse, CreatePersonaRequest, GalleryImage,
     ListPersonaEditorsResponse, ListPersonasResponse, PatchPersonaRequest, PersonaDetail,
     PersonaEditor, PersonaSummary, RedeemPersonaKeyRequest, SetActivePersonaRequest,
     SetAvatarRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 
@@ -1171,19 +1172,4 @@ fn validate_name(name: &str) -> Result<(), &'static str> {
 /// palette names (red…gray) — the same set the chat `[color]` markup uses.
 fn valid_color(c: &str) -> bool {
     c.is_empty() || crate::markup::Color::from_name(c).is_some()
-}
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }

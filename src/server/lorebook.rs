@@ -15,10 +15,11 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    CreateLorebookEntryRequest, CreateLorebookEntryResponse, ErrorBody, ListLorebookResponse,
-    LorebookEntry, PatchLorebookEntryRequest,
+    CreateLorebookEntryRequest, CreateLorebookEntryResponse, ListLorebookResponse, LorebookEntry,
+    PatchLorebookEntryRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::state::AppState;
 
 const MAX_TITLE_CHARS: usize = 200;
@@ -424,19 +425,4 @@ fn normalize_keys(keys: Vec<String>) -> Vec<String> {
         .map(|k| k.trim().to_string())
         .filter(|k| !k.is_empty())
         .collect()
-}
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }

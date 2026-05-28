@@ -29,11 +29,12 @@ use serde::Deserialize;
 use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
-    Attachment, EditMessageRequest, ErrorBody, ListMessagesResponse, MessageEnvelope,
-    SendMessageRequest, SendMessageResponse,
+    Attachment, EditMessageRequest, ListMessagesResponse, MessageEnvelope, SendMessageRequest,
+    SendMessageResponse,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
 
@@ -962,23 +963,4 @@ async fn all_media_exist(state: &AppState, ids: &[String]) -> surrealdb::Result<
         .check()?;
     let found: Vec<String> = resp.take(0)?;
     Ok(ids.iter().all(|id| found.contains(id)))
-}
-
-// ---------------------------------------------------------------------------
-// Shaping
-// ---------------------------------------------------------------------------
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }

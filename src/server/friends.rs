@@ -13,8 +13,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use surrealdb::types::SurrealValue;
 
-use crate::protocol::{ErrorBody, FriendRequest, FriendSummary, ListFriendsResponse};
+use crate::protocol::{FriendRequest, FriendSummary, ListFriendsResponse};
 use crate::server::auth::AuthAccount;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 
@@ -306,19 +307,4 @@ async fn account_id_by_username_ci(
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.map(|r| r.id_key))
-}
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }

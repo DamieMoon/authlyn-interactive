@@ -25,8 +25,9 @@ use serde::Deserialize;
 use surrealdb::types::SurrealValue;
 use tokio::fs;
 
-use crate::protocol::{ErrorBody, MediaUploadResponse};
+use crate::protocol::MediaUploadResponse;
 use crate::server::auth::AuthAccount;
+use crate::server::errors::error_response;
 use crate::server::state::AppState;
 
 /// Multipart field carrying the file bytes. Other fields are ignored.
@@ -284,8 +285,4 @@ fn random_media_id() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     hex::encode(bytes)
-}
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
 }

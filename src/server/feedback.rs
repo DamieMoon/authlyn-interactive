@@ -22,9 +22,10 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use surrealdb::types::{Datetime, SurrealValue};
 
-use crate::protocol::{ErrorBody, FeedbackItem, ListFeedbackResponse, SubmitFeedbackRequest};
+use crate::protocol::{FeedbackItem, ListFeedbackResponse, SubmitFeedbackRequest};
 use crate::server::auth::{is_admin, AuthAccount};
 use crate::server::datetime::to_rfc3339_fixed;
+use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -202,19 +203,4 @@ fn coerce_kind(kind: &str) -> &'static str {
         "idea" => "idea",
         _ => "other",
     }
-}
-
-fn error_response(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(ErrorBody::new(msg))).into_response()
-}
-
-fn json_rejection_response(rej: JsonRejection) -> Response {
-    let reason: &'static str = match rej {
-        JsonRejection::JsonDataError(_) => "invalid JSON body shape",
-        JsonRejection::JsonSyntaxError(_) => "malformed JSON",
-        JsonRejection::MissingJsonContentType(_) => "missing Content-Type: application/json",
-        JsonRejection::BytesRejection(_) => "could not read request body",
-        _ => "invalid JSON request",
-    };
-    error_response(StatusCode::BAD_REQUEST, reason)
 }
