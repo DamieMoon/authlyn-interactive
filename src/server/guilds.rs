@@ -32,8 +32,8 @@ use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
+use crate::server::validate::validate_name;
 
-const MAX_NAME_CHARS: usize = 100;
 const CHANNEL_KINDS: [&str; 2] = ["text", "lorebook"];
 
 // ---------------------------------------------------------------------------
@@ -1125,15 +1125,4 @@ async fn account_id_by_username_ci(
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.map(|r| r.id_key))
-}
-
-fn validate_name(name: &str) -> Result<(), &'static str> {
-    let n = name.chars().count();
-    if n == 0 {
-        return Err("name must not be empty");
-    }
-    if n > MAX_NAME_CHARS {
-        return Err("name too long");
-    }
-    Ok(())
 }

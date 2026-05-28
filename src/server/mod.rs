@@ -31,6 +31,10 @@ mod errors;
 // Shared SurrealDB row-projection helpers (e.g. `IdRow`). Crate-internal.
 mod db_helpers;
 
+// Shared input-validation helpers (`validate_name`, `validate_emoji_name`).
+// Crate-internal.
+mod validate;
+
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;

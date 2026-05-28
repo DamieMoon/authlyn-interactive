@@ -23,24 +23,7 @@ use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::guilds;
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
-
-/// `^[a-z0-9_]{2,32}$` validated in Rust (no regex dependency needed).
-fn validate_emoji_name(name: &str) -> Result<(), &'static str> {
-    let n = name.len();
-    if n < 2 {
-        return Err("emoji name must be at least 2 characters");
-    }
-    if n > 32 {
-        return Err("emoji name must be at most 32 characters");
-    }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-    {
-        return Err("emoji name must match [a-z0-9_]");
-    }
-    Ok(())
-}
+use crate::server::validate::validate_emoji_name;
 
 // ---------------------------------------------------------------------------
 // POST /guilds/{id}/emoji

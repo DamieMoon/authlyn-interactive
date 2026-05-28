@@ -26,8 +26,8 @@ use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
+use crate::server::validate::validate_name;
 
-const MAX_NAME_CHARS: usize = 100;
 const MAX_DESCRIPTION_CHARS: usize = 50_000;
 
 /// Mint a url-safe random share key (32 bytes → 43 base64url-no-pad chars).
@@ -1124,17 +1124,6 @@ async fn is_guild_member(state: &AppState, gid: &str, account: &str) -> surreald
         .await?
         .check()?;
     Ok(resp.take::<Option<IdRow>>(0)?.is_some())
-}
-
-fn validate_name(name: &str) -> Result<(), &'static str> {
-    let n = name.chars().count();
-    if n == 0 {
-        return Err("name must not be empty");
-    }
-    if n > MAX_NAME_CHARS {
-        return Err("name too long");
-    }
-    Ok(())
 }
 
 /// A persona color is either empty (default tint) or one of the shared markup
