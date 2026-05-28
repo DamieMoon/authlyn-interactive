@@ -159,6 +159,41 @@ pub(super) fn apply_markup(
     });
 }
 
+/// Feature-detect `field-sizing: content` via the CSS Support API. When
+/// supported, the composer textarea grows + shrinks natively (see SCSS) and
+/// the JS auto-grow Effect can short-circuit — avoiding the per-keystroke
+/// `style.height="auto" → measure` flicker that surfaces as a composer
+/// shake on Android Chrome (feedback row bzuypww1phg0lc1eju6p).
+///
+/// Reflection-driven through `window.CSS.supports("field-sizing", "content")`
+/// so we don't need a new web-sys feature. Returns false on any failure
+/// (CSS object missing, supports() throws, return value not boolean) so the
+/// JS fallback runs — a strict superset of today's behaviour.
+#[cfg(feature = "hydrate")]
+fn supports_field_sizing_content() -> bool {
+    use wasm_bindgen::{JsCast, JsValue};
+    (|| -> Option<bool> {
+        let win = leptos::web_sys::window()?;
+        let css = js_sys::Reflect::get(&win, &JsValue::from_str("CSS")).ok()?;
+        if css.is_undefined() || css.is_null() {
+            return None;
+        }
+        let supports: js_sys::Function = js_sys::Reflect::get(&css, &JsValue::from_str("supports"))
+            .ok()?
+            .dyn_into()
+            .ok()?;
+        let r = supports
+            .call2(
+                &css,
+                &JsValue::from_str("field-sizing"),
+                &JsValue::from_str("content"),
+            )
+            .ok()?;
+        r.as_bool()
+    })()
+    .unwrap_or(false)
+}
+
 #[component]
 pub(crate) fn ChannelPane() -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
@@ -185,6 +220,20 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     // Auto-grow the composer to fit its content, up to the CSS max-height
     // (then it scrolls). Tracking `compose` covers both typing and the
     // programmatic clear after send. Hydrate-only; ssr leaves it min-height.
+    //
+    // PRIMARY: `field-sizing: content` in `style/_content.scss` handles this
+    // natively in modern browsers (Chrome 123+ / Safari 17.4+ / Firefox 124+,
+    // all March 2024). When that path is active, the textarea grows + shrinks
+    // without any JS, and the per-keystroke shake reported on Foxtrot's
+    // Android Chrome (feedback row bzuypww1phg0lc1eju6p) disappears because
+    // we're no longer running a `style.height="auto" → measure → style.height`
+    // dance at every keystroke.
+    //
+    // FALLBACK: when `CSS.supports("field-sizing", "content")` is false (older
+    // browsers), keep the JS measurement so the textarea still grows. The
+    // deferred-microtask measure stays — without it the post-send clear (#28)
+    // reads stale `scroll_height` on mobile and the textarea stays super-tall
+    // until the next keystroke.
     let composer_ref = NodeRef::<leptos::html::Textarea>::new();
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
@@ -192,13 +241,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
         let Some(el) = composer_ref.get() else {
             return;
         };
-        // Measure AFTER Leptos flushes prop:value to the DOM on the next tick.
-        // On send the composer is cleared to "" (#28): measuring synchronously
-        // here reads the stale, still-large content and the textarea stays
-        // super-tall until the next keystroke — especially visible on mobile
-        // after a big message + keyboard close. Deferring lets scroll_height
-        // reflect the current value, so an emptied composer collapses to its
-        // CSS min-height.
+        if supports_field_sizing_content() {
+            return;
+        }
         leptos::task::spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(0).await;
             // Deref to web_sys::HtmlElement so its inherent `style()` wins over

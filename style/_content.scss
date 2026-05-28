@@ -256,6 +256,15 @@
 			min-height: 2.4rem;
 			max-height: 12rem;
 			overflow-y: auto;
+			// Native textarea auto-grow: shrink and expand to fit content,
+			// bounded by min-height / max-height above. Replaces the JS
+			// `style.height="auto"` + measure dance, which on Android Chrome
+			// caused a visible per-keystroke shake at the soft-keyboard reflow
+			// boundary (feedback row bzuypww1phg0lc1eju6p). The JS path in
+			// `shell/channel/mod.rs` only runs as a fallback when the browser
+			// lacks `field-sizing` support — Chrome 123+ / Safari 17.4+ /
+			// Firefox 124+ all support it.
+			field-sizing: content;
 		}
 	}
 }
