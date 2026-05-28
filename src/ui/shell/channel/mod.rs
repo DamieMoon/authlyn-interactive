@@ -773,23 +773,17 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     on:paste=move |_ev| {
                         // Paste-to-upload images (#27): stage any image items on
                         // the clipboard and suppress their default text paste.
+                        // Same `image/*` filter as the gallery (B4). The helper
+                        // lives in [`crate::ui::clipboard`] (W7/B2 extraction).
                         #[cfg(feature = "hydrate")]
                         {
-                            if let Some(dt) = _ev.clipboard_data() {
-                                let items = dt.items();
-                                let mut handled = false;
-                                for i in 0..items.length() {
-                                    let Some(item) = items.get(i) else { continue };
-                                    if item.type_().starts_with("image/") {
-                                        if let Ok(Some(file)) = item.get_as_file() {
-                                            act::add_compose_attachment(s, file);
-                                            handled = true;
-                                        }
-                                    }
-                                }
-                                if handled {
-                                    _ev.prevent_default();
-                                }
+                            let files = crate::ui::clipboard::read_pasted_images(&_ev);
+                            let handled = !files.is_empty();
+                            for file in files {
+                                act::add_compose_attachment(s, file);
+                            }
+                            if handled {
+                                _ev.prevent_default();
                             }
                         }
                         #[cfg(not(feature = "hydrate"))]
