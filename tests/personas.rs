@@ -276,42 +276,22 @@ async fn guild_with_channel(router: &axum::Router, cookie: &str) -> (String, Str
 async fn active_persona_stamps_messages_both_ways() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
-    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
     let pid = create_persona(&a.router, &owner, "Hero").await;
 
-    // Wear the persona.
-    let (status, _, _) = common::send(
-        &a.router,
-        Method::PUT,
-        &format!("/guilds/{gid}/active-persona"),
-        Some(&owner),
-        Some(&json!({ "persona_id": pid })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    // A message sent while wearing it is stamped with id + name.
+    // In character: the client carries the worn persona_id on the message (the
+    // primary, race-proof attribution path) — stamped with id + name.
     common::send(
         &a.router,
         Method::POST,
         &format!("/channels/{cid}/messages"),
         Some(&owner),
-        Some(&json!({ "body": "in character" })),
+        Some(&json!({ "body": "in character", "persona_id": pid })),
     )
     .await;
 
-    // Take it off.
-    let (status, _, _) = common::send(
-        &a.router,
-        Method::PUT,
-        &format!("/guilds/{gid}/active-persona"),
-        Some(&owner),
-        Some(&json!({ "persona_id": null })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    // A message sent bare has no persona.
+    // Out of character: a bare message (no persona_id, nothing worn in-channel)
+    // has no persona.
     common::send(
         &a.router,
         Method::POST,
@@ -345,24 +325,17 @@ async fn active_persona_stamps_messages_both_ways() {
 async fn deleting_persona_keeps_its_name_on_past_messages() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
-    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
     let pid = create_persona(&a.router, &owner, "Hero").await;
 
-    // Wear it and speak in character.
-    common::send(
-        &a.router,
-        Method::PUT,
-        &format!("/guilds/{gid}/active-persona"),
-        Some(&owner),
-        Some(&json!({ "persona_id": pid })),
-    )
-    .await;
+    // Speak in character — the worn persona_id is carried on the message and
+    // snapshotted onto the row at send time.
     common::send(
         &a.router,
         Method::POST,
         &format!("/channels/{cid}/messages"),
         Some(&owner),
-        Some(&json!({ "body": "in character" })),
+        Some(&json!({ "body": "in character", "persona_id": pid })),
     )
     .await;
 
@@ -758,7 +731,7 @@ async fn owner_shares_with_friend_then_friend_leaves() {
 async fn persona_color_create_patch_and_snapshot() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
-    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
 
     // Create with a palette color; the echo + list both carry it.
     let (st, _, body) = common::send(
@@ -795,21 +768,13 @@ async fn persona_color_create_patch_and_snapshot() {
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 
-    // Wearing it stamps the color onto the message (snapshot, like name).
-    common::send(
-        &a.router,
-        Method::PUT,
-        &format!("/guilds/{gid}/active-persona"),
-        Some(&owner),
-        Some(&json!({ "persona_id": pid })),
-    )
-    .await;
+    // Sending it with a message stamps the color onto the row (snapshot, like name).
     common::send(
         &a.router,
         Method::POST,
         &format!("/channels/{cid}/messages"),
         Some(&owner),
-        Some(&json!({ "body": "hi" })),
+        Some(&json!({ "body": "hi", "persona_id": pid })),
     )
     .await;
     let (_, _, msgs) = common::send(
@@ -821,4 +786,77 @@ async fn persona_color_create_patch_and_snapshot() {
     )
     .await;
     assert_eq!(msgs["messages"][0]["persona_color"], "red");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn worn_per_channel_persona_stamps_bare_message() {
+    // The fallback attribution path: with nothing carried on the POST, the server
+    // stamps the persona stored for (account, channel) via
+    // `PUT /channels/{cid}/active-persona`. Unwearing clears it.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    // Wear it in THIS channel.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&owner),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // A bare message (no persona_id) is stamped from the stored per-channel wear.
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "worn" })),
+    )
+    .await;
+
+    // Unwear; the next bare message has no persona.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&owner),
+        Some(&json!({ "persona_id": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "bare" })),
+    )
+    .await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(
+        msgs[0]["persona_id"], pid,
+        "bare message stamped from per-channel wear"
+    );
+    assert_eq!(msgs[0]["persona_name"], "Hero");
+    assert!(
+        msgs[1]["persona_id"].is_null(),
+        "after unwear, a bare message has no persona"
+    );
 }

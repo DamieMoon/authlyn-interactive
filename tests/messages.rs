@@ -249,8 +249,9 @@ async fn author_deletes_own_message() {
         "message is gone after delete"
     );
 
-    // Deleting again is idempotent-ish: the message no longer belongs to the
-    // caller (it's gone), so the author check collapses to 403.
+    // Re-deleting your own message is idempotent: soft-delete leaves the row in
+    // place and `message_author` does not filter `deleted_at`, so it's still
+    // found and still yours — the second DELETE soft-deletes again and 204s.
     let (status, _, _) = common::send(
         &a.router,
         Method::DELETE,
@@ -259,7 +260,7 @@ async fn author_deletes_own_message() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
 #[cfg(feature = "ssr")]
@@ -354,7 +355,8 @@ async fn cursor_paginates_past_100_in_order() {
         assert_eq!(status, StatusCode::CREATED);
     }
 
-    // Page 1: the first 100, ASC by (sent_at, id).
+    // Page 1: no cursor returns the NEWEST 100 (the channel opens at the newest
+    // page — commit 8175a95), displayed oldest-first → m50..m149.
     let (status, _, body) = common::send(
         &a.router,
         Method::GET,
@@ -366,27 +368,39 @@ async fn cursor_paginates_past_100_in_order() {
     assert_eq!(status, StatusCode::OK);
     let page1 = body["messages"].as_array().unwrap().clone();
     assert_eq!(page1.len(), 100);
+    assert_eq!(
+        page1.first().unwrap()["body"],
+        "m50",
+        "newest page starts at m50"
+    );
+    assert_eq!(
+        page1.last().unwrap()["body"],
+        "m149",
+        "newest page ends at m149"
+    );
 
-    // Page 2: resume from the last row's composite cursor.
-    let last = page1.last().unwrap();
-    let since = last["sent_at"].as_str().unwrap();
-    let after_id = last["id"].as_str().unwrap();
+    // Page 2: scroll-up backfill — older history BEFORE page1's first row, via
+    // the (before, before_id) composite cursor → m0..m49.
+    let first = page1.first().unwrap();
+    let before = first["sent_at"].as_str().unwrap();
+    let before_id = first["id"].as_str().unwrap();
     let (status, _, body) = common::send(
         &a.router,
         Method::GET,
-        &format!("/channels/{cid}/messages?since={since}&after_id={after_id}"),
+        &format!("/channels/{cid}/messages?before={before}&before_id={before_id}"),
         Some(&owner),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let page2 = body["messages"].as_array().unwrap().clone();
-    assert_eq!(page2.len(), 50, "the remaining messages");
+    assert_eq!(page2.len(), 50, "the remaining older messages");
 
-    // The two pages together are exactly m0..m149, in order, no dups/gaps.
-    let bodies: Vec<String> = page1
+    // The two pages together are exactly m0..m149, in order, no dups/gaps:
+    // older backfill (page2 = m0..m49) precedes the newest page (page1 = m50..m149).
+    let bodies: Vec<String> = page2
         .iter()
-        .chain(page2.iter())
+        .chain(page1.iter())
         .map(|m| m["body"].as_str().unwrap().to_string())
         .collect();
     let expected: Vec<String> = (0..TOTAL).map(|i| format!("m{i}")).collect();
