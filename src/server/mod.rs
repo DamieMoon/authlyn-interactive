@@ -173,6 +173,10 @@ fn small_body_routes() -> Router<AppState> {
         .route("/personas/{id}/avatar", put(personas::set_avatar))
         .route("/personas/{id}/gallery", post(personas::add_gallery_image))
         .route(
+            "/personas/{id}/gallery/batch",
+            post(personas::add_gallery_images_batch),
+        )
+        .route(
             "/personas/{id}/gallery/{img}",
             delete(personas::remove_gallery_image),
         )

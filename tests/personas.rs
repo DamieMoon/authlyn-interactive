@@ -788,6 +788,261 @@ async fn persona_color_create_patch_and_snapshot() {
     assert_eq!(msgs["messages"][0]["persona_color"], "red");
 }
 
+// ---------------------------------------------------------------------------
+// POST /personas/{id}/gallery/batch — atomic multi-image upload (W7/B3)
+// ---------------------------------------------------------------------------
+
+/// Bulk-CREATE `n` `media_blob` rows owned by `account_id`. Mirrors the
+/// helper in `tests/messages.rs` — uploading via `/media` N times would slow
+/// the suite for no signal gain when the test only needs the ids to exist.
+#[cfg(feature = "ssr")]
+async fn bulk_create_media_rows(
+    db: &surrealdb::Surreal<surrealdb::engine::remote::ws::Client>,
+    account_id: &str,
+    n: usize,
+) -> Vec<String> {
+    use surrealdb::types::SurrealValue;
+    #[derive(SurrealValue)]
+    struct IdKey {
+        id_key: String,
+    }
+    let mut sql = String::with_capacity(n * 200);
+    for _ in 0..n {
+        sql.push_str(
+            "CREATE media_blob SET \
+                uploader = type::record('account', $owner), \
+                mime = 'image/png', \
+                size_bytes = 1, \
+                storage_path = 'x' \
+                RETURN meta::id(id) AS id_key;\n",
+        );
+    }
+    let mut resp = db
+        .query(sql)
+        .bind(("owner", account_id.to_string()))
+        .await
+        .expect("bulk media create")
+        .check()
+        .expect("bulk media check");
+    let mut ids = Vec::with_capacity(n);
+    for i in 0..n {
+        let row: Option<IdKey> = resp.take(i).expect("bulk media take");
+        ids.push(row.expect("each CREATE returns one row").id_key);
+    }
+    ids
+}
+
+/// Read the current `position` of every `persona_image` row for `pid`, in
+/// CREATE order, so tests can assert contiguity.
+#[cfg(feature = "ssr")]
+async fn gallery_positions(
+    db: &surrealdb::Surreal<surrealdb::engine::remote::ws::Client>,
+    pid: &str,
+) -> Vec<i64> {
+    let mut resp = db
+        .query(
+            "SELECT VALUE position FROM persona_image
+                WHERE persona = type::record('persona', $pid)
+                ORDER BY position ASC;",
+        )
+        .bind(("pid", pid.to_string()))
+        .await
+        .expect("read positions")
+        .check()
+        .expect("positions check");
+    resp.take::<Vec<i64>>(0).expect("take positions")
+}
+
+/// Happy path: a batch of 5 media ids → 5 new gallery rows whose positions are
+/// sequential and contiguous starting from the current max + 1. The returned
+/// `ids` mirror the input `media_ids` order so the client can correlate.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_creates_contiguous_positions_and_preserves_order() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    // Seed one existing gallery row so the batch must start at max + 1, not 0.
+    let seed = upload_image(&a.router, &owner, "image/png", b"\x89PNG\r\n\x1a\nseed").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery"),
+        Some(&owner),
+        Some(&json!({ "media_id": seed })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let media_ids = bulk_create_media_rows(&a.db, &owner_id, 5).await;
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&owner),
+        Some(&json!({ "media_ids": media_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "batch must 201: {body:?}");
+    let ids = body["ids"].as_array().expect("response carries ids array");
+    assert_eq!(ids.len(), 5, "five inputs → five ids");
+    // Every id is a non-empty string and they're all distinct (no dupes /
+    // empty rows).
+    let mut seen = std::collections::HashSet::new();
+    for v in ids {
+        let s = v.as_str().expect("id is a string");
+        assert!(!s.is_empty(), "id is non-empty");
+        assert!(seen.insert(s.to_string()), "ids are distinct");
+    }
+
+    // Positions are sequential and contiguous: seed at 0, batch at 1..=5.
+    let positions = gallery_positions(&a.db, &pid).await;
+    assert_eq!(
+        positions,
+        vec![0, 1, 2, 3, 4, 5],
+        "seed + batch positions are contiguous"
+    );
+
+    // The gallery as the user sees it (via GET /personas/{id}) reflects all 6
+    // images.
+    let (_, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(detail["gallery"].as_array().unwrap().len(), 6);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_empty_media_ids_is_400() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&owner),
+        Some(&json!({ "media_ids": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "no media ids");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_over_cap_is_400() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    // 101 ids → rejected with the canonical cap message. The handler doesn't
+    // even need the rows to be real to reject; it bails on length before
+    // touching the DB.
+    let media_ids = bulk_create_media_rows(&a.db, &owner_id, 101).await;
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&owner),
+        Some(&json!({ "media_ids": media_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "too many images");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_duplicate_media_id_is_400() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    let media_ids = bulk_create_media_rows(&a.db, &owner_id, 3).await;
+    // Inject a duplicate of the first id at the end.
+    let mut dup = media_ids.clone();
+    dup.push(media_ids[0].clone());
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&owner),
+        Some(&json!({ "media_ids": dup })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "duplicate media id");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_non_owner_non_editor_is_privacy_404() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let stranger = common::register_account(&a.router, "Stranger", "password123").await;
+    let pid = create_persona(&a.router, &owner, "Private").await;
+
+    let media_ids = bulk_create_media_rows(&a.db, &owner_id, 2).await;
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&stranger),
+        Some(&json!({ "media_ids": media_ids })),
+    )
+    .await;
+    // Privacy-404: a stranger can't tell a persona-not-found from a
+    // persona-not-mine. Mirrors the single-id endpoint.
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "persona not found");
+}
+
+/// Atomicity probe: if ONE media id in the batch doesn't exist the whole
+/// batch is rejected (404) and nothing is inserted — proving the transaction
+/// rolls back rather than persisting a partial gallery.
+///
+/// Single-batch contiguity is what the endpoint promises (per W7/B3 spec).
+/// Two concurrent batches CAN still race the SELECT MAX outside the
+/// transaction; their positions may interleave but each batch's own
+/// positions stay contiguous.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn batch_gallery_atomic_under_partial_failure() {
+    let a = common::arena().await;
+    let (owner, owner_id) = register_with_id(&a.router, "Owner").await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    // 3 real ids + 1 fabricated unknown id → existence check rejects the
+    // whole request. After the failure, the gallery is still empty.
+    let mut media_ids = bulk_create_media_rows(&a.db, &owner_id, 3).await;
+    media_ids.push("does-not-exist-at-all".to_string());
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/personas/{pid}/gallery/batch"),
+        Some(&owner),
+        Some(&json!({ "media_ids": media_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "media not found");
+
+    let positions = gallery_positions(&a.db, &pid).await;
+    assert!(
+        positions.is_empty(),
+        "rejected batch leaves the gallery untouched: {positions:?}"
+    );
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn worn_per_channel_persona_stamps_bare_message() {

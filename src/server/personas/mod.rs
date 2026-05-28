@@ -27,5 +27,7 @@ pub use self::core::{
     redeem_persona_key,
 };
 pub use self::editors::{add_editor, list_editors, remove_editor};
-pub use self::gallery::{add_gallery_image, remove_gallery_image, set_avatar};
+pub use self::gallery::{
+    add_gallery_image, add_gallery_images_batch, remove_gallery_image, set_avatar,
+};
 pub use self::wear::{set_active_persona, set_channel_active_persona};

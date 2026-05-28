@@ -460,6 +460,23 @@ pub struct AddGalleryImageResponse {
     pub id: String,
 }
 
+/// Body of `POST /personas/{id}/gallery/batch` — add multiple gallery images
+/// atomically (paste-many in one request). All inserts succeed or the whole
+/// batch fails (single SurrealDB transaction); positions are sequential and
+/// contiguous starting from the persona's current max position + 1.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddGalleryImagesBatchRequest {
+    pub media_ids: Vec<String>,
+}
+
+/// Response from `POST /personas/{id}/gallery/batch`. `ids` are the new
+/// `persona_image` row ids in the same order as the input `media_ids`, so the
+/// client can correlate each new gallery row with the media id it asked for.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddGalleryImagesBatchResponse {
+    pub ids: Vec<String>,
+}
+
 /// Body of `PUT /guilds/{id}/active-persona` — wear a persona in this guild,
 /// or `null` to take it off.
 #[derive(Clone, Debug, Serialize, Deserialize)]
