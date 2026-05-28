@@ -32,6 +32,7 @@ use crate::protocol::{
     Attachment, EditMessageRequest, ListMessagesResponse, MessageEnvelope, SendMessageRequest,
     SendMessageResponse,
 };
+use crate::server::access::{resolve_membership, Membership};
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::db_helpers::IdRow;
@@ -831,57 +832,29 @@ enum AccessOutcome {
 /// of that guild and read their active persona for it. The two unknowns
 /// (no such channel / caller not a member) are distinct internally but the
 /// handlers collapse both to a privacy-404.
+///
+/// The resolve + membership check is the shared [`crate::server::access`] core
+/// (with the soft-delete filter on); this layers the per-channel active-persona
+/// read on top.
 async fn channel_access(
     state: &AppState,
     cid: &str,
     account: &str,
 ) -> surrealdb::Result<AccessOutcome> {
     #[derive(SurrealValue)]
-    struct ChanRow {
-        guild_key: String,
-        kind: String,
-    }
-    #[derive(SurrealValue)]
-    struct MemRow {
-        member: bool,
-    }
-    #[derive(SurrealValue)]
     struct PersonaRow {
         persona_id: String,
     }
 
-    let mut resp = state
-        .db
-        .query(
-            "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid)
-                WHERE deleted_at = NONE AND guild.deleted_at = NONE;",
-        )
-        .bind(("cid", cid.to_string()))
-        .await?
-        .check()?;
-    let Some(chan) = resp.take::<Option<ChanRow>>(0)? else {
-        return Ok(AccessOutcome::ChannelNotFound);
+    let kind = match resolve_membership(state, cid, account, true).await? {
+        Membership::Member { kind } => kind,
+        Membership::ChannelNotFound => return Ok(AccessOutcome::ChannelNotFound),
+        Membership::NotMember => return Ok(AccessOutcome::NotMember),
     };
 
-    // Membership gate is still per-guild (guild_member). The worn persona,
-    // however, is now per-CHANNEL (channel_active_persona): no row → speak as
-    // the account.
-    let mut resp = state
-        .db
-        .query(
-            "SELECT true AS member
-                FROM guild_member
-                WHERE guild = type::record('guild', $gid)
-                  AND account = type::record('account', $account);",
-        )
-        .bind(("gid", chan.guild_key))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    if resp.take::<Option<MemRow>>(0)?.is_none() {
-        return Ok(AccessOutcome::NotMember);
-    }
-
+    // Membership gate is per-guild (handled by the core). The worn persona,
+    // however, is per-CHANNEL (channel_active_persona): no row → speak as the
+    // account.
     let mut resp = state
         .db
         .query(
@@ -897,7 +870,7 @@ async fn channel_access(
     let active_persona = resp.take::<Option<PersonaRow>>(0)?.map(|r| r.persona_id);
 
     Ok(AccessOutcome::Ok(ChannelCtx {
-        kind: chan.kind,
+        kind,
         active_persona,
     }))
 }

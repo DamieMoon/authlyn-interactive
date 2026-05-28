@@ -18,6 +18,7 @@ use crate::protocol::{
     CreateLorebookEntryRequest, CreateLorebookEntryResponse, ListLorebookResponse, LorebookEntry,
     PatchLorebookEntryRequest,
 };
+use crate::server::access::{resolve_membership, Membership};
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
@@ -289,70 +290,28 @@ pub async fn delete_entry(
 /// Channel exists + caller is a member + channel is a lorebook channel.
 /// Returns `Ok(())` to proceed, or the early-return response: privacy-404 for
 /// missing channel / non-member, 400 for a non-lorebook channel.
+///
+/// Uses the shared [`crate::server::access`] core, but deliberately with the
+/// soft-delete filter **off** — lorebook access historically did not exclude
+/// soft-deleted channels/guilds, and that is preserved here. The core's
+/// distinct "no such channel" / "not a member" outcomes both collapse to the
+/// same privacy-404, as before.
 async fn check_access(state: &AppState, cid: &str, account: &str) -> Result<(), Response> {
-    #[derive(SurrealValue)]
-    struct ChanRow {
-        guild_key: String,
-        kind: String,
-    }
-
-    let mut resp = match state
-        .db
-        .query("SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid);")
-        .bind(("cid", cid.to_string()))
-        .await
-        .and_then(|r| r.check())
-    {
-        Ok(r) => r,
+    let kind = match resolve_membership(state, cid, account, false).await {
+        Ok(Membership::Member { kind }) => kind,
+        Ok(Membership::ChannelNotFound) | Ok(Membership::NotMember) => {
+            return Err(error_response(StatusCode::NOT_FOUND, "channel not found"));
+        }
         Err(e) => {
-            tracing::error!(error = %e, "channel lookup failed");
+            tracing::error!(error = %e, "check_access lookup failed");
             return Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "storage error",
             ));
         }
     };
-    let chan: Option<ChanRow> = match resp.take(0) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "channel take failed");
-            return Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "storage error",
-            ));
-        }
-    };
-    let Some(chan) = chan else {
-        return Err(error_response(StatusCode::NOT_FOUND, "channel not found"));
-    };
 
-    let mut resp = match state
-        .db
-        .query(
-            "SELECT meta::id(id) AS id_key FROM guild_member
-                WHERE guild = type::record('guild', $gid)
-                  AND account = type::record('account', $account);",
-        )
-        .bind(("gid", chan.guild_key))
-        .bind(("account", account.to_string()))
-        .await
-        .and_then(|r| r.check())
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!(error = %e, "membership lookup failed");
-            return Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "storage error",
-            ));
-        }
-    };
-    let member: Option<IdRow> = resp.take(0).unwrap_or(None);
-    if member.is_none() {
-        return Err(error_response(StatusCode::NOT_FOUND, "channel not found"));
-    }
-
-    if chan.kind != "lorebook" {
+    if kind != "lorebook" {
         return Err(error_response(
             StatusCode::BAD_REQUEST,
             "not a lorebook channel",

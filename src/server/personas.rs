@@ -21,6 +21,7 @@ use crate::protocol::{
     PersonaEditor, PersonaSummary, RedeemPersonaKeyRequest, SetActivePersonaRequest,
     SetAvatarRequest,
 };
+use crate::server::access::{resolve_membership, Membership};
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
@@ -624,23 +625,15 @@ pub async fn set_active_persona(
 // ---------------------------------------------------------------------------
 
 /// True when `account` is a member of the guild that owns channel `cid` (and
-/// the channel/guild aren't soft-deleted). Channel-scoped membership gate that
-/// mirrors `messages::channel_access`'s guild-membership check.
+/// the channel/guild aren't soft-deleted). Channel-scoped membership gate; the
+/// resolve + membership check is the shared [`crate::server::access`] core
+/// (soft-delete filter on, matching the previous behavior). Unknown channel and
+/// non-member both collapse to `false`, as before.
 async fn is_channel_member(state: &AppState, cid: &str, account: &str) -> surrealdb::Result<bool> {
-    let mut resp = state
-        .db
-        .query(
-            "LET $g = (SELECT VALUE guild FROM ONLY type::record('channel', $cid)
-                        WHERE deleted_at = NONE AND guild.deleted_at = NONE);
-             SELECT meta::id(id) AS id_key FROM guild_member
-                WHERE guild = $g AND account = type::record('account', $account);",
-        )
-        .bind(("cid", cid.to_string()))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    // Statement 0 is the LET; the SELECT is statement 1.
-    Ok(resp.take::<Option<IdRow>>(1)?.is_some())
+    Ok(matches!(
+        resolve_membership(state, cid, account, true).await?,
+        Membership::Member { .. }
+    ))
 }
 
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]

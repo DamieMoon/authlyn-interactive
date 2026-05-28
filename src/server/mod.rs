@@ -39,6 +39,11 @@ mod validate;
 // guard). Crate-internal.
 mod permissions;
 
+// Shared channel-membership resolution (the core behind messages'
+// channel_access, lorebook's check_access, personas' is_channel_member).
+// Crate-internal.
+mod access;
+
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
