@@ -23,7 +23,7 @@ use crate::ui::AuthCtx;
 // Member actions (inline, cfg-guarded).
 // ---------------------------------------------------------------------------
 
-/// Load the guild's members into `members`, surfacing errors via `s.status`.
+/// Load the guild's members into `members`, surfacing errors via `s.composer.status`.
 #[cfg(feature = "hydrate")]
 fn load_members(s: Shell, gid: String, members: RwSignal<Vec<MemberSummary>>) {
     use crate::client::api;
@@ -31,7 +31,7 @@ fn load_members(s: Shell, gid: String, members: RwSignal<Vec<MemberSummary>>) {
     spawn_local(async move {
         match api::list_members(&gid).await {
             Ok(r) => members.set(r.members),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -50,11 +50,11 @@ fn set_member_role(
 ) {
     use crate::client::api;
     use leptos::task::spawn_local;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::set_member_role(&gid, &aid, &role).await {
             Ok(()) => load_members(s, gid, members),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -74,11 +74,11 @@ fn set_member_role(
 fn remove_member(s: Shell, gid: String, aid: String, members: RwSignal<Vec<MemberSummary>>) {
     use crate::client::api;
     use leptos::task::spawn_local;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::remove_member(&gid, &aid).await {
             Ok(()) => load_members(s, gid, members),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -110,14 +110,14 @@ pub(crate) fn MembersPane(s: Shell) -> impl IntoView {
     let members = RwSignal::new(Vec::<MemberSummary>::new());
 
     // Current guild id + viewer ownership come from the same Shell signals the
-    // other panes use: `s.sel_server` (open guild) and `s.sel_owner` (its owner
+    // other panes use: `s.sel.sel_server` (open guild) and `s.sel.sel_owner` (its owner
     // account id), compared against the authed account from `AuthCtx`. No new
     // Shell field is introduced.
-    let gid = move || s.sel_server.get().unwrap_or_default();
+    let gid = move || s.sel.sel_server.get().unwrap_or_default();
     let auth = use_context::<AuthCtx>().expect("AuthCtx");
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
-        me.is_some() && me == s.sel_owner.get()
+        me.is_some() && me == s.sel.sel_owner.get()
     };
 
     // Fetch on mount and whenever the selected guild changes.

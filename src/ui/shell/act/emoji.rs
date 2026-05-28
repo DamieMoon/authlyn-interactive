@@ -21,33 +21,33 @@ use leptos::task::spawn_local;
 pub fn refresh_guild_emoji(s: Shell, gid: String) {
     spawn_local(async move {
         if let Ok(r) = api::list_emoji(&gid).await {
-            s.guild_emoji.set(r.emoji);
+            s.sel.guild_emoji.set(r.emoji);
         }
     });
 }
 
 /// Create a named custom emoji from an already-uploaded media id, then
-/// reload `s.guild_emoji` so the new emoji is immediately usable.
+/// reload `s.sel.guild_emoji` so the new emoji is immediately usable.
 #[cfg(feature = "hydrate")]
 pub fn create_guild_emoji(s: Shell, gid: String, name: String, media_id: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::create_emoji(&gid, &CreateEmojiRequest { name, media_id }).await {
             Ok(_) => refresh_guild_emoji(s, gid),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
 /// Delete a custom emoji by name (owner/admin only — backend enforces),
-/// then reload `s.guild_emoji`.
+/// then reload `s.sel.guild_emoji`.
 #[cfg(feature = "hydrate")]
 pub fn delete_guild_emoji(s: Shell, gid: String, name: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::delete_emoji(&gid, &name).await {
             Ok(()) => refresh_guild_emoji(s, gid),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -58,11 +58,11 @@ pub fn delete_guild_emoji(s: Shell, gid: String, name: String) {
 /// rather than the composer's attachment list.
 #[cfg(feature = "hydrate")]
 pub fn upload_emoji_image(s: Shell, file: web_sys::File, into: RwSignal<Option<String>>) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::upload_media(&file).await {
             Ok(id) => into.set(Some(id)),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }

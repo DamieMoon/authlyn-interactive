@@ -47,12 +47,13 @@ pub(super) const MESSAGES_PAGE_LIMIT: usize = 100;
 
 #[cfg(feature = "hydrate")]
 pub fn send_message(s: Shell) {
-    let Some(ch) = s.sel_channel.get_untracked() else {
+    let Some(ch) = s.sel.sel_channel.get_untracked() else {
         return;
     };
-    let body = s.compose.get_untracked();
+    let body = s.composer.compose.get_untracked();
     // The wire SEND request is ids-only; map the staged attachments down.
     let attachments: Vec<String> = s
+        .composer
         .compose_attachments
         .get_untracked()
         .into_iter()
@@ -62,31 +63,31 @@ pub fn send_message(s: Shell) {
     if body.trim().is_empty() && attachments.is_empty() {
         return;
     }
-    s.compose.set(String::new());
-    s.compose_attachments.set(Vec::new());
-    s.status.set(String::new());
+    s.composer.compose.set(String::new());
+    s.composer.compose_attachments.set(Vec::new());
+    s.composer.status.set(String::new());
     // Sending is a user gesture — a reliable point to request notification
     // permission so background channels can notify later.
     super::notify::request_notify_permission();
     // Carry the persona worn in THIS channel so attribution is decided at
     // send time (race-proof) rather than depending on a separately-written
     // per-channel row having committed.
-    let persona = s.active_persona.get_untracked();
+    let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
         match api::post_message(&ch.id, &body, attachments, persona).await {
             Ok(_) => {
-                let cur = s.cursor.get_untracked();
+                let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
                     ingest(s, l.messages);
                     // FB10a: advance this channel's last-seen to the new
                     // cursor so `refresh_unread` doesn't glow the channel
                     // for the user's OWN just-sent message.
-                    if let Some(cur) = s.cursor.get_untracked() {
+                    if let Some(cur) = s.msg.cursor.get_untracked() {
                         set_last_seen(s, &ch.id, cur);
                     }
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -97,14 +98,15 @@ pub fn send_message(s: Shell) {
 /// renders image-vs-video correctly before the message round-trips.
 #[cfg(feature = "hydrate")]
 pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     let mime = file.type_();
     spawn_local(async move {
         match api::upload_media(&file).await {
             Ok(id) => s
+                .composer
                 .compose_attachments
                 .update(|v| v.push(crate::protocol::Attachment { id, mime })),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -112,12 +114,14 @@ pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
 /// Drop one staged attachment before sending.
 #[cfg(feature = "hydrate")]
 pub fn remove_compose_attachment(s: Shell, id: String) {
-    s.compose_attachments.update(|v| v.retain(|a| a.id != id));
+    s.composer
+        .compose_attachments
+        .update(|v| v.retain(|a| a.id != id));
 }
 
 // ---- edit / delete / restore ----
 
-/// Edit one of the caller's own messages, then patch `s.messages` in
+/// Edit one of the caller's own messages, then patch `s.msg.messages` in
 /// place. `ingest` only appends (dedupes by id), so an edit needs a direct
 /// in-place body update — the row's id and cursor position don't change.
 #[cfg(feature = "hydrate")]
@@ -126,48 +130,48 @@ pub fn edit_message(s: Shell, cid: String, mid: String, body: String) {
     if body.trim().is_empty() {
         return;
     }
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::edit_message(&cid, &mid, &body).await {
-            Ok(()) => s.messages.update(|v| {
+            Ok(()) => s.msg.messages.update(|v| {
                 if let Some(m) = v.iter_mut().find(|m| m.id == mid) {
                     m.body = body.clone();
                 }
             }),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
-/// Delete one of the caller's own messages, then drop it from `s.messages`
-/// and `s.seen` so a subsequent catch-up poll doesn't treat it as already
+/// Delete one of the caller's own messages, then drop it from `s.msg.messages`
+/// and `s.msg.seen` so a subsequent catch-up poll doesn't treat it as already
 /// seen (it won't reappear regardless — the server row is gone — but
-/// clearing `seen` keeps the dedupe set tidy). `s.cursor` is left as-is:
+/// clearing `seen` keeps the dedupe set tidy). `s.msg.cursor` is left as-is:
 /// it still marks the high-water mark for the poll, so deleting a row never
 /// rewinds the catch-up window.
 #[cfg(feature = "hydrate")]
 pub fn delete_message(s: Shell, cid: String, mid: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::delete_message(&cid, &mid).await {
             Ok(()) => {
-                s.messages.update(|v| v.retain(|m| m.id != mid));
-                s.seen.update(|h| {
+                s.msg.messages.update(|v| v.retain(|m| m.id != mid));
+                s.msg.seen.update(|h| {
                     h.remove(&mid);
                 });
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
-/// Load soft-deleted messages for the given channel into `s.deleted_messages`.
+/// Load soft-deleted messages for the given channel into `s.trash.deleted_messages`.
 #[cfg(feature = "hydrate")]
 pub fn load_deleted_messages(s: Shell, cid: String) {
     spawn_local(async move {
         match api::list_deleted_messages(&cid).await {
-            Ok(r) => s.deleted_messages.set(r.messages),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(r) => s.trash.deleted_messages.set(r.messages),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -180,32 +184,35 @@ pub fn restore_deleted_message(s: Shell, cid: String, mid: String) {
         match api::restore_message(&cid, &mid).await {
             Ok(()) => {
                 // Drop from the trash list immediately (no re-load needed).
-                s.deleted_messages.update(|v| v.retain(|m| m.id != mid));
+                s.trash
+                    .deleted_messages
+                    .update(|v| v.retain(|m| m.id != mid));
                 // Reload channel messages so the restored one reappears.
                 if let Ok(l) = api::list_messages(&cid, None).await {
-                    s.messages.set(l.messages.clone());
-                    s.seen.update(|h| {
+                    s.msg.messages.set(l.messages.clone());
+                    s.msg.seen.update(|h| {
                         h.clear();
                         for m in &l.messages {
                             h.insert(m.id.clone());
                         }
                     });
-                    s.cursor
+                    s.msg
+                        .cursor
                         .set(l.messages.last().map(|m| (m.sent_at.clone(), m.id.clone())));
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
-/// Load soft-deleted channels for the given guild into `s.deleted_channels`.
+/// Load soft-deleted channels for the given guild into `s.trash.deleted_channels`.
 #[cfg(feature = "hydrate")]
 pub fn load_deleted_channels(s: Shell, gid: String) {
     spawn_local(async move {
         match api::list_deleted_channels(&gid).await {
-            Ok(r) => s.deleted_channels.set(r.channels),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(r) => s.trash.deleted_channels.set(r.channels),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -216,21 +223,21 @@ pub fn load_deleted_channels(s: Shell, gid: String) {
 /// action plus its human prompt. The modal dispatches it via `confirm_delete`.
 #[cfg(feature = "hydrate")]
 pub fn ask_delete(s: Shell, prompt: String, pending: PendingDelete) {
-    s.confirm_prompt.set(Some(prompt));
-    s.pending_delete.set(Some(pending));
+    s.modals.confirm_prompt.set(Some(prompt));
+    s.modals.pending_delete.set(Some(pending));
 }
 
 /// Clear a pending confirm without acting (Cancel / backdrop).
 #[cfg(feature = "hydrate")]
 pub fn cancel_delete(s: Shell) {
-    s.pending_delete.set(None);
-    s.confirm_prompt.set(None);
+    s.modals.pending_delete.set(None);
+    s.modals.confirm_prompt.set(None);
 }
 
 /// Run the pending destructive action (the modal's "Delete"), then clear it.
 #[cfg(feature = "hydrate")]
 pub fn confirm_delete(s: Shell) {
-    let pending = s.pending_delete.get_untracked();
+    let pending = s.modals.pending_delete.get_untracked();
     cancel_delete(s);
     match pending {
         Some(PendingDelete::Message { cid, mid }) => delete_message(s, cid, mid),
@@ -245,26 +252,26 @@ pub fn confirm_delete(s: Shell) {
 
 #[cfg(feature = "hydrate")]
 pub fn show_friends(s: Shell) {
-    s.pane.set(Pane::Friends);
+    s.sync.pane.set(Pane::Friends);
     reload_friends(s);
 }
 
 #[cfg(feature = "hydrate")]
 pub fn show_wardrobe(s: Shell) {
-    s.pane.set(Pane::Wardrobe);
+    s.sync.pane.set(Pane::Wardrobe);
     spawn_local(async move {
         if let Ok(r) = api::list_personas().await {
-            s.personas.set(r.personas);
+            s.social.personas.set(r.personas);
         }
     });
 }
 
 /// Open the per-guild custom-emoji manager. The list is already kept fresh
-/// in `s.guild_emoji` (loaded when the guild opens, refreshed on each
+/// in `s.sel.guild_emoji` (loaded when the guild opens, refreshed on each
 /// create/delete), so this only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_emoji_manager(s: Shell) {
-    s.pane.set(Pane::Emoji);
+    s.sync.pane.set(Pane::Emoji);
 }
 
 /// Open the member-management pane. The roster is local to the pane and
@@ -272,7 +279,7 @@ pub fn show_emoji_manager(s: Shell) {
 /// only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_members(s: Shell) {
-    s.pane.set(Pane::Members);
+    s.sync.pane.set(Pane::Members);
 }
 
 // ---- friends + member ops ----
@@ -285,7 +292,7 @@ pub fn add_friend(s: Shell, username: String) {
     spawn_local(async move {
         match api::add_friend(&username).await {
             Ok(()) => reload_friends(s),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -298,8 +305,8 @@ pub fn invite_member(s: Shell, gid: String, username: String) {
     }
     spawn_local(async move {
         match api::invite_member(&gid, &username).await {
-            Ok(()) => s.status.set(format!("invited {username}")),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(()) => s.composer.status.set(format!("invited {username}")),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -330,7 +337,7 @@ pub fn create_lore(s: Shell, cid: String, keys: Vec<String>, content: String) {
     spawn_local(async move {
         match api::create_lore(&cid, keys, &content).await {
             Ok(_) => load_lore(s, cid),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -358,7 +365,7 @@ pub fn patch_lore(
         };
         match api::patch_lore(&cid, &eid, &req).await {
             Ok(()) => load_lore(s, cid),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -368,7 +375,7 @@ pub fn patch_lore(
 #[cfg(feature = "hydrate")]
 pub fn swap_lore(s: Shell, cid: String, eid: String, position: i64, up: bool) {
     use crate::protocol::PatchLorebookEntryRequest;
-    let entries = s.lore.get_untracked();
+    let entries = s.social.lore.get_untracked();
     let neighbor = if up {
         entries
             .iter()
@@ -407,7 +414,7 @@ pub fn swap_lore(s: Shell, cid: String, eid: String, position: i64, up: bool) {
         .await;
         match (r1, r2) {
             (Ok(()), Ok(())) => load_lore(s, cid),
-            (Err(e), _) | (_, Err(e)) => s.status.set(api::humanize(&e)),
+            (Err(e), _) | (_, Err(e)) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -426,7 +433,7 @@ pub fn delete_lore(s: Shell, cid: String, eid: String) {
 fn reload_friends(s: Shell) {
     spawn_local(async move {
         if let Ok(f) = api::list_friends().await {
-            s.friends.set(f);
+            s.social.friends.set(f);
         }
     });
 }
@@ -435,25 +442,25 @@ fn reload_friends(s: Shell) {
 pub(super) fn load_lore(s: Shell, cid: String) {
     spawn_local(async move {
         if let Ok(l) = api::list_lore(&cid).await {
-            s.lore.set(l.entries);
+            s.social.lore.set(l.entries);
         }
     });
 }
 
-/// Append messages new since the last call, deduped via `s.seen`, and advance
-/// `s.cursor` to the latest of them. Used by the initial channel open + the
+/// Append messages new since the last call, deduped via `s.msg.seen`, and advance
+/// `s.msg.cursor` to the latest of them. Used by the initial channel open + the
 /// poll's catch-up branch + the post-send fetch. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn ingest(s: Shell, incoming: Vec<MessageEnvelope>) {
     for m in incoming {
-        if s.seen.with_untracked(|h| h.contains(&m.id)) {
+        if s.msg.seen.with_untracked(|h| h.contains(&m.id)) {
             continue;
         }
-        s.seen.update(|h| {
+        s.msg.seen.update(|h| {
             h.insert(m.id.clone());
         });
-        s.cursor.set(Some((m.sent_at.clone(), m.id.clone())));
-        s.messages.update(|v| v.push(m));
+        s.msg.cursor.set(Some((m.sent_at.clone(), m.id.clone())));
+        s.msg.messages.update(|v| v.push(m));
     }
 }
 
@@ -467,7 +474,7 @@ const KEY_MUTED: &str = "authlyn.muted_channels";
 #[cfg(feature = "hydrate")]
 pub fn load_muted(s: Shell) {
     let ids = LocalStorage::get::<Vec<String>>(KEY_MUTED).unwrap_or_default();
-    s.muted.set(ids.into_iter().collect());
+    s.notify.muted.set(ids.into_iter().collect());
 }
 
 /// localStorage key for the per-channel last-seen high-water marks (#23).
@@ -477,7 +484,8 @@ const KEY_LAST_SEEN: &str = "authlyn.last_seen";
 /// Load last-seen marks from localStorage into the reactive map (on mount).
 #[cfg(feature = "hydrate")]
 pub fn load_last_seen(s: Shell) {
-    s.last_seen
+    s.notify
+        .last_seen
         .set(LocalStorage::get(KEY_LAST_SEEN).unwrap_or_default());
 }
 
@@ -485,10 +493,10 @@ pub fn load_last_seen(s: Shell) {
 /// persist the whole map. Idempotent. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
-    s.last_seen.update(|m| {
+    s.notify.last_seen.update(|m| {
         m.insert(cid.to_string(), cur);
     });
-    let _ = LocalStorage::set(KEY_LAST_SEEN, s.last_seen.get_untracked());
+    let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
 }
 
 /// Recompute the unread set for the open server's channels (#23). The open
@@ -498,30 +506,34 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
 /// (no retroactive glow on first sight). Runs on the ~6s list tick.
 #[cfg(feature = "hydrate")]
 fn refresh_unread(s: Shell) {
-    let open = s.sel_channel.get_untracked().map(|c| c.id);
+    let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
     if let Some(ref oc) = open {
-        if let Some(cur) = s.cursor.get_untracked() {
+        if let Some(cur) = s.msg.cursor.get_untracked() {
             set_last_seen(s, oc, cur);
         }
-        s.unread.update(|u| {
+        s.notify.unread.update(|u| {
             u.remove(oc);
         });
     }
-    let channels = s.channels.get_untracked();
+    let channels = s.sel.channels.get_untracked();
     spawn_local(async move {
         for ch in channels {
             if ch.kind != "text" || Some(&ch.id) == open.as_ref() {
                 continue;
             }
-            match s.last_seen.with_untracked(|m| m.get(&ch.id).cloned()) {
+            match s
+                .notify
+                .last_seen
+                .with_untracked(|m| m.get(&ch.id).cloned())
+            {
                 Some(cur) => {
                     let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
                         continue;
                     };
                     let has_new = !l.messages.is_empty();
-                    let marked = s.unread.with_untracked(|u| u.contains(&ch.id));
+                    let marked = s.notify.unread.with_untracked(|u| u.contains(&ch.id));
                     if has_new != marked {
-                        s.unread.update(|u| {
+                        s.notify.unread.update(|u| {
                             if has_new {
                                 u.insert(ch.id.clone());
                             } else {
@@ -547,23 +559,26 @@ fn refresh_unread(s: Shell) {
 /// user gesture, so it's also a good moment to ask for notification permission.
 #[cfg(feature = "hydrate")]
 pub fn toggle_mute(s: Shell, cid: String) {
-    s.muted.update(|m| {
+    s.notify.muted.update(|m| {
         if !m.remove(&cid) {
             m.insert(cid.clone());
         }
     });
-    let ids: Vec<String> = s.muted.with_untracked(|m| m.iter().cloned().collect());
+    let ids: Vec<String> = s
+        .notify
+        .muted
+        .with_untracked(|m| m.iter().cloned().collect());
     let _ = LocalStorage::set(KEY_MUTED, &ids);
     super::notify::request_notify_permission();
 }
 
 // ---- background sync loop + page reconciler ----
 
-/// The subset of `msgs` not yet in `s.seen` — genuinely new this tick.
+/// The subset of `msgs` not yet in `s.msg.seen` — genuinely new this tick.
 #[cfg(feature = "hydrate")]
 fn unseen(s: Shell, msgs: &[MessageEnvelope]) -> Vec<MessageEnvelope> {
     msgs.iter()
-        .filter(|m| !s.seen.with_untracked(|h| h.contains(&m.id)))
+        .filter(|m| !s.msg.seen.with_untracked(|h| h.contains(&m.id)))
         .cloned()
         .collect()
 }
@@ -574,7 +589,7 @@ fn unseen(s: Shell, msgs: &[MessageEnvelope]) -> Vec<MessageEnvelope> {
 /// re-render or scroll jump.
 #[cfg(feature = "hydrate")]
 fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
-    let changed = s.messages.with_untracked(|cur| {
+    let changed = s.msg.messages.with_untracked(|cur| {
         cur.len() != fresh.len()
             || cur
                 .iter()
@@ -584,15 +599,16 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
     if !changed {
         return;
     }
-    s.seen.update(|h| {
+    s.msg.seen.update(|h| {
         h.clear();
         for m in &fresh {
             h.insert(m.id.clone());
         }
     });
-    s.cursor
+    s.msg
+        .cursor
         .set(fresh.last().map(|m| (m.sent_at.clone(), m.id.clone())));
-    s.messages.set(fresh);
+    s.msg.messages.set(fresh);
 }
 
 /// In-place refresh of the guild rail, the open server's channels, and the
@@ -600,22 +616,22 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
 /// removed elsewhere appear/disappear without a manual reload.
 #[cfg(feature = "hydrate")]
 fn refresh_lists(s: Shell) {
-    let sel = s.sel_server.get_untracked();
+    let sel = s.sel.sel_server.get_untracked();
     spawn_local(async move {
         if let Ok(r) = api::list_guilds().await {
-            if s.guilds.with_untracked(|g| *g != r.guilds) {
-                s.guilds.set(r.guilds);
+            if s.sel.guilds.with_untracked(|g| *g != r.guilds) {
+                s.sel.guilds.set(r.guilds);
             }
         }
         if let Ok(f) = api::list_friends().await {
-            if s.friends.with_untracked(|cur| *cur != f) {
-                s.friends.set(f);
+            if s.social.friends.with_untracked(|cur| *cur != f) {
+                s.social.friends.set(f);
             }
         }
         if let Some(gid) = sel {
             if let Ok(d) = api::get_guild(&gid).await {
-                if s.channels.with_untracked(|c| *c != d.channels) {
-                    s.channels.set(d.channels);
+                if s.sel.channels.with_untracked(|c| *c != d.channels) {
+                    s.sel.channels.set(d.channels);
                 }
             }
         }
@@ -628,30 +644,31 @@ fn refresh_lists(s: Shell) {
 /// against running past the start of history.
 #[cfg(feature = "hydrate")]
 pub fn load_older(s: Shell) {
-    if s.loading_older.get_untracked() || !s.more_history.get_untracked() {
+    if s.msg.loading_older.get_untracked() || !s.msg.more_history.get_untracked() {
         return;
     }
-    let Some(oldest) = s.oldest.get_untracked() else {
+    let Some(oldest) = s.msg.oldest.get_untracked() else {
         return;
     };
-    let Some(ch) = s.sel_channel.get_untracked() else {
+    let Some(ch) = s.sel.sel_channel.get_untracked() else {
         return;
     };
-    s.loading_older.set(true);
+    s.msg.loading_older.set(true);
     spawn_local(async move {
         if let Ok(l) = api::list_messages_before(&ch.id, &oldest).await {
             if l.messages.len() < MESSAGES_PAGE_LIMIT {
-                s.more_history.set(false);
+                s.msg.more_history.set(false);
             }
             let fresh: Vec<_> = l
                 .messages
                 .into_iter()
-                .filter(|m| !s.seen.with_untracked(|h| h.contains(&m.id)))
+                .filter(|m| !s.msg.seen.with_untracked(|h| h.contains(&m.id)))
                 .collect();
             if !fresh.is_empty() {
-                s.oldest
+                s.msg
+                    .oldest
                     .set(fresh.first().map(|m| (m.sent_at.clone(), m.id.clone())));
-                s.seen.update(|h| {
+                s.msg.seen.update(|h| {
                     for m in &fresh {
                         h.insert(m.id.clone());
                     }
@@ -659,30 +676,31 @@ pub fn load_older(s: Shell) {
                 // Anchor to the row currently at the top before everything
                 // shifts down, so the viewport doesn't jump.
                 let anchor = s
+                    .msg
                     .messages
                     .with_untracked(|v| v.first().map(|m| m.id.clone()));
-                s.anchor_to.set(anchor);
-                s.messages.update(|v| {
+                s.msg.anchor_to.set(anchor);
+                s.msg.messages.update(|v| {
                     let mut nw = fresh;
                     nw.append(v);
                     *v = nw;
                 });
             }
         }
-        s.loading_older.set(false);
+        s.msg.loading_older.set(false);
     });
 }
 
-/// The background sync loop (single instance, guarded by `s.polling`).
+/// The background sync loop (single instance, guarded by `s.sync.polling`).
 /// Every tick it refreshes the open channel's messages; every ~6s it also
 /// refreshes the lists. Started on shell mount via [`start_sync`] so the
 /// lists stay live even on the Friends pane. SEAM: replace with SSE.
 #[cfg(feature = "hydrate")]
 pub(super) fn start_poll(s: Shell) {
-    if s.polling.get_untracked() {
+    if s.sync.polling.get_untracked() {
         return;
     }
-    s.polling.set(true);
+    s.sync.polling.set(true);
     spawn_local(async move {
         let mut tick: u32 = 0;
         loop {
@@ -692,26 +710,26 @@ pub(super) fn start_poll(s: Shell) {
                 refresh_lists(s);
                 refresh_unread(s);
             }
-            if s.pane.get_untracked() != Pane::Channel {
+            if s.sync.pane.get_untracked() != Pane::Channel {
                 continue;
             }
-            let Some(ch) = s.sel_channel.get_untracked() else {
+            let Some(ch) = s.sel.sel_channel.get_untracked() else {
                 continue;
             };
             match api::list_messages(&ch.id, None).await {
                 Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
                     let fresh = unseen(s, &l.messages);
-                    s.typing.set(l.typing);
+                    s.msg.typing.set(l.typing);
                     sync_messages(s, l.messages);
                     super::notify::notify_messages(s, &ch, &fresh);
                 }
                 Ok(_) => {
                     // Long history: page 1 isn't the whole channel, so only
                     // append new messages past the cursor.
-                    let cur = s.cursor.get_untracked();
+                    let cur = s.msg.cursor.get_untracked();
                     if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
                         let fresh = unseen(s, &l.messages);
-                        s.typing.set(l.typing);
+                        s.msg.typing.set(l.typing);
                         ingest(s, l.messages);
                         super::notify::notify_messages(s, &ch, &fresh);
                     }

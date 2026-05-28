@@ -1,0 +1,154 @@
+//! Shell reactive state grouped into 9 sub-structs.
+//!
+//! `AppShell` (in `mod.rs`) constructs each sub-struct, calls
+//! `provide_context::<T>(t)` for each (mirroring the existing `EmojiResolver`
+//! pattern), then assembles a flat [`Shell`] handle from the sub-struct
+//! handles. The aggregate is what `act::*` and the pane components take as a
+//! prop today; W6/C8 migrates the pane consumers to `use_context` and lets
+//! the aggregate stay for `act::*` only.
+//!
+//! Every field is an `RwSignal<T>` — `Copy` and cheap to pass around. The
+//! sub-structs themselves derive `Clone, Copy`, so a pane that holds a
+//! `Selection` handle is just two pointer-sized signal IDs (per field) plus
+//! the struct header.
+//!
+//! Type imports live here so adding a new state slot only touches `state.rs`
+//! and `AppShell`'s constructor.
+//!
+//! Marked `#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]` because
+//! ssr-side these signals are constructed-but-never-read (the shell only
+//! renders client-side).
+
+use std::collections::{HashMap, HashSet};
+
+use leptos::prelude::RwSignal;
+
+use crate::protocol::{
+    Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
+    MessageEnvelope, PersonaSummary,
+};
+
+use super::{Pane, PendingDelete};
+
+/// Server + channel selection, plus the lists they live in.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Selection {
+    pub(crate) guilds: RwSignal<Vec<GuildSummary>>,
+    pub(crate) sel_server: RwSignal<Option<String>>,
+    /// Owner account id of the currently-open server (gates the invite control).
+    pub(crate) sel_owner: RwSignal<Option<String>>,
+    pub(crate) channels: RwSignal<Vec<ChannelSummary>>,
+    /// Custom emoji of the currently-open guild. Powers the composer picker,
+    /// `:`-autocomplete, and `:name:` render resolution via the `EmojiResolver`
+    /// context built in `AppShell`.
+    pub(crate) guild_emoji: RwSignal<Vec<CustomEmoji>>,
+    pub(crate) sel_channel: RwSignal<Option<ChannelSummary>>,
+}
+
+/// The open channel's message list + the three-cursor pagination state and
+/// the live typists.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct MessageView {
+    pub(crate) messages: RwSignal<Vec<MessageEnvelope>>,
+    pub(crate) cursor: RwSignal<Option<(String, String)>>,
+    /// Oldest `(sent_at, id)` currently loaded — the cursor for scroll-up
+    /// backfill of older history. `None` until the first page lands.
+    pub(crate) oldest: RwSignal<Option<(String, String)>>,
+    /// Guards against overlapping scroll-up backfills.
+    pub(crate) loading_older: RwSignal<bool>,
+    /// `false` once a backfill returns a short page (start of history reached).
+    pub(crate) more_history: RwSignal<bool>,
+    /// After an older-history prepend, the message id to re-anchor to the top
+    /// so the viewport doesn't jump; the channel pane scrolls it into view.
+    pub(crate) anchor_to: RwSignal<Option<String>>,
+    pub(crate) seen: RwSignal<HashSet<String>>,
+    /// Display names of OTHER members currently typing in the open channel
+    /// (#19), refreshed from each message-poll response. Cleared on channel
+    /// switch; drives the `.typing-indicator` line above the composer.
+    pub(crate) typing: RwSignal<Vec<String>>,
+}
+
+/// Compose box (draft text + staged attachments + last status line).
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Composer {
+    pub(crate) compose: RwSignal<String>,
+    /// Media ids already uploaded and staged to send with the next message
+    /// (the composer's pending image attachments, in pick order).
+    pub(crate) compose_attachments: RwSignal<Vec<Attachment>>,
+    pub(crate) status: RwSignal<String>,
+}
+
+/// Background-sync, current pane selection, mobile drawer, and the
+/// auth-mirrored account id.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct SyncState {
+    pub(crate) polling: RwSignal<bool>,
+    /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
+    /// (e.g. the notification poll) can filter out the user's OWN messages
+    /// without reaching into reactive context from a spawned future (FB10b).
+    pub(crate) me: RwSignal<Option<String>>,
+    pub(crate) pane: RwSignal<Pane>,
+    /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
+    pub(crate) nav_open: RwSignal<bool>,
+}
+
+/// Friends, the wardrobe, the active worn persona, and the open channel's
+/// lorebook entries.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Social {
+    pub(crate) friends: RwSignal<ListFriendsResponse>,
+    pub(crate) personas: RwSignal<Vec<PersonaSummary>>,
+    pub(crate) active_persona: RwSignal<Option<String>>,
+    pub(crate) lore: RwSignal<Vec<LorebookEntry>>,
+}
+
+/// Destructive action awaiting confirmation, with its human prompt; the
+/// top-level confirm modal renders whenever `pending_delete` is `Some`.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Modals {
+    pub(crate) pending_delete: RwSignal<Option<PendingDelete>>,
+    pub(crate) confirm_prompt: RwSignal<Option<String>>,
+}
+
+/// Mute / unread / last-seen tracking for the channel notification badges.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Notify {
+    /// Channel ids the user has muted (no new-message notifications). Mirrored
+    /// to localStorage so it survives reloads.
+    pub(crate) muted: RwSignal<HashSet<String>>,
+    /// Channel ids with unread messages — drives the sidebar glow (#23).
+    /// Recomputed by the background poll against `last_seen`.
+    pub(crate) unread: RwSignal<HashSet<String>>,
+    /// Per-channel high-water mark this client has seen: channel id →
+    /// (sent_at, id) of the last seen message. Persisted to localStorage;
+    /// unread = the channel has messages past this mark.
+    pub(crate) last_seen: RwSignal<HashMap<String, (String, String)>>,
+}
+
+/// Soft-deleted-item overlays (#22 Phase 2): own deleted guilds, deleted
+/// channels in the open guild, deleted messages in the open channel, and
+/// whether the channel's trash overlay is open.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Trash {
+    pub(crate) deleted_guilds: RwSignal<Vec<GuildSummary>>,
+    pub(crate) deleted_channels: RwSignal<Vec<ChannelSummary>>,
+    pub(crate) deleted_messages: RwSignal<Vec<MessageEnvelope>>,
+    pub(crate) show_msg_trash: RwSignal<bool>,
+}
+
+/// Per-user preferences mirrored to localStorage.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Prefs {
+    /// When on, `"…"` dialogue is styled at render via a `.dialogue-style`
+    /// root class. Persisted to localStorage.
+    pub(crate) dialogue_style: RwSignal<bool>,
+}

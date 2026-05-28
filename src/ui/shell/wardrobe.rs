@@ -19,11 +19,11 @@ use crate::ui::modal::Modal;
 // ---------------------------------------------------------------------------
 // Gallery actions (inline, cfg-guarded). The shared `act` module lives in
 // mod.rs (owned by another stream), so the per-persona gallery flows are
-// implemented here directly, mirroring `act`'s `spawn_local` + `s.status`
+// implemented here directly, mirroring `act`'s `spawn_local` + `s.composer.status`
 // pattern. On ssr these are no-ops so the view still type-checks.
 // ---------------------------------------------------------------------------
 
-/// Load a persona's gallery into `gallery`, surfacing errors via `s.status`.
+/// Load a persona's gallery into `gallery`, surfacing errors via `s.composer.status`.
 #[cfg(feature = "hydrate")]
 fn load_gallery(s: Shell, pid: String, gallery: RwSignal<Vec<GalleryImage>>) {
     use crate::client::api;
@@ -31,7 +31,7 @@ fn load_gallery(s: Shell, pid: String, gallery: RwSignal<Vec<GalleryImage>>) {
     spawn_local(async move {
         match api::get_persona(&pid).await {
             Ok(detail) => gallery.set(detail.gallery),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -50,18 +50,18 @@ fn add_gallery_image(
 ) {
     use crate::client::api;
     use leptos::task::spawn_local;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         let media_id = match api::upload_media(&file).await {
             Ok(id) => id,
             Err(e) => {
-                s.status.set(api::humanize(&e));
+                s.composer.status.set(api::humanize(&e));
                 return;
             }
         };
         match api::add_gallery_image(&pid, &media_id).await {
             Ok(_) => load_gallery(s, pid, gallery),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -81,7 +81,7 @@ fn remove_gallery_image(s: Shell, pid: String, img: String, gallery: RwSignal<Ve
     spawn_local(async move {
         match api::remove_gallery_image(&pid, &img).await {
             Ok(()) => load_gallery(s, pid, gallery),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -101,15 +101,15 @@ fn remove_gallery_image(
 fn set_avatar_from_gallery(s: Shell, pid: String, media_id: String) {
     use crate::client::api;
     use leptos::task::spawn_local;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::set_persona_avatar(&pid, &media_id).await {
             Ok(()) => {
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -174,7 +174,7 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                 Some(pid) => {
                     // The owner flag drives whether the sharing block appears;
                     // seeded from the grid entry for this persona.
-                    let owned = s.personas.get_untracked()
+                    let owned = s.social.personas.get_untracked()
                         .into_iter()
                         .find(|p| p.id == pid)
                         .map(|p| p.owned)
@@ -213,7 +213,7 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
                 {move || {
                     let q = search.get().trim().to_lowercase();
                     let filtering = !q.is_empty();
-                    let all = s.personas.get();
+                    let all = s.social.personas.get();
                     let len = all.len();
                     all.into_iter()
                         .enumerate()
@@ -256,7 +256,8 @@ fn PersonaCard(
     let pid_edit = pid.clone();
     let pid_remove = pid.clone();
     let pid_leave = pid.clone();
-    let worn = Memo::new(move |_| s.active_persona.get().as_deref() == Some(pid_worn.as_str()));
+    let worn =
+        Memo::new(move |_| s.social.active_persona.get().as_deref() == Some(pid_worn.as_str()));
     let desc = p.description.clone();
     let has_desc = !desc.trim().is_empty();
     let owned = p.owned;
@@ -347,17 +348,23 @@ fn PersonaDetail(
     selected: RwSignal<Option<String>>,
 ) -> impl IntoView {
     // Seed the form from the current grid entry for this persona.
-    let seed = s.personas.get_untracked().into_iter().find(|p| p.id == pid);
+    let seed = s
+        .social
+        .personas
+        .get_untracked()
+        .into_iter()
+        .find(|p| p.id == pid);
     let (seed_name, seed_desc, seed_color) = seed
         .map(|p| (p.name, p.description, p.color))
         .unwrap_or_default();
     // Name used for the monogram fallback in the portrait slot.
     let portrait_name = seed_name.clone();
-    // Live avatar for the portrait: re-read `s.personas` so a fresh upload shows
+    // Live avatar for the portrait: re-read `s.social.personas` so a fresh upload shows
     // without re-opening the editor.
     let pid_portrait = pid.clone();
     let avatar = Memo::new(move |_| {
-        s.personas
+        s.social
+            .personas
             .get()
             .into_iter()
             .find(|p| p.id == pid_portrait)

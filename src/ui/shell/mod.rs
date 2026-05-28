@@ -15,10 +15,7 @@ use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 
-use crate::protocol::{
-    ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry, MessageEnvelope,
-    PersonaSummary,
-};
+use crate::protocol::{ChannelSummary, ListFriendsResponse};
 
 // Trash DTOs reused from protocol (no new types needed — server returns the
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
@@ -33,7 +30,12 @@ mod emoji_manager;
 mod friends;
 mod lorebook;
 mod members;
+mod state;
 mod wardrobe;
+
+pub(crate) use state::{
+    Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Trash,
+};
 
 use account::AccountModal;
 use channel::ChannelPane;
@@ -66,7 +68,7 @@ pub fn Home() -> impl IntoView {
 
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
-enum Pane {
+pub(crate) enum Pane {
     Friends,
     Channel,
     Lorebook,
@@ -81,101 +83,51 @@ enum Pane {
 /// a closure in a signal is awkward in Leptos, so we describe the action as data.
 #[derive(Clone)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
-enum PendingDelete {
+pub(crate) enum PendingDelete {
     Message { cid: String, mid: String },
     Channel { gid: String, cid: String },
     Server { gid: String },
     Persona { pid: String },
 }
 
-/// All of the shell's reactive state, bundled into one `Copy` handle.
-/// `pub(crate)` so the pane submodules can take it as a prop; the fields stay
-/// private (submodules are descendants and can still read them).
+/// Aggregate of the shell's reactive state, grouped into 9 sub-structs.
+///
+/// Each sub-struct is also `provide_context`'d in `AppShell` so a deeper
+/// component can pull just the slice it needs via `use_context::<Selection>()`
+/// (the pane-component migration in W6/C8). `act::*` keeps taking the full
+/// aggregate handle so action functions stay short and uncluttered.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct Shell {
-    guilds: RwSignal<Vec<GuildSummary>>,
-    sel_server: RwSignal<Option<String>>,
-    /// owner account id of the currently-open server (gates the invite control).
-    sel_owner: RwSignal<Option<String>>,
-    channels: RwSignal<Vec<ChannelSummary>>,
-    /// Custom emoji of the currently-open guild. Powers the composer picker,
-    /// `:`-autocomplete, and `:name:` render resolution via the `EmojiResolver`
-    /// context built in `AppShell`.
-    guild_emoji: RwSignal<Vec<CustomEmoji>>,
-    sel_channel: RwSignal<Option<ChannelSummary>>,
-    messages: RwSignal<Vec<MessageEnvelope>>,
-    cursor: RwSignal<Option<(String, String)>>,
-    /// Oldest `(sent_at, id)` currently loaded — the cursor for scroll-up
-    /// backfill of older history. `None` until the first page lands.
-    oldest: RwSignal<Option<(String, String)>>,
-    /// Guards against overlapping scroll-up backfills.
-    loading_older: RwSignal<bool>,
-    /// `false` once a backfill returns a short page (start of history reached).
-    more_history: RwSignal<bool>,
-    /// After an older-history prepend, the message id to re-anchor to the top
-    /// so the viewport doesn't jump; the channel pane scrolls it into view.
-    anchor_to: RwSignal<Option<String>>,
-    seen: RwSignal<HashSet<String>>,
-    compose: RwSignal<String>,
-    /// Media ids already uploaded and staged to send with the next message
-    /// (the composer's pending image attachments, in pick order).
-    compose_attachments: RwSignal<Vec<crate::protocol::Attachment>>,
-    status: RwSignal<String>,
-    polling: RwSignal<bool>,
-    pane: RwSignal<Pane>,
-    /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
-    nav_open: RwSignal<bool>,
-    /// Per-user pref: when on, `"…"` dialogue is styled at render via a
-    /// `.dialogue-style` root class. Persisted to localStorage.
-    dialogue_style: RwSignal<bool>,
-    friends: RwSignal<ListFriendsResponse>,
-    personas: RwSignal<Vec<PersonaSummary>>,
-    active_persona: RwSignal<Option<String>>,
-    lore: RwSignal<Vec<LorebookEntry>>,
-    /// A destructive action awaiting confirmation, with its human prompt; the
-    /// top-level confirm modal renders whenever this is `Some`.
-    pending_delete: RwSignal<Option<PendingDelete>>,
-    confirm_prompt: RwSignal<Option<String>>,
-    /// Channel ids the user has muted (no new-message notifications). Mirrored
-    /// to localStorage so it survives reloads.
-    muted: RwSignal<HashSet<String>>,
-    /// Channel ids with unread messages — drives the sidebar glow (#23).
-    /// Recomputed by the background poll against `last_seen`.
-    unread: RwSignal<HashSet<String>>,
-    /// Per-channel high-water mark this client has seen: channel id →
-    /// (sent_at, id) of the last seen message. Persisted to localStorage;
-    /// unread = the channel has messages past this mark.
-    last_seen: RwSignal<HashMap<String, (String, String)>>,
-    // ---- Trash (#22 Phase 2) ----
-    /// Caller's own soft-deleted guilds (populated on demand, guild rail trash view).
-    deleted_guilds: RwSignal<Vec<GuildSummary>>,
-    /// Soft-deleted channels in the open guild (populated on demand, sidebar trash list).
-    deleted_channels: RwSignal<Vec<ChannelSummary>>,
-    /// Soft-deleted messages in the open channel (populated on demand).
-    deleted_messages: RwSignal<Vec<MessageEnvelope>>,
-    /// Whether the channel's trash overlay is open.
-    show_msg_trash: RwSignal<bool>,
-    /// Display names of OTHER members currently typing in the open channel
-    /// (#19), refreshed from each message-poll response. Cleared on channel
-    /// switch; drives the `.typing-indicator` line above the composer.
-    typing: RwSignal<Vec<String>>,
-    /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
-    /// (e.g. the notification poll) can filter out the user's OWN messages
-    /// without reaching into reactive context from a spawned future (FB10b).
-    me: RwSignal<Option<String>>,
+    pub(crate) sel: Selection,
+    pub(crate) msg: MessageView,
+    pub(crate) composer: Composer,
+    pub(crate) sync: SyncState,
+    pub(crate) social: Social,
+    pub(crate) modals: Modals,
+    pub(crate) notify: Notify,
+    pub(crate) trash: Trash,
+    pub(crate) prefs: Prefs,
 }
 
 #[component]
 fn AppShell() -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
-    let s = Shell {
+
+    // Construct each state sub-struct, then make each available via
+    // `provide_context` so pane components (W6/C8) can pull just the slice
+    // they need without taking the full Shell aggregate as a prop.
+    let sel = Selection {
         guilds: RwSignal::new(Vec::new()),
         sel_server: RwSignal::new(None),
         sel_owner: RwSignal::new(None),
         channels: RwSignal::new(Vec::new()),
         guild_emoji: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
+    };
+    provide_context(sel);
+
+    let msg = MessageView {
         messages: RwSignal::new(Vec::new()),
         cursor: RwSignal::new(None),
         oldest: RwSignal::new(None),
@@ -183,13 +135,26 @@ fn AppShell() -> impl IntoView {
         more_history: RwSignal::new(true),
         anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
+        typing: RwSignal::new(Vec::new()),
+    };
+    provide_context(msg);
+
+    let composer = Composer {
         compose: RwSignal::new(String::new()),
         compose_attachments: RwSignal::new(Vec::new()),
         status: RwSignal::new(String::new()),
+    };
+    provide_context(composer);
+
+    let sync = SyncState {
         polling: RwSignal::new(false),
+        me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
         nav_open: RwSignal::new(false),
-        dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
+    };
+    provide_context(sync);
+
+    let social = Social {
         friends: RwSignal::new(ListFriendsResponse {
             friends: Vec::new(),
             incoming: Vec::new(),
@@ -198,27 +163,57 @@ fn AppShell() -> impl IntoView {
         personas: RwSignal::new(Vec::new()),
         active_persona: RwSignal::new(None),
         lore: RwSignal::new(Vec::new()),
+    };
+    provide_context(social);
+
+    let modals = Modals {
         pending_delete: RwSignal::new(None),
         confirm_prompt: RwSignal::new(None),
+    };
+    provide_context(modals);
+
+    let notify = Notify {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
+    };
+    provide_context(notify);
+
+    let trash = Trash {
         deleted_guilds: RwSignal::new(Vec::new()),
         deleted_channels: RwSignal::new(Vec::new()),
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
-        typing: RwSignal::new(Vec::new()),
-        me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
     };
-    // Keep `s.me` in sync with the auth context (it resolves async after mount).
+    provide_context(trash);
+
+    let prefs = Prefs {
+        dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
+    };
+    provide_context(prefs);
+
+    let s = Shell {
+        sel,
+        msg,
+        composer,
+        sync,
+        social,
+        modals,
+        notify,
+        trash,
+        prefs,
+    };
+
+    // Keep `s.sync.me` in sync with the auth context (it resolves async after mount).
     Effect::new(move |_| {
-        s.me.set(auth.user.get().map(|u| u.account_id));
+        s.sync.me.set(auth.user.get().map(|u| u.account_id));
     });
     // Provide the emoji resolver to the whole shell subtree so the markup
     // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
     // without threading a parameter through every render call site.
     let emoji_map = Memo::new(move |_| {
-        s.guild_emoji
+        s.sel
+            .guild_emoji
             .get()
             .into_iter()
             .map(|e| (e.name, e.media_id))
@@ -242,12 +237,13 @@ fn AppShell() -> impl IntoView {
     // The invite/manage controls show only to the owner of the open server.
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
-        me.is_some() && me == s.sel_owner.get()
+        me.is_some() && me == s.sel.sel_owner.get()
     };
     // The open server's name, derived from the rail list (auto-updates on rename).
     let server_name = move || {
-        let sid = s.sel_server.get();
-        s.guilds
+        let sid = s.sel.sel_server.get();
+        s.sel
+            .guilds
             .get()
             .into_iter()
             .find(|g| Some(&g.id) == sid.as_ref())
@@ -303,12 +299,12 @@ fn AppShell() -> impl IntoView {
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
 
     view! {
-        <div class="app" class:nav-open=move || s.nav_open.get() class:dialogue-style=move || s.dialogue_style.get()>
+        <div class="app" class:nav-open=move || s.sync.nav_open.get() class:dialogue-style=move || s.prefs.dialogue_style.get()>
             <nav class="rail">
                 <button class="rail-home" title="Friends"
-                    on:click=move |_| { act::show_friends(s); s.nav_open.set(false); }>"@"</button>
+                    on:click=move |_| { act::show_friends(s); s.sync.nav_open.set(false); }>"@"</button>
                 {move || {
-                    let guilds = s.guilds.get();
+                    let guilds = s.sel.guilds.get();
                     let len = guilds.len();
                     // `len`/`idx` feed the rail-reorder `disabled` closures, which
                     // the `view!` macro strips on ssr — silence the unused warning.
@@ -320,7 +316,7 @@ fn AppShell() -> impl IntoView {
                         view! {
                             <div class="rail-guild-wrap">
                                 <button class="rail-guild" title=g.name
-                                    class:active=move || s.sel_server.get().as_deref() == Some(gid_active.as_str())
+                                    class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
                                     on:click=move |_| act::open_server(s, gid.clone())>
                                     {initial}
                                 </button>
@@ -347,7 +343,7 @@ fn AppShell() -> impl IntoView {
                         if now_open {
                             act::load_deleted_guilds(s);
                         }
-                        s.nav_open.set(false);
+                        s.sync.nav_open.set(false);
                     }>"🗑"</button>
                 <div class="rail-add">
                     <input prop:value=move || new_server.get()
@@ -363,7 +359,7 @@ fn AppShell() -> impl IntoView {
 
             // Guild trash panel — shown in the sidebar slot when the rail trash button is active.
             {move || guild_trash_open.get().then(|| {
-                let guilds = s.deleted_guilds.get();
+                let guilds = s.trash.deleted_guilds.get();
                 view! {
                     <aside class="sidebar sidebar-trash">
                         <div class="server-header">
@@ -397,7 +393,7 @@ fn AppShell() -> impl IntoView {
             })}
 
             <aside class="sidebar">
-                <Show when=move || s.sel_server.get().is_some()
+                <Show when=move || s.sel.sel_server.get().is_some()
                     fallback=|| view! {
                         <p class="muted pad">"Pick or create a server, or visit Friends (@)."</p>
                     }>
@@ -411,7 +407,7 @@ fn AppShell() -> impl IntoView {
                                         match ev.key().as_str() {
                                             "Enter" => {
                                                 ev.prevent_default();
-                                                if let Some(gid) = s.sel_server.get_untracked() {
+                                                if let Some(gid) = s.sel.sel_server.get_untracked() {
                                                     act::rename_server(s, gid, server_edit_buf.get_untracked());
                                                 }
                                                 editing_server.set(false);
@@ -423,7 +419,7 @@ fn AppShell() -> impl IntoView {
                                         let _ = &ev;
                                     }/>
                                 <button class="row-edit" title="save" on:click=move |_| {
-                                    if let Some(gid) = s.sel_server.get_untracked() {
+                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
                                         act::rename_server(s, gid, server_edit_buf.get_untracked());
                                     }
                                     editing_server.set(false);
@@ -441,7 +437,7 @@ fn AppShell() -> impl IntoView {
                                     }>"✎"</button>
                                     <button class="row-edit danger" title="delete server"
                                         on:click=move |_| {
-                                            if let Some(gid) = s.sel_server.get_untracked() {
+                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
                                                 act::ask_delete(
                                                     s,
                                                     format!(
@@ -458,20 +454,20 @@ fn AppShell() -> impl IntoView {
                         }}
                     </div>
                     <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_wardrobe(s); s.nav_open.set(false); }>
+                        on:click=move |_| { act::show_wardrobe(s); s.sync.nav_open.set(false); }>
                         "🎭 Wardrobe"
                     </button>
                     <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_emoji_manager(s); s.nav_open.set(false); }>
+                        on:click=move |_| { act::show_emoji_manager(s); s.sync.nav_open.set(false); }>
                         "😀 Emoji"
                     </button>
                     <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_members(s); s.nav_open.set(false); }>
+                        on:click=move |_| { act::show_members(s); s.sync.nav_open.set(false); }>
                         "👥 Members"
                     </button>
                     <ul class="channels">
                         {move || {
-                            let chans = s.channels.get();
+                            let chans = s.sel.channels.get();
                             let len = chans.len();
                             chans.into_iter().enumerate().map(|(idx, c)| {
                                 view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel buf=channel_edit_buf/> }
@@ -499,7 +495,7 @@ fn AppShell() -> impl IntoView {
                                     let now_open = !chan_trash_open.get_untracked();
                                     chan_trash_open.set(now_open);
                                     if now_open {
-                                        if let Some(gid) = s.sel_server.get_untracked() {
+                                        if let Some(gid) = s.sel.sel_server.get_untracked() {
                                             act::load_deleted_channels(s, gid);
                                         }
                                     }
@@ -507,7 +503,7 @@ fn AppShell() -> impl IntoView {
                                 "🗑 Trashed channels"
                             </button>
                             {move || chan_trash_open.get().then(|| {
-                                let chans = s.deleted_channels.get();
+                                let chans = s.trash.deleted_channels.get();
                                 if chans.is_empty() {
                                     view! {
                                         <p class="muted trash-empty">"No trashed channels."</p>
@@ -523,7 +519,7 @@ fn AppShell() -> impl IntoView {
                                                         <span class="trash-name">"# "{name}</span>
                                                         <button class="trash-restore"
                                                             on:click=move |_| {
-                                                                if let Some(gid) = s.sel_server.get_untracked() {
+                                                                if let Some(gid) = s.sel.sel_server.get_untracked() {
                                                                     act::restore_channel(s, gid, cid.clone());
                                                                 }
                                                             }>"Restore"</button>
@@ -542,7 +538,7 @@ fn AppShell() -> impl IntoView {
                                 on:input=move |ev| new_invite.set(event_target_value(&ev))
                                 placeholder="invite by username"/>
                             <button on:click=move |_| {
-                                let gid = s.sel_server.get_untracked();
+                                let gid = s.sel.sel_server.get_untracked();
                                 let u = new_invite.get_untracked();
                                 new_invite.set(String::new());
                                 if let Some(gid) = gid {
@@ -557,12 +553,12 @@ fn AppShell() -> impl IntoView {
             <section class="content">
                 <header class="topbar">
                     <button class="nav-toggle" title="Menu"
-                        on:click=move |_| s.nav_open.update(|o| *o = !*o)>"☰"</button>
+                        on:click=move |_| s.sync.nav_open.update(|o| *o = !*o)>"☰"</button>
                     <span class="muted">"Signed in as " <strong>{username}</strong></span>
                     // Mute toggle for the open channel (suppresses its
                     // new-message notifications); 🔔 = active, 🔕 = muted.
-                    {move || s.sel_channel.get()
-                        .filter(|_| s.pane.get() == Pane::Channel)
+                    {move || s.sel.sel_channel.get()
+                        .filter(|_| s.sync.pane.get() == Pane::Channel)
                         .map(|c| {
                             let cid = c.id.clone();
                             let cid_t = c.id.clone();
@@ -570,35 +566,35 @@ fn AppShell() -> impl IntoView {
                             let cid_trash = c.id.clone();
                             view! {
                                 <button class="row-edit"
-                                    title=move || if s.muted.get().contains(&cid_t) { "Unmute channel" } else { "Mute channel" }
+                                    title=move || if s.notify.muted.get().contains(&cid_t) { "Unmute channel" } else { "Mute channel" }
                                     on:click=move |_| act::toggle_mute(s, cid.clone())>
-                                    {move || if s.muted.get().contains(&cid_b) { "🔕" } else { "🔔" }}
+                                    {move || if s.notify.muted.get().contains(&cid_b) { "🔕" } else { "🔔" }}
                                 </button>
                                 // Trash toggle: load and show deleted messages in this channel.
                                 <button class="row-edit"
-                                    title=move || if s.show_msg_trash.get() { "Hide deleted" } else { "Show deleted" }
+                                    title=move || if s.trash.show_msg_trash.get() { "Hide deleted" } else { "Show deleted" }
                                     on:click=move |_| {
-                                        let now_open = !s.show_msg_trash.get_untracked();
-                                        s.show_msg_trash.set(now_open);
+                                        let now_open = !s.trash.show_msg_trash.get_untracked();
+                                        s.trash.show_msg_trash.set(now_open);
                                         if now_open {
                                             act::load_deleted_messages(s, cid_trash.clone());
                                         } else {
-                                            s.deleted_messages.set(Vec::new());
+                                            s.trash.deleted_messages.set(Vec::new());
                                         }
                                     }>
-                                    {move || if s.show_msg_trash.get() { "🗑✓" } else { "🗑" }}
+                                    {move || if s.trash.show_msg_trash.get() { "🗑✓" } else { "🗑" }}
                                 </button>
                             }
                         })
                     }
                     <span class="spacer"></span>
                     <button title="Account"
-                        on:click=move |_| { s.status.set(String::new()); account_open.set(true); }>
+                        on:click=move |_| { s.composer.status.set(String::new()); account_open.set(true); }>
                         "⚙"
                     </button>
                     <button on:click=move |_| act::logout(auth)>"Log out"</button>
                 </header>
-                {move || match s.pane.get() {
+                {move || match s.sync.pane.get() {
                     Pane::Friends => view! { <FriendsPane s=s/> }.into_any(),
                     Pane::Channel => view! { <ChannelPane s=s/> }.into_any(),
                     Pane::Lorebook => view! { <LorebookPane s=s/> }.into_any(),
@@ -606,11 +602,11 @@ fn AppShell() -> impl IntoView {
                     Pane::Emoji => view! { <EmojiManagerPane s=s/> }.into_any(),
                     Pane::Members => view! { <MembersPane s=s/> }.into_any(),
                 }}
-                <p class="error">{move || s.status.get()}</p>
+                <p class="error">{move || s.composer.status.get()}</p>
             </section>
 
             // Mobile drawer backdrop: tap to close (hidden off mobile via CSS).
-            <div class="scrim" on:click=move |_| s.nav_open.set(false)></div>
+            <div class="scrim" on:click=move |_| s.sync.nav_open.set(false)></div>
 
             {move || if account_open.get() {
                 view! { <AccountModal s=s open=account_open/> }.into_any()
@@ -621,8 +617,8 @@ fn AppShell() -> impl IntoView {
             // Top-level confirm dialog for destructive actions. Shown whenever a
             // `PendingDelete` is queued; backdrop/Cancel clears it without acting,
             // "Delete" dispatches the queued action (see `act::confirm_delete`).
-            {move || s.pending_delete.get().is_some().then(|| {
-                let prompt = s.confirm_prompt.get().unwrap_or_default();
+            {move || s.modals.pending_delete.get().is_some().then(|| {
+                let prompt = s.modals.confirm_prompt.get().unwrap_or_default();
                 view! {
                     <Modal class="confirm-modal" close=move || act::cancel_delete(s)>
                         <h3>"Confirm delete"</h3>
@@ -654,7 +650,7 @@ fn ChannelRow(
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
-        me.is_some() && me == s.sel_owner.get()
+        me.is_some() && me == s.sel.sel_owner.get()
     };
     // `idx`/`len` feed the reorder buttons' `disabled` closures, which the
     // `view!` macro strips on ssr — silence the ssr-side unused warning the same
@@ -681,7 +677,7 @@ fn ChannelRow(
                                     match ev.key().as_str() {
                                         "Enter" => {
                                             ev.prevent_default();
-                                            if let Some(gid) = s.sel_server.get_untracked() {
+                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
                                                 act::rename_channel(s, gid, cid_kd.clone(), buf.get_untracked());
                                             }
                                             editing.set(None);
@@ -694,7 +690,7 @@ fn ChannelRow(
                                 }
                             }/>
                         <button class="row-edit" title="save" on:click=move |_| {
-                            if let Some(gid) = s.sel_server.get_untracked() {
+                            if let Some(gid) = s.sel.sel_server.get_untracked() {
                                 act::rename_channel(s, gid, cid_save.clone(), buf.get_untracked());
                             }
                             editing.set(None);
@@ -704,14 +700,14 @@ fn ChannelRow(
                     }.into_any()
                 } else {
                     let active_cid = cid.clone();
-                    let active = move || s.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
+                    let active = move || s.sel.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
                     let unread_cid = cid.clone();
-                    let unread = move || s.unread.get().contains(&unread_cid);
+                    let unread = move || s.notify.unread.get().contains(&unread_cid);
                     let start_cid = cid.clone();
                     let start_name = name0.clone();
                     view! {
                         <button class="channel" class:active=active class:unread=unread
-                            on:click=move |_| { act::open_channel(s, ch.clone()); s.nav_open.set(false); }>
+                            on:click=move |_| { act::open_channel(s, ch.clone()); s.sync.nav_open.set(false); }>
                             {sigil}{name0.clone()}
                         </button>
                         <Show when=is_owner fallback=|| ()>
@@ -735,7 +731,7 @@ fn ChannelRow(
                                 let del_cid = start_cid.clone();
                                 let del_name = start_name.clone();
                                 move |_| {
-                                    if let Some(gid) = s.sel_server.get_untracked() {
+                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
                                         act::ask_delete(
                                             s,
                                             format!(

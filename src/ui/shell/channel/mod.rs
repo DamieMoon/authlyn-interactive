@@ -51,6 +51,7 @@ fn display_name(m: &MessageEnvelope) -> String {
 /// One row in the deleted-messages panel: the message snippet plus a Restore button.
 fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) -> impl IntoView {
     let cid = s
+        .sel
         .sel_channel
         .get_untracked()
         .map(|c| c.id)
@@ -107,7 +108,7 @@ pub(super) fn apply_markup(
     close: &str,
 ) {
     let Some(el) = ta_ref.get() else {
-        s.compose.update(|c| {
+        s.composer.compose.update(|c| {
             c.push_str(open);
             c.push_str(close);
         });
@@ -119,7 +120,9 @@ pub(super) fn apply_markup(
     let before = v.slice(0, start).as_string().unwrap_or_default();
     let sel = v.slice(start, end).as_string().unwrap_or_default();
     let after = v.slice(end, v.length()).as_string().unwrap_or_default();
-    s.compose.set(format!("{before}{open}{sel}{close}{after}"));
+    s.composer
+        .compose
+        .set(format!("{before}{open}{sel}{close}{after}"));
 
     let open_u = open.encode_utf16().count() as u32;
     let close_u = close.encode_utf16().count() as u32;
@@ -145,7 +148,7 @@ pub(super) fn apply_markup(
     open: &str,
     close: &str,
 ) {
-    s.compose.update(|c| {
+    s.composer.compose.update(|c| {
         c.push_str(open);
         c.push_str(close);
     });
@@ -179,7 +182,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     let composer_ref = NodeRef::<leptos::html::Textarea>::new();
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
-        s.compose.track();
+        s.composer.compose.track();
         let Some(el) = composer_ref.get() else {
             return;
         };
@@ -242,12 +245,12 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
 
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
-        let msgs = s.messages.get();
+        let msgs = s.msg.messages.get();
         // An older-history prepend grows the list at the FRONT; skip the
         // append/scroll/unread logic here (the anchor effect below repositions
         // the viewport instead), but keep prev_count in sync for the next real
         // append.
-        if s.anchor_to.get_untracked().is_some() {
+        if s.msg.anchor_to.get_untracked().is_some() {
             prev_count.set_value(Some(msgs.len()));
             return;
         }
@@ -308,7 +311,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
     // into view so the viewport doesn't jump, then clear the request.
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
-        let Some(id) = s.anchor_to.get() else {
+        let Some(id) = s.msg.anchor_to.get() else {
             return;
         };
         leptos::task::spawn_local(async move {
@@ -319,7 +322,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             {
                 el.scroll_into_view();
             }
-            s.anchor_to.set(None);
+            s.msg.anchor_to.set(None);
         });
     });
 
@@ -349,8 +352,8 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 }>
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
-                    let cid = s.sel_channel.get().map(|c| c.id);
-                    s.messages.get().into_iter().map(|m| {
+                    let cid = s.sel.sel_channel.get().map(|c| c.id);
+                    s.msg.messages.get().into_iter().map(|m| {
                         // Worn persona's frozen name, else the "default" identity
                         // (the controlling account's nickname).
                         let who = display_name(&m);
@@ -450,16 +453,16 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 // Live draft preview (opt-in via the 👁 toggle): a non-persisted
                 // "ghost" row at the bottom of the list rendering the composer
                 // draft exactly as it'll appear when sent. Re-renders reactively
-                // off `s.compose`; vanishes when the draft is empty or after send.
-                {move || (preview_on.get() && !s.compose.get().trim().is_empty()).then(|| {
+                // off `s.composer.compose`; vanishes when the draft is empty or after send.
+                {move || (preview_on.get() && !s.composer.compose.get().trim().is_empty()).then(|| {
                     // Use the currently-worn persona's name + avatar; fall back to
                     // the signed-in account's display name (matching real-message
                     // resolution) with no avatar if no persona is worn.
-                    let (who, avatar_id) = s
+                    let (who, avatar_id) = s.social
                         .active_persona
                         .get()
                         .and_then(|pid| {
-                            s.personas
+                            s.social.personas
                                 .get()
                                 .into_iter()
                                 .find(|p| p.id == pid)
@@ -480,7 +483,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                 {avatar_el}
                                 <span class="who">{who}</span>
                             </div>
-                            <span class="text">{render_body(&s.compose.get())}</span>
+                            <span class="text">{render_body(&s.composer.compose.get())}</span>
                         </li>
                     }
                 })}
@@ -541,9 +544,9 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             }}
 
             // Deleted-messages panel — shown when "Show deleted" is toggled.
-            {move || s.show_msg_trash.get().then(|| {
+            {move || s.trash.show_msg_trash.get().then(|| {
                 let me = auth.user.get().map(|u| u.account_id);
-                let msgs = s.deleted_messages.get();
+                let msgs = s.trash.deleted_messages.get();
                 view! {
                     <div class="trash-msg-panel">
                         <div class="trash-panel-header">
@@ -567,7 +570,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             // "%name% is typing…" line (#19), fed by the message poll. Renders
             // nothing when nobody else is typing.
             {move || {
-                let names = s.typing.get();
+                let names = s.msg.typing.get();
                 let line = match names.len() {
                     0 => return ().into_any(),
                     1 => format!("{} is typing…", names[0]),
@@ -614,7 +617,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                                                 }
                                             }
                                             if skipped {
-                                                s.status.set(
+                                                s.composer.status.set(
                                                     "Only images or videos can be attached."
                                                         .to_string(),
                                                 );
@@ -696,7 +699,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                         <div class="emoji-grid">
                             {move || {
                                 let q = emoji_query.get().trim().to_lowercase();
-                                let custom = s.guild_emoji.get();
+                                let custom = s.sel.guild_emoji.get();
                                 if q.is_empty() {
                                     // Server custom emoji first, then each unicode category.
                                     let server = (!custom.is_empty()).then(|| view! {
@@ -744,7 +747,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 // Pending attachments: thumbnails of staged uploads, each with a
                 // remove button. Sent (and cleared) on the next message.
                 {move || {
-                    let atts = s.compose_attachments.get();
+                    let atts = s.composer.compose_attachments.get();
                     (!atts.is_empty()).then(|| view! {
                         <div class="compose-attachments">
                             {atts.into_iter().map(|att| {
@@ -782,9 +785,9 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 }}
                 <textarea
                     node_ref=composer_ref
-                    prop:value=move || s.compose.get()
+                    prop:value=move || s.composer.compose.get()
                     on:input=move |ev| {
-                        s.compose.set(event_target_value(&ev));
+                        s.composer.compose.set(event_target_value(&ev));
                         // Track the trailing `:query` token under the caret to
                         // drive the autocomplete popover.
                         #[cfg(feature = "hydrate")]
@@ -807,7 +810,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                             // per ~2s while typing. Fire-and-forget; ignore errors.
                             let now = js_sys::Date::now();
                             if now - last_typing_ping.get_value() >= 2000.0 {
-                                if let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) {
+                                if let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) {
                                     last_typing_ping.set_value(now);
                                     leptos::task::spawn_local(async move {
                                         let _ = api::post_typing(&cid).await;

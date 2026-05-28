@@ -12,7 +12,7 @@
 //!   path for installed-PWA standalone display mode, falling back to the
 //!   `new Notification()` constructor for a plain tab.
 //! - `notify_messages()` is the poll-loop hook; it never notifies for the
-//!   user's own messages (`s.me` filter) or when the tab is foregrounded or
+//!   user's own messages (`s.sync.me` filter) or when the tab is foregrounded or
 //!   when the channel is muted.
 
 #[cfg(feature = "hydrate")]
@@ -293,7 +293,7 @@ pub(super) fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnv
     use leptos::web_sys::{Notification, NotificationPermission};
     // FB10b: never locally notify for the user's OWN messages (server
     // web-push already excludes the author; this is the client `Notification`).
-    let me = s.me.get_untracked();
+    let me = s.sync.me.get_untracked();
     let fresh: Vec<&MessageEnvelope> = fresh
         .iter()
         .filter(|m| me.as_deref() != Some(m.author_id.as_str()))
@@ -301,7 +301,7 @@ pub(super) fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnv
     if fresh.is_empty() || !tab_hidden() {
         return;
     }
-    if s.muted.with_untracked(|m| m.contains(&ch.id)) {
+    if s.notify.muted.with_untracked(|m| m.contains(&ch.id)) {
         return;
     }
     // Feature-detect before reading permission: on iOS Safari outside an

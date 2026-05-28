@@ -27,11 +27,11 @@ pub fn logout(auth: AuthCtx) {
 /// caller's (the modal's) job; this just hits the API and reports.
 #[cfg(feature = "hydrate")]
 pub fn change_password(s: Shell, current: String, new: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::change_password(&current, &new).await {
-            Ok(()) => s.status.set("password changed".to_string()),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(()) => s.composer.status.set("password changed".to_string()),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -39,11 +39,11 @@ pub fn change_password(s: Shell, current: String, new: String) {
 /// Set/replace the caller's self-service recovery question + answer.
 #[cfg(feature = "hydrate")]
 pub fn set_security_question(s: Shell, question: String, answer: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::set_security_question(&question, &answer).await {
-            Ok(()) => s.status.set("security question saved".to_string()),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(()) => s.composer.status.set("security question saved".to_string()),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -51,11 +51,14 @@ pub fn set_security_question(s: Shell, question: String, answer: String) {
 /// Admin-only: reset another account's password by username.
 #[cfg(feature = "hydrate")]
 pub fn admin_reset_password(s: Shell, username: String, new_password: String) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::admin_reset_password(&username, &new_password).await {
-            Ok(()) => s.status.set(format!("password reset for {username}")),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(()) => s
+                .composer
+                .status
+                .set(format!("password reset for {username}")),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }

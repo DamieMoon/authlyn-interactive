@@ -38,19 +38,19 @@ pub(crate) fn EmojiManagerPane(s: Shell) -> impl IntoView {
             .then(|| "Name must be 2–32 chars: a–z, 0–9, _".to_string())
     };
 
-    let gid = move || s.sel_server.get().unwrap_or_default();
+    let gid = move || s.sel.sel_server.get().unwrap_or_default();
 
     let auth = use_context::<AuthCtx>().expect("AuthCtx");
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
-        me.is_some() && me == s.sel_owner.get()
+        me.is_some() && me == s.sel.sel_owner.get()
     };
 
     view! {
         <div class="pane">
             <h3>"Custom emoji"</h3>
             <div class="emoji-mgr-list">
-                {move || s.guild_emoji.get().into_iter().map(|e| {
+                {move || s.sel.guild_emoji.get().into_iter().map(|e| {
                     let media_id = e.media_id.clone();
                     let name = e.name.clone();
                     let del_name = e.name.clone();

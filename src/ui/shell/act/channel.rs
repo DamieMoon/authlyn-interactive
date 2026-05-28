@@ -35,27 +35,27 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // just-worn value could be clobbered by a stale read before its write
     // commits. Only adopt the server's remembered persona when SWITCHING
     // to a different channel.
-    let same_channel = s.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
+    let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
     let _ = LocalStorage::set(KEY_CHANNEL, &cid);
-    s.sel_channel.set(Some(ch));
+    s.sel.sel_channel.set(Some(ch));
     if kind == "lorebook" {
-        s.pane.set(Pane::Lorebook);
+        s.sync.pane.set(Pane::Lorebook);
         super::message::load_lore(s, cid);
     } else {
-        s.pane.set(Pane::Channel);
-        s.messages.set(Vec::new());
-        s.cursor.set(None);
-        s.oldest.set(None);
-        s.loading_older.set(false);
-        s.more_history.set(true);
-        s.anchor_to.set(None);
-        s.seen.update(|h| h.clear());
+        s.sync.pane.set(Pane::Channel);
+        s.msg.messages.set(Vec::new());
+        s.msg.cursor.set(None);
+        s.msg.oldest.set(None);
+        s.msg.loading_older.set(false);
+        s.msg.more_history.set(true);
+        s.msg.anchor_to.set(None);
+        s.msg.seen.update(|h| h.clear());
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
-        s.typing.set(Vec::new());
+        s.msg.typing.set(Vec::new());
         // Opening clears the unread glow at once; the high-water mark
         // advances once messages load below.
-        s.unread.update(|u| {
+        s.notify.unread.update(|u| {
             u.remove(&cid);
         });
         super::message::start_poll(s);
@@ -74,17 +74,17 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 // remembered value (or None = speak as account) when SWITCHING
                 // channels; preserve a just-worn value on same-channel re-open.
                 if !same_channel {
-                    s.active_persona.set(l.active_persona);
+                    s.social.active_persona.set(l.active_persona);
                 }
                 super::message::ingest(s, l.messages);
-                s.oldest.set(oldest);
-                s.more_history.set(full_page);
+                s.msg.oldest.set(oldest);
+                s.msg.more_history.set(full_page);
                 // Deep-link: now the page is in the DOM, ask the scroll
                 // Effect to bring the notified message into view.
                 if let Some(mid) = anchor {
-                    s.anchor_to.set(Some(mid));
+                    s.msg.anchor_to.set(Some(mid));
                 }
-                if let Some(cur) = s.cursor.get_untracked() {
+                if let Some(cur) = s.msg.cursor.get_untracked() {
                     super::message::set_last_seen(s, &seen_cid, cur);
                 }
             }
@@ -102,9 +102,9 @@ pub fn open_deep_link(s: Shell, gid: String, cid: String, message: Option<String
             return;
         };
         let _ = LocalStorage::set(KEY_SERVER, &gid);
-        s.sel_server.set(Some(gid.clone()));
-        s.sel_owner.set(Some(d.owner_id.clone()));
-        s.channels.set(d.channels.clone());
+        s.sel.sel_server.set(Some(gid.clone()));
+        s.sel.sel_owner.set(Some(d.owner_id.clone()));
+        s.sel.channels.set(d.channels.clone());
         super::emoji::refresh_guild_emoji(s, gid.clone());
         if let Some(ch) = d.channels.iter().find(|c| c.id == cid).cloned() {
             open_channel_at(s, ch, message);
@@ -135,9 +135,9 @@ pub fn restore_session(s: Shell) -> bool {
             LocalStorage::delete(KEY_CHANNEL);
             return;
         };
-        s.sel_server.set(Some(gid.clone()));
-        s.sel_owner.set(Some(d.owner_id.clone()));
-        s.channels.set(d.channels.clone());
+        s.sel.sel_server.set(Some(gid.clone()));
+        s.sel.sel_owner.set(Some(d.owner_id.clone()));
+        s.sel.channels.set(d.channels.clone());
         super::emoji::refresh_guild_emoji(s, gid.clone());
 
         // Prefer the stored channel; fall back to the first text channel,
@@ -159,7 +159,7 @@ pub fn restore_session(s: Shell) -> bool {
 
 #[cfg(feature = "hydrate")]
 pub fn create_channel(s: Shell, name: String) {
-    let Some(gid) = s.sel_server.get_untracked() else {
+    let Some(gid) = s.sel.sel_server.get_untracked() else {
         return;
     };
     if name.trim().is_empty() {
@@ -168,7 +168,7 @@ pub fn create_channel(s: Shell, name: String) {
     spawn_local(async move {
         match api::create_channel(&gid, &name, "text").await {
             Ok(_) => super::guild::open_server(s, gid),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -182,12 +182,12 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
     spawn_local(async move {
         match api::patch_channel(&gid, &cid, &name).await {
             Ok(()) => {
-                s.channels.update(|cs| {
+                s.sel.channels.update(|cs| {
                     if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
                         c.name = name.clone();
                     }
                 });
-                s.sel_channel.update(|sc| {
+                s.sel.sel_channel.update(|sc| {
                     if let Some(c) = sc {
                         if c.id == cid {
                             c.name = name.clone();
@@ -195,7 +195,7 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
                     }
                 });
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -205,33 +205,34 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
 #[cfg(feature = "hydrate")]
 pub fn delete_channel(s: Shell, gid: String, cid: String) {
     use super::super::Pane;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::delete_channel(&gid, &cid).await {
             Ok(()) => {
-                if s.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str()) {
-                    s.sel_channel.set(None);
-                    s.pane.set(Pane::Friends);
+                if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str())
+                {
+                    s.sel.sel_channel.set(None);
+                    s.sync.pane.set(Pane::Friends);
                 }
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
 /// Reorder a channel within the open guild's sidebar list. `idx` indexes
-/// `s.channels` (already position-sorted from the server). We swap it with
+/// `s.sel.channels` (already position-sorted from the server). We swap it with
 /// its neighbor, renumber the whole list to its array index, and PATCH every
 /// channel whose `position` changed. Renumbering (rather than swapping two
 /// values) keeps the list gap-free and stable even though existing channels
 /// all start at position 0. Mirrors `swap_persona`. Owner-gated in the UI.
 #[cfg(feature = "hydrate")]
 pub fn swap_channel(s: Shell, idx: usize, up: bool) {
-    let Some(gid) = s.sel_server.get_untracked() else {
+    let Some(gid) = s.sel.sel_server.get_untracked() else {
         return;
     };
-    let mut list = s.channels.get_untracked();
+    let mut list = s.sel.channels.get_untracked();
     let other = if up {
         if idx == 0 {
             return;
@@ -246,7 +247,7 @@ pub fn swap_channel(s: Shell, idx: usize, up: bool) {
     list.swap(idx, other);
     // Optimistic local reorder so the sidebar updates immediately; the
     // server reload after the PATCHes confirms it.
-    s.channels.set(list.clone());
+    s.sel.channels.set(list.clone());
     // Persist each channel whose stored position no longer matches its index.
     let patches: Vec<(String, i64)> = list
         .iter()
@@ -260,7 +261,7 @@ pub fn swap_channel(s: Shell, idx: usize, up: bool) {
     spawn_local(async move {
         for (cid, pos) in patches {
             if let Err(e) = api::set_channel_position(&gid, &cid, pos).await {
-                s.status.set(api::humanize(&e));
+                s.composer.status.set(api::humanize(&e));
                 break;
             }
         }
@@ -278,7 +279,7 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
                 super::message::load_deleted_channels(s, gid.clone());
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }

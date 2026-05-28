@@ -12,7 +12,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 /// Submit a feedback item. Closes the modal on success; surfaces the error
-/// via `s.status` on failure.
+/// via `s.composer.status` on failure.
 #[cfg(feature = "hydrate")]
 pub fn submit_feedback(
     s: Shell,
@@ -22,7 +22,7 @@ pub fn submit_feedback(
     modal_open: RwSignal<bool>,
 ) {
     use crate::protocol::SubmitFeedbackRequest;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::submit_feedback(&SubmitFeedbackRequest {
             kind,
@@ -32,7 +32,7 @@ pub fn submit_feedback(
         .await
         {
             Ok(()) => modal_open.set(false),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -46,7 +46,7 @@ pub fn archive_feedback(
     inbox: RwSignal<Option<Vec<crate::protocol::FeedbackItem>>>,
     id: String,
 ) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::delete_feedback(&id).await {
             Ok(()) => inbox.update(|opt| {
@@ -54,7 +54,7 @@ pub fn archive_feedback(
                     items.retain(|it| it.id != id);
                 }
             }),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -66,6 +66,7 @@ pub fn archive_feedback(
 #[cfg(feature = "hydrate")]
 pub fn build_feedback_context(s: Shell) -> Option<String> {
     let channel_id = s
+        .sel
         .sel_channel
         .get_untracked()
         .map(|c| c.id)

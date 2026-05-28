@@ -26,18 +26,18 @@ pub(super) const KEY_CHANNEL: &str = "authlyn.last_channel";
 pub fn refresh_guilds(s: Shell) {
     spawn_local(async move {
         if let Ok(r) = api::list_guilds().await {
-            s.guilds.set(r.guilds);
+            s.sel.guilds.set(r.guilds);
         }
     });
 }
 
-/// Reorder the personal guild rail (#17/FB2). `idx` indexes `s.guilds` (the
+/// Reorder the personal guild rail (#17/FB2). `idx` indexes `s.sel.guilds` (the
 /// caller's persisted order from `list_guilds`). We swap with the neighbor,
 /// optimistically update the rail, then PUT the full new id order and reload
 /// to confirm. The server replaces the caller's `user_guild_order` rows.
 #[cfg(feature = "hydrate")]
 pub fn swap_guild(s: Shell, idx: usize, up: bool) {
-    let mut list = s.guilds.get_untracked();
+    let mut list = s.sel.guilds.get_untracked();
     let other = if up {
         if idx == 0 {
             return;
@@ -50,14 +50,14 @@ pub fn swap_guild(s: Shell, idx: usize, up: bool) {
         idx + 1
     };
     list.swap(idx, other);
-    s.guilds.set(list.clone());
+    s.sel.guilds.set(list.clone());
     let order: Vec<String> = list.iter().map(|g| g.id.clone()).collect();
     spawn_local(async move {
         if let Err(e) = api::set_rail_order(order).await {
-            s.status.set(api::humanize(&e));
+            s.composer.status.set(api::humanize(&e));
         }
         if let Ok(r) = api::list_guilds().await {
-            s.guilds.set(r.guilds);
+            s.sel.guilds.set(r.guilds);
         }
     });
 }
@@ -65,15 +65,15 @@ pub fn swap_guild(s: Shell, idx: usize, up: bool) {
 #[cfg(feature = "hydrate")]
 pub fn open_server(s: Shell, gid: String) {
     let _ = LocalStorage::set(KEY_SERVER, &gid);
-    s.sel_server.set(Some(gid.clone()));
-    s.sel_owner.set(None);
-    s.channels.set(Vec::new());
-    s.guild_emoji.set(Vec::new());
+    s.sel.sel_server.set(Some(gid.clone()));
+    s.sel.sel_owner.set(None);
+    s.sel.channels.set(Vec::new());
+    s.sel.guild_emoji.set(Vec::new());
     super::emoji::refresh_guild_emoji(s, gid.clone());
     spawn_local(async move {
         if let Ok(d) = api::get_guild(&gid).await {
-            s.sel_owner.set(Some(d.owner_id.clone()));
-            s.channels.set(d.channels.clone());
+            s.sel.sel_owner.set(Some(d.owner_id.clone()));
+            s.sel.channels.set(d.channels.clone());
             if let Some(first) = d
                 .channels
                 .iter()
@@ -97,7 +97,7 @@ pub fn create_server(s: Shell, name: String) {
                 refresh_guilds(s);
                 open_server(s, g.id);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -111,12 +111,12 @@ pub fn rename_server(s: Shell, gid: String, name: String) {
     spawn_local(async move {
         match api::patch_guild(&gid, &name).await {
             // Patch the rail list in place; the sidebar title derives from it.
-            Ok(()) => s.guilds.update(|gs| {
+            Ok(()) => s.sel.guilds.update(|gs| {
                 if let Some(g) = gs.iter_mut().find(|g| g.id == gid) {
                     g.name = name.clone();
                 }
             }),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -126,33 +126,33 @@ pub fn rename_server(s: Shell, gid: String, name: String) {
 #[cfg(feature = "hydrate")]
 pub fn delete_server(s: Shell, gid: String) {
     use super::super::Pane;
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         match api::delete_guild(&gid).await {
             Ok(()) => {
-                if s.sel_server.get_untracked().as_deref() == Some(gid.as_str()) {
-                    s.sel_server.set(None);
-                    s.sel_owner.set(None);
-                    s.channels.set(Vec::new());
-                    s.sel_channel.set(None);
-                    s.pane.set(Pane::Friends);
+                if s.sel.sel_server.get_untracked().as_deref() == Some(gid.as_str()) {
+                    s.sel.sel_server.set(None);
+                    s.sel.sel_owner.set(None);
+                    s.sel.channels.set(Vec::new());
+                    s.sel.sel_channel.set(None);
+                    s.sync.pane.set(Pane::Friends);
                     LocalStorage::delete(KEY_SERVER);
                     LocalStorage::delete(KEY_CHANNEL);
                 }
                 refresh_guilds(s);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
-/// Load the caller's own soft-deleted guilds into `s.deleted_guilds`.
+/// Load the caller's own soft-deleted guilds into `s.trash.deleted_guilds`.
 #[cfg(feature = "hydrate")]
 pub fn load_deleted_guilds(s: Shell) {
     spawn_local(async move {
         match api::list_deleted_guilds().await {
-            Ok(r) => s.deleted_guilds.set(r.guilds),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Ok(r) => s.trash.deleted_guilds.set(r.guilds),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -167,7 +167,7 @@ pub fn restore_deleted_guild(s: Shell, gid: String) {
                 refresh_guilds(s);
                 load_deleted_guilds(s);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }

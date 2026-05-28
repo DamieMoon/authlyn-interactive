@@ -34,6 +34,7 @@ pub(super) struct Suggestion {
 pub(super) fn emoji_suggestions(s: Shell, query: &str) -> Vec<Suggestion> {
     let q = query.to_lowercase();
     let mut out: Vec<Suggestion> = s
+        .sel
         .guild_emoji
         .get()
         .into_iter()
@@ -96,7 +97,7 @@ pub(super) fn replace_shortcode_token(
     let before = v.slice(0, start).as_string().unwrap_or_default();
     let after = v.slice(end, v.length()).as_string().unwrap_or_default();
     let insert = format!(":{name}: ");
-    s.compose.set(format!("{before}{insert}{after}"));
+    s.composer.compose.set(format!("{before}{insert}{after}"));
     let caret = start + insert.encode_utf16().count() as u32;
     leptos::task::spawn_local(async move {
         gloo_timers::future::TimeoutFuture::new(0).await;

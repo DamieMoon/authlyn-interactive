@@ -63,7 +63,9 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         let conf = confirm.get_untracked();
         // Client-side guard before hitting the server; the server re-checks.
         if new != conf {
-            s.status.set("new passwords do not match".to_string());
+            s.composer
+                .status
+                .set("new passwords do not match".to_string());
             return;
         }
         act::change_password(s, cur, new);
@@ -77,7 +79,9 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         let q = sq_question.get_untracked();
         let a = sq_answer.get_untracked();
         if q.trim().is_empty() || a.trim().is_empty() {
-            s.status.set("question and answer are required".to_string());
+            s.composer
+                .status
+                .set("question and answer are required".to_string());
             return;
         }
         act::set_security_question(s, q, a);
@@ -89,7 +93,9 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         let kind = fb_kind.get_untracked();
         let body = fb_body.get_untracked();
         if body.trim().is_empty() {
-            s.status.set("feedback body must not be empty".to_string());
+            s.composer
+                .status
+                .set("feedback body must not be empty".to_string());
             return;
         }
         // Build context JSON — hydrate-gated via act so web_sys never runs on ssr.
@@ -153,10 +159,10 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         <span>"Ask before deleting a message"</span>
                     </label>
                     <label class="pref-row">
-                        <input type="checkbox" prop:checked=move || s.dialogue_style.get()
+                        <input type="checkbox" prop:checked=move || s.prefs.dialogue_style.get()
                             on:change=move |ev| {
                                 let on = event_target_checked(&ev);
-                                s.dialogue_style.set(on);
+                                s.prefs.dialogue_style.set(on);
                                 act::set_rp_dialogue_style(on);
                             }/>
                         <span>"Style roleplay dialogue"</span>
@@ -228,7 +234,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             let u = ar_username.get_untracked();
                             let p = ar_password.get_untracked();
                             if u.trim().is_empty() {
-                                s.status.set("enter the username to reset".to_string());
+                                s.composer.status.set("enter the username to reset".to_string());
                                 return;
                             }
                             act::admin_reset_password(s, u, p);
@@ -279,7 +285,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     }
                 })}
 
-                <p class="account-status">{move || s.status.get()}</p>
+                <p class="account-status">{move || s.composer.status.get()}</p>
 
                 // Feedback-archive confirm — opened by an inbox ✕; replaces
                 // the legacy `window.confirm` blocking dialog so the UI stays

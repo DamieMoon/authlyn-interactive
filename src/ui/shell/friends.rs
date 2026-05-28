@@ -21,7 +21,7 @@ pub(crate) fn FriendsPane(s: Shell) -> impl IntoView {
                 }>"Add"</button>
             </div>
             {move || {
-                let f = s.friends.get();
+                let f = s.social.friends.get();
                 view! {
                     <ul class="flist">
                         {f.incoming.into_iter().map(|p| {

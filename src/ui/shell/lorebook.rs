@@ -8,13 +8,13 @@ use super::{act, Shell};
 pub(crate) fn LorebookPane(s: Shell) -> impl IntoView {
     let keys = RwSignal::new(String::new());
     let content = RwSignal::new(String::new());
-    let cid = move || s.sel_channel.get().map(|c| c.id).unwrap_or_default();
+    let cid = move || s.sel.sel_channel.get().map(|c| c.id).unwrap_or_default();
     view! {
         <div class="pane">
             <h3>"Lorebook"</h3>
             <div class="lore-list">
                 {move || {
-                    let entries = s.lore.get();
+                    let entries = s.social.lore.get();
                     let len = entries.len();
                     entries.into_iter().enumerate().map(|(idx, e)| {
                         let entry_cid = cid();

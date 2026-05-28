@@ -22,10 +22,10 @@ pub fn create_persona(s: Shell, name: String, desc: String) {
         match api::create_persona(&name, &desc).await {
             Ok(_) => {
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -43,18 +43,18 @@ pub fn update_persona(
     done: RwSignal<bool>,
 ) {
     if name.trim().is_empty() {
-        s.status.set("name must not be empty".to_string());
+        s.composer.status.set("name must not be empty".to_string());
         return;
     }
     spawn_local(async move {
         match api::patch_persona(&pid, Some(name), Some(description), Some(color)).await {
             Ok(()) => {
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
                 done.set(true);
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -66,14 +66,14 @@ pub fn remove_persona(s: Shell, pid: String) {
             Ok(()) => {
                 // If the removed persona was being worn in the open channel,
                 // take it off locally (per-channel signal).
-                if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
-                    s.active_persona.set(None);
+                if s.social.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                    s.social.active_persona.set(None);
                 }
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -85,14 +85,14 @@ pub fn leave_shared_persona(s: Shell, pid: String) {
     spawn_local(async move {
         match api::leave_persona(&pid).await {
             Ok(()) => {
-                if s.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
-                    s.active_persona.set(None);
+                if s.social.active_persona.get_untracked().as_deref() == Some(pid.as_str()) {
+                    s.social.active_persona.set(None);
                 }
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -100,7 +100,7 @@ pub fn leave_shared_persona(s: Shell, pid: String) {
 /// Move a persona up/down in the wardrobe grid and persist the new order.
 ///
 /// `idx` is the card's position in the *currently displayed* (already
-/// server-sorted) `s.personas` list. We swap it with its neighbor, then
+/// server-sorted) `s.social.personas` list. We swap it with its neighbor, then
 /// renumber the whole list to its array index and PATCH every persona whose
 /// position changed. Renumbering (rather than swapping two `position`
 /// values) is robust against old rows whose `position` is still NONE: after
@@ -109,7 +109,7 @@ pub fn leave_shared_persona(s: Shell, pid: String) {
 /// always indexes the full list.
 #[cfg(feature = "hydrate")]
 pub fn swap_persona(s: Shell, idx: usize, up: bool) {
-    let mut list = s.personas.get_untracked();
+    let mut list = s.social.personas.get_untracked();
     let other = if up {
         if idx == 0 {
             return;
@@ -124,7 +124,7 @@ pub fn swap_persona(s: Shell, idx: usize, up: bool) {
     list.swap(idx, other);
     // Optimistic local reorder so the grid updates immediately; the server
     // reload after the PATCHes confirms it.
-    s.personas.set(list.clone());
+    s.social.personas.set(list.clone());
     // Persist each card whose stored position no longer matches its index.
     let patches: Vec<(String, i64)> = list
         .iter()
@@ -138,12 +138,12 @@ pub fn swap_persona(s: Shell, idx: usize, up: bool) {
     spawn_local(async move {
         for (pid, pos) in patches {
             if let Err(e) = api::set_persona_position(&pid, pos).await {
-                s.status.set(api::humanize(&e));
+                s.composer.status.set(api::humanize(&e));
                 break;
             }
         }
         if let Ok(r) = api::list_personas().await {
-            s.personas.set(r.personas);
+            s.social.personas.set(r.personas);
         }
     });
 }
@@ -160,7 +160,7 @@ pub fn load_persona_sharing(
     spawn_local(async move {
         match api::list_friends().await {
             Ok(r) => friends.set(r.friends),
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
         if let Ok(r) = api::list_persona_editors(&pid).await {
             editors.set(r.editors);
@@ -190,32 +190,32 @@ pub fn set_persona_share(
                     editors.set(r.editors);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
 
 /// Upload a picture and set it as the persona's avatar: POST the file to
 /// `/media`, then PUT the returned id as the avatar, then reload the grid so
-/// the new portrait shows. Errors surface via `s.status`.
+/// the new portrait shows. Errors surface via `s.composer.status`.
 #[cfg(feature = "hydrate")]
 pub fn set_persona_avatar(s: Shell, pid: String, file: web_sys::File) {
-    s.status.set(String::new());
+    s.composer.status.set(String::new());
     spawn_local(async move {
         let media_id = match api::upload_media(&file).await {
             Ok(id) => id,
             Err(e) => {
-                s.status.set(api::humanize(&e));
+                s.composer.status.set(api::humanize(&e));
                 return;
             }
         };
         match api::set_persona_avatar(&pid, &media_id).await {
             Ok(()) => {
                 if let Ok(r) = api::list_personas().await {
-                    s.personas.set(r.personas);
+                    s.social.personas.set(r.personas);
                 }
             }
-            Err(e) => s.status.set(api::humanize(&e)),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
 }
@@ -224,10 +224,10 @@ pub fn set_persona_avatar(s: Shell, pid: String, file: web_sys::File) {
 pub fn wear_persona(s: Shell, pid: String) {
     // Per-channel now: wear into the currently-open channel. No open channel
     // → no-op (there's nowhere to wear it).
-    let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) else {
+    let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) else {
         return;
     };
-    s.active_persona.set(Some(pid.clone()));
+    s.social.active_persona.set(Some(pid.clone()));
     spawn_local(async move {
         let _ = api::set_channel_active_persona(&cid, Some(pid)).await;
     });
@@ -235,10 +235,10 @@ pub fn wear_persona(s: Shell, pid: String) {
 
 #[cfg(feature = "hydrate")]
 pub fn unwear(s: Shell) {
-    let Some(cid) = s.sel_channel.get_untracked().map(|c| c.id) else {
+    let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) else {
         return;
     };
-    s.active_persona.set(None);
+    s.social.active_persona.set(None);
     spawn_local(async move {
         let _ = api::set_channel_active_persona(&cid, None).await;
     });
