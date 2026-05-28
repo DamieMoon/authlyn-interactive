@@ -224,6 +224,11 @@ pub fn api_router() -> Router<AppState> {
 pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
     state
         .db
+        // The guild_member delete below uses an inline guild-subquery, NOT the
+        // `$g` LET var its sibling deletes use: SurrealDB 3.1.0-beta.3 mis-plans
+        // DELETE on a composite-index leading column (guild_member_pair =
+        // (guild, account)) + IN + a LET var, silently matching zero rows.
+        // Guard: tests/soft_delete.rs::purge_should_cascade_guild_member_rows.
         .query(
             r#"
             DELETE message WHERE deleted_at != NONE AND deleted_at < time::now() - 1h;
@@ -234,7 +239,8 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
             DELETE message WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel WHERE guild IN $g;
-            DELETE guild_member WHERE guild IN $g;
+            DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
             DELETE guild WHERE id IN $g;
             "#,
         )

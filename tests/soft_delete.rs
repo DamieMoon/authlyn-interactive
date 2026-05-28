@@ -536,27 +536,13 @@ async fn purge_cascades_guild_to_channels_and_messages() {
 }
 
 #[cfg(feature = "ssr")]
-#[ignore = "BUG: purge_soft_deleted leaks guild_member rows on guild purge — \
-            `DELETE guild_member WHERE guild IN $g` (src/server/mod.rs:237) matches \
-            ZERO rows because guild_member carries a COMPOSITE index whose leading \
-            column is `guild` (guild_member_pair, schema.surql:120), and SurrealDB \
-            3.1.0-beta.3 mis-plans `DELETE ... WHERE <leading-composite-col> IN \
-            $let_var`. Minimal repro: a SCHEMAFULL table with a single-field index \
-            on a record field deletes correctly; the same table with a composite \
-            (record-col, x) index does NOT. The equivalent SELECT, an INLINE \
-            subquery, and `=` equality all match correctly. FIX options: inline the \
-            subquery (`DELETE guild_member WHERE guild IN (SELECT VALUE id FROM \
-            guild WHERE ...)`) or use a per-id loop / equality. Channels purge fine \
-            (single-field index); messages cascade via channel. Impact: orphaned \
-            guild_member rows after the 30d purge — a storage leak, invisible to \
-            reads (no security impact). Un-ignore once the query is rewritten."]
 #[tokio::test]
 async fn purge_should_cascade_guild_member_rows() {
-    // CHARACTERIZATION of the intended (correct) behavior. Currently FAILS due to
-    // the SurrealDB composite-index DELETE bug documented in the #[ignore] above;
-    // the assertion encodes the CORRECT contract so un-ignoring it after the fix
-    // turns it into a passing regression guard. (Discipline: do NOT weaken this to
-    // assert the buggy behavior — leave it asserting what SHOULD happen.)
+    // Regression guard for the guild_member cascade. This previously FAILED: the
+    // 30d guild purge left orphan guild_member rows because SurrealDB 3.1.0-beta.3
+    // mis-plans DELETE on a composite-index leading column + IN + a LET var. Fixed
+    // in server/mod.rs by inlining the guild subquery; this asserts the correct
+    // contract — membership rows are hard-deleted along with the purged guild.
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
     let (_gid, _cid, _mid, member_id) = doomed_guild(&a, &owner).await;
