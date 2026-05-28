@@ -605,7 +605,13 @@ fn PersonaDetail(
             </div>
             <label class="field">
                 <span>"Add to gallery"</span>
-                <input type="file" accept="image/*" multiple
+                // NO `accept` (mirrors the composer's `📎` input): on Android,
+                // `accept="image/*"` makes Chrome launch the system photo
+                // picker (Google Photos), which on Foxtrot's device picks ONE
+                // image at a time even though `multiple` is set. Omitting
+                // `accept` gives the generic Files chooser, which honours
+                // `multiple`. Non-image picks are dropped client-side below.
+                <input type="file" multiple
                     on:change=move |_ev| {
                         #[cfg(feature = "hydrate")]
                         {
@@ -617,10 +623,22 @@ fn PersonaDetail(
                                 if let Some(file_list) = input.files() {
                                     let mut files: Vec<web_sys::File> =
                                         Vec::with_capacity(file_list.length() as usize);
+                                    let mut skipped_non_image = false;
                                     for i in 0..file_list.length() {
                                         if let Some(file) = file_list.get(i) {
-                                            files.push(file);
+                                            // Generic picker can return any
+                                            // file — gallery is image-only.
+                                            if file.type_().starts_with("image/") {
+                                                files.push(file);
+                                            } else {
+                                                skipped_non_image = true;
+                                            }
                                         }
+                                    }
+                                    if skipped_non_image {
+                                        s.composer
+                                            .status
+                                            .set("Skipped non-image files".to_string());
                                     }
                                     if !files.is_empty() {
                                         gallery_multi_upload(
