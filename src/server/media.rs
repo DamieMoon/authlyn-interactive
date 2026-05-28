@@ -1,11 +1,9 @@
-//! `POST /media` and `GET /media/{id}` — server-visible blob storage
-//! (phase-1 build step 4).
+//! `POST /media` and `GET /media/{id}` — server-visible blob storage.
 //!
 //! Server-trusted: stores plaintext images (avatars, persona art, gallery)
 //! and serves them back with their stored MIME so `<img src="/media/{id}">`
-//! works. Carries over the path-traversal defense + per-route 16 MiB cap
-//! from the retired E2EE attachment store; auth is now the session
-//! ([`AuthAccount`]) and the uploader is an `account`.
+//! works. Auth is the session ([`AuthAccount`]) and the uploader is an
+//! `account`.
 //!
 //! Path-traversal: the on-disk filename derives from a server-minted random
 //! id (no user input touches the path on POST); on GET the stored path is

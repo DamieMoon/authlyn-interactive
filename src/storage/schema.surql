@@ -3,8 +3,7 @@
 -- Loaded on startup by `db::apply_schema`. All DEFINEs use `IF NOT EXISTS`
 -- so re-applying on every boot is a no-op.
 --
--- Server-trusted model (2026-05-25 pivot): the server stores plaintext
--- content. The prior E2EE device/key/room/keyshare tables were retired.
+-- Server-trusted model: the server stores plaintext content directly.
 -- `record<...>` links are type annotations only (SurrealDB does not enforce
 -- referential existence), so the mutual account<->media_blob links are fine
 -- regardless of define order. Never `<string>`-cast a datetime that drives

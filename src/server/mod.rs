@@ -1,7 +1,7 @@
 //! Server-side axum bits: the shared [`AppState`] and the route table that
 //! `main.rs` mounts (and the test harness consumes via [`make_router`]).
 //!
-//! Routes split into two body-limit groups: JSON routes under a tight 64 KiB
+//! Routes split into two body-limit groups: JSON routes under a tight 512 KiB
 //! cap, and media upload/download under a 64 MiB cap. The split is required
 //! because `RequestBodyLimitLayer` composes with min-limit semantics — a
 //! larger inner cap under a smaller outer one still rejects at the smaller

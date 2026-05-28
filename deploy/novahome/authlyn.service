@@ -1,5 +1,5 @@
 [Unit]
-Description=authlyn-interactive (E2EE roleplay chat)
+Description=authlyn-interactive — self-hosted server-trusted roleplay chat
 Documentation=https://github.com/DamieMoon/authlyn-interactive
 Requires=surrealdb.service
 After=surrealdb.service network-online.target
