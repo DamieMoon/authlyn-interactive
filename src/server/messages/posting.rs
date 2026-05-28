@@ -173,14 +173,24 @@ async fn persist_message(
 
 /// True when every id in `ids` names an existing `media_blob` (empty → true).
 /// Stops a message from persisting a dangling attachment reference.
+///
+/// W5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
+/// SurrealDB plans a per-record `RecordIdScan` (Union of PK lookups, gated
+/// by `id IS NOT NONE` to drop missing rows) instead of a full `TableScan`
+/// — which was the actual plan for `WHERE meta::id(id) IN $ids` on
+/// 3.1.0-beta.3 (verified via `EXPLAIN`).
 async fn all_media_exist(state: &AppState, ids: &[String]) -> surrealdb::Result<bool> {
     if ids.is_empty() {
         return Ok(true);
     }
+    let records: Vec<surrealdb::types::RecordId> = ids
+        .iter()
+        .map(|id| surrealdb::types::RecordId::new("media_blob", id.as_str()))
+        .collect();
     let mut resp = state
         .db
-        .query("SELECT VALUE meta::id(id) FROM media_blob WHERE meta::id(id) IN $ids;")
-        .bind(("ids", ids.to_vec()))
+        .query("SELECT VALUE meta::id(id) FROM $records WHERE id IS NOT NONE;")
+        .bind(("records", records))
         .await?
         .check()?;
     let found: Vec<String> = resp.take(0)?;

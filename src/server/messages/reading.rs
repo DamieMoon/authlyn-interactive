@@ -381,6 +381,11 @@ async fn load_messages(
 /// media ids (`array<string>`); the MIME lives on the blob. Missing ids keep
 /// their placeholder empty mime (client falls back to image render). Order is
 /// preserved per envelope.
+///
+/// W5/H4: binds the deduped ids as `RecordId`s and reads them via
+/// `FROM $records` (Union of PK `RecordIdScan`s, gated by `id IS NOT NONE`)
+/// instead of `WHERE meta::id(id) IN $ids` — which `EXPLAIN` revealed plans
+/// as a full `TableScan` of `media_blob` on 3.1.0-beta.3.
 pub(super) async fn resolve_attachment_mimes(
     state: &AppState,
     envelopes: &mut [MessageEnvelope],
@@ -402,10 +407,14 @@ pub(super) async fn resolve_attachment_mimes(
         id: String,
         mime: String,
     }
+    let records: Vec<surrealdb::types::RecordId> = ids
+        .iter()
+        .map(|id| surrealdb::types::RecordId::new("media_blob", id.as_str()))
+        .collect();
     let mut resp = state
         .db
-        .query("SELECT meta::id(id) AS id, mime FROM media_blob WHERE meta::id(id) IN $ids;")
-        .bind(("ids", ids))
+        .query("SELECT meta::id(id) AS id, mime FROM $records WHERE id IS NOT NONE;")
+        .bind(("records", records))
         .await?
         .check()?;
     let rows: Vec<MimeRow> = resp.take(0)?;
