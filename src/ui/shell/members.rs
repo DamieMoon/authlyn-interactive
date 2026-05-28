@@ -99,12 +99,7 @@ fn avatar(m: &MemberSummary) -> impl IntoView {
             view! { <img class="member-avatar" src=src alt=label/> }.into_any()
         }
         None => {
-            let mono = label
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
+            let mono = crate::ui::avatar::monogram(&label, '?');
             view! { <span class="member-avatar member-avatar-mono">{mono}</span> }.into_any()
         }
     }

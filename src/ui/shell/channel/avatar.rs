@@ -29,6 +29,8 @@ pub(super) fn format_local_time(sent_at: &str) -> String {
 
 use leptos::prelude::*;
 
+use crate::ui::avatar::monogram;
+
 /// A circular persona avatar for chat: the send-time snapshot image (served at
 /// `/media/{id}`) when present, else the name's first letter as a monogram.
 /// `fill` true makes it fill its parent slot (the info popup's `.info-portrait`);
@@ -60,13 +62,7 @@ pub(super) fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) ->
             .into_any()
         }
         None => {
-            let monogram = name
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
-            view! { <span class="chat-avatar" style=frame>{monogram}</span> }.into_any()
+            view! { <span class="chat-avatar" style=frame>{monogram(name, '?')}</span> }.into_any()
         }
     }
 }

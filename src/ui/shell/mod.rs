@@ -22,6 +22,7 @@ use crate::protocol::{
 
 // Trash DTOs reused from protocol (no new types needed — server returns the
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
+use crate::ui::avatar::monogram;
 use crate::ui::emoji::EmojiResolver;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
@@ -314,7 +315,7 @@ fn AppShell() -> impl IntoView {
                     let _ = len;
                     guilds.into_iter().enumerate().map(|(idx, g)| {
                         let gid = g.id.clone();
-                        let initial = g.name.chars().next().unwrap_or('#').to_uppercase().to_string();
+                        let initial = monogram(&g.name, '#');
                         let gid_active = gid.clone();
                         view! {
                             <div class="rail-guild-wrap">

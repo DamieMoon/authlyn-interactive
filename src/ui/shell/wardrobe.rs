@@ -132,13 +132,8 @@ fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
             .into_any()
         }
         None => {
-            let monogram = name
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_uppercase()
-                .to_string();
-            view! { {monogram} }.into_any()
+            let mono = crate::ui::avatar::monogram(name, '?');
+            view! { {mono} }.into_any()
         }
     }
 }

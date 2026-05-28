@@ -7,6 +7,7 @@ use leptos::prelude::*;
 use crate::protocol::MeResponse;
 
 pub mod auth;
+pub mod avatar;
 pub mod emoji;
 pub mod markup_view;
 pub mod modal;

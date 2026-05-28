@@ -38,6 +38,16 @@ use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
+/// The display name to render for a message — the worn persona's name when
+/// present, otherwise the message author's display name (Discord-style). Used
+/// in 3 places: the live row, the deleted-message trash row, and the persona-
+/// info popup, so it stays a small named helper rather than getting re-inlined.
+fn display_name(m: &MessageEnvelope) -> String {
+    m.persona_name
+        .clone()
+        .unwrap_or_else(|| m.author_display.clone())
+}
+
 /// One row in the deleted-messages panel: the message snippet plus a Restore button.
 fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) -> impl IntoView {
     let cid = s
@@ -46,10 +56,7 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
         .map(|c| c.id)
         .unwrap_or_default();
     let mid_restore = m.id.clone();
-    let who = m
-        .persona_name
-        .clone()
-        .unwrap_or_else(|| m.author_display.clone());
+    let who = display_name(&m);
     let when = format_local_time(&m.sent_at);
     let body_preview: String = m.body.chars().take(120).collect();
     // Only the message's own author can restore it (mirrors server-side require_own_message).
@@ -346,8 +353,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                     s.messages.get().into_iter().map(|m| {
                         // Worn persona's frozen name, else the "default" identity
                         // (the controlling account's nickname).
-                        let who = m.persona_name.clone()
-                            .unwrap_or_else(|| m.author_display.clone());
+                        let who = display_name(&m);
                         // Tint the name with the persona's chosen palette color
                         // (validated against the markup palette before trusting it).
                         let who_class = m.persona_color.as_deref()
@@ -938,7 +944,7 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
             {move || info.get().map(|m| {
                 // For a personaless message the "default" identity is the
                 // controlling account's nickname.
-                let persona = m.persona_name.clone().unwrap_or_else(|| m.author_display.clone());
+                let persona = display_name(&m);
                 let portrait = chat_avatar(&m.persona_avatar_id, &persona, true);
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
