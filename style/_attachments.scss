@@ -1,23 +1,31 @@
 @use "tokens" as *;
 
 // ---- chat image attachments (Discord-style grid + lightbox) ----
-// Per-message image grid. Column count is set by a `cols-N` class (more
-// images -> more compact). Cells crop square via object-fit; a single image
-// keeps its aspect ratio.
+// Per-message image stack. Rust chunks the attachments into rows of up to
+// three; each row becomes its own grid with a `cols-N` class scaling its
+// cells to fill the row width (so a 5-image message renders as 3+2 with
+// 1/3-width then 1/2-width cells — no half-empty last row). A solo image
+// keeps its natural aspect via `.attachments.lone`.
 .attachments {
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	gap: 4px;
 	margin-top: 0.4rem;
 	max-width: 420px;
 
-	&.cols-1 {
-		grid-template-columns: 1fr;
-	}
-	&.cols-2 {
-		grid-template-columns: repeat(2, 1fr);
-	}
-	&.cols-3 {
-		grid-template-columns: repeat(3, 1fr);
+	.att-row {
+		display: grid;
+		gap: 4px;
+
+		&.cols-1 {
+			grid-template-columns: 1fr;
+		}
+		&.cols-2 {
+			grid-template-columns: repeat(2, 1fr);
+		}
+		&.cols-3 {
+			grid-template-columns: repeat(3, 1fr);
+		}
 	}
 
 	.att-thumb {
@@ -36,8 +44,11 @@
 		object-fit: contain;
 	}
 
-	// A lone image isn't forced square — show it at its natural ratio, capped.
-	&.cols-1 .att-thumb {
+	// A lone image (the message's only attachment) isn't forced square — show
+	// it at its natural ratio, capped. A trailing solo image in a multi-row
+	// layout (`cols-1` row, not `.lone`) keeps the square crop so it stays
+	// visually consistent with its row siblings.
+	&.lone .att-thumb {
 		aspect-ratio: auto;
 		max-height: 360px;
 		width: auto;
