@@ -114,6 +114,14 @@ pub async fn list_messages(
 /// the indicator matches how their messages are attributed, falling back to the
 /// account's `display_name`/`username`. Order is not significant (the client
 /// formats "A and B are typing").
+///
+/// One round-trip total: a two-statement query batches every typist
+/// (`account` IN-list + `channel_active_persona` IN-list scoped to this
+/// channel), then a HashMap merge in Rust resolves the persona-or-fallback
+/// preference. W5/H2 — was N round-trips (one query per typist); the
+/// previous comment about avoiding a correlated sub-SELECT inside the
+/// projection (3.1.0-beta.3 unevenness) is honored: this batch keeps the
+/// two table reads as independent top-level SELECTs.
 async fn resolve_typing_names(
     state: &AppState,
     cid: &str,
@@ -122,35 +130,58 @@ async fn resolve_typing_names(
     if accounts.is_empty() {
         return Ok(Vec::new());
     }
-    // One round-trip per account keeps the SurrealQL simple and proven (no
-    // correlated sub-SELECT in a projection, which 3.1.0-beta.3 handles
-    // unevenly). For each: prefer the worn-persona name in THIS channel
-    // (channel_active_persona), else the account nickname (display_name defaults
-    // to '' so guard the empty case), else username.
-    let mut names = Vec::with_capacity(accounts.len());
-    for acct in accounts {
-        let mut resp = state
-            .db
-            .query(
-                "SELECT VALUE
-                   ( (SELECT VALUE persona.name FROM ONLY channel_active_persona
-                        WHERE channel = type::record('channel', $cid)
-                          AND account = type::record('account', $acct))
-                     ?? (IF display_name != '' THEN display_name ELSE username END)
-                   ) AS name
-                   FROM ONLY type::record('account', $acct);",
-            )
-            .bind(("cid", cid.to_string()))
-            .bind(("acct", acct.to_string()))
-            .await?
-            .check()?;
-        // `SELECT VALUE ... FROM ONLY` yields the bare string (or None for a
-        // vanished account); skip the latter rather than surface a blank.
-        if let Some(name) = resp.take::<Option<String>>(0)? {
-            names.push(name);
-        }
+    #[derive(SurrealValue)]
+    struct AccountRow {
+        acct_id: String,
+        fallback: String,
     }
-    Ok(names)
+    #[derive(SurrealValue)]
+    struct PersonaRow {
+        acct_id: String,
+        persona_name: Option<String>,
+    }
+    let mut resp = state
+        .db
+        .query(
+            "SELECT
+                meta::id(id) AS acct_id,
+                (IF display_name != '' THEN display_name ELSE username END) AS fallback
+             FROM account
+             WHERE meta::id(id) IN $accts;
+
+             SELECT
+                meta::id(account) AS acct_id,
+                persona.name AS persona_name
+             FROM channel_active_persona
+             WHERE channel = type::record('channel', $cid)
+               AND meta::id(account) IN $accts;",
+        )
+        .bind(("cid", cid.to_string()))
+        .bind(("accts", accounts.to_vec()))
+        .await?
+        .check()?;
+    let accounts_rows: Vec<AccountRow> = resp.take(0)?;
+    let persona_rows: Vec<PersonaRow> = resp.take(1)?;
+
+    // Build acct_id → persona-name map (only entries whose persona still has
+    // a name; a since-deleted persona surfaces as `persona_name = None`, in
+    // which case we fall through to the account fallback — preserving the
+    // original `?? display_name ?? username` chain).
+    let persona_by_acct: std::collections::HashMap<String, String> = persona_rows
+        .into_iter()
+        .filter_map(|r| r.persona_name.map(|n| (r.acct_id, n)))
+        .collect();
+    // Vanished accounts (no `AccountRow`) are silently dropped, matching the
+    // prior per-account behavior (`Option::None` → skip).
+    Ok(accounts_rows
+        .into_iter()
+        .map(|r| {
+            persona_by_acct
+                .get(&r.acct_id)
+                .cloned()
+                .unwrap_or(r.fallback)
+        })
+        .collect())
 }
 
 enum CursorState {

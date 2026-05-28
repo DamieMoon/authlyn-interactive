@@ -417,3 +417,67 @@ async fn cursor_paginates_past_100_in_order() {
         "no duplicate ids across the cursor boundary"
     );
 }
+
+/// Locks down the W5/H2 batch typing-name resolution: two typists are pinged
+/// into the channel; a third member polls and sees both names — and never
+/// themselves — using their username (no `display_name`, no worn persona,
+/// exercises the `??`-fallback chain). Indirectly proves the batched
+/// `(account IN-list) + (channel_active_persona IN-list)` query merges
+/// correctly in Rust.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn typing_indicator_lists_other_typists_and_excludes_caller() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = owner_with_text_channel(&a.router).await;
+
+    // Two extra members so the batch IN-list carries >1 id.
+    let alice = common::register_account(&a.router, "Alice", "password123").await;
+    let bob = common::register_account(&a.router, "Bob", "password123").await;
+    for name in ["Alice", "Bob"] {
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/guilds/{gid}/members"),
+            Some(&owner),
+            Some(&json!({ "username": name })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    // Alice and Bob each ping typing; owner also pings (must not see self).
+    for cookie in [&alice, &bob, &owner] {
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/channels/{cid}/typing"),
+            Some(cookie),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let typing: Vec<String> = body["typing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let mut sorted = typing.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec!["Alice".to_string(), "Bob".to_string()],
+        "both other typists are resolved by username (display_name = '' → username fallback); caller is excluded"
+    );
+}
