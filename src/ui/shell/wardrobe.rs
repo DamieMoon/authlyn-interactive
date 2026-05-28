@@ -475,6 +475,8 @@ fn PersonaDetail(
     let pid_avatar = pid.clone();
     let pid_gallery_add = pid.clone();
     let pid_gallery_thumbs = pid.clone();
+    #[cfg(feature = "hydrate")]
+    let pid_gallery_paste = pid.clone();
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
@@ -514,7 +516,30 @@ fn PersonaDetail(
             // thumbnail sets it as the primary avatar (the current one is
             // ringed); the ✕ removes it (with an inline confirm). The file
             // input below appends a freshly-uploaded image.
-            <div class="field gallery-field">
+            //
+            // `tabindex="0"` makes the gallery region focusable so a user can
+            // click into it and Ctrl+V to fan into `gallery_multi_upload`
+            // (W7/B4). `on:paste` fires when focus is in the region; text
+            // pastes pass through (only `prevent_default()` on image items).
+            <div class="field gallery-field" tabindex="0"
+                on:paste=move |_ev| {
+                    #[cfg(feature = "hydrate")]
+                    {
+                        let files = crate::ui::clipboard::read_pasted_images(&_ev);
+                        if !files.is_empty() {
+                            _ev.prevent_default();
+                            gallery_multi_upload(
+                                s,
+                                pid_gallery_paste.clone(),
+                                files,
+                                gallery_pending,
+                                gallery,
+                            );
+                        }
+                    }
+                    #[cfg(not(feature = "hydrate"))]
+                    let _ = &_ev;
+                }>
                 <span>"Gallery"</span>
                 <div class="gallery-grid">
                     {move || {
