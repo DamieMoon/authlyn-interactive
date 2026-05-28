@@ -28,6 +28,9 @@ mod datetime;
 // used by every JSON handler module. Crate-internal.
 mod errors;
 
+// Shared SurrealDB row-projection helpers (e.g. `IdRow`). Crate-internal.
+mod db_helpers;
+
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;

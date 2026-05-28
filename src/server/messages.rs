@@ -34,6 +34,7 @@ use crate::protocol::{
 };
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
@@ -205,10 +206,6 @@ async fn persist_message(
     body: &str,
     attachments: &[String],
 ) -> surrealdb::Result<String> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     // `persona` is optional; only set the field when the caller is wearing
     // one, so a personaless author leaves it NONE.
     let sql = if persona.is_some() {

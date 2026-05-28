@@ -15,6 +15,7 @@ use surrealdb::types::SurrealValue;
 
 use crate::protocol::{FriendRequest, FriendSummary, ListFriendsResponse};
 use crate::server::auth::AuthAccount;
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
@@ -187,10 +188,6 @@ pub async fn accept_friend(
     Path(aid): Path<String>,
     account: AuthAccount,
 ) -> Response {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     // Only a pending request *to* me from `aid` can be accepted.
     let updated = state
         .db
@@ -296,10 +293,6 @@ async fn account_id_by_username_ci(
     state: &AppState,
     username_ci: &str,
 ) -> surrealdb::Result<Option<String>> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query("SELECT meta::id(id) AS id_key FROM account WHERE username_ci = $username_ci;")

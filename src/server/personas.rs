@@ -22,6 +22,7 @@ use crate::protocol::{
     SetAvatarRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
@@ -138,10 +139,6 @@ pub async fn create_persona(
     }
     let color_echo = color.clone();
 
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let share_key = random_share_key();
     let mut resp = match state
         .db
@@ -485,10 +482,6 @@ async fn insert_gallery_image(
     pid: &str,
     media_id: &str,
 ) -> surrealdb::Result<String> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut pos_resp = state
         .db
         .query(
@@ -633,10 +626,6 @@ pub async fn set_active_persona(
 /// the channel/guild aren't soft-deleted). Channel-scoped membership gate that
 /// mirrors `messages::channel_access`'s guild-membership check.
 async fn is_channel_member(state: &AppState, cid: &str, account: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
@@ -986,10 +975,6 @@ pub async fn leave_persona(
 // ---------------------------------------------------------------------------
 
 async fn owns_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
@@ -1006,10 +991,6 @@ async fn owns_persona(state: &AppState, pid: &str, account: &str) -> surrealdb::
 
 /// True when `me` and `other` have an accepted friendship (either direction).
 async fn is_accepted_friend(state: &AppState, me: &str, other: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
@@ -1029,10 +1010,6 @@ async fn is_accepted_friend(state: &AppState, me: &str, other: &str) -> surreald
 
 /// True when a `persona_editor` row links this persona to the account.
 async fn is_persona_editor(state: &AppState, pid: &str, account: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
@@ -1092,10 +1069,6 @@ async fn load_persona_editors(
 }
 
 async fn media_exists(state: &AppState, mid: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query("SELECT meta::id(id) AS id_key FROM type::record('media_blob', $mid);")
@@ -1139,10 +1112,6 @@ async fn require_editable_persona_and_media(
 }
 
 async fn is_guild_member(state: &AppState, gid: &str, account: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(

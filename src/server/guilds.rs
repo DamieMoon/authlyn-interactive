@@ -28,6 +28,7 @@ use crate::protocol::{
     PatchChannelRequest, PatchGuildRequest, RailOrderRequest, SetMemberRoleRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
@@ -239,10 +240,6 @@ async fn persist_create_guild(
     owner: &str,
     name: &str,
 ) -> surrealdb::Result<String> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     // Statement indices (BEGIN/COMMIT each consume one):
     //   0 BEGIN, 1 LET $owner, 2 LET $guild, 3 CREATE member,
     //   4 CREATE channel, 5 RETURN, 6 COMMIT.
@@ -544,10 +541,6 @@ async fn insert_channel(
     name: &str,
     kind: &str,
 ) -> surrealdb::Result<ChannelSummary> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     // Append at the end: next position = current max + 1 (0 if no channels).
     let mut pos_resp = state
         .db
@@ -1106,10 +1099,6 @@ async fn require_owner(state: &AppState, gid: &str, account: &str) -> Result<(),
 }
 
 async fn channel_in_guild(state: &AppState, gid: &str, cid: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
@@ -1129,10 +1118,6 @@ async fn account_id_by_username_ci(
     state: &AppState,
     username_ci: &str,
 ) -> surrealdb::Result<Option<String>> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query("SELECT meta::id(id) AS id_key FROM account WHERE username_ci = $username_ci;")

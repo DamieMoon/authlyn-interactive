@@ -19,6 +19,7 @@ use crate::protocol::{
     PatchLorebookEntryRequest,
 };
 use crate::server::auth::AuthAccount;
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::state::AppState;
 
@@ -122,10 +123,6 @@ pub async fn create_entry(
         },
     };
 
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = match state
         .db
         .query(
@@ -298,10 +295,6 @@ async fn check_access(state: &AppState, cid: &str, account: &str) -> Result<(), 
         guild_key: String,
         kind: String,
     }
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
 
     let mut resp = match state
         .db
@@ -369,10 +362,6 @@ async fn check_access(state: &AppState, cid: &str, account: &str) -> Result<(), 
 }
 
 async fn entry_in_channel(state: &AppState, cid: &str, eid: &str) -> surrealdb::Result<bool> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(

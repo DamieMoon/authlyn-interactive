@@ -33,6 +33,7 @@ use crate::protocol::{
     AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest, ConfirmResetRequest, ErrorBody,
     LoginRequest, MeResponse, RegisterRequest, ResetQuestionResponse, SetSecurityQuestionRequest,
 };
+use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::is_unique_violation;
 use crate::server::state::AppState;
@@ -507,10 +508,6 @@ async fn create_account(
     username_ci: &str,
     password_hash: &str,
 ) -> surrealdb::Result<String> {
-    #[derive(SurrealValue)]
-    struct IdRow {
-        id_key: String,
-    }
     let mut resp = state
         .db
         .query(
