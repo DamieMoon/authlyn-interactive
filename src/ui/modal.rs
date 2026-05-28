@@ -24,15 +24,19 @@
 //!   via `tabindex="-1"`) is given focus so keystrokes land in scope
 //!   immediately.
 //!
-//! Focus restoration to the trigger element on unmount is intentionally
-//! deferred: capturing `web_sys::HtmlElement` in a Leptos `on_cleanup`
-//! closure requires Send+Sync wrapping (the wasm types aren't), which is
-//! more machinery than is justified for the audit's a11y win.
+//! Focus restoration: the element that had focus at mount is captured via
+//! `send_wrapper::SendWrapper<HtmlElement>` (the wasm types aren't `Send`,
+//! so the wrapper is what crosses the `StoredValue` / `on_cleanup` boundary)
+//! and re-focused on cleanup. This matches WCAG 2.4.3 (Focus Order) when the
+//! modal is dismissed via Esc, backdrop click, or its own close button — the
+//! keyboard user lands back on the trigger they pressed to open it.
 
 use leptos::ev::KeyboardEvent;
 use leptos::html::Div;
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use send_wrapper::SendWrapper;
 #[cfg(feature = "hydrate")]
 use wasm_bindgen::JsCast;
 #[cfg(feature = "hydrate")]
@@ -65,17 +69,50 @@ where
     let dialog_class = format!("modal {class}");
     let dialog_ref = NodeRef::<Div>::new();
 
+    // Trigger element to restore focus to on unmount — the thing that had focus
+    // at mount, typically the button the user pressed to open the modal.
+    // `StoredValue` is `'static` so the cleanup closure can `take` from it; the
+    // `SendWrapper` carries the non-`Send` wasm `HtmlElement` across.
+    #[cfg(feature = "hydrate")]
+    let trigger: StoredValue<Option<SendWrapper<HtmlElement>>> = StoredValue::new(None);
+
     // Initial focus on mount: the first focusable inside the dialog, or the
     // dialog itself (tabindex=-1) so keystrokes land in scope immediately.
-    // No captured wasm state, so no Send+Sync grief.
+    // Before moving focus, capture the previously-focused element so cleanup
+    // can return focus there (WCAG 2.4.3).
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         if let Some(dialog) = dialog_ref.get() {
-            let target: Option<HtmlElement> = first_focusable(dialog.as_ref())
-                .or_else(|| dialog.dyn_ref::<HtmlElement>().cloned());
+            let dialog_el: &web_sys::Element = dialog.as_ref();
+            // Snapshot the current active element *before* we steal focus.
+            // Skip if it's the dialog itself or one of its descendants — that
+            // would mean focus had already moved into the modal, and restoring
+            // to the about-to-be-removed dialog is a no-op (or worse).
+            let prev = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.active_element())
+                .and_then(|el| el.dyn_into::<HtmlElement>().ok())
+                .filter(|el| !dialog_el.contains(Some(el.as_ref())));
+            if let Some(el) = prev {
+                trigger.set_value(Some(SendWrapper::new(el)));
+            }
+
+            let target: Option<HtmlElement> =
+                first_focusable(dialog_el).or_else(|| dialog.dyn_ref::<HtmlElement>().cloned());
             if let Some(el) = target {
                 let _ = el.focus();
             }
+        }
+    });
+
+    // Restore focus to the trigger on unmount (Esc, backdrop click, explicit
+    // close — any path that drops the component). `None` (no element had focus
+    // at mount) falls through silently; the document body keeps focus, which
+    // is the correct fallback for the initial-keyboard-nav case.
+    #[cfg(feature = "hydrate")]
+    on_cleanup(move || {
+        if let Some(wrap) = trigger.try_get_value().flatten() {
+            let _ = wrap.focus();
         }
     });
 
