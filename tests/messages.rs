@@ -424,6 +424,137 @@ async fn cursor_paginates_past_100_in_order() {
 /// exercises the `??`-fallback chain). Indirectly proves the batched
 /// `(account IN-list) + (channel_active_persona IN-list)` query merges
 /// correctly in Rust.
+/// Bulk-CREATE `n` `media_blob` rows owned by `account_id` via direct DB,
+/// returning their ids in CREATE order. Avoids 100x multipart round-trips when
+/// a test only needs media ids to exist (e.g. probing the attachment cap).
+///
+/// One query with N stacked CREATEs is simpler than wrestling with FOR-loop
+/// result indexing in 3.1.0-beta.3 — each CREATE produces its own response
+/// statement, so we take(i) once per row.
+#[cfg(feature = "ssr")]
+async fn bulk_create_media_rows(
+    db: &surrealdb::Surreal<surrealdb::engine::remote::ws::Client>,
+    account_id: &str,
+    n: usize,
+) -> Vec<String> {
+    use surrealdb::types::SurrealValue;
+    #[derive(SurrealValue)]
+    struct IdKey {
+        id_key: String,
+    }
+    let mut sql = String::with_capacity(n * 200);
+    for _ in 0..n {
+        sql.push_str(
+            "CREATE media_blob SET \
+                uploader = type::record('account', $owner), \
+                mime = 'image/png', \
+                size_bytes = 1, \
+                storage_path = 'x' \
+                RETURN meta::id(id) AS id_key;\n",
+        );
+    }
+    let mut resp = db
+        .query(sql)
+        .bind(("owner", account_id.to_string()))
+        .await
+        .expect("bulk media create")
+        .check()
+        .expect("bulk media check");
+    let mut ids = Vec::with_capacity(n);
+    for i in 0..n {
+        let row: Option<IdKey> = resp.take(i).expect("bulk media take");
+        ids.push(row.expect("each CREATE returns one row").id_key);
+    }
+    ids
+}
+
+/// Register and return both the session cookie and the new account id.
+#[cfg(feature = "ssr")]
+async fn register_with_id(router: &axum::Router, name: &str) -> (String, String) {
+    let (status, cookie, body) = common::send(
+        router,
+        axum::http::Method::POST,
+        "/auth/register",
+        None,
+        Some(&serde_json::json!({ "username": name, "password": "password123" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    (
+        cookie.expect("register sets session cookie"),
+        body["account_id"]
+            .as_str()
+            .expect("register returns account_id")
+            .to_string(),
+    )
+}
+
+/// Boundary of the attachment cap: 100 attachments POST cleanly (201); 101 is
+/// rejected (400 "too many attachments"). Locks down the W7/B1 cap-raise
+/// (10 → 100) so a future drift back is caught.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn attachment_cap_boundary_is_100() {
+    let a = common::arena().await;
+    let (owner_cookie, owner_id) = register_with_id(&a.router, "Owner").await;
+    let (_status, _, guild) = common::send(
+        &a.router,
+        Method::POST,
+        "/guilds",
+        Some(&owner_cookie),
+        Some(&json!({ "name": "Guild" })),
+    )
+    .await;
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (_status, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner_cookie),
+        None,
+    )
+    .await;
+    let cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Pre-create 101 media_blob rows so we can probe both sides of the cap
+    // without 101 multipart round-trips. The handler dedupes attachments
+    // before counting, so we need 101 distinct ids — not 1 id repeated.
+    let ids = bulk_create_media_rows(&a.db, &owner_id, 101).await;
+    assert_eq!(ids.len(), 101, "bulk media create returned 101 ids");
+
+    // Exactly 100 → 201 CREATED.
+    let at_cap: Vec<&str> = ids[..100].iter().map(String::as_str).collect();
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner_cookie),
+        Some(&json!({ "body": "max attachments", "attachment_ids": at_cap })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "100 attachments must be accepted: {body:?}"
+    );
+
+    // 101 → 400 with the canonical message.
+    let over_cap: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner_cookie),
+        Some(&json!({ "body": "one too many", "attachment_ids": over_cap })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "101 attachments must 400");
+    assert_eq!(
+        body["error"], "too many attachments",
+        "rejection carries the canonical message"
+    );
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn typing_indicator_lists_other_typists_and_excludes_caller() {

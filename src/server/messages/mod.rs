@@ -51,7 +51,7 @@ use crate::server::state::AppState;
 pub(super) const MAX_BODY_CHARS: usize = 50_000;
 
 /// Max inline image attachments per message.
-pub(super) const MAX_ATTACHMENTS: usize = 10;
+pub(super) const MAX_ATTACHMENTS: usize = 100;
 
 // ---------------------------------------------------------------------------
 // Shared: channel access (membership gate + kind + active persona)
