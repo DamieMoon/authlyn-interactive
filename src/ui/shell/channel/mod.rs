@@ -35,6 +35,7 @@ use crate::markup::Color;
 use crate::protocol::{Attachment, MessageEnvelope};
 use crate::ui::emoji::data::{self, GROUPS};
 use crate::ui::markup_view::render_body;
+use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
 /// One row in the deleted-messages panel: the message snippet plus a Restore button.
@@ -942,26 +943,21 @@ pub(crate) fn ChannelPane(s: Shell) -> impl IntoView {
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
                 view! {
-                    <div class="modal-backdrop" on:click=move |_| info.set(None)>
-                        <div class="modal persona-info" on:click=move |_ev| {
-                            #[cfg(feature = "hydrate")]
-                            _ev.stop_propagation();
-                        }>
-                            <div class="detail-head">
-                                <h4>{persona}</h4>
-                                <button class="row-edit" title="close"
-                                    on:click=move |_| info.set(None)>"✕"</button>
-                            </div>
-                            // Persona's send-time avatar snapshot (#26), monogram fallback.
-                            <div class="info-portrait">{portrait}</div>
-                            {match desc {
-                                // Description supports the same markup as chat (#18).
-                                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                            }}
-                            <p class="muted">"Controlled by "<strong>{author}</strong></p>
+                    <Modal class="persona-info" close=move || info.set(None)>
+                        <div class="detail-head">
+                            <h4>{persona}</h4>
+                            <button class="row-edit" title="close"
+                                on:click=move |_| info.set(None)>"✕"</button>
                         </div>
-                    </div>
+                        // Persona's send-time avatar snapshot (#26), monogram fallback.
+                        <div class="info-portrait">{portrait}</div>
+                        {match desc {
+                            // Description supports the same markup as chat (#18).
+                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
+                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+                        }}
+                        <p class="muted">"Controlled by "<strong>{author}</strong></p>
+                    </Modal>
                 }
             })}
 

@@ -23,6 +23,7 @@ use crate::protocol::{
 // Trash DTOs reused from protocol (no new types needed — server returns the
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
 use crate::ui::emoji::EmojiResolver;
+use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
 mod account;
@@ -622,20 +623,15 @@ fn AppShell() -> impl IntoView {
             {move || s.pending_delete.get().is_some().then(|| {
                 let prompt = s.confirm_prompt.get().unwrap_or_default();
                 view! {
-                    <div class="modal-backdrop" on:click=move |_| act::cancel_delete(s)>
-                        <div class="modal confirm-modal" on:click=move |_ev| {
-                            #[cfg(feature = "hydrate")]
-                            _ev.stop_propagation();
-                        }>
-                            <h3>"Confirm delete"</h3>
-                            <p>{prompt}</p>
-                            <div class="confirm-actions">
-                                <button on:click=move |_| act::cancel_delete(s)>"Cancel"</button>
-                                <button class="danger"
-                                    on:click=move |_| act::confirm_delete(s)>"Delete"</button>
-                            </div>
+                    <Modal class="confirm-modal" close=move || act::cancel_delete(s)>
+                        <h3>"Confirm delete"</h3>
+                        <p>{prompt}</p>
+                        <div class="confirm-actions">
+                            <button on:click=move |_| act::cancel_delete(s)>"Cancel"</button>
+                            <button class="danger"
+                                on:click=move |_| act::confirm_delete(s)>"Delete"</button>
                         </div>
-                    </div>
+                    </Modal>
                 }
             })}
         </div>

@@ -9,6 +9,7 @@ use crate::protocol::MeResponse;
 pub mod auth;
 pub mod emoji;
 pub mod markup_view;
+pub mod modal;
 pub mod shell;
 
 /// Session state, provided once at the app root and read everywhere.

@@ -6,6 +6,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
+use crate::ui::modal::Modal;
 
 /// The account-management window. Renders a `.modal-backdrop`/`.modal`
 /// (classes shared with the persona-info popup) over the shell. `open` is the
@@ -38,6 +39,10 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // non-admins (the server 403s GET /feedback), so the section never renders.
     // Loaded when the modal opens. ----
     let inbox = RwSignal::new(None::<Vec<crate::protocol::FeedbackItem>>);
+    // Pending feedback-archive id; `Some(id)` shows the in-modal confirm
+    // dialog (replaces the W3-era `window.confirm` blocking call, which was
+    // inconsistent with the rest of the app's PendingDelete pattern).
+    let pending_archive = RwSignal::new(None::<String>);
     Effect::new(move |_| {
         let is_open = open.get();
         #[cfg(feature = "hydrate")]
@@ -94,10 +99,9 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     };
 
     view! {
-        // Backdrop click closes; stop propagation on the panel so inner clicks
-        // don't bubble up and close it.
-        <div class="modal-backdrop" on:click=move |_| open.set(false)>
-            <div class="modal account-modal" on:click=|ev| ev.stop_propagation()>
+        // Backdrop click closes; the Modal wrapper handles stop_propagation
+        // on the inner panel so inner clicks don't bubble up and close it.
+        <Modal class="account-modal" close=move || open.set(false)>
                 <header class="account-head">
                     <h2>"Account"</h2>
                     <button class="row-edit" title="Close"
@@ -258,21 +262,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                                         <time class="fb-when">{created_at}</time>
                                                         <button class="fb-del" title="Delete feedback"
                                                             on:click=move |_| {
-                                                                let confirmed = {
-                                                                    #[cfg(feature = "hydrate")]
-                                                                    {
-                                                                        leptos::web_sys::window()
-                                                                            .and_then(|w| w.confirm_with_message("Delete this feedback?").ok())
-                                                                            .unwrap_or(false)
-                                                                    }
-                                                                    #[cfg(not(feature = "hydrate"))]
-                                                                    {
-                                                                        false
-                                                                    }
-                                                                };
-                                                                if confirmed {
-                                                                    act::archive_feedback(s, inbox, id.clone());
-                                                                }
+                                                                pending_archive.set(Some(id.clone()));
                                                             }>"✕"</button>
                                                     </div>
                                                     <p class="fb-body">{body}</p>
@@ -290,7 +280,28 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 })}
 
                 <p class="account-status">{move || s.status.get()}</p>
-            </div>
-        </div>
+
+                // Feedback-archive confirm — opened by an inbox ✕; replaces
+                // the legacy `window.confirm` blocking dialog so the UI stays
+                // consistent with the rest of the app's PendingDelete pattern.
+                // Rendered inside the AccountModal (sub-dialog) so closing
+                // either it or the parent dismisses cleanly.
+                {move || pending_archive.get().map(|id| {
+                    let id_for_confirm = id.clone();
+                    view! {
+                        <Modal class="confirm-modal"
+                            close=move || pending_archive.set(None)>
+                            <h3>"Delete this feedback?"</h3>
+                            <div class="confirm-actions">
+                                <button on:click=move |_| pending_archive.set(None)>"Cancel"</button>
+                                <button class="danger" on:click=move |_| {
+                                    act::archive_feedback(s, inbox, id_for_confirm.clone());
+                                    pending_archive.set(None);
+                                }>"Delete"</button>
+                            </div>
+                        </Modal>
+                    }
+                })}
+        </Modal>
     }
 }

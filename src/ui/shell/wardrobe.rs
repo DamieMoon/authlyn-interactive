@@ -14,6 +14,7 @@ use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::GalleryImage;
 use crate::ui::markup_view::render_body;
+use crate::ui::modal::Modal;
 
 // ---------------------------------------------------------------------------
 // Gallery actions (inline, cfg-guarded). The shared `act` module lives in
@@ -192,25 +193,20 @@ pub(crate) fn WardrobePane(s: Shell) -> impl IntoView {
             {move || info.get().map(|p| {
                 let desc = (!p.description.trim().is_empty()).then(|| p.description.clone());
                 view! {
-                    <div class="modal-backdrop" on:click=move |_| info.set(None)>
-                        <div class="modal persona-info" on:click=move |_ev| {
-                            #[cfg(feature = "hydrate")]
-                            _ev.stop_propagation();
-                        }>
-                            <div class="detail-head">
-                                <h4>{p.name.clone()}</h4>
-                                <button class="row-edit" title="close"
-                                    on:click=move |_| info.set(None)>"✕"</button>
-                            </div>
-                            <div class="info-portrait" title="persona portrait">
-                                {portrait(&p.avatar_id, &p.name)}
-                            </div>
-                            {match desc {
-                                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                            }}
+                    <Modal class="persona-info" close=move || info.set(None)>
+                        <div class="detail-head">
+                            <h4>{p.name.clone()}</h4>
+                            <button class="row-edit" title="close"
+                                on:click=move |_| info.set(None)>"✕"</button>
                         </div>
-                    </div>
+                        <div class="info-portrait" title="persona portrait">
+                            {portrait(&p.avatar_id, &p.name)}
+                        </div>
+                        {match desc {
+                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
+                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+                        }}
+                    </Modal>
                 }
             })}
 
@@ -407,11 +403,7 @@ fn PersonaDetail(
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
-        <div class="modal-backdrop" on:click=move |_| selected.set(None)>
-        <div class="modal persona-detail" on:click=move |_ev| {
-            #[cfg(feature = "hydrate")]
-            _ev.stop_propagation();
-        }>
+        <Modal class="persona-detail" close=move || selected.set(None)>
             <div class="detail-head">
                 <h4>{if owned { "Edit persona" } else { "Edit shared persona" }}</h4>
                 <button class="row-edit" title="close"
@@ -514,22 +506,17 @@ fn PersonaDetail(
                 let pid_confirm = pid.clone();
                 let img_confirm = img_id.clone();
                 view! {
-                    <div class="modal-backdrop" on:click=move |_| pending_remove.set(None)>
-                        <div class="modal confirm-dialog" on:click=move |_ev| {
-                            #[cfg(feature = "hydrate")]
-                            _ev.stop_propagation();
-                        }>
-                            <p>"Remove this image from the gallery?"</p>
-                            <div class="detail-actions">
-                                <button class="danger" on:click=move |_| {
-                                    remove_gallery_image(
-                                        s, pid_confirm.clone(), img_confirm.clone(), gallery);
-                                    pending_remove.set(None);
-                                }>"Remove"</button>
-                                <button on:click=move |_| pending_remove.set(None)>"Cancel"</button>
-                            </div>
+                    <Modal class="confirm-dialog" close=move || pending_remove.set(None)>
+                        <p>"Remove this image from the gallery?"</p>
+                        <div class="detail-actions">
+                            <button class="danger" on:click=move |_| {
+                                remove_gallery_image(
+                                    s, pid_confirm.clone(), img_confirm.clone(), gallery);
+                                pending_remove.set(None);
+                            }>"Remove"</button>
+                            <button on:click=move |_| pending_remove.set(None)>"Cancel"</button>
                         </div>
-                    </div>
+                    </Modal>
                 }
             })}
             <label class="field">
@@ -613,7 +600,6 @@ fn PersonaDetail(
                 }>"Save"</button>
                 <button on:click=move |_| selected.set(None)>"Cancel"</button>
             </div>
-        </div>
-        </div>
+        </Modal>
     }
 }
