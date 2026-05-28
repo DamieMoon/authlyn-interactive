@@ -1,0 +1,316 @@
+@use "tokens" as *;
+
+// ---- wardrobe: persona character cards + detail editor ----
+.pane {
+	padding: 1rem clamp(0.5rem, 2vw, 1rem);
+	overflow-y: auto;
+	min-height: 0;
+
+	h3 {
+		margin: 0 0 0.75rem;
+	}
+}
+
+.wardrobe {
+	.add-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+
+		input {
+			flex: 1;
+			min-width: 8rem;
+		}
+
+		// Multi-line description at create time (Shift+Enter for newlines).
+		.add-desc {
+			flex: 1;
+			min-width: 8rem;
+			min-height: 4rem;
+			resize: vertical;
+		}
+	}
+}
+
+// Client-side filter box above the grid (#18/FB4).
+.persona-search {
+	width: 100%;
+	margin-bottom: 0.75rem;
+}
+
+.persona-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 0.75rem;
+}
+
+// Channel reorder ↑/↓ in the sidebar list (#17/FB2) — owner-gated, same look
+// as the persona/lorebook reorder controls but sized for the channel row.
+.channel-reorder {
+	padding: 0 0.3rem;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	background: $panel;
+	color: $text;
+	cursor: pointer;
+	font-size: 0.7rem;
+	line-height: 1.4;
+
+	&:hover:not(:disabled) {
+		border-color: $accent;
+		color: $accent;
+	}
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+}
+
+// Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
+.persona-reorder {
+	padding: 0.1rem 0.45rem;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	background: $panel;
+	color: $text;
+	cursor: pointer;
+	font-size: 0.8rem;
+	line-height: 1.5;
+
+	&:hover:not(:disabled) {
+		border-color: $accent;
+		color: $accent;
+	}
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+}
+
+.persona-card {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.75rem;
+	background: $panel-2;
+	border: 1px solid $line;
+	border-radius: 0.6rem;
+
+	&.worn {
+		border-color: $accent;
+		box-shadow: 0 0 0 1px $accent inset;
+	}
+
+	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
+	.card-portrait {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 5rem;
+		border-radius: 0.5rem;
+		background: $panel;
+		border: 1px dashed $line;
+		color: $accent;
+		font-size: 2rem;
+		font-weight: 700;
+		user-select: none;
+	}
+
+	// The clickable card body that opens the detail editor.
+	.card-open {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		text-align: left;
+		background: none;
+		border: none;
+		padding: 0;
+
+		&:hover .card-name {
+			color: $accent;
+		}
+	}
+
+	.card-name {
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: $text;
+	}
+
+	.card-desc {
+		font-size: 0.85rem;
+		color: $text;
+		// Preserve author newlines (Shift+Enter) in the blurb.
+		white-space: pre-wrap;
+		// Clamp the blurb to a few lines so cards stay uniform.
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.card-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+
+		.worn {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+}
+
+// The editor renders as a `.modal` (box styling lives there); these rules style
+// its inner layout. The accent border distinguishes it from other modals.
+.persona-detail {
+	gap: 0.6rem;
+	border-color: $accent;
+
+	.detail-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+
+		h4 {
+			margin: 0;
+		}
+	}
+
+	.detail-portrait {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 6rem;
+		border-radius: 0.5rem;
+		background: $panel-2;
+		border: 1px dashed $line;
+		font-size: 0.85rem;
+	}
+
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+		color: $muted;
+
+		input,
+		textarea {
+			color: $text;
+		}
+
+		textarea {
+			min-height: 9rem;
+			resize: vertical;
+		}
+	}
+
+	.detail-actions {
+		display: flex;
+		gap: 0.4rem;
+
+		.save {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+
+	// Owner-only sharing block: tick a friend to grant edit + wear access.
+	.share-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding-top: 0.4rem;
+		border-top: 1px solid $line;
+		font-size: 0.85rem;
+
+		.share-row {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			padding: 0.25rem 0.4rem;
+			background: $panel-2;
+			border: 1px solid $line;
+			border-radius: 0.4rem;
+			cursor: pointer;
+
+			input {
+				flex: none;
+				cursor: pointer;
+			}
+		}
+	}
+}
+
+// ---- persona detail gallery ----
+// Gallery container sits inside .persona-detail > .field.gallery-field.
+// Thumbnails are square, auto-fill the available width; the pick button fills
+// each cell and the remove button overlaps the top-right corner.
+.gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+	gap: 0.5rem;
+	margin-top: 0.25rem;
+}
+
+.gallery-thumb {
+	position: relative;
+	aspect-ratio: 1 / 1;
+	border-radius: 0.4rem;
+	overflow: visible; // allow remove-button to bleed past the corner
+	border: 2px solid transparent;
+
+	// Active-avatar indicator: accent ring around the current portrait choice.
+	&.is-avatar {
+		border-color: $accent;
+	}
+}
+
+// The main clickable area for "set as avatar" — fills the thumb cell.
+.gallery-pick {
+	display: block;
+	width: 100%;
+	aspect-ratio: 1 / 1;
+	padding: 0;
+	background: $panel-2;
+	border: none;
+	border-radius: 0.35rem;
+	cursor: pointer;
+	overflow: hidden;
+	position: relative; // for the badge overlay
+}
+
+// Star badge indicating current avatar, overlaid center-bottom of the thumb.
+.gallery-badge {
+	position: absolute;
+	bottom: 0.15rem;
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 0.75rem;
+	color: $accent;
+	pointer-events: none;
+	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+// Remove (✕) button: floats above the top-right corner of the thumbnail.
+.gallery-remove {
+	position: absolute;
+	top: -0.4rem;
+	right: -0.4rem;
+	width: 1.4rem;
+	height: 1.4rem;
+	padding: 0;
+	border-radius: 50%;
+	border: none;
+	background: #1c1a2b;
+	color: $text;
+	cursor: pointer;
+	line-height: 1;
+	font-size: 0.75rem;
+	z-index: 1;
+}

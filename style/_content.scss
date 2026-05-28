@@ -1,0 +1,261 @@
+@use "tokens" as *;
+
+.content {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+
+	// The pane wrapper must fill .content and constrain its own children,
+	// or .messages' flex:1/overflow-y below never engages and the page grows.
+	.channel-view {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		// Anchors the floating jump-to-bottom arrow / unread pill, which are
+		// positioned absolutely against this pane.
+		position: relative;
+	}
+
+	.topbar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1rem;
+		border-bottom: 1px solid $line;
+		min-width: 0;
+
+		.nav-toggle {
+			display: none; // revealed at the mobile breakpoint
+			padding: 0.2rem 0.55rem;
+			font-size: 1.1rem;
+			line-height: 1;
+		}
+
+		.muted {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.spacer {
+			flex: 1;
+		}
+	}
+
+	.messages {
+		list-style: none;
+		margin: 0;
+		padding: 0.5rem clamp(0.5rem, 2vw, 1rem);
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+
+		// Per-message card: a subtle frame separates each message from the
+		// next and stacks the author/timestamp meta line above the body.
+		.msg {
+			display: flex;
+			flex-direction: column;
+			gap: 0.15rem;
+			padding: 0.4rem 0.6rem;
+			background: $panel-2;
+			border: 1px solid $line;
+			border-radius: 0.5rem;
+
+			& + .msg {
+				margin-top: 0.4rem;
+			}
+
+			.meta {
+				display: flex;
+				align-items: baseline;
+				gap: 0.5rem;
+			}
+
+			// Own-message edit/delete affordances: tucked to the right of the
+			// meta line, dimmed until the message card is hovered.
+			.msg-actions {
+				margin-left: auto;
+				display: flex;
+				gap: 0.15rem;
+				opacity: 0;
+				transition: opacity 0.1s ease-in;
+			}
+
+			&:hover .msg-actions,
+			&:focus-within .msg-actions {
+				opacity: 1;
+			}
+
+			// Ghost icon-button for the message edit/delete/save/cancel controls.
+			// `.row-edit` is scoped under `.sidebar` for the channel rename, so
+			// the message pane (under `.content`) needs its own copy.
+			.row-edit {
+				background: transparent;
+				border: none;
+				color: $muted;
+				padding: 0.2rem 0.35rem;
+				font-size: 0.85rem;
+
+				&:hover {
+					color: $text;
+				}
+			}
+
+			// Inline edit: the textarea spans the card width with the save/cancel
+			// controls beside it, mirroring the channel-rename row.
+			.msg-edit {
+				display: flex;
+				align-items: flex-start;
+				gap: 0.3rem;
+
+				.rename-input {
+					flex: 1;
+					min-width: 0;
+					min-height: 2.2rem;
+					resize: vertical;
+					font: inherit;
+				}
+			}
+
+			.who {
+				font-weight: 600;
+				color: #cdb8f0;
+			}
+
+			.when {
+				font-size: 0.75rem;
+				color: $muted;
+			}
+
+			.text {
+				// pre-wrap renders message newlines/blank lines and still
+				// wraps at spaces; break-word stops long URLs overflowing.
+				white-space: pre-wrap;
+				overflow-wrap: break-word;
+			}
+		}
+
+		// Ghost draft row: lays out exactly like a real .msg (inherits the base
+		// rule above) but reads as un-sent — dimmed, italic body, a dashed accent
+		// rail on the left. Selector pinned to the exact class the composer emits.
+		.msg.msg-draft {
+			opacity: 0.55;
+			border-style: dashed;
+			border-left: 2px solid $accent;
+
+			.text {
+				font-style: italic;
+			}
+		}
+	}
+
+	// Floating round button that jumps the message list to the latest message.
+	// Shown only while the user has scrolled up past the threshold; anchored to
+	// the bottom-right of .channel-view, sitting just above the composer.
+	.jump-bottom {
+		position: absolute;
+		right: 1rem;
+		bottom: 5.5rem;
+		z-index: 5;
+		width: 2.4rem;
+		height: 2.4rem;
+		padding: 0;
+		border-radius: 50%;
+		border: 1px solid $line;
+		background: $panel-2;
+		color: $text;
+		font-size: 1.2rem;
+		line-height: 1;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+		cursor: pointer;
+
+		&:hover {
+			border-color: $accent;
+			color: $accent;
+		}
+	}
+
+	// Unread notifier pill: appears centered above the composer when messages
+	// arrive while the user is scrolled up. Click jumps to the earliest unread.
+	.unread-pill {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		bottom: 5.5rem;
+		z-index: 5;
+		padding: 0.35rem 0.9rem;
+		border-radius: 1rem;
+		border: 1px solid $accent;
+		background: $accent;
+		color: $bg;
+		font-size: 0.85rem;
+		font-weight: 600;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+		cursor: pointer;
+
+		&:hover {
+			filter: brightness(1.08);
+		}
+	}
+
+	// "%name% is typing…" line (#19): a thin muted strip just above the
+	// composer. Sits in normal flow so it nudges the composer down only while
+	// someone is typing; renders nothing (no element) otherwise.
+	.typing-indicator {
+		padding: 0.1rem clamp(0.5rem, 2vw, 1rem) 0;
+		font-size: 0.78rem;
+		font-style: italic;
+		color: $muted;
+		line-height: 1.3;
+		user-select: none;
+	}
+
+	.composer {
+		border-top: 1px solid $line;
+		// Positioned ancestor for the absolute emoji popovers (.emoji-picker /
+		// .emoji-suggest are direct children using bottom:100%). Without this they
+		// anchor to .channel-view (full height) and open entirely above the
+		// viewport top — the picker's top rows become unclickable.
+		position: relative;
+		// Snug to its content: trimmed vertical padding + a smaller inter-row gap
+		// so the toolbar row and the textarea row don't leave a dead band below
+		// the chat. .messages (flex:1) reclaims the freed vertical space.
+		padding: 0.35rem clamp(0.5rem, 2vw, 1rem);
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		align-items: flex-start;
+
+		.toolbar {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.25rem;
+			width: 100%;
+
+			.fmt {
+				width: 1.9rem;
+				padding: 0.2rem 0;
+				text-align: center;
+			}
+
+			.swatch {
+				width: 1.2rem;
+				height: 1.2rem;
+				border-radius: 50%;
+				padding: 0;
+			}
+		}
+
+		textarea {
+			flex: 1;
+			min-width: 0;
+			resize: none;
+			min-height: 2.4rem;
+			max-height: 12rem;
+			overflow-y: auto;
+		}
+	}
+}

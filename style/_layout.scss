@@ -1,0 +1,13 @@
+// ---- app shell ----
+.app {
+	display: grid;
+	// Rail fixed, sidebar fluid (caps at 260 on ultrawide, 180 floor), content fills.
+	grid-template-columns: 72px clamp(180px, 22vw, 260px) 1fr;
+	height: 100vh;
+	height: 100dvh; // dvh accounts for mobile browser chrome; vh is the fallback
+}
+
+// Mobile drawer backdrop — only ever shown inside the narrow media query below.
+.scrim {
+	display: none;
+}

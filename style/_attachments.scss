@@ -1,0 +1,92 @@
+@use "tokens" as *;
+
+// ---- chat image attachments (Discord-style grid + lightbox) ----
+// Per-message image grid. Column count is set by a `cols-N` class (more
+// images -> more compact). Cells crop square via object-fit; a single image
+// keeps its aspect ratio.
+.attachments {
+	display: grid;
+	gap: 4px;
+	margin-top: 0.4rem;
+	max-width: 420px;
+
+	&.cols-1 {
+		grid-template-columns: 1fr;
+	}
+	&.cols-2 {
+		grid-template-columns: repeat(2, 1fr);
+	}
+	&.cols-3 {
+		grid-template-columns: repeat(3, 1fr);
+	}
+
+	.att-thumb {
+		width: 100%;
+		aspect-ratio: 1 / 1;
+		object-fit: cover;
+		border-radius: 8px;
+		cursor: pointer;
+		background: #2a2740;
+		display: block;
+	}
+
+	// A `<video>` thumbnail shares the image sizing (the class-based rules above
+	// already apply); this keeps element-scoped overrides explicit/additive.
+	video.att-thumb {
+		object-fit: contain;
+	}
+
+	// A lone image isn't forced square — show it at its natural ratio, capped.
+	&.cols-1 .att-thumb {
+		aspect-ratio: auto;
+		max-height: 360px;
+		width: auto;
+		max-width: 100%;
+		object-fit: contain;
+	}
+}
+
+// Composer attach control + staged-attachment previews.
+.composer .toolbar .attach {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+}
+
+.compose-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	padding: 0.4rem 0;
+
+	.pending-att {
+		position: relative;
+		width: 4rem;
+		height: 4rem;
+
+		img,
+		video {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			border-radius: 8px;
+			background: #2a2740;
+		}
+
+		.att-remove {
+			position: absolute;
+			top: -0.4rem;
+			right: -0.4rem;
+			width: 1.3rem;
+			height: 1.3rem;
+			padding: 0;
+			border-radius: 50%;
+			border: none;
+			background: #1c1a2b;
+			color: $text;
+			cursor: pointer;
+			line-height: 1;
+			font-size: 0.8rem;
+		}
+	}
+}

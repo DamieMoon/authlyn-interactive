@@ -1,0 +1,15 @@
+// `.who` is now a clickable button (opens the persona-info popup); strip the
+// default button chrome so it still reads as the author name.
+.msg .who {
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 600;
+	color: #cdb8f0;
+
+	&:hover {
+		text-decoration: underline;
+	}
+}

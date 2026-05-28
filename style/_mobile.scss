@@ -1,0 +1,105 @@
+// ---- mobile: rail + channel sidebar collapse into an off-canvas drawer ----
+@media (max-width: 768px) {
+	.app {
+		grid-template-columns: 1fr; // content fills the screen
+	}
+
+	.rail,
+	.sidebar {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		z-index: 30; // above the scrim (20) and the content
+		transition: transform 0.2s ease;
+	}
+
+	.rail {
+		left: 0;
+		width: 72px;
+		transform: translateX(-100%);
+	}
+
+	.sidebar {
+		left: 72px;
+		width: min(240px, calc(85vw - 72px));
+		// Tuck fully off the left edge (own width + the rail's 72px).
+		transform: translateX(calc(-100% - 72px));
+	}
+
+	.app.nav-open .rail,
+	.app.nav-open .sidebar {
+		transform: translateX(0);
+	}
+
+	.app.nav-open .scrim {
+		display: block;
+		position: fixed;
+		inset: 0;
+		z-index: 20;
+		background: rgba(0, 0, 0, 0.5);
+	}
+
+	.content .topbar .nav-toggle {
+		display: inline-flex;
+	}
+
+	// Roomier compose / edit boxes on phones: multi-line typing is common and
+	// the soft keyboard already covers the lower screen, so give the text more
+	// room and let it grow taller before scrolling.
+	.content .composer textarea,
+	.content .messages .msg .msg-edit .rename-input {
+		min-height: 6rem;
+		max-height: 50vh;
+	}
+
+	// ---- wardrobe / persona mobile overrides ----
+
+	// Modal: nearly full-width on narrow screens, with tighter padding so the
+	// inner content has maximum room. Applies to all modals (persona-detail,
+	// info popup, confirm dialog, account modal).
+	.modal {
+		max-width: 92vw;
+		padding: 0.75rem 0.9rem;
+	}
+
+	// Info popup portrait: full modal width on phones too; cap height so it
+	// leaves room for the name/description below on small screens.
+	.modal .info-portrait {
+		width: 100%;
+		max-height: min(50vh, 360px);
+	}
+
+	// Card portrait: a touch taller so it's more prominent in the card grid.
+	.persona-card .card-portrait {
+		height: 6.5rem;
+	}
+
+	// Detail-editor portrait: bump it up so the uploaded avatar is clearly visible.
+	.persona-detail .detail-portrait {
+		height: 8rem;
+	}
+
+	// Create-form description textarea: more room for initial typing on mobile.
+	.wardrobe .add-row .add-desc {
+		min-height: 5rem;
+	}
+
+	// Persona description in the detail editor: big box so long character sheets
+	// are comfortable to scroll and type without fighting the soft keyboard.
+	.persona-detail .field textarea {
+		min-height: 42vh;
+	}
+
+	// Color swatches: bigger tap targets on mobile.
+	.persona-detail .color-row .swatch-pick {
+		width: 2.2rem;
+		height: 2.2rem;
+	}
+
+	// Share-row labels: at least 44px tall so the checkbox + name hit target is
+	// comfortable for thumbs (WCAG 2.5.8 minimum).
+	.persona-detail .share-block .share-row {
+		min-height: 44px;
+		padding: 0.4rem 0.6rem;
+	}
+}

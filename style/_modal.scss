@@ -1,0 +1,252 @@
+@use "tokens" as *;
+
+// ---- modal overlay (persona-info popup, etc.) ----
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	background: rgba(0, 0, 0, 0.55);
+}
+
+.modal {
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.6rem;
+	padding: 1rem 1.2rem;
+	width: 100%;
+	max-width: 28rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	// Cap height so a long body scrolls inside the modal instead of pushing the
+	// close control off-screen (the backdrop also closes on click).
+	max-height: 85vh;
+	overflow-y: auto;
+}
+
+// In the read-only info popup the description shows in full (no card clamp).
+.modal .card-desc {
+	display: block;
+	-webkit-line-clamp: unset;
+	line-clamp: unset;
+	overflow: visible;
+	white-space: pre-wrap;
+}
+
+// Persona portrait in the info popup: fill the modal width so the face is
+// large when a character name is clicked. The child (.chat-avatar / <img>,
+// fill=true) stretches to the box; object-fit:cover crops the image to the
+// box, height capped so a tall portrait can't make the modal absurdly tall.
+.modal .info-portrait {
+	align-self: stretch;
+	width: 100%;
+	height: auto;
+	aspect-ratio: 1 / 1;
+	max-height: min(60vh, 420px);
+	overflow: hidden;
+	border-radius: 0.5rem;
+	background: $panel-2;
+	border: 1px solid $line;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 2.4rem; // larger monogram fallback to suit the bigger box
+	font-weight: 700;
+	color: $accent;
+}
+
+// ---- confirm dialog (reuses .modal / .modal-backdrop) ----
+.confirm-modal {
+	h3 {
+		margin: 0;
+		font-size: 1.05rem;
+	}
+
+	p {
+		margin: 0;
+		color: $muted;
+	}
+
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+}
+
+// ---- account-management modal (reuses .modal / .modal-backdrop) ----
+.account-modal {
+	.account-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+
+		h2 {
+			margin: 0;
+			font-size: 1.05rem;
+		}
+	}
+
+	.account-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding-top: 0.5rem;
+		margin-top: 0.5rem;
+		border-top: 1px solid $line;
+
+		h3 {
+			margin: 0;
+			font-size: 0.9rem;
+			color: $muted;
+		}
+
+		.account-save {
+			align-self: flex-start;
+		}
+
+		// A checkbox + label preference (e.g. the message-delete confirm toggle).
+		.pref-row {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+
+			input {
+				width: auto;
+			}
+		}
+	}
+
+	.account-status {
+		min-height: 1em;
+		margin: 0.25rem 0 0;
+		color: #cdb8f0;
+	}
+}
+
+// ---- feedback form (nested inside .account-modal .account-section) ----
+.feedback-form {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+
+	.feedback-kind-row {
+		display: flex;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.feedback-body {
+		width: 100%;
+		resize: vertical;
+		min-height: 6rem;
+		background: $panel-2;
+		border: 1px solid $line;
+		border-radius: 0.35rem;
+		color: inherit;
+		font: inherit;
+		font-size: 0.9rem;
+		padding: 0.4rem 0.5rem;
+		box-sizing: border-box;
+
+		&:focus {
+			outline: none;
+			border-color: $accent;
+		}
+	}
+
+	.feedback-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+}
+
+// ---- feedback inbox (admin only; nested in .account-modal .account-section) ----
+.feedback-inbox {
+	.fb-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		max-height: 18rem;
+		overflow-y: auto;
+	}
+
+	.fb-item {
+		padding: 0.5rem 0.6rem;
+		background: $panel-2;
+		border: 1px solid $line;
+		border-radius: 0.5rem;
+	}
+
+	.fb-meta {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.fb-kind {
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		padding: 0.05rem 0.4rem;
+		border-radius: 0.3rem;
+		background: $panel;
+		border: 1px solid $line;
+
+		&.fb-bug {
+			color: #f0828c;
+			border-color: #f0828c;
+		}
+
+		&.fb-idea {
+			color: $accent;
+			border-color: $accent;
+		}
+	}
+
+	.fb-who {
+		font-weight: 600;
+	}
+
+	.fb-when {
+		font-size: 0.7rem;
+		color: $muted;
+		margin-left: auto;
+	}
+
+	.fb-body {
+		margin: 0;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	.fb-ctx {
+		margin: 0.3rem 0 0;
+		font-size: 0.7rem;
+		overflow-wrap: anywhere;
+	}
+
+	.fb-del {
+		margin-left: 0.4rem;
+		padding: 0 0.3rem;
+		background: none;
+		border: none;
+		color: $muted;
+		cursor: pointer;
+		font-size: 0.85rem;
+		line-height: 1;
+
+		&:hover {
+			color: #f0828c;
+		}
+	}
+}

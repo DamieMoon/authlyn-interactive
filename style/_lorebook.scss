@@ -1,0 +1,156 @@
+@use "tokens" as *;
+
+// ---------------------------------------------------------------------------
+// Lorebook pane
+// ---------------------------------------------------------------------------
+
+.lore-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	margin-bottom: 1rem;
+}
+
+.lore-entry {
+	background: $panel-2;
+	border: 1px solid $line;
+	border-radius: 0.5rem;
+	padding: 0.6rem 0.75rem;
+
+	&.lore-disabled {
+		opacity: 0.5;
+	}
+}
+
+.lore-head {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	flex-wrap: wrap;
+	margin-bottom: 0.3rem;
+}
+
+.lore-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lore-head-actions {
+	display: flex;
+	gap: 0.25rem;
+	margin-left: auto;
+}
+
+.lore-toggle,
+.lore-reorder,
+.lore-edit-btn,
+.lore-save,
+.lore-cancel,
+.lore-delete {
+	padding: 0.1rem 0.45rem;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	background: $panel;
+	color: $text;
+	cursor: pointer;
+	font-size: 0.8rem;
+	line-height: 1.5;
+
+	&:hover:not(:disabled) {
+		border-color: $accent;
+		color: $accent;
+	}
+
+	&:disabled {
+		opacity: 0.3;
+		cursor: default;
+	}
+}
+
+.lore-delete:hover {
+	border-color: #e66a6a;
+	color: #e66a6a;
+}
+
+.lore-save {
+	border-color: $accent;
+	color: $accent;
+}
+
+.lore-content {
+	font-size: 0.9rem;
+	color: $muted;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.lore-edit-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	margin-top: 0.35rem;
+}
+
+.lore-edit-title,
+.lore-edit-keys {
+	width: 100%;
+	padding: 0.3rem 0.5rem;
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	color: $text;
+	font: inherit;
+	font-size: 0.9rem;
+}
+
+.lore-edit-content {
+	width: 100%;
+	min-height: 4rem;
+	padding: 0.3rem 0.5rem;
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.3rem;
+	color: $text;
+	font: inherit;
+	font-size: 0.9rem;
+	resize: vertical;
+}
+
+.lore-add {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+
+	input,
+	textarea {
+		width: 100%;
+		padding: 0.35rem 0.5rem;
+		background: $panel;
+		border: 1px solid $line;
+		border-radius: 0.3rem;
+		color: $text;
+		font: inherit;
+	}
+
+	textarea {
+		min-height: 4rem;
+		resize: vertical;
+	}
+
+	button {
+		align-self: flex-start;
+		padding: 0.3rem 0.8rem;
+		border: 1px solid $accent;
+		border-radius: 0.3rem;
+		background: $panel;
+		color: $accent;
+		cursor: pointer;
+
+		&:hover {
+			background: $panel-2;
+		}
+	}
+}

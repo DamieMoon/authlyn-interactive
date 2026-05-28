@@ -1,0 +1,32 @@
+@use "tokens" as *;
+
+// ---- auth ----
+.auth-card {
+	max-width: 20rem;
+	margin: 5rem auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	padding: 1.5rem;
+	background: $panel;
+	border: 1px solid $line;
+	border-radius: 0.6rem;
+
+	h1 {
+		margin: 0;
+		font-size: 1.4rem;
+	}
+
+	h2 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 500;
+		color: $muted;
+	}
+
+	a {
+		color: $accent;
+		font-size: 0.85rem;
+		text-decoration: none;
+	}
+}

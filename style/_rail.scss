@@ -1,0 +1,79 @@
+@use "tokens" as *;
+
+.rail {
+	background: #16181d;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.6rem 0;
+	overflow-y: auto;
+
+	.rail-guild {
+		width: 46px;
+		height: 46px;
+		border-radius: 50%;
+		font-weight: 700;
+		text-transform: uppercase;
+		padding: 0;
+
+		&.active {
+			border-color: $accent;
+			box-shadow: 0 0 0 2px $accent;
+			color: $text;
+		}
+	}
+
+	// Personal rail reorder (#17/FB2): each guild button + its ↑/↓ controls.
+	// The controls stay hidden until the wrapper is hovered to keep the rail
+	// clean, then appear below the avatar.
+	.rail-guild-wrap {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.15rem;
+
+		.rail-reorder {
+			display: none;
+			gap: 0.1rem;
+		}
+
+		&:hover .rail-reorder {
+			display: flex;
+		}
+
+		.rail-reorder-btn {
+			padding: 0 0.25rem;
+			border: 1px solid $line;
+			border-radius: 0.25rem;
+			background: $panel;
+			color: $text;
+			cursor: pointer;
+			font-size: 0.6rem;
+			line-height: 1.3;
+
+			&:hover:not(:disabled) {
+				border-color: $accent;
+				color: $accent;
+			}
+
+			&:disabled {
+				opacity: 0.4;
+				cursor: default;
+			}
+		}
+	}
+
+	.rail-add {
+		margin-top: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		width: 60px;
+
+		input {
+			width: 100%;
+			font-size: 0.7rem;
+		}
+	}
+}
