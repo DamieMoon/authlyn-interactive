@@ -119,6 +119,42 @@ pub fn remove_compose_attachment(s: Shell, id: String) {
         .update(|v| v.retain(|a| a.id != id));
 }
 
+/// Copy a message body to the clipboard as raw markup, **stripping color
+/// tokens** so the receiver can re-paste it under their own persona without
+/// dragging the original speaker's palette along. Foxtrot feedback row
+/// 3szov1qgatobhhrc3mf2 / ctx 019e6f23-fcfc.
+///
+/// `navigator.clipboard.writeText` is async and reached via reflection so we
+/// don't pull the `Clipboard` web-sys feature flag just for this. On failure
+/// (no clipboard permission, navigator missing) the status pane surfaces a
+/// short toast; on success it shows "Copied" briefly.
+#[cfg(feature = "hydrate")]
+pub fn copy_message_body(s: Shell, body: String) {
+    use wasm_bindgen::{JsCast, JsValue};
+    use wasm_bindgen_futures::JsFuture;
+    let stripped = crate::markup::strip_color_tokens(&body);
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        let promise = (|| -> Option<js_sys::Promise> {
+            let win = leptos::web_sys::window()?;
+            let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+            let clip = js_sys::Reflect::get(&nav, &JsValue::from_str("clipboard")).ok()?;
+            let write_fn = js_sys::Reflect::get(&clip, &JsValue::from_str("writeText")).ok()?;
+            let func: js_sys::Function = write_fn.dyn_into().ok()?;
+            let arg = JsValue::from_str(&stripped);
+            func.call1(&clip, &arg).ok()?.dyn_into().ok()
+        })();
+        let toast = match promise {
+            Some(p) => match JsFuture::from(p).await {
+                Ok(_) => "Copied",
+                Err(_) => "Couldn't copy — check clipboard permission",
+            },
+            None => "Clipboard unavailable",
+        };
+        s.composer.status.set(toast.to_string());
+    });
+}
+
 // ---- edit / delete / restore ----
 
 /// Edit one of the caller's own messages, then patch `s.msg.messages` in
@@ -749,6 +785,8 @@ pub fn start_sync(s: Shell) {
 
 // ---- ssr stubs ----
 
+#[cfg(not(feature = "hydrate"))]
+pub fn copy_message_body(_s: Shell, _body: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn send_message(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]

@@ -45,6 +45,7 @@ pub(super) fn message_meta(
     let info_m = m.clone();
     let mid = m.id.clone();
     let cid = cid.clone();
+    let copy_body = m.body.clone();
 
     view! {
         <div class="meta">
@@ -52,38 +53,45 @@ pub(super) fn message_meta(
             <button class=who_class title="persona info"
                 on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
             <time class="when">{when}</time>
-            {mine.then(|| {
-                let edit_mid = mid.clone();
-                let del_mid = mid.clone();
-                let del_cid = cid.clone();
-                view! {
-                    <span class="msg-actions">
-                        <button class="row-edit" title="edit"
-                            on:click=move |_| editing_msg.set(Some(edit_mid.clone()))>"✎"</button>
-                        <button class="row-edit" title="delete"
-                            on:click=move |_| {
-                                if let Some(cid) = del_cid.clone() {
-                                    // Message deletes confirm unless the user
-                                    // opted out in account settings; other
-                                    // deletes always confirm.
-                                    if act::confirm_delete_message_enabled() {
-                                        act::ask_delete(
-                                            s,
-                                            "Delete this message? This cannot be undone."
-                                                .to_string(),
-                                            PendingDelete::Message {
-                                                cid,
-                                                mid: del_mid.clone(),
-                                            },
-                                        );
-                                    } else {
-                                        act::delete_message(s, cid, del_mid.clone());
+            // Action row — copy is available on every message (own AND others)
+            // so the markup source can be re-pasted under a different persona;
+            // edit + delete remain own-message only.
+            <span class="msg-actions">
+                <button class="row-edit" title="copy markup (no color)"
+                    on:click=move |_| act::copy_message_body(s, copy_body.clone())>"📋"</button>
+                {mine.then(|| {
+                    let edit_mid = mid.clone();
+                    let del_mid = mid.clone();
+                    let del_cid = cid.clone();
+                    view! {
+                        <>
+                            <button class="row-edit" title="edit"
+                                on:click=move |_| editing_msg.set(Some(edit_mid.clone()))>"✎"</button>
+                            <button class="row-edit" title="delete"
+                                on:click=move |_| {
+                                    if let Some(cid) = del_cid.clone() {
+                                        // Message deletes confirm unless the user
+                                        // opted out in account settings; other
+                                        // deletes always confirm.
+                                        if act::confirm_delete_message_enabled() {
+                                            act::ask_delete(
+                                                s,
+                                                "Delete this message? This cannot be undone."
+                                                    .to_string(),
+                                                PendingDelete::Message {
+                                                    cid,
+                                                    mid: del_mid.clone(),
+                                                },
+                                            );
+                                        } else {
+                                            act::delete_message(s, cid, del_mid.clone());
+                                        }
                                     }
-                                }
-                            }>"🗑"</button>
-                    </span>
-                }
-            })}
+                                }>"🗑"</button>
+                        </>
+                    }
+                })}
+            </span>
         </div>
     }
 }

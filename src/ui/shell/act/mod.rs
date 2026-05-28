@@ -42,10 +42,11 @@ pub use guild::{
 };
 pub use message::{
     accept_friend, add_compose_attachment, add_friend, ask_delete, cancel_delete, confirm_delete,
-    create_lore, delete_lore, delete_message, edit_message, invite_member, load_deleted_channels,
-    load_deleted_messages, load_last_seen, load_muted, patch_lore, remove_compose_attachment,
-    remove_friend, restore_deleted_message, send_message, show_emoji_manager, show_friends,
-    show_members, show_wardrobe, start_sync, swap_lore, toggle_mute,
+    copy_message_body, create_lore, delete_lore, delete_message, edit_message, invite_member,
+    load_deleted_channels, load_deleted_messages, load_last_seen, load_muted, patch_lore,
+    remove_compose_attachment, remove_friend, restore_deleted_message, send_message,
+    show_emoji_manager, show_friends, show_members, show_wardrobe, start_sync, swap_lore,
+    toggle_mute,
 };
 // `load_older` is only reachable through a hydrate-gated branch in `channel`;
 // re-exporting it on ssr fires "unused import" because nothing calls it there.

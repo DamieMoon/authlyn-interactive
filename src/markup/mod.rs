@@ -142,6 +142,69 @@ pub fn parse(input: &str) -> Vec<Node> {
     blocks::parse_blocks(input)
 }
 
+/// Drop `[name]`/`[/name]` color tags from a message body, leaving every other
+/// markup token intact. Used by the per-message "copy as markdown" action so
+/// the copied source can be re-sent under a different persona without
+/// dragging the original speaker's palette choice along (Foxtrot feedback,
+/// ctx 019e6f23-fcfc).
+///
+/// Lenient (see module docs): unknown `[…]` tags pass through unchanged. The
+/// scanner walks UTF-8 boundaries and treats `![alt](url)` images verbatim so
+/// an image whose alt text happens to be a color name (e.g. `![red](u)`)
+/// doesn't get mangled.
+pub fn strip_color_tokens(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        let rest = &input[i..];
+        // Skip past `![alt](url)` images verbatim so `[alt]` inside them
+        // isn't mistaken for a color open.
+        if let Some(len) = image_run_len(rest) {
+            out.push_str(&rest[..len]);
+            i += len;
+            continue;
+        }
+        // Drop a well-formed color open/close tag.
+        if rest.starts_with('[') {
+            if let Some(len) = color_tag_len(rest) {
+                i += len;
+                continue;
+            }
+        }
+        // Otherwise copy one full UTF-8 char (boundary-safe).
+        let ch = rest.chars().next().expect("non-empty rest");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Byte length of a `[name]` or `[/name]` color tag at the start of `rest`,
+/// or `None` if the tag is malformed or names an unknown color.
+fn color_tag_len(rest: &str) -> Option<usize> {
+    if !rest.starts_with('[') {
+        return None;
+    }
+    let close = rest.find(']')?;
+    let inner = &rest[1..close];
+    let name = inner.strip_prefix('/').unwrap_or(inner);
+    Color::from_name(name).map(|_| close + 1)
+}
+
+/// Byte length of a well-formed `![alt](url)` image at the start of `rest`,
+/// or `None` if the syntax is malformed (any malformation falls through to
+/// per-char copying, matching the tokenizer's leniency).
+fn image_run_len(rest: &str) -> Option<usize> {
+    let after_bang = rest.strip_prefix('!')?;
+    let after_open_br = after_bang.strip_prefix('[')?;
+    let close_br = after_open_br.find(']')?;
+    let after_close_br = &after_open_br[close_br + 1..];
+    let in_paren = after_close_br.strip_prefix('(')?;
+    let close_par = in_paren.find(')')?;
+    // '!' + '[' + alt + ']' + '(' + url + ')'
+    Some(1 + 1 + close_br + 1 + 1 + close_par + 1)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -450,5 +513,106 @@ mod tests {
                 Node::Bold(vec![text("secret")]),
             ])]
         );
+    }
+
+    // ---- strip_color_tokens (copy-as-markdown helper, ctx 019e6f23-fcfc) ----
+
+    #[test]
+    fn strip_color_passes_plain_text_through() {
+        assert_eq!(strip_color_tokens("hello world"), "hello world");
+        assert_eq!(strip_color_tokens(""), "");
+    }
+
+    #[test]
+    fn strip_color_drops_matched_open_close_pairs() {
+        assert_eq!(strip_color_tokens("[red]hi[/red]"), "hi");
+        assert_eq!(
+            strip_color_tokens("[blue]calm **and** *steady*[/blue]"),
+            "calm **and** *steady*",
+            "siblings of the color tags survive verbatim"
+        );
+    }
+
+    #[test]
+    fn strip_color_handles_nested_pairs() {
+        assert_eq!(
+            strip_color_tokens("[blue]a [orange]b[/orange] c[/blue]"),
+            "a b c"
+        );
+    }
+
+    #[test]
+    fn strip_color_drops_unmatched_tags_too() {
+        // The renderer is lenient with unmatched tags; the strip helper mirrors
+        // that — drop whatever LOOKS like a color tag and let downstream callers
+        // re-parse the result.
+        assert_eq!(strip_color_tokens("[red]hi"), "hi");
+        assert_eq!(strip_color_tokens("hi[/red]"), "hi");
+    }
+
+    #[test]
+    fn strip_color_preserves_non_color_bracket_runs() {
+        // Unknown-palette tags pass through unchanged (they were going to render
+        // as literal text anyway).
+        assert_eq!(
+            strip_color_tokens("[invalidcolor]x[/invalidcolor]"),
+            "[invalidcolor]x[/invalidcolor]"
+        );
+        assert_eq!(strip_color_tokens("[]empty"), "[]empty");
+        assert_eq!(strip_color_tokens("price [$5]"), "price [$5]");
+        assert_eq!(strip_color_tokens("just a [ bracket"), "just a [ bracket");
+    }
+
+    #[test]
+    fn strip_color_keeps_image_syntax_intact_even_with_color_alt() {
+        // `![alt](url)` with alt = "red" mustn't have its `[red]` chunk
+        // mistaken for a color open and dropped.
+        assert_eq!(strip_color_tokens("![red](u)"), "![red](u)");
+        assert_eq!(
+            strip_color_tokens("![red](u) and [red]actually red[/red]"),
+            "![red](u) and actually red"
+        );
+    }
+
+    #[test]
+    fn strip_color_keeps_other_markup_around_tags() {
+        // Bold/italic/spoiler/code spans are preserved verbatim — only color
+        // brackets disappear.
+        assert_eq!(
+            strip_color_tokens("**bold** *it* `code` ||spoil||"),
+            "**bold** *it* `code` ||spoil||"
+        );
+        assert_eq!(
+            strip_color_tokens("**[red]bold red[/red]**"),
+            "**bold red**"
+        );
+    }
+
+    #[test]
+    fn strip_color_is_utf8_boundary_safe() {
+        // Multibyte chars between tags must not split.
+        assert_eq!(strip_color_tokens("[red]héllo 🦀[/red]"), "héllo 🦀");
+    }
+
+    #[test]
+    fn strip_color_drops_all_eight_palette_names() {
+        // Cover every palette entry — guards against a future name change in
+        // the Color enum desyncing the strip helper.
+        for c in Color::ALL {
+            let name = c.name();
+            let body = format!("[{name}]x[/{name}]");
+            assert_eq!(strip_color_tokens(&body), "x", "{name}");
+        }
+    }
+
+    #[test]
+    fn strip_color_round_trip_through_parse_drops_color_nodes() {
+        // The downstream invariant: after stripping, re-parsing must produce
+        // an AST with no `Node::Color` left anywhere at the top level.
+        let stripped = strip_color_tokens("[red]a[/red] [blue]b[/blue]");
+        let ast = parse(&stripped);
+        for n in &ast {
+            assert!(!matches!(n, Node::Color(_, _)), "found color node: {n:?}");
+        }
     }
 }
