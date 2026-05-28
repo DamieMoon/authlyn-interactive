@@ -39,6 +39,13 @@ pub(crate) struct Selection {
     /// Owner account id of the currently-open server (gates the invite control).
     pub(crate) sel_owner: RwSignal<Option<String>>,
     pub(crate) channels: RwSignal<Vec<ChannelSummary>>,
+    /// Per-guild channel cache: guild id → channels. Populated alongside the
+    /// guild list (via parallel `get_guild`) so the guild rail can show an
+    /// unread badge for ANY guild whose channels carry messages past the
+    /// caller's `last_seen` — not only the currently-open guild. Mirrors
+    /// `channels` for the open guild's entry; the two stay consistent because
+    /// `refresh_lists` writes both.
+    pub(crate) guild_channels: RwSignal<HashMap<String, Vec<ChannelSummary>>>,
     /// Custom emoji of the currently-open guild. Powers the composer picker,
     /// `:`-autocomplete, and `:name:` render resolution via the `EmojiResolver`
     /// context built in `AppShell`.

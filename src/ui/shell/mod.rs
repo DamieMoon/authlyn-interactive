@@ -125,6 +125,7 @@ fn AppShell() -> impl IntoView {
         sel_server: RwSignal::new(None),
         sel_owner: RwSignal::new(None),
         channels: RwSignal::new(Vec::new()),
+        guild_channels: RwSignal::new(HashMap::new()),
         guild_emoji: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
     };
@@ -323,10 +324,12 @@ fn AppShell() -> impl IntoView {
                         let gid = g.id.clone();
                         let initial = monogram(&g.name, '#');
                         let gid_active = gid.clone();
+                        let gid_unread = gid.clone();
                         view! {
                             <div class="rail-guild-wrap">
                                 <button class="rail-guild" title=g.name
                                     class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
+                                    class:unread=move || act::guild_has_unread(s, &gid_unread)
                                     on:click=move |_| act::open_server(s, gid.clone())>
                                     {initial}
                                 </button>

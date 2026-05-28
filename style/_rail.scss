@@ -16,11 +16,28 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		padding: 0;
+		position: relative;
 
 		&.active {
 			border-color: var(--gold);
 			box-shadow: 0 0 0 2px var(--gold);
 			color: var(--ink);
+		}
+
+		// Cross-guild unread badge (feedback grt9ohmw8pj2fi4eqb6h): any text
+		// channel in this guild has messages past the user's last-seen mark.
+		// Mirrors the sidebar `.channel.unread` orange tint with a small dot at
+		// the top-right of the rail circle.
+		&.unread::after {
+			content: "";
+			position: absolute;
+			top: 2px;
+			right: 2px;
+			width: 10px;
+			height: 10px;
+			border-radius: 50%;
+			background: var(--tint-orange);
+			box-shadow: 0 0 6px rgba(238, 161, 96, 0.7);
 		}
 	}
 

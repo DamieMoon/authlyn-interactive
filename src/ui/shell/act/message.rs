@@ -535,11 +535,15 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
     let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
 }
 
-/// Recompute the unread set for the open server's channels (#23). The open
-/// channel is always considered seen (advance its mark to the live cursor);
-/// every other text channel is "unread" iff it has any message past its
-/// last-seen mark. A never-seen channel is baselined to its current latest
-/// (no retroactive glow on first sight). Runs on the ~6s list tick.
+/// Recompute the unread set across EVERY guild the caller belongs to (#23).
+/// The open channel is always considered seen (advance its mark to the live
+/// cursor); every other text channel is "unread" iff it has any message past
+/// its last-seen mark. A never-seen channel is baselined to its current
+/// latest (no retroactive glow on first sight). Runs on the ~6s list tick.
+///
+/// Iterating across all guilds (not only the open one) is what lets the rail
+/// glow a guild button whose unread is in a non-open guild — feedback row
+/// grt9ohmw8pj2fi4eqb6h.
 #[cfg(feature = "hydrate")]
 fn refresh_unread(s: Shell) {
     let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
@@ -551,7 +555,21 @@ fn refresh_unread(s: Shell) {
             u.remove(oc);
         });
     }
-    let channels = s.sel.channels.get_untracked();
+    // Flatten the per-guild channel cache into a single list (cross-guild).
+    // Falls back to the open guild's `s.sel.channels` while the cache is
+    // still warming so the very-first poll tick post-mount still glows the
+    // open server's rows.
+    let channels: Vec<crate::protocol::ChannelSummary> = {
+        let cached: Vec<_> = s
+            .sel
+            .guild_channels
+            .with_untracked(|m| m.values().flat_map(|v| v.iter().cloned()).collect());
+        if cached.is_empty() {
+            s.sel.channels.get_untracked()
+        } else {
+            cached
+        }
+    };
     spawn_local(async move {
         for ch in channels {
             if ch.kind != "text" || Some(&ch.id) == open.as_ref() {
@@ -589,6 +607,22 @@ fn refresh_unread(s: Shell) {
             }
         }
     });
+}
+
+/// True iff any text channel in the given guild is in `notify.unread`. Pure
+/// projection over `guild_channels` + `notify.unread`; called per rail button
+/// from a reactive closure so the badge tracks both signals.
+#[cfg(feature = "hydrate")]
+pub fn guild_has_unread(s: Shell, gid: &str) -> bool {
+    let channels = s.sel.guild_channels.with(|m| m.get(gid).cloned());
+    let Some(channels) = channels else {
+        return false;
+    };
+    s.notify.unread.with(|u| {
+        channels
+            .iter()
+            .any(|c| c.kind == "text" && u.contains(&c.id))
+    })
 }
 
 /// Toggle mute for a channel: flip the reactive set + persist. A click is a
@@ -647,9 +681,15 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
     s.msg.messages.set(fresh);
 }
 
-/// In-place refresh of the guild rail, the open server's channels, and the
+/// In-place refresh of the guild rail, every guild's channel list, and the
 /// friends list — each written only when it changed, so things created or
 /// removed elsewhere appear/disappear without a manual reload.
+///
+/// Fetches every guild's channels in parallel (cross-guild unread badges in
+/// the rail need to know which channels live where — feedback row
+/// grt9ohmw8pj2fi4eqb6h). The open guild's channels mirror into `s.sel.channels`
+/// so the sidebar/channel-list selector keeps its single-source-of-truth.
+/// Vanished guilds (left/deleted) are pruned from the per-guild cache.
 #[cfg(feature = "hydrate")]
 fn refresh_lists(s: Shell) {
     let sel = s.sel.sel_server.get_untracked();
@@ -664,10 +704,35 @@ fn refresh_lists(s: Shell) {
                 s.social.friends.set(f);
             }
         }
+        // Cross-guild channel cache: pull every guild's channels in parallel.
+        // Cost is bounded by guild count (single-deployment, single-user) and
+        // amortizes against the existing 4-tick poll cadence (~6s).
+        let gids: Vec<String> = s
+            .sel
+            .guilds
+            .with_untracked(|g| g.iter().map(|g| g.id.clone()).collect());
+        let details = futures_util::future::join_all(
+            gids.iter()
+                .map(|gid| api::get_guild(gid))
+                .collect::<Vec<_>>(),
+        )
+        .await;
+        let mut next: std::collections::HashMap<String, Vec<crate::protocol::ChannelSummary>> =
+            std::collections::HashMap::with_capacity(gids.len());
+        for (gid, r) in gids.iter().zip(details) {
+            if let Ok(d) = r {
+                next.insert(gid.clone(), d.channels);
+            }
+        }
+        // Only rewrite if something actually changed (avoid a needless
+        // re-render of every rail badge each tick).
+        if s.sel.guild_channels.with_untracked(|cur| *cur != next) {
+            s.sel.guild_channels.set(next.clone());
+        }
         if let Some(gid) = sel {
-            if let Ok(d) = api::get_guild(&gid).await {
-                if s.sel.channels.with_untracked(|c| *c != d.channels) {
-                    s.sel.channels.set(d.channels);
+            if let Some(channels) = next.get(&gid) {
+                if s.sel.channels.with_untracked(|c| *c != *channels) {
+                    s.sel.channels.set(channels.clone());
                 }
             }
         }
@@ -787,6 +852,10 @@ pub fn start_sync(s: Shell) {
 
 #[cfg(not(feature = "hydrate"))]
 pub fn copy_message_body(_s: Shell, _body: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn guild_has_unread(_s: Shell, _gid: &str) -> bool {
+    false
+}
 #[cfg(not(feature = "hydrate"))]
 pub fn send_message(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
