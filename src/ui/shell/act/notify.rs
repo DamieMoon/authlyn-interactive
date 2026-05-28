@@ -1,0 +1,327 @@
+//! Web Notifications + Web Push, driven almost entirely by reflection
+//! (`Reflect::get` + `Function::call`) so no extra web-sys features are needed
+//! and every step is fallible-swallowed. The full surface is documented at
+//! each function, but the cardinal rules are:
+//!
+//! - `notifications_available()` is a feature-detect via `Reflect`; iOS Safari
+//!   outside an installed PWA has no `Notification` global at all, and *touching*
+//!   `Notification::permission()` there traps the WASM. ALL paths gate on this.
+//! - `request_notify_permission()` only fires its async `subscribe` from a user
+//!   gesture (send / mute click) so iOS' gesture-bound subscribe is satisfied.
+//! - `show_notification()` prefers the service-worker `registration.showNotification()`
+//!   path for installed-PWA standalone display mode, falling back to the
+//!   `new Notification()` constructor for a plain tab.
+//! - `notify_messages()` is the poll-loop hook; it never notifies for the
+//!   user's own messages (`s.me` filter) or when the tab is foregrounded or
+//!   when the channel is muted.
+
+#[cfg(feature = "hydrate")]
+use super::super::Shell;
+#[cfg(feature = "hydrate")]
+use crate::client::api;
+#[cfg(feature = "hydrate")]
+use crate::protocol::{ChannelSummary, MessageEnvelope};
+#[cfg(feature = "hydrate")]
+use leptos::prelude::*;
+#[cfg(feature = "hydrate")]
+use leptos::task::spawn_local;
+
+/// True only when `window.Notification` actually exists. iOS Safari outside
+/// an installed PWA has no `Notification` global at all, and *touching*
+/// `web_sys::Notification::permission()` there traps the WASM (the binding
+/// dereferences an undefined global). Feature-detect via reflection first so
+/// the whole notification path can never throw / abort the send-receive flow.
+#[cfg(feature = "hydrate")]
+fn notifications_available() -> bool {
+    let Some(win) = leptos::web_sys::window() else {
+        return false;
+    };
+    match js_sys::Reflect::get(&win, &wasm_bindgen::JsValue::from_str("Notification")) {
+        Ok(v) => !v.is_undefined() && !v.is_null(),
+        Err(_) => false,
+    }
+}
+
+/// Ask for Web Notification permission if undecided, and once it is (or
+/// already is) granted, register a Web Push subscription so notifications
+/// arrive even when the PWA is backgrounded/closed (#30). Must run from a
+/// user gesture — `request_permission` is gesture-bound, and on iOS the
+/// subscribe that follows it is too, so both ride the same tap. No-ops
+/// (never throws) where the API is missing — e.g. iOS Safari outside an
+/// installed PWA.
+#[cfg(feature = "hydrate")]
+pub(super) fn request_notify_permission() {
+    use leptos::web_sys::{Notification, NotificationPermission};
+    if !notifications_available() {
+        return;
+    }
+    match Notification::permission() {
+        NotificationPermission::Default => {
+            // Ask; subscribe only after the user actually grants.
+            if let Ok(promise) = Notification::request_permission() {
+                spawn_local(async move {
+                    if let Ok(v) = wasm_bindgen_futures::JsFuture::from(promise).await {
+                        if v.as_string().as_deref() == Some("granted") {
+                            ensure_push_subscription().await;
+                        }
+                    }
+                });
+            }
+        }
+        NotificationPermission::Granted => {
+            // Already granted (a prior session, or the first send/mute after
+            // push shipped): make sure a subscription exists. Idempotent —
+            // getSubscription() short-circuits if we already have one. Runs
+            // from this gesture, so iOS is satisfied.
+            spawn_local(async move {
+                ensure_push_subscription().await;
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Ensure this browser has a Web Push subscription registered with the
+/// server. Idempotent: reuses an existing subscription, else subscribes
+/// using the server's VAPID public key and POSTs the result. Entirely
+/// reflection-driven (no extra web-sys features) and all-or-nothing — any
+/// missing API (no `serviceWorker`, no `pushManager`, e.g. iOS Safari
+/// outside an installed PWA) just makes it a silent no-op. Call only after
+/// Notification permission is granted.
+#[cfg(feature = "hydrate")]
+async fn ensure_push_subscription() {
+    use wasm_bindgen::{JsCast, JsValue};
+    use wasm_bindgen_futures::JsFuture;
+
+    let _ = async {
+        let win = leptos::web_sys::window()?;
+        let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+        let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+        if sw.is_undefined() || sw.is_null() {
+            return None;
+        }
+        // navigator.serviceWorker.ready : Promise<ServiceWorkerRegistration>
+        let ready: js_sys::Promise = js_sys::Reflect::get(&sw, &JsValue::from_str("ready"))
+            .ok()?
+            .dyn_into()
+            .ok()?;
+        let reg = JsFuture::from(ready).await.ok()?;
+        let pm = js_sys::Reflect::get(&reg, &JsValue::from_str("pushManager")).ok()?;
+        if pm.is_undefined() || pm.is_null() {
+            return None; // no Push API (e.g. iOS Safari outside an installed PWA)
+        }
+
+        // Reuse an existing subscription if the browser already has one.
+        let get_sub: js_sys::Function =
+            js_sys::Reflect::get(&pm, &JsValue::from_str("getSubscription"))
+                .ok()?
+                .dyn_into()
+                .ok()?;
+        let existing = JsFuture::from(
+            get_sub
+                .call0(&pm)
+                .ok()?
+                .dyn_into::<js_sys::Promise>()
+                .ok()?,
+        )
+        .await
+        .ok()?;
+
+        let subscription = if existing.is_null() || existing.is_undefined() {
+            // Fresh subscribe: needs the server's VAPID public key as a
+            // Uint8Array applicationServerKey (a base64url string fails on iOS).
+            let key_b64 = api::push_vapid_key().await.ok()?.key;
+            let key_bytes = base64url_to_bytes(&key_b64)?;
+            let key_arr = js_sys::Uint8Array::from(key_bytes.as_slice());
+
+            let opts = js_sys::Object::new();
+            js_sys::Reflect::set(&opts, &JsValue::from_str("userVisibleOnly"), &JsValue::TRUE)
+                .ok()?;
+            js_sys::Reflect::set(&opts, &JsValue::from_str("applicationServerKey"), &key_arr)
+                .ok()?;
+
+            let subscribe: js_sys::Function =
+                js_sys::Reflect::get(&pm, &JsValue::from_str("subscribe"))
+                    .ok()?
+                    .dyn_into()
+                    .ok()?;
+            let p: js_sys::Promise = subscribe.call1(&pm, &opts).ok()?.dyn_into().ok()?;
+            JsFuture::from(p).await.ok()?
+        } else {
+            existing
+        };
+
+        // subscription.toJSON() -> { endpoint, keys: { p256dh, auth } }
+        let to_json: js_sys::Function =
+            js_sys::Reflect::get(&subscription, &JsValue::from_str("toJSON"))
+                .ok()?
+                .dyn_into()
+                .ok()?;
+        let json = to_json.call0(&subscription).ok()?;
+        let endpoint = js_sys::Reflect::get(&json, &JsValue::from_str("endpoint"))
+            .ok()?
+            .as_string()?;
+        let keys = js_sys::Reflect::get(&json, &JsValue::from_str("keys")).ok()?;
+        let p256dh = js_sys::Reflect::get(&keys, &JsValue::from_str("p256dh"))
+            .ok()?
+            .as_string()?;
+        let auth = js_sys::Reflect::get(&keys, &JsValue::from_str("auth"))
+            .ok()?
+            .as_string()?;
+
+        api::push_subscribe(&crate::protocol::PushSubscribeRequest {
+            endpoint,
+            keys: crate::protocol::PushSubscriptionKeys { p256dh, auth },
+        })
+        .await
+        .ok()?;
+        Some(())
+    }
+    .await;
+}
+
+/// Decode a base64url-unpadded string (the VAPID public key) to bytes.
+#[cfg(feature = "hydrate")]
+fn base64url_to_bytes(s: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(s)
+        .ok()
+}
+
+/// Show `title` as a notification, preferring the service-worker
+/// `registration.showNotification()` path so it works when the app runs as
+/// an installed PWA (standalone display mode), where the `new Notification()`
+/// constructor is unavailable / throws. Falls back to the constructor for a
+/// plain browser tab. Every step is fallible and swallowed: this function
+/// must never throw and never block the caller (a notification failure must
+/// not break message send/receive).
+#[cfg(feature = "hydrate")]
+fn show_notification(title: &str) {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    // SW path: navigator.serviceWorker.ready -> reg.showNotification(title).
+    // Driven entirely by reflection (`Reflect::get` + `Function::call`) so
+    // it needs no extra web-sys features (no Navigator / ServiceWorker*
+    // bindings) and any missing member just yields `None` -> silent
+    // fallback. The promise is chained with `.then(onFulfilled, onRejected)`
+    // so a rejected `ready`/`showNotification` is swallowed too.
+    let sw_dispatched = (|| -> Option<()> {
+        let win = leptos::web_sys::window()?;
+        // `window.navigator` by reflection (the Navigator web-sys feature
+        // isn't enabled in this build).
+        let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+        let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+        if sw.is_undefined() || sw.is_null() {
+            return None;
+        }
+        let ready = js_sys::Reflect::get(&sw, &JsValue::from_str("ready")).ok()?;
+        let ready: js_sys::Promise = ready.dyn_into().ok()?;
+        let title = title.to_owned();
+        // `reg.showNotification(title)` once the registration resolves.
+        let on_ready = Closure::once_into_js(move |reg: JsValue| {
+            let _ = (|| -> Option<()> {
+                let show =
+                    js_sys::Reflect::get(&reg, &JsValue::from_str("showNotification")).ok()?;
+                let show: js_sys::Function = show.dyn_into().ok()?;
+                // Returns a Promise; swallow a rejection so it never
+                // surfaces as an unhandled rejection.
+                let p = show.call1(&reg, &JsValue::from_str(&title)).ok()?;
+                if let Ok(p) = p.dyn_into::<js_sys::Promise>() {
+                    let noop = js_sys::Function::new_no_args("");
+                    let _ = then_via_reflect(&p, &on_ready_noop(), &noop);
+                }
+                Some(())
+            })();
+        });
+        let on_ready: js_sys::Function = on_ready.dyn_into().ok()?;
+        let noop = js_sys::Function::new_no_args("");
+        // `ready.then(on_ready, noop)` — invoked reflectively so we pass
+        // plain `Function`s instead of typed wasm-bindgen `Closure`s.
+        then_via_reflect(&ready, &on_ready, &noop)?;
+        Some(())
+    })();
+
+    if sw_dispatched.is_some() {
+        return;
+    }
+
+    // Fallback: plain browser tab. Guard so a throwing constructor (some
+    // standalone contexts) can't propagate.
+    if notifications_available() {
+        let _ = leptos::web_sys::Notification::new(title);
+    }
+}
+
+/// A no-op fulfilment callback for the inner `showNotification` promise.
+#[cfg(feature = "hydrate")]
+fn on_ready_noop() -> js_sys::Function {
+    js_sys::Function::new_no_args("")
+}
+
+/// Call `promise.then(on_fulfilled, on_rejected)` via reflection so the
+/// callbacks can be plain `js_sys::Function`s. Returns `None` if `then`
+/// is missing or the call traps. Never throws.
+#[cfg(feature = "hydrate")]
+fn then_via_reflect(
+    promise: &js_sys::Promise,
+    on_fulfilled: &js_sys::Function,
+    on_rejected: &js_sys::Function,
+) -> Option<()> {
+    use wasm_bindgen::JsCast;
+    let then = js_sys::Reflect::get(promise, &wasm_bindgen::JsValue::from_str("then")).ok()?;
+    let then: js_sys::Function = then.dyn_into().ok()?;
+    then.call2(promise, on_fulfilled, on_rejected).ok()?;
+    Some(())
+}
+
+/// True when the tab/PWA is backgrounded (so the user would miss messages).
+#[cfg(feature = "hydrate")]
+fn tab_hidden() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .map(|d| d.hidden())
+        .unwrap_or(false)
+}
+
+/// Fire a Web Notification for new messages in `ch` — but only when the tab
+/// is backgrounded (you'd see them otherwise), the channel isn't muted, and
+/// permission was granted. Title-only to keep the web-sys surface minimal.
+#[cfg(feature = "hydrate")]
+pub(super) fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnvelope]) {
+    use leptos::web_sys::{Notification, NotificationPermission};
+    // FB10b: never locally notify for the user's OWN messages (server
+    // web-push already excludes the author; this is the client `Notification`).
+    let me = s.me.get_untracked();
+    let fresh: Vec<&MessageEnvelope> = fresh
+        .iter()
+        .filter(|m| me.as_deref() != Some(m.author_id.as_str()))
+        .collect();
+    if fresh.is_empty() || !tab_hidden() {
+        return;
+    }
+    if s.muted.with_untracked(|m| m.contains(&ch.id)) {
+        return;
+    }
+    // Feature-detect before reading permission: on iOS Safari outside an
+    // installed PWA the Notification global is absent and the permission
+    // read itself would trap.
+    if !notifications_available() {
+        return;
+    }
+    if Notification::permission() != NotificationPermission::Granted {
+        return;
+    }
+    let title = if fresh.len() > 1 {
+        format!("{} new messages in #{}", fresh.len(), ch.name)
+    } else {
+        let last = &fresh[0];
+        let who = last
+            .persona_name
+            .clone()
+            .unwrap_or_else(|| last.author_display.clone());
+        format!("{who} in #{}", ch.name)
+    };
+    show_notification(&title);
+}

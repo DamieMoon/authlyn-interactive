@@ -1,0 +1,310 @@
+//! Channel actions: open (incl. deep link + session restore), create/rename/
+//! delete/swap/restore. Cross-calls: `open_channel_at` dispatches into
+//! [`super::message`] for the per-channel sync setup; channel reorders defer to
+//! [`super::guild::open_server`] for the post-reorder reload.
+
+use super::super::Shell;
+use crate::protocol::ChannelSummary;
+
+#[cfg(feature = "hydrate")]
+use super::guild::{KEY_CHANNEL, KEY_SERVER};
+#[cfg(feature = "hydrate")]
+use crate::client::api;
+#[cfg(feature = "hydrate")]
+use gloo_storage::{LocalStorage, Storage};
+#[cfg(feature = "hydrate")]
+use leptos::prelude::*;
+#[cfg(feature = "hydrate")]
+use leptos::task::spawn_local;
+
+#[cfg(feature = "hydrate")]
+pub fn open_channel(s: Shell, ch: ChannelSummary) {
+    open_channel_at(s, ch, None);
+}
+
+/// Like [`open_channel`] but, after the first page loads, asks the scroll
+/// Effect to bring message `anchor` into view — for the notification
+/// deep-link. The jump only lands if the target is on the newest page.
+#[cfg(feature = "hydrate")]
+pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
+    use super::super::Pane;
+    let cid = ch.id.clone();
+    let kind = ch.kind.clone();
+    // Re-opening the channel you're already on (e.g. returning from the
+    // Wardrobe pane) must NOT reset the worn persona from the server — a
+    // just-worn value could be clobbered by a stale read before its write
+    // commits. Only adopt the server's remembered persona when SWITCHING
+    // to a different channel.
+    let same_channel = s.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
+    let _ = LocalStorage::set(KEY_CHANNEL, &cid);
+    s.sel_channel.set(Some(ch));
+    if kind == "lorebook" {
+        s.pane.set(Pane::Lorebook);
+        super::message::load_lore(s, cid);
+    } else {
+        s.pane.set(Pane::Channel);
+        s.messages.set(Vec::new());
+        s.cursor.set(None);
+        s.oldest.set(None);
+        s.loading_older.set(false);
+        s.more_history.set(true);
+        s.anchor_to.set(None);
+        s.seen.update(|h| h.clear());
+        // Drop the previous channel's typing indicator at once; the poll
+        // repopulates it from the new channel's response.
+        s.typing.set(Vec::new());
+        // Opening clears the unread glow at once; the high-water mark
+        // advances once messages load below.
+        s.unread.update(|u| {
+            u.remove(&cid);
+        });
+        super::message::start_poll(s);
+        let seen_cid = cid.clone();
+        spawn_local(async move {
+            if let Ok(l) = api::list_messages(&cid, None).await {
+                // The initial page is the NEWEST messages (ASC); remember the
+                // oldest of it as the scroll-up cursor, and whether a full page
+                // came back (i.e. older history may exist).
+                let oldest = l
+                    .messages
+                    .first()
+                    .map(|m| (m.sent_at.clone(), m.id.clone()));
+                let full_page = l.messages.len() == super::message::MESSAGES_PAGE_LIMIT;
+                // The worn persona is per-channel: restore this channel's
+                // remembered value (or None = speak as account) when SWITCHING
+                // channels; preserve a just-worn value on same-channel re-open.
+                if !same_channel {
+                    s.active_persona.set(l.active_persona);
+                }
+                super::message::ingest(s, l.messages);
+                s.oldest.set(oldest);
+                s.more_history.set(full_page);
+                // Deep-link: now the page is in the DOM, ask the scroll
+                // Effect to bring the notified message into view.
+                if let Some(mid) = anchor {
+                    s.anchor_to.set(Some(mid));
+                }
+                if let Some(cur) = s.cursor.get_untracked() {
+                    super::message::set_last_seen(s, &seen_cid, cur);
+                }
+            }
+        });
+    }
+}
+
+/// Open a channel from a notification deep-link: fetch its guild, select
+/// it, then open the channel and (via `open_channel_at`) jump to the
+/// notified message. Mirrors `restore_session`'s guild→channel resolution.
+#[cfg(feature = "hydrate")]
+pub fn open_deep_link(s: Shell, gid: String, cid: String, message: Option<String>) {
+    spawn_local(async move {
+        let Ok(d) = api::get_guild(&gid).await else {
+            return;
+        };
+        let _ = LocalStorage::set(KEY_SERVER, &gid);
+        s.sel_server.set(Some(gid.clone()));
+        s.sel_owner.set(Some(d.owner_id.clone()));
+        s.channels.set(d.channels.clone());
+        super::emoji::refresh_guild_emoji(s, gid.clone());
+        if let Some(ch) = d.channels.iter().find(|c| c.id == cid).cloned() {
+            open_channel_at(s, ch, message);
+        }
+    });
+}
+
+/// Restore the last server / channel / worn persona from localStorage.
+///
+/// Runs after `refresh_guilds` on mount. Returns `true` if a server was
+/// restored, so the caller can leave the Friends pane as the default only
+/// when there was nothing to restore. The whole restore is one spawned task
+/// so it never races the default `open_server` path (it doesn't call it):
+/// it fetches the guild itself, sets `sel_owner` + `channels`, then opens
+/// the *specific* stored channel (falling back to the first text channel,
+/// then any channel) via the existing `open_channel`.
+#[cfg(feature = "hydrate")]
+pub fn restore_session(s: Shell) -> bool {
+    let Ok(gid) = LocalStorage::get::<String>(KEY_SERVER) else {
+        return false;
+    };
+    let stored_channel = LocalStorage::get::<String>(KEY_CHANNEL).ok();
+
+    spawn_local(async move {
+        let Ok(d) = api::get_guild(&gid).await else {
+            // The stored server is gone — drop the stale keys and bail.
+            LocalStorage::delete(KEY_SERVER);
+            LocalStorage::delete(KEY_CHANNEL);
+            return;
+        };
+        s.sel_server.set(Some(gid.clone()));
+        s.sel_owner.set(Some(d.owner_id.clone()));
+        s.channels.set(d.channels.clone());
+        super::emoji::refresh_guild_emoji(s, gid.clone());
+
+        // Prefer the stored channel; fall back to the first text channel,
+        // then to the first channel of any kind (matches `open_server`).
+        let target = stored_channel
+            .as_deref()
+            .and_then(|cid| d.channels.iter().find(|c| c.id == cid))
+            .or_else(|| d.channels.iter().find(|c| c.kind == "text"))
+            .or_else(|| d.channels.first())
+            .cloned();
+        // The worn persona is per-channel now — `open_channel` restores it
+        // from the channel's `list_messages` response, so no global restore.
+        if let Some(ch) = target {
+            open_channel(s, ch);
+        }
+    });
+    true
+}
+
+#[cfg(feature = "hydrate")]
+pub fn create_channel(s: Shell, name: String) {
+    let Some(gid) = s.sel_server.get_untracked() else {
+        return;
+    };
+    if name.trim().is_empty() {
+        return;
+    }
+    spawn_local(async move {
+        match api::create_channel(&gid, &name, "text").await {
+            Ok(_) => super::guild::open_server(s, gid),
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+#[cfg(feature = "hydrate")]
+pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    spawn_local(async move {
+        match api::patch_channel(&gid, &cid, &name).await {
+            Ok(()) => {
+                s.channels.update(|cs| {
+                    if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
+                        c.name = name.clone();
+                    }
+                });
+                s.sel_channel.update(|sc| {
+                    if let Some(c) = sc {
+                        if c.id == cid {
+                            c.name = name.clone();
+                        }
+                    }
+                });
+            }
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+/// Delete a channel (owner only). On success, clear the selection if it was
+/// the open channel and reload the server so the sidebar drops the dead row.
+#[cfg(feature = "hydrate")]
+pub fn delete_channel(s: Shell, gid: String, cid: String) {
+    use super::super::Pane;
+    s.status.set(String::new());
+    spawn_local(async move {
+        match api::delete_channel(&gid, &cid).await {
+            Ok(()) => {
+                if s.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str()) {
+                    s.sel_channel.set(None);
+                    s.pane.set(Pane::Friends);
+                }
+                super::guild::open_server(s, gid);
+            }
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+/// Reorder a channel within the open guild's sidebar list. `idx` indexes
+/// `s.channels` (already position-sorted from the server). We swap it with
+/// its neighbor, renumber the whole list to its array index, and PATCH every
+/// channel whose `position` changed. Renumbering (rather than swapping two
+/// values) keeps the list gap-free and stable even though existing channels
+/// all start at position 0. Mirrors `swap_persona`. Owner-gated in the UI.
+#[cfg(feature = "hydrate")]
+pub fn swap_channel(s: Shell, idx: usize, up: bool) {
+    let Some(gid) = s.sel_server.get_untracked() else {
+        return;
+    };
+    let mut list = s.channels.get_untracked();
+    let other = if up {
+        if idx == 0 {
+            return;
+        }
+        idx - 1
+    } else {
+        if idx + 1 >= list.len() {
+            return;
+        }
+        idx + 1
+    };
+    list.swap(idx, other);
+    // Optimistic local reorder so the sidebar updates immediately; the
+    // server reload after the PATCHes confirms it.
+    s.channels.set(list.clone());
+    // Persist each channel whose stored position no longer matches its index.
+    let patches: Vec<(String, i64)> = list
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| c.position != *i as i64)
+        .map(|(i, c)| (c.id.clone(), i as i64))
+        .collect();
+    if patches.is_empty() {
+        return;
+    }
+    spawn_local(async move {
+        for (cid, pos) in patches {
+            if let Err(e) = api::set_channel_position(&gid, &cid, pos).await {
+                s.status.set(api::humanize(&e));
+                break;
+            }
+        }
+        super::guild::open_server(s, gid);
+    });
+}
+
+/// Restore a soft-deleted channel (owner/admin). On success, reload the
+/// server so the channel reappears in the sidebar, and refresh the deleted list.
+#[cfg(feature = "hydrate")]
+pub fn restore_channel(s: Shell, gid: String, cid: String) {
+    spawn_local(async move {
+        match api::restore_channel(&gid, &cid).await {
+            Ok(()) => {
+                super::message::load_deleted_channels(s, gid.clone());
+                super::guild::open_server(s, gid);
+            }
+            Err(e) => s.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+// ---- ssr stubs (allow dead_code: some are only reached via hydrate-gated view
+// branches; the unconditional `pub use` in act/mod.rs needs them to exist) ----
+
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn open_channel_at(_s: Shell, _ch: ChannelSummary, _anchor: Option<String>) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn open_deep_link(_s: Shell, _gid: String, _cid: String, _message: Option<String>) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn restore_session(_s: Shell) -> bool {
+    false
+}
+#[cfg(not(feature = "hydrate"))]
+pub fn create_channel(_s: Shell, _name: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn delete_channel(_s: Shell, _gid: String, _cid: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn swap_channel(_s: Shell, _idx: usize, _up: bool) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn restore_channel(_s: Shell, _gid: String, _cid: String) {}
