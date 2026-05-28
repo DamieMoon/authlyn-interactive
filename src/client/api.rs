@@ -13,9 +13,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::protocol::{
-    AddGalleryImageRequest, AddGalleryImageResponse, AdminResetPasswordRequest, AuthResponse,
-    ChangePasswordRequest, ChannelListResponse, ChannelSummary, ConfirmResetRequest,
-    CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
+    AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
+    AddGalleryImagesBatchResponse, AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest,
+    ChannelListResponse, ChannelSummary, ConfirmResetRequest, CreateChannelRequest,
+    CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
     CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListEmojiResponse,
     ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
@@ -521,6 +522,24 @@ pub async fn add_gallery_image(
         &format!("/personas/{pid}/gallery"),
         &AddGalleryImageRequest {
             media_id: media_id.to_string(),
+        },
+    )
+    .await
+}
+
+/// POST /api/personas/{id}/gallery/batch — atomically append multiple media_ids
+/// to a persona's gallery. Single SurrealDB transaction: all inserts succeed or
+/// the whole batch fails. The returned `ids` are in the same order as the input
+/// `media_ids`, so the client can correlate each new gallery row with the
+/// media id it asked for.
+pub async fn upload_gallery_images_batch(
+    pid: &str,
+    media_ids: &[String],
+) -> Result<AddGalleryImagesBatchResponse, ApiError> {
+    post_json(
+        &format!("/personas/{pid}/gallery/batch"),
+        &AddGalleryImagesBatchRequest {
+            media_ids: media_ids.to_vec(),
         },
     )
     .await

@@ -39,29 +39,96 @@ fn load_gallery(s: Shell, pid: String, gallery: RwSignal<Vec<GalleryImage>>) {
 #[cfg(not(feature = "hydrate"))]
 fn load_gallery(_s: Shell, _pid: String, _gallery: RwSignal<Vec<GalleryImage>>) {}
 
-/// Upload a file and append it to the persona's gallery, then reload the
-/// gallery so the new thumbnail appears.
+/// Max gallery images per batch upload (matches the composer's
+/// `COMPOSER_MAX_ATTACHMENTS` and the server-side persona-gallery batch sanity
+/// ceiling). Drop files past this on the client so the user gets a clean toast
+/// instead of an upload-then-server-reject roundtrip.
 #[cfg(feature = "hydrate")]
-fn add_gallery_image(
+const GALLERY_BATCH_MAX: usize = 100;
+
+/// A picked/pasted gallery file in flight — drives the optimistic upload-in-
+/// progress placeholder rendered alongside the loaded gallery thumbnails.
+#[cfg(feature = "hydrate")]
+#[derive(Clone)]
+struct PendingGalleryUpload {
+    file_name: String,
+}
+
+/// Multi-file gallery upload: client-cap, parallel `upload_media`, then the
+/// batch endpoint, then reload the gallery. Shared by the file-picker
+/// `on:change` and the `on:paste` handler (B4) so paste is genuinely a thin
+/// addition.
+///
+/// On per-file `upload_media` failure: toast the filename and skip that media
+/// id (the rest of the batch still ships). On the final `upload_gallery_images_batch`
+/// failure: keep the pending state intact (the upload-in-progress placeholders
+/// stay visible) so the user sees the batch did NOT take and can retry.
+#[cfg(feature = "hydrate")]
+fn gallery_multi_upload(
     s: Shell,
     pid: String,
-    file: web_sys::File,
+    files: Vec<web_sys::File>,
+    pending: RwSignal<Vec<PendingGalleryUpload>>,
     gallery: RwSignal<Vec<GalleryImage>>,
 ) {
     use crate::client::api;
     use leptos::task::spawn_local;
-    s.composer.status.set(String::new());
+    if files.is_empty() {
+        return;
+    }
+    // Client cap — same shape as the composer (W7/B1-client).
+    let overflowed = files.len() > GALLERY_BATCH_MAX;
+    let files: Vec<web_sys::File> = files.into_iter().take(GALLERY_BATCH_MAX).collect();
+    if overflowed {
+        s.composer
+            .status
+            .set(format!("Gallery batch limit ({GALLERY_BATCH_MAX}) reached"));
+    } else {
+        s.composer.status.set(String::new());
+    }
+    // Optimistic placeholders: one per accepted file. Cleared on success;
+    // retained on batch failure so the user knows the batch didn't ship.
+    let placeholders: Vec<PendingGalleryUpload> = files
+        .iter()
+        .map(|f| PendingGalleryUpload {
+            file_name: f.name(),
+        })
+        .collect();
+    pending.update(|v| v.extend(placeholders));
     spawn_local(async move {
-        let media_id = match api::upload_media(&file).await {
-            Ok(id) => id,
-            Err(e) => {
-                s.composer.status.set(api::humanize(&e));
-                return;
+        // Parallel uploads — `upload_media` is async, so collecting the futures
+        // and `join_all`-ing yields concurrent multipart POSTs without losing
+        // input order in the result vector.
+        let names: Vec<String> = files.iter().map(|f| f.name()).collect();
+        let uploads = files.iter().map(api::upload_media).collect::<Vec<_>>();
+        let results = futures_util::future::join_all(uploads).await;
+        let mut media_ids: Vec<String> = Vec::with_capacity(results.len());
+        for (name, res) in names.iter().zip(results) {
+            match res {
+                Ok(id) => media_ids.push(id),
+                Err(e) => {
+                    // Per-file failure: toast the filename + reason. The rest
+                    // of the batch still ships (best-effort).
+                    s.composer
+                        .status
+                        .set(format!("Upload failed: {name} — {}", api::humanize(&e)));
+                }
             }
-        };
-        match api::add_gallery_image(&pid, &media_id).await {
-            Ok(_) => load_gallery(s, pid, gallery),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+        if media_ids.is_empty() {
+            // Nothing to commit; drop the placeholders so they don't linger.
+            pending.set(Vec::new());
+            return;
+        }
+        match api::upload_gallery_images_batch(&pid, &media_ids).await {
+            Ok(_) => {
+                pending.set(Vec::new());
+                load_gallery(s, pid, gallery);
+            }
+            Err(e) => {
+                // Keep placeholders so the user can retry; surface the batch error.
+                s.composer.status.set(api::humanize(&e));
+            }
         }
     });
 }
@@ -71,7 +138,7 @@ fn add_gallery_image(
 // never referenced — keep it for signature parity and silence dead_code.
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
-fn add_gallery_image(_s: Shell, _pid: String, _gallery: RwSignal<Vec<GalleryImage>>) {}
+fn gallery_multi_upload(_s: Shell, _pid: String, _gallery: RwSignal<Vec<GalleryImage>>) {}
 
 /// Remove a gallery image, then reload the gallery.
 #[cfg(feature = "hydrate")]
@@ -379,6 +446,11 @@ fn PersonaDetail(
     // The persona's gallery, loaded on mount; re-loaded after add/remove.
     let gallery = RwSignal::new(Vec::<GalleryImage>::new());
     load_gallery(s, pid.clone(), gallery);
+    // Component-scoped (no shell-wide state needed): files awaiting batch
+    // commit, rendered as skeleton thumbnails alongside the loaded gallery.
+    // Lives next to `gallery` since it shares the same lifetime + reload edge.
+    #[cfg(feature = "hydrate")]
+    let gallery_pending = RwSignal::new(Vec::<PendingGalleryUpload>::new());
     // A gallery image awaiting a remove confirmation (its id), if any. Local to
     // the editor — the shell-wide `PendingDelete` flow is owned elsewhere, so a
     // gallery thumbnail confirms inline.
@@ -480,11 +552,35 @@ fn PersonaDetail(
                             }
                         }).collect_view().into_any()
                     }}
+                    // Optimistic upload-in-progress placeholders (W7/B3): one
+                    // skeleton thumb per file mid-flight. Cleared on batch
+                    // success; retained on batch failure so the user knows the
+                    // commit didn't take.
+                    {
+                        #[cfg(feature = "hydrate")]
+                        {
+                            view! {
+                                {move || {
+                                    gallery_pending.get().into_iter().map(|p| view! {
+                                        <div class="gallery-thumb gallery-thumb-pending"
+                                            title={
+                                                let n = p.file_name.clone();
+                                                move || format!("Uploading {n}…")
+                                            }>
+                                            <div class="gallery-pending-skeleton"></div>
+                                        </div>
+                                    }).collect_view()
+                                }}
+                            }.into_any()
+                        }
+                        #[cfg(not(feature = "hydrate"))]
+                        { ().into_any() }
+                    }
                 </div>
             </div>
             <label class="field">
                 <span>"Add to gallery"</span>
-                <input type="file" accept="image/*"
+                <input type="file" accept="image/*" multiple
                     on:change=move |_ev| {
                         #[cfg(feature = "hydrate")]
                         {
@@ -493,8 +589,23 @@ fn PersonaDetail(
                                 .target()
                                 .and_then(|t| t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok())
                             {
-                                if let Some(file) = input.files().and_then(|fl| fl.get(0)) {
-                                    add_gallery_image(s, pid_gallery_add.clone(), file, gallery);
+                                if let Some(file_list) = input.files() {
+                                    let mut files: Vec<web_sys::File> =
+                                        Vec::with_capacity(file_list.length() as usize);
+                                    for i in 0..file_list.length() {
+                                        if let Some(file) = file_list.get(i) {
+                                            files.push(file);
+                                        }
+                                    }
+                                    if !files.is_empty() {
+                                        gallery_multi_upload(
+                                            s,
+                                            pid_gallery_add.clone(),
+                                            files,
+                                            gallery_pending,
+                                            gallery,
+                                        );
+                                    }
                                 }
                                 // Clear so re-picking the same file re-fires change.
                                 input.set_value("");

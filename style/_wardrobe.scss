@@ -271,6 +271,40 @@
 	}
 }
 
+// Optimistic upload-in-progress placeholder: a soft shimmering skeleton
+// occupying the same cell shape as a loaded thumb. Cleared on batch success;
+// retained on batch failure so the user sees the commit didn't take.
+.gallery-thumb-pending {
+	background: var(--vellum-2);
+	border-radius: 0.35rem;
+	overflow: hidden;
+}
+
+.gallery-pending-skeleton {
+	width: 100%;
+	height: 100%;
+	background: linear-gradient(
+		90deg,
+		var(--vellum-2) 0%,
+		var(--backdrop-deep) 50%,
+		var(--vellum-2) 100%
+	);
+	background-size: 200% 100%;
+	animation: gallery-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes gallery-skeleton-shimmer {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.gallery-pending-skeleton {
+		animation: none;
+		opacity: 0.7;
+	}
+}
+
 // The main clickable area for "set as avatar" — fills the thumb cell.
 .gallery-pick {
 	display: block;

@@ -46,6 +46,13 @@ gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 # Await browser Promises (serviceWorker.ready, pushManager.subscribe) when
 # wiring Web Push from the client. Hydrate-only; wasm-only.
 wasm-bindgen-futures = { version = "0.4", optional = true }
+# `futures-util::future::join_all` (hydrate-only). Already in the wasm graph
+# transitively via `wasm-bindgen-futures` and `gloo-net`, so exposing it
+# explicitly adds no new crates. Used by `shell/wardrobe.rs` (W7/B3) to
+# correlate parallel `upload_media` results with input order before posting
+# the persona-gallery batch endpoint. `default-features = false` to stay off
+# the std-formatted prelude bloat — we only use `future::join_all`.
+futures-util = { version = "0.3", default-features = false, features = ["alloc", "async-await"], optional = true }
 
 # SurrealDB client (ssr-only; never compiled into the WASM bundle).
 # Pinned to the 3.x line so the on-machine `surreal` binary 3.x and the
@@ -142,6 +149,7 @@ hydrate = [
     "dep:gloo-storage",
     "dep:gloo-timers",
     "dep:wasm-bindgen-futures",
+    "dep:futures-util",
     "dep:emojis",
 ]
 ssr = [
