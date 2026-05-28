@@ -47,6 +47,7 @@ $accent: #6ea8e6;
 	// Attachment + backdrop surfaces
 	--attachment-bg: #2a2740; // image-thumb placeholder
 	--backdrop-deep: #1c1a2b; // small floating button bg (gallery-remove, lightbox-close)
+	--avatar-tile: #3a3550; // monogram fallback frame in `chat-avatar` (no image)
 
 	// Persona-tint palette — referenced by .mk-{red|orange|…} text + bg classes
 	// and the `.content .messages .msg .who.mk-*` specificity chain in _markup.scss.
