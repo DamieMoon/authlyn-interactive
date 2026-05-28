@@ -1,9 +1,8 @@
 # authlyn-interactive — Architecture
 
-> Canonical in-repo architecture map. This is the **Wave 1 scaffold**: the
-> structure and the stable, load-bearing facts are real and verified against
-> the code at branch `audit/systems-2026-05-28`. Spots that a later pass will
-> flesh out are marked `<!-- TODO(wave7): … -->`.
+> Canonical in-repo architecture map. Updated through Wave 7 (2026-05-28).
+> Static structural reference; living state (status, backlog, decisions) lives
+> in **ctx**, behavior-steering lives in `CLAUDE.md`.
 >
 > Relationship to other docs: `CLAUDE.md` is the thin orientation map and the
 > permission-classifier surface; **ctx** holds the living/episodic knowledge
@@ -41,8 +40,18 @@ who it is or what it may do:
 Out of scope here: deployment runbook (ctx: `novahome deploy commands`),
 current backlog and wave plan (ctx: `authlyn current status`).
 
-<!-- TODO(wave7): one-paragraph product tour — guilds → channels (text vs
-     lorebook) → personas/wardrobe → friends → emoji → push → feedback. -->
+**Product tour.** A user signs into one server (the deployment) and joins
+one or more **guilds** (Discord's "server" concept) — each guild owns
+**channels**, of which two kinds exist: `text` (a normal message stream) and
+`lorebook` (a member-collaborative card collection, not a chat). A user also
+has account-global **personas** — characters with name, avatar, description,
+palette colour, and a `wardrobe` gallery — and may "wear" one per guild (or
+override per channel) so their messages post under that identity. Personas
+can be shared with **friends** via a redeemable share-key, granting edit +
+wear. Guild-scoped custom **emoji** (`:name:`) augment Unicode shortcodes.
+**Web Push** delivers @-mention notifications when the tab is closed (#30).
+**Feedback** lets any user file a bug/idea report; admins read/clear the
+queue (#31).
 
 ---
 
@@ -75,13 +84,21 @@ src/
 │   └── api.rs              #   gloo-net Fetch wrappers (#[cfg(hydrate)] — see note)
 └── ui/                     # Leptos components (render for ssr + hydrate; data-fetch is cfg(hydrate))
     ├── mod.rs              #   AuthCtx + shared UI context
-    ├── auth.rs            #   login / register / reset pages
-    ├── markup_view.rs     #   renders markup::Node AST → styled spans
-    ├── emoji/{mod,data}.rs#   emoji picker + the phf shortcode dataset (data.rs is cfg(hydrate))
-    └── shell/             #   the logged-in app shell (rail, sidebar, channel, panes)
-        ├── mod.rs         #     Home + the Shell god-struct (Wave 4 carve-out target)
-        ├── channel.rs     #     message list + composer
-        ├── wardrobe.rs    #     persona management
+    ├── auth.rs             #   login / register / reset pages
+    ├── avatar.rs           #   shared avatar component (initials fallback)
+    ├── clipboard.rs        #   `read_pasted_images` paste-helper (#[cfg(hydrate)]; W7/B2)
+    ├── inline_rename.rs    #   shared inline-edit text component (W6/C7)
+    ├── markup_view.rs      #   renders markup::Node AST → styled spans
+    ├── modal.rs            #   shared Modal component w/ Esc + focus-trap (W6/C10)
+    ├── emoji/{mod,data}.rs #   emoji picker + the phf shortcode dataset (data.rs is cfg(hydrate))
+    └── shell/              #   the logged-in app shell (rail, sidebar, channel, panes)
+        ├── mod.rs          #     Home + AppShell entry + provide_context(Shell) (W6/C4)
+        ├── state.rs        #     Shell sub-structs (selection/messages/composer/edit/…) (W6/C4)
+        ├── act/            #     action-functions: account · channel · emoji · feedback ·
+        │                   #       guild · message · notify · persona · prefs
+        ├── channel/        #     message list + composer · attachments · avatar ·
+        │                   #       emoji_suggest · meta (W6/C9)
+        ├── wardrobe.rs     #     persona management + gallery (paste-many via clipboard, W7/B4)
         ├── members.rs · friends.rs · lorebook.rs · emoji_manager.rs · account.rs
 │
 │  ── SSR-ONLY (#[cfg(feature = "ssr")]; never in the wasm bundle) ──
@@ -92,13 +109,22 @@ src/
 └── server/                 # axum: AppState, router, handlers, extractors
     ├── mod.rs              #   AppState re-export, route table, body-limit groups, purge sweep. §4
     ├── state.rs            #   AppState (db handle, canonical media_dir, typing map, push sender)
-    ├── auth.rs             #   accounts + sessions + AuthAccount extractor + error helpers. §4/§6
-    ├── guilds.rs           #   guilds, channels, membership, roles, soft-delete trash
-    ├── personas.rs         #   personas, editors (share-key), gallery, wear
-    ├── messages.rs         #   post/read/edit/delete/typing; cursor pagination
-    ├── lorebook.rs · friends.rs · emoji.rs · media.rs · push.rs · feedback.rs
+    ├── errors.rs           #   `error_response` / `json_rejection_response` (W2 hoist). §4/§7
+    ├── permissions.rs      #   guild role gates · persona edit-access · admin guard (W2). §6/§7
+    ├── access.rs           #   shared `resolve_membership` channel→guild→member (W2). §7
+    ├── validate.rs         #   `validate_name` (chars) + `validate_emoji_name` (bytes) (W2). §7
+    ├── db_helpers.rs       #   `IdRow { id_key }` shared projection target (W2). §7
     ├── retry.rs            #   write-conflict / unique-violation retry (substring matchers). §6
-    └── datetime.rs         #   raw SurrealDB Datetime → fixed-9-digit RFC3339 (private). §6
+    ├── datetime.rs         #   raw SurrealDB Datetime → fixed-9-digit RFC3339 (private). §6
+    ├── auth/               #   accounts + sessions (W3 split):
+    │                       #     session (AuthAccount) · registration · password · admin · crypto
+    ├── guilds/             #   guilds + channels + members (W3 split):
+    │                       #     mod (CRUD) · channels · membership · deletion
+    ├── messages/           #   messages (W3 split):
+    │                       #     mod (channel_access · caps) · posting · reading · editing · typing
+    ├── personas/           #   personas (W3 split):
+    │                       #     mod · core · editors · gallery · wear
+    ├── lorebook.rs · friends.rs · emoji.rs · media.rs · push.rs · feedback.rs
 │
 │  ── NOVA (the `nova` feature only; standalone, native-only) ──
 └── bin/nova-mcp.rs         # MCP bridge: talks to the running authlyn HTTP API as "Nova"
@@ -106,12 +132,9 @@ src/
 
 > Note on `client::api`: the `client` module is *declared* unconditionally in
 > `lib.rs`, but its only child, `api`, is `#[cfg(feature = "hydrate")]`. So the
-> gloo-net Fetch client compiles only into the wasm bundle, never SSR.
-
-<!-- TODO(wave7): once Wave 2/3/4 land, refresh this tree — server/ gains
-     errors.rs · permissions.rs · access.rs · validate.rs (Wave 2); the large
-     handlers split into subdirs (Wave 3); shell/ + channel.rs split into
-     component subdirs (Wave 4). Keep the SHARED/SSR/NOVA grouping. -->
+> gloo-net Fetch client compiles only into the wasm bundle, never SSR. The
+> same hydrate-gating-at-the-mod-decl pattern is used for `ui::clipboard`
+> (web-sys-only helpers).
 
 ---
 
@@ -160,10 +183,6 @@ features, but every data-fetch body is wrapped in `#[cfg(feature =
 "hydrate")]` (empty closure under SSR), so the Fetch client never enters the
 SSR graph.
 
-<!-- TODO(wave7): document the wasm-release profile (opt-level=z, lto, panic=abort)
-     and the [package.metadata.leptos] bin-target/lib-features wiring if it
-     becomes a recurring source of confusion. -->
-
 ---
 
 ## 4. Request lifecycle (API request → JSON)
@@ -188,9 +207,10 @@ must live on disjoint route groups:
   phone photos).
 
 **2 — Auth extraction.** Every mutating handler takes the
-`AuthAccount(pub String)` extractor (`server/auth.rs`). Its
-`FromRequestParts` impl reads the `authlyn_session` cookie, SHA-256-hashes the
-token, looks up the unexpired `session` row, and yields the **bare account key**
+`AuthAccount(pub String)` extractor (`server/auth/session.rs`, re-exported as
+`crate::server::auth::AuthAccount`). Its `FromRequestParts` impl reads the
+`authlyn_session` cookie, SHA-256-hashes the token, looks up the unexpired
+`session` row, and yields the **bare account key**
 (`meta::id(id)` form, e.g. `"abc123"`). Missing/expired/garbage cookie → `401`
 with an `ErrorBody`; a storage error → `500`. The only public handlers (no
 `AuthAccount`): `register`, `login`, `logout`, `get_reset_question`,
@@ -209,15 +229,15 @@ DTOs, and returns JSON.
 projected raw and formatted Rust-side (§6, invariant 7).
 
 **5 — Response & error path.** Success → `Json<…Response>` /
-`Json<…Envelope>` (§7). Errors go through two helpers (currently defined in
-`auth.rs`, duplicated per handler module — Wave 2 hoists them to
-`server/errors.rs`, §7):
+`Json<…Envelope>` (§7). Every handler builds 4xx/5xx replies through the two
+helpers in `server/errors.rs` (W2 hoist; one definition shared by every
+handler module):
 
 - `error_response(status, msg)` → `(status, Json(ErrorBody::new(msg)))` —
   `ErrorBody` is `{"error": "<reason>"}` (`protocol.rs`).
 - `json_rejection_response(rej)` maps an axum `JsonRejection` (bad
-  Content-Type, malformed/ mis-shaped JSON, unreadable body) to a `400` with a
-  stable human reason — so a deserialize failure never leaks as a `500`.
+  Content-Type, malformed / mis-shaped JSON, unreadable body) to a `400` with
+  a stable human reason — so a deserialize failure never leaks as a `500`.
 
 ```
 cookie ──▶ AuthAccount (FromRequestParts) ──▶ verb_noun handler
@@ -229,8 +249,13 @@ cookie ──▶ AuthAccount (FromRequestParts) ──▶ verb_noun handler
 ErrorBody  ◀── error_response / json_rejection_response      Json<…Response>
 ```
 
-<!-- TODO(wave7): name the canonical handler whose body reads as the reference
-     shape once Wave 2/3 settle the shared error/permission/access helpers. -->
+The reference shape — `AuthAccount` → JSON-rejection guard → input validation
+→ retry-wrapped SurrealDB transaction → `201` with a typed DTO — reads
+cleanest in `create_guild` (`src/server/guilds/mod.rs`); use it as the
+canonical example when introducing a new mutating handler. The route table
+itself lives in `server/mod.rs::small_body_routes`; W7 added one route to it
+(`POST /personas/{id}/gallery/batch`), but the request lifecycle above is
+unchanged.
 
 ---
 
@@ -292,8 +317,28 @@ defends against this with idempotent backfill `UPDATE`s (see the `persona`,
 attachments backfill must precede the persona one). Prefer `option<>` for
 fields added post-hoc.
 
-<!-- TODO(wave7): an ER diagram (mermaid) of the account/persona/guild/channel/
-     message core once the model is otherwise stable. -->
+**ER diagram (load-bearing links only).** The table above is the full
+catalogue; this small mermaid sketch shows just the core that drives every
+message: who authors it, where it lives, and which persona's identity it
+carries.
+
+```mermaid
+erDiagram
+    account ||--o{ persona                  : owns
+    account ||--o{ guild                    : owns
+    account ||--o{ guild_member             : has
+    guild   ||--o{ channel                  : has
+    guild   ||--o{ guild_member             : has
+    account ||--o{ message                  : authors
+    channel ||--o{ message                  : holds
+    persona |o--o{ message                  : "snapshotted on"
+    persona ||--o{ persona_editor           : "share-key grants"
+    account ||--o{ persona_editor           : "is editor"
+    guild_member ||--o| persona             : "wears (per-guild)"
+    account ||--o{ channel_active_persona   : "wears (per-channel override)"
+    channel ||--o{ channel_active_persona   : ""
+    persona ||--o{ channel_active_persona   : ""
+```
 
 ---
 
@@ -376,9 +421,20 @@ UI refactor — Waves 4/6). Verified from the audit; keep them when moving code:
 - **`PendingDelete` carries data, not a closure** (so the confirm modal
   survives re-render).
 
-<!-- TODO(wave7): cross-link each invariant to its anchor test once the Wave 1
-     safety-net tests (retry_canary, media-traversal, characterization smokes)
-     land, so the gate is executable, not just prose. -->
+**Anchor tests.** Each invariant has an integration-test anchor in `tests/`
+(run via `./scripts/dev-db.sh` + `cargo test --features ssr`):
+inv 1/2/3/4/6 — the per-domain handler suites (`auth.rs`, `guilds.rs`,
+`personas.rs`, `messages.rs`, `lorebook.rs`, `friends.rs`); inv 7 — the
+composite-cursor pagination canary in `messages.rs`; inv 9 — the
+cookie/session shape in `auth.rs`; inv 10 — `media.rs` (path-traversal
+defense in depth); inv 11 — `feedback.rs` (admin fail-closed); inv 13 —
+`retry_canary.rs` (the SurrealDB error-string matchers, pinned against
+live DB errors); inv 14 — `soft_delete.rs` (soft-delete + restore + purge
+cascade); inv 15 — `cache_control.rs` (JSON `Cache-Control: no-store`).
+Invariants 5, 8, 12 are defended in-code: lorebook scope is a kind-gate in
+`lorebook.rs`; the no-SQL-interpolation rule is a maintained discipline (the
+5 dynamic-fragment sites listed in inv 8 are the audited surface); markup
+panic-freedom is covered by `markup.rs`'s in-module unit tests.
 
 ---
 
@@ -388,8 +444,8 @@ UI refactor — Waves 4/6). Verified from the audit; keep them when moving code:
 
 | Suffix | Meaning | Examples |
 |--------|---------|----------|
-| `…Request` | request body in | `CreateGuildRequest`, `SendMessageRequest`, `PatchPersonaRequest` |
-| `…Response` | response body out (often a wrapper around a `Vec`) | `AuthResponse`, `ListGuildsResponse`, `SendMessageResponse` |
+| `…Request` | request body in | `CreateGuildRequest`, `SendMessageRequest`, `PatchPersonaRequest`, `AddGalleryImagesBatchRequest` |
+| `…Response` | response body out (often a wrapper around a `Vec`) | `AuthResponse`, `ListGuildsResponse`, `SendMessageResponse`, `AddGalleryImagesBatchResponse` |
 | `…Summary` | one item as it appears **in a list** (compact) | `GuildSummary`, `ChannelSummary`, `MemberSummary`, `PersonaSummary`, `FriendSummary` |
 | `…Detail` | one item with its **full nested payload** (single-item GET) | `GuildDetail` (+ channels), `PersonaDetail` (+ gallery) |
 | `…Envelope` | one rich record in a stream/list with snapshot + derived fields | `MessageEnvelope` |
@@ -414,22 +470,42 @@ static segment that must out-rank a `{param}` is declared as a literal route
 (`meta::id(id) AS id_key`) and surface them as opaque `String`s in DTOs;
 SurrealDB `Thing`/`RecordId` values never reach the wire.
 
-**Shared helper layers (forward reference).** As of Wave 1, several helpers are
-duplicated across the handler modules; the error helpers (`error_response`,
-`json_rejection_response`, `unauthorized`) currently live in `auth.rs`. Wave 2
-extracts the shared layers — **document them here when they land**:
+**Shared helper layers.** Wave 2 hoisted the cross-cutting helpers into
+dedicated server-internal modules; every handler module imports from them
+rather than carrying a local copy.
 
-- `server/errors.rs` — `error_response` / `json_rejection_response` +
-  `internal()` / `unauthorized()` (hoisted from every handler module).
-- `server/permissions.rs` — `caller_role`, `require_manager`, `require_owner`,
-  the persona-access cluster (`owns_persona`, `is_persona_editor`,
-  `can_edit_persona`), `is_admin` / `admin_username_set`.
-- `server/access.rs` — the shared channel-access core; the existing
-  `channel_access` / `check_access` / `is_channel_member` layer on top
-  (distinct signatures preserved).
-- `server/validate.rs` — shared `validate_name` (the emoji char-class rule
-  stays distinct; mind the byte-len vs char-count difference).
+- `server/errors.rs` — `error_response(status, msg) -> Response` builds the
+  canonical `{"error": "<reason>"}` body; `json_rejection_response(rej)`
+  maps an axum `JsonRejection` to a stable `400` with a human reason. Both
+  are `pub(crate)`; the wire shape is `ErrorBody` (`protocol.rs`).
+- `server/permissions.rs` — guild role gates (`caller_role`,
+  `require_manager`, `require_owner`); the persona-access cluster
+  (`owns_persona`, `is_persona_editor`, `can_edit_persona`); the
+  fail-closed admin guard (`is_admin`, `admin_username_set` — env-driven
+  `AUTHLYN_ADMIN_USERNAMES` ∪ `AUTHLYN_ADMIN_USERNAME`, empty set
+  authorizes no one).
+- `server/access.rs` — `resolve_membership(state, cid, account,
+  filter_deleted) -> Membership` (`Member { kind } | ChannelNotFound |
+  NotMember`); the one varying knob is `filter_deleted` (lorebook resolves
+  without the soft-delete filter, by current contract — do not collapse
+  without a decision). `messages::channel_access` layers on top to fold
+  the per-channel active-persona read into the same round-trip.
+- `server/validate.rs` — `validate_name` (guild/channel/persona; bounded
+  by **character count**, 100) and `validate_emoji_name` (bounded by
+  **byte length**, 2..=32, `[a-z0-9_]` only). Kept distinct on purpose;
+  do not unify.
+- `server/db_helpers.rs` — `IdRow { id_key: String }`, the deserialize
+  target for the `meta::id(id) AS id_key` projection used pervasively for
+  existence checks and write-back.
 
-<!-- TODO(wave7): replace the four bullets above with the real, landed module
-     APIs once Wave 2 merges; also fold in the rustdoc convention for the
-     client/api.rs public async fns. -->
+**Shared UI helpers.** `ui/clipboard.rs::read_pasted_images(&ClipboardEvent)
+-> Vec<File>` is hydrate-only (gated at the `pub mod` declaration in
+`ui/mod.rs`), shared by the composer's paste-to-upload (W7/B2) and the
+persona-gallery paste-many (W7/B4). `ui/modal.rs` is the shared accessible
+Modal (W6/C10: Esc + focus-trap + initial-focus); `ui/inline_rename.rs` is
+the shared inline-edit text field (W6/C7).
+
+**`client/api.rs` rustdoc convention.** Every `pub async fn` in
+`src/client/api.rs` documents itself as "HTTP verb + path + meaning of
+response" (W7/C2, ~67 functions). Treat that as the contract when adding a
+new Fetch wrapper.
