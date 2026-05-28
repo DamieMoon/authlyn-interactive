@@ -1,0 +1,45 @@
+// Self-hosted webfonts + body typography for the Grimoire palette.
+//
+// Two SIL OFL families:
+//   - Crimson Pro (body) — humanist serif, 400 + 600, Latin subset
+//   - EB Garamond (display) — lapidary serif, 400 + 600, Latin subset
+//
+// Subset woff2 files in public/fonts/ are ~18–24 KB each (≈82 KB total,
+// gzip-immutable cached). Fetched from the fontsource jsdelivr mirror at
+// build time of the W6/C5 commit; both fonts are SIL OFL so re-hosting is
+// allowed.
+//
+// `font-display: swap` so the first paint uses the system serif fallback
+// chain (Georgia / Cambria) and re-renders when the woff2 arrives — no FOIT.
+
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-600.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "EB Garamond";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/eb-garamond-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "EB Garamond";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/fonts/eb-garamond-600.woff2") format("woff2");
+}

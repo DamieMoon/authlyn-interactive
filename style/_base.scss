@@ -11,10 +11,10 @@ body {
 }
 
 body {
-	font-family: system-ui, -apple-system, sans-serif;
+	font-family: var(--font-body);
 	background: var(--parchment);
 	color: var(--ink);
-	line-height: 1.45;
+	line-height: 1.55;
 }
 
 button {
