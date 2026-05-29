@@ -10,10 +10,12 @@
 #       bash ~/authlyn-interactive/scripts/novahome-deploy.sh
 #
 # WHY IT EXISTS / THE TRIGGER MODEL
-#   The project forbids an *auto-deploy pipeline* — nothing fires a deploy on
-#   push/cron/CI (decision 2026-05-25). This is the sanctioned *manual* deploy,
-#   just made repeatable; it only ever runs when a human (or an agent on request)
-#   invokes it.
+#   This is the deploy engine, invoked three ways: the manual `authlyn-deploy`
+#   (scripts/deploy.sh, Mac -> novahome over ssh), an agent on request, AND the
+#   tag-push autodeploy (.github/workflows/deploy-novahome.yml) on a self-hosted
+#   runner ON novahome. The 2026-05-25 "no auto-deploy pipeline" decision was
+#   tactical (autodeploy was just not carried over from the old Pi at the novahome
+#   migration), and was revised 2026-05-29 to add the `v*`-tag-push path.
 #
 # WHY THE BUILD HAPPENS HERE (not on the Mac)
 #   The server binary is linux/x86_64 and the front bundle is built by
@@ -141,7 +143,8 @@ flock -n 9 || { echo "[deploy] another deploy holds the lock; aborting" >&2; exi
 
 cd "$REPO"
 echo "[deploy] fetching origin…"
-git fetch --quiet origin
+# --tags so a version-tag $REF (used by the autodeploy workflow) resolves below.
+git fetch --quiet --tags origin
 OLD="$(git rev-parse --short HEAD)"
 # Hard reset is safe here: this checkout is deploy-only (no local development), so
 # it just snaps to the exact ref we're shipping.

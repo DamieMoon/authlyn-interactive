@@ -2,8 +2,11 @@
 debug/
 target/
 
-# Claude Code agent worktrees (created in-repo by the harness)
-/.claude/
+# Claude Code: ignore the local-only bits (agent worktrees, settings.local.json,
+# agents/) but commit the shared settings.json — cloud sessions (Claude Code web)
+# only see committed files, and need its SessionStart hook to start SurrealDB.
+/.claude/*
+!/.claude/settings.json
 
 # rustfmt backup files
 **/*.rs.bk

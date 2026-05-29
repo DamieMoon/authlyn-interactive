@@ -13,7 +13,7 @@ Self-hosted, **server-trusted** roleplay chat platform (Discord + SillyTavern st
 Single Rust crate: axum + Leptos 0.8 (ssr + hydrate), SurrealDB (external). Server code behind `#[cfg(feature = "ssr")]`; browser client = gloo-net REST + cookie auth. See `docs/ARCHITECTURE.md` for crate layout, request lifecycle, data model, and the 15-point invariant gate.
 
 ## Hard constraints
-- **Deploy:** no auto-deploy *pipeline* (user decision 2026-05-25). Canonical deploy = **`authlyn-deploy`** (= `./scripts/deploy.sh`; manual, agent-runnable; `--help` for usage; (re)install the command via `scripts/install-deploy-command.sh`). What it automates / by-hand fallback: `ctx query "novahome deploy commands"`.
+- **Deploy:** two paths, same engine (`scripts/novahome-deploy.sh`). (1) **autodeploy** — push a `v*` version tag → `.github/workflows/deploy-novahome.yml` runs the engine on a **self-hosted runner on novahome** (revised 2026-05-29; the 2026-05-25 "no pipeline" decision was tactical Pi→novahome migration-debt, not principle). (2) **manual** — **`authlyn-deploy`** (= `./scripts/deploy.sh`; agent-runnable; `--help`; (re)install via `scripts/install-deploy-command.sh`). What it automates / by-hand fallback: `ctx query "novahome deploy commands"`.
 - **Port-collision:** before binding a new public port on novahome, SSH and check `ss -tlnp`; record the port in ctx.
 - **Lint gate:** `./scripts/precommit.sh` is the only lint gate (CI runs none) — keep it green. It does NOT compile SCSS; use `cargo leptos build` for that.
 - **SurrealDB SDK** pinned `=3.1.0-beta.3` — don't bump blind. Never `<string>`-cast a datetime feeding `ORDER BY`/cursor (`ctx query "surrealdb datetime ordering"`).

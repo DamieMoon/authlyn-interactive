@@ -1,0 +1,44 @@
+# Auto-deploy authlyn to novahome on a version tag.
+#
+# Trigger model (added 2026-05-29). It supersedes the 2026-05-25 "no auto-deploy
+# pipeline" decision, which was tactical — autodeploy was simply not carried over
+# from the old Raspberry Pi during the novahome migration, not rejected on
+# principle (the cross-compile burden that motivated dropping it is gone; novahome
+# builds natively x86-64).
+#
+# Runs on a SELF-HOSTED runner ON novahome, so it reuses scripts/novahome-deploy.sh
+# unchanged (build -> swap -> healthcheck -> ERR-trap rollback) with NO SSH key
+# exposed in GitHub. The manual `authlyn-deploy` (scripts/deploy.sh) remains as a
+# complement; both invoke the same engine.
+name: deploy-novahome
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'git ref to deploy (branch/tag/sha)'
+        required: false
+        default: 'origin/main'
+
+# Never run two deploys at once; queue rather than cancel a swap in progress
+# (stronger than novahome-deploy.sh's local flock, which can't see other runs).
+concurrency:
+  group: novahome-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, novahome]
+    steps:
+      - name: Check out the deploy ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags so the tagged script version runs
+
+      - name: Build + deploy on novahome
+        # novahome-deploy.sh operates on its own deploy checkout (~/authlyn-interactive),
+        # fetching --tags and `git reset --hard` to this ref, then building natively.
+        run: bash scripts/novahome-deploy.sh --ref "${{ github.event.inputs.ref || github.ref_name }}"

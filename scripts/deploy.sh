@@ -9,8 +9,11 @@
 #   This script is the last step: it makes novahome build origin/main and swap it
 #   into the live service.
 #
-#   Manual trigger only — there is no CI/cron/push hook (the project forbids an
-#   auto-deploy *pipeline*, decision 2026-05-25). Running this IS the deploy.
+#   This is the MANUAL deploy path (Mac -> novahome over ssh). Autodeploy also
+#   exists now: a `v*` version-tag push runs scripts/novahome-deploy.sh on a
+#   self-hosted runner ON novahome (.github/workflows/deploy-novahome.yml, added
+#   2026-05-29). Running this script IS a manual deploy of origin/main; both
+#   paths drive the same engine (novahome-deploy.sh).
 #
 # HOW IT WORKS
 #   The real work is in scripts/novahome-deploy.sh, run ON novahome (the build is
