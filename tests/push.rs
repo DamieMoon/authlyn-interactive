@@ -245,8 +245,10 @@ async fn concurrent_subscribe_same_endpoint_converges_to_one_row() {
     let user = common::register_account(&a.router, "User", "password123").await;
     let endpoint = "https://push.example.com/race";
     let body = full_sub(endpoint);
-    let req1 = common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
-    let req2 = common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
+    let req1 =
+        common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
+    let req2 =
+        common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
     let h1 = tokio::spawn(common::status_of(a.router.clone(), req1));
     let h2 = tokio::spawn(common::status_of(a.router.clone(), req2));
     let got = [h1.await.unwrap(), h2.await.unwrap()];

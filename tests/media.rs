@@ -410,8 +410,7 @@ async fn upload_rejects_non_image_mimes() {
         "image/svg+xml",
         "application/octet-stream",
     ] {
-        let status =
-            try_upload_status(&a.router, &owner, mime, b"<script>alert(1)</script>").await;
+        let status = try_upload_status(&a.router, &owner, mime, b"<script>alert(1)</script>").await;
         assert_eq!(
             status,
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
