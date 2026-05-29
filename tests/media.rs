@@ -97,6 +97,57 @@ async fn get_media(
     (status, ct, bytes)
 }
 
+/// Attempt `POST /media` and return only the status (no 201 assertion), for
+/// exercising rejection paths.
+#[cfg(feature = "ssr")]
+async fn try_upload_status(
+    router: &axum::Router,
+    cookie: &str,
+    mime: &str,
+    data: &[u8],
+) -> StatusCode {
+    let boundary = "Xbnd";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"img\"\r\n\
+         Content-Type: {mime}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/media")
+        .header(header::COOKIE, cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    router.clone().oneshot(req).await.expect("oneshot").status()
+}
+
+/// GET `/media/{path}` returning the full header map (for asserting security
+/// headers like nosniff / Content-Disposition).
+#[cfg(feature = "ssr")]
+async fn get_media_full(
+    router: &axum::Router,
+    cookie: &str,
+    path_and_query: &str,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/media/{path_and_query}"))
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .unwrap();
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap().to_vec();
+    (status, headers, bytes)
+}
+
 // ---------------------------------------------------------------------------
 // MIME round-trip + the documented per-blob non-ACL
 // ---------------------------------------------------------------------------
@@ -340,22 +391,116 @@ async fn thumbnail_width_is_clamped_low_and_high() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stored-XSS hardening (review F-D8-3): image-only uploads + safe serving
+// ---------------------------------------------------------------------------
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn thumbnail_query_on_non_image_falls_back_to_original() {
-    // `?w=` only triggers the thumbnail branch for `image/*` mimes (media.rs:195);
-    // a non-image blob is served as its original bytes + MIME, ignoring `w`.
+async fn upload_rejects_non_image_mimes() {
+    // The store is image-only. Non-image — and script-capable image/svg+xml —
+    // uploads are refused (415) so attacker-controlled active content can never
+    // be stored and later served from our origin.
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
-    let payload = b"not an image at all".to_vec();
-    let id = upload_image(&a.router, &owner, "text/plain", &payload).await;
 
-    let (status, ct, bytes) = get_media(&a.router, &owner, &format!("{id}?w=64")).await;
+    for mime in [
+        "text/html",
+        "application/pdf",
+        "image/svg+xml",
+        "application/octet-stream",
+    ] {
+        let status =
+            try_upload_status(&a.router, &owner, mime, b"<script>alert(1)</script>").await;
+        assert_eq!(
+            status,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "{mime} upload must be rejected"
+        );
+    }
+
+    // A real raster image is still accepted.
+    let status = try_upload_status(&a.router, &owner, "image/png", TINY_PNG).await;
+    assert_eq!(status, StatusCode::CREATED, "image/png is allowed");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn served_image_carries_nosniff() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let id = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+
+    let (status, headers, _) = get_media_full(&a.router, &owner, &id).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        ct.as_deref(),
-        Some("text/plain"),
-        "non-image ignores ?w= and serves original MIME"
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("image/png"),
     );
-    assert_eq!(bytes, payload);
+    assert_eq!(
+        headers
+            .get(header::X_CONTENT_TYPE_OPTIONS)
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff"),
+        "served image must carry X-Content-Type-Options: nosniff"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn legacy_non_image_blob_is_served_as_nosniff_attachment() {
+    // Uploads are now image-only, but a row predating that check (or any
+    // non-image mime) must be neutralized on serve: forced to an octet-stream
+    // attachment with nosniff so stored text/html can never execute on our
+    // origin. We forge such a row whose file lives INSIDE media_dir so the path
+    // guard passes and it is actually served.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let id = "legacyhtml0000000000000000000000";
+    let file_path = a.media_dir.join(format!("{id}.bin"));
+    let html = b"<script>alert(document.domain)</script>";
+    std::fs::write(&file_path, html).expect("write legacy blob");
+    let canonical = file_path.canonicalize().expect("canonicalize");
+    a.db.query(
+        r#"CREATE type::record("media_blob", $id) SET
+                uploader     = type::record("account", $uploader),
+                mime         = "text/html",
+                size_bytes   = 1,
+                storage_path = $path;"#,
+    )
+    .bind(("id", id.to_string()))
+    .bind(("uploader", owner_account_id(&a.router, &owner).await))
+    .bind(("path", canonical.to_string_lossy().to_string()))
+    .await
+    .expect("forge row")
+    .check()
+    .expect("forge check");
+
+    // `?w=` is ignored for a non-image; bytes round-trip but as a safe download.
+    let (status, headers, bytes) = get_media_full(&a.router, &owner, &format!("{id}?w=64")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/octet-stream"),
+        "non-image must NOT be served as its stored active-content type"
+    );
+    assert_eq!(
+        headers
+            .get(header::X_CONTENT_TYPE_OPTIONS)
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff"),
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok()),
+        Some("attachment"),
+        "non-image must be a download, never inline"
+    );
+    assert_eq!(bytes, html, "bytes still round-trip (as a download)");
 }
