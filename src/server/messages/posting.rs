@@ -33,9 +33,14 @@ pub async fn post_message(
     let body = req.body.trim_end().to_string();
     // Attachments: dedupe (preserve order), bound the count. A message is valid
     // with text, with images, or both — but not empty of both.
+    // Dedupe via a HashSet so the work is O(n), not the prior O(n²) linear scan
+    // over the fully-untrusted attachment_ids vector — the MAX_ATTACHMENTS cap is
+    // checked after dedup, so without this a body packed with distinct ids (up to
+    // the 512 KiB limit) cost quadratic CPU before the cap fired (review F-D12-4).
+    let mut seen = std::collections::HashSet::new();
     let mut attachments: Vec<String> = Vec::new();
     for id in req.attachment_ids {
-        if !attachments.contains(&id) {
+        if seen.insert(id.clone()) {
             attachments.push(id);
         }
     }
