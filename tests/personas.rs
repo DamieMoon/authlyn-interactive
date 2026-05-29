@@ -1230,3 +1230,79 @@ async fn revoked_editor_per_channel_wear_stops_stamping_bare_messages() {
         "post-revoke explicit persona_id must be rejected, not stamped"
     );
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn revoking_editor_clears_their_channel_active_persona_row() {
+    // F-D1b-1/2/3 hygiene: revoke/leave/delete must clear the per-channel wear
+    // (`channel_active_persona`), not only the deprecated per-guild wear. This
+    // asserts the row deletion directly for remove_editor; leave_persona and
+    // delete_persona apply the identical idiom in the same transaction.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let editor = common::register_account(&a.router, "Editor", "password123").await;
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+    common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    let (_gid, cid) = guild_with_channel(&a.router, &editor).await;
+    common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&editor),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+
+    // Sanity: the wear row exists while the editor still has access.
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE persona = type::record('persona', $p)")
+        .bind(("p", pid.clone()))
+        .await
+        .expect("query before");
+    let before: Vec<String> = resp.take(0).expect("take before");
+    assert_eq!(before.len(), 1, "wear row should exist while editor");
+
+    // Revoke the editor.
+    let (_, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let editor_aid = roster["editors"][0]["account_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/editors/{editor_aid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+
+    // The per-channel wear row must be gone.
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE persona = type::record('persona', $p)")
+        .bind(("p", pid))
+        .await
+        .expect("query after");
+    let after: Vec<String> = resp.take(0).expect("take after");
+    assert!(
+        after.is_empty(),
+        "remove_editor must clear the editor's channel_active_persona rows"
+    );
+}

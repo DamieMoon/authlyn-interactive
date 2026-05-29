@@ -386,6 +386,7 @@ pub async fn delete_persona(
         DELETE FROM persona_editor WHERE persona = type::record("persona", $pid);
         UPDATE guild_member SET active_persona = NONE
             WHERE active_persona = type::record("persona", $pid);
+        DELETE FROM channel_active_persona WHERE persona = type::record("persona", $pid);
         DELETE type::record("persona", $pid);
         COMMIT TRANSACTION;
     "#;
@@ -509,6 +510,9 @@ pub async fn leave_persona(
               AND account = type::record("account", $account);
         UPDATE guild_member SET active_persona = NONE
             WHERE active_persona = type::record("persona", $pid)
+              AND account = type::record("account", $account);
+        DELETE FROM channel_active_persona
+            WHERE persona = type::record("persona", $pid)
               AND account = type::record("account", $account);
         COMMIT TRANSACTION;
     "#;
