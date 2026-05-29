@@ -1115,3 +1115,118 @@ async fn worn_per_channel_persona_stamps_bare_message() {
         "after unwear, a bare message has no persona"
     );
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn revoked_editor_per_channel_wear_stops_stamping_bare_messages() {
+    // Regression (review F-D1b-1): a per-channel wear (`channel_active_persona`)
+    // must NOT keep stamping an ex-editor's messages after their editor access is
+    // revoked. The send path re-derives `can_edit_persona` on the stored wear on
+    // EVERY send, so a stale wear row can no longer author as the persona.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let editor = common::register_account(&a.router, "Editor", "password123").await;
+
+    // Owner creates a persona and shares it with the editor.
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // The editor owns a guild+channel and wears the shared persona THERE,
+    // per-channel — the path that stamps bare messages.
+    let (_gid, cid) = guild_with_channel(&a.router, &editor).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&editor),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // While still an editor, a bare message IS stamped with the worn persona.
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "as persona" })),
+    )
+    .await;
+
+    // Owner revokes the editor.
+    let (_, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let editor_aid = roster["editors"][0]["account_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/editors/{editor_aid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The stale wear row must NOT let the ex-editor keep authoring as the
+    // persona — neither via the bare-send fallback nor by explicitly suggesting
+    // the persona they may no longer edit.
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "after revoke (bare)" })),
+    )
+    .await;
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "after revoke (explicit)", "persona_id": pid })),
+    )
+    .await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 3);
+    assert_eq!(
+        msgs[0]["persona_id"], pid,
+        "pre-revoke bare message stamped from the per-channel wear"
+    );
+    assert!(
+        msgs[1]["persona_id"].is_null(),
+        "post-revoke bare message must NOT be stamped as the persona"
+    );
+    assert!(
+        msgs[2]["persona_id"].is_null(),
+        "post-revoke explicit persona_id must be rejected, not stamped"
+    );
+}
