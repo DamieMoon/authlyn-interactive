@@ -900,6 +900,21 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         ac_token.set(None);
                                         return;
                                     }
+                                    // Enter accepts the highlighted suggestion rather
+                                    // than sending the raw `:query` (review F-D13-1).
+                                    // Guarded by !is_composing so an IME confirm is
+                                    // left alone; with nothing to accept it falls
+                                    // through to the normal Enter-to-send below.
+                                    "Enter" if !ev.is_composing() => {
+                                        if let Some(sg) = sugg.get(ac_index.get_untracked()) {
+                                            ev.prevent_default();
+                                            replace_shortcode_token(
+                                                s, composer_ref, st, en, &sg.name,
+                                            );
+                                            ac_token.set(None);
+                                            return;
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
