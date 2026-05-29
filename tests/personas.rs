@@ -1306,3 +1306,40 @@ async fn revoking_editor_clears_their_channel_active_persona_row() {
         "remove_editor must clear the editor's channel_active_persona rows"
     );
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_channel_wear_converges_to_one_row() {
+    // F-D6-2: two simultaneous PUT /channels/{cid}/active-persona for the same
+    // (account, channel) converge to one row and both 204 — never 500 on the
+    // channel_active_persona (account, channel) UNIQUE pair (with_write_conflict_retry).
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    let body = json!({ "persona_id": pid });
+    let path = format!("/channels/{cid}/active-persona");
+    let req1 = common::build_json_request(Method::PUT, &path, Some(&owner), Some(&body));
+    let req2 = common::build_json_request(Method::PUT, &path, Some(&owner), Some(&body));
+    let h1 = tokio::spawn(common::status_of(a.router.clone(), req1));
+    let h2 = tokio::spawn(common::status_of(a.router.clone(), req2));
+    let got = [h1.await.unwrap(), h2.await.unwrap()];
+    assert!(
+        !got.contains(&StatusCode::INTERNAL_SERVER_ERROR),
+        "wear race must never 500: {got:?}"
+    );
+    assert!(
+        got.iter().all(|s| *s == StatusCode::NO_CONTENT),
+        "both concurrent wears should 204: {got:?}"
+    );
+
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE channel = type::record('channel', $c)")
+        .bind(("c", cid))
+        .await
+        .expect("count query");
+    let rows: Vec<String> = resp.take(0).expect("take");
+    assert_eq!(rows.len(), 1, "exactly one wear row survives the race");
+}

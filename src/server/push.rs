@@ -185,25 +185,32 @@ async fn store_subscription(
     account: &str,
     req: &PushSubscribeRequest,
 ) -> surrealdb::Result<()> {
-    state
-        .db
-        .query(
-            "BEGIN TRANSACTION;
-             DELETE push_subscription WHERE endpoint = $endpoint;
-             CREATE push_subscription SET
-                account  = type::record('account', $account),
-                endpoint = $endpoint,
-                p256dh   = $p256dh,
-                `auth`   = $auth_key;
-             COMMIT TRANSACTION;",
-        )
-        .bind(("account", account.to_string()))
-        .bind(("endpoint", req.endpoint.clone()))
-        .bind(("p256dh", req.keys.p256dh.clone()))
-        .bind(("auth_key", req.keys.auth.clone()))
-        .await?
-        .check()?;
-    Ok(())
+    // Idempotent DELETE-then-CREATE on the unique `endpoint`, wrapped in the
+    // write-conflict retry so two concurrent re-subscribes (a service worker
+    // firing twice) converge on one row and return the documented idempotent 204
+    // rather than intermittently 500ing on the MVCC loser (inv13).
+    crate::server::retry::with_write_conflict_retry(|| async {
+        state
+            .db
+            .query(
+                "BEGIN TRANSACTION;
+                 DELETE push_subscription WHERE endpoint = $endpoint;
+                 CREATE push_subscription SET
+                    account  = type::record('account', $account),
+                    endpoint = $endpoint,
+                    p256dh   = $p256dh,
+                    `auth`   = $auth_key;
+                 COMMIT TRANSACTION;",
+            )
+            .bind(("account", account.to_string()))
+            .bind(("endpoint", req.endpoint.clone()))
+            .bind(("p256dh", req.keys.p256dh.clone()))
+            .bind(("auth_key", req.keys.auth.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------

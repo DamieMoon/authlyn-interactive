@@ -13,7 +13,7 @@ use surrealdb::types::SurrealValue;
 use crate::protocol::{AuthResponse, LoginRequest, MeResponse, RegisterRequest};
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
-use crate::server::retry::is_unique_violation;
+use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
 use crate::server::state::AppState;
 
 use super::crypto::{hash_on_blocking_pool, validate_credentials, verify_on_blocking_pool};
@@ -193,23 +193,31 @@ async fn create_account(
     username_ci: &str,
     password_hash: &str,
 ) -> surrealdb::Result<String> {
-    let mut resp = state
-        .db
-        .query(
-            "CREATE account SET
-                username = $username,
-                username_ci = $username_ci,
-                password_hash = $password_hash
-                RETURN meta::id(id) AS id_key;",
-        )
-        .bind(("username", username.to_string()))
-        .bind(("username_ci", username_ci.to_string()))
-        .bind(("password_hash", password_hash.to_string()))
-        .await?
-        .check()?;
-    let row: Option<IdRow> = resp.take(0)?;
-    row.map(|r| r.id_key)
-        .ok_or_else(|| surrealdb::Error::thrown("create_account produced no row".to_string()))
+    // Wrap the racy CREATE against the `account_username_ci` UNIQUE index in the
+    // write-conflict retry: two concurrent registrations of the same username can
+    // make the MVCC loser surface a (retryable) write conflict instead of the
+    // UNIQUE violation. Retrying against a fresh snapshot then surfaces the clean
+    // UNIQUE violation, which the caller maps to 409 (inv13) — never a 500.
+    with_write_conflict_retry(|| async {
+        let mut resp = state
+            .db
+            .query(
+                "CREATE account SET
+                    username = $username,
+                    username_ci = $username_ci,
+                    password_hash = $password_hash
+                    RETURN meta::id(id) AS id_key;",
+            )
+            .bind(("username", username.to_string()))
+            .bind(("username_ci", username_ci.to_string()))
+            .bind(("password_hash", password_hash.to_string()))
+            .await?
+            .check()?;
+        let row: Option<IdRow> = resp.take(0)?;
+        row.map(|r| r.id_key)
+            .ok_or_else(|| surrealdb::Error::thrown("create_account produced no row".to_string()))
+    })
+    .await
 }
 
 async fn account_profile(

@@ -142,24 +142,34 @@ pub async fn set_channel_active_persona(
     // then, if wearing, create the new one — in one transaction so a wear is
     // never observed as "both rows" or "no row".
     let outcome = match req.persona_id {
-        Some(pid) => state
-            .db
-            .query(
-                "BEGIN TRANSACTION;
-                 DELETE FROM channel_active_persona
-                    WHERE account = type::record('account', $account)
-                      AND channel = type::record('channel', $cid);
-                 CREATE channel_active_persona SET
-                    account = type::record('account', $account),
-                    channel = type::record('channel', $cid),
-                    persona = type::record('persona', $pid);
-                 COMMIT TRANSACTION;",
-            )
-            .bind(("pid", pid))
-            .bind(("cid", cid))
-            .bind(("account", account.0))
+        // Idempotent DELETE-then-CREATE on the (account, channel) UNIQUE pair,
+        // wrapped in the write-conflict retry: two concurrent re-wears (double-tap
+        // / retry-on-slow-network) converge to one row instead of 500ing the MVCC
+        // loser (inv13).
+        Some(pid) => {
+            crate::server::retry::with_write_conflict_retry(|| async {
+                state
+                    .db
+                    .query(
+                        "BEGIN TRANSACTION;
+                         DELETE FROM channel_active_persona
+                            WHERE account = type::record('account', $account)
+                              AND channel = type::record('channel', $cid);
+                         CREATE channel_active_persona SET
+                            account = type::record('account', $account),
+                            channel = type::record('channel', $cid),
+                            persona = type::record('persona', $pid);
+                         COMMIT TRANSACTION;",
+                    )
+                    .bind(("pid", pid.clone()))
+                    .bind(("cid", cid.clone()))
+                    .bind(("account", account.0.clone()))
+                    .await?
+                    .check()?;
+                Ok(())
+            })
             .await
-            .and_then(|r| r.check()),
+        }
         None => state
             .db
             .query(
@@ -170,7 +180,8 @@ pub async fn set_channel_active_persona(
             .bind(("cid", cid))
             .bind(("account", account.0))
             .await
-            .and_then(|r| r.check()),
+            .and_then(|r| r.check())
+            .map(|_| ()),
     };
     match outcome {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),

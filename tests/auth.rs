@@ -205,6 +205,31 @@ async fn change_password_requires_authentication() {
 }
 
 #[cfg(feature = "ssr")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_register_same_username_never_500s() {
+    // F-D6-1: two simultaneous registrations of the same username resolve to
+    // exactly one 201 + one 409 — never a 500 from an un-retried MVCC write
+    // conflict on the account_username_ci UNIQUE index (with_write_conflict_retry).
+    let a = common::arena().await;
+    let body = json!({ "username": "Racer", "password": "password123" });
+    let req1 = common::build_json_request(Method::POST, "/auth/register", None, Some(&body));
+    let req2 = common::build_json_request(Method::POST, "/auth/register", None, Some(&body));
+    let h1 = tokio::spawn(common::status_of(a.router.clone(), req1));
+    let h2 = tokio::spawn(common::status_of(a.router.clone(), req2));
+    let mut got = [h1.await.unwrap(), h2.await.unwrap()];
+    assert!(
+        !got.contains(&StatusCode::INTERNAL_SERVER_ERROR),
+        "register race must never 500: {got:?}"
+    );
+    got.sort_by_key(|s| s.as_u16());
+    assert_eq!(
+        got,
+        [StatusCode::CREATED, StatusCode::CONFLICT],
+        "exactly one 201 and one 409"
+    );
+}
+
+#[cfg(feature = "ssr")]
 #[tokio::test]
 async fn logout_invalidates_the_session() {
     let a = common::arena().await;
