@@ -40,6 +40,28 @@ async fn owner_with_text_channel(router: &axum::Router) -> (String, String, Stri
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn malformed_cursor_is_400_not_500() {
+    // F-D4-3: a cursor with valid RFC3339 separators but a malformed tail must
+    // yield a deterministic 400, never a 500 from a type::datetime parse failure.
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages?before=2026-05-22T12:00:00Xbogus&before_id=abc"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "malformed cursor must 400, not 500"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn post_and_list_preserves_markup_verbatim() {
     let a = common::arena().await;
     let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
