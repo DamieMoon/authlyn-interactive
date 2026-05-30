@@ -165,7 +165,7 @@ This is load-bearing, not stylistic:
    break the download. Browser deps (gloo-\*, web-sys, js-sys, emojis) must
    never enter the SSR graph. The lint gate runs clippy on **both**
    `wasm32` and the SSR target so a leak fails CI-equivalently
-   (`./scripts/precommit.sh`).
+   (`cargo clippy --features ssr` and `cargo clippy --features hydrate --target wasm32-unknown-unknown`).
 2. **`protocol.rs` and `markup.rs` must stay wasm-clean.** They are the shared
    spine: both compile under both features, so they may depend only on
    `serde` / `std` — never on axum, surrealdb, tokio, gloo, or web-sys. A
@@ -398,8 +398,8 @@ needs an explicit decision, not a silent refactor.
 14. **Purge windows preserved.** `purge_soft_deleted` keeps message 1h /
     channel 1d / guild 30d (`server/mod.rs`); all reads filter
     `deleted_at = NONE`.
-15. **Green gate.** `./scripts/precommit.sh` stays green (fmt + clippy-ssr +
-    clippy-wasm32 + check-no-remnants); lib unit tests stay ≥ 37 passing.
+15. **Green gate.** `cargo fmt --all --check`, `cargo clippy --features ssr`, and
+    `cargo clippy --features hydrate --target wasm32-unknown-unknown` stay green; lib unit tests stay ≥ 37 passing.
 
 ### Client-side behaviors to preserve
 
@@ -422,7 +422,7 @@ UI refactor — Waves 4/6). Verified from the audit; keep them when moving code:
   survives re-render).
 
 **Anchor tests.** Each invariant has an integration-test anchor in `tests/`
-(run via `./scripts/dev-db.sh` + `cargo test --features ssr`):
+(run via `surreal start --user root --pass root --bind 127.0.0.1:8000 memory` + `cargo test --features ssr`):
 inv 1/2/3/4/6 — the per-domain handler suites (`auth.rs`, `guilds.rs`,
 `personas.rs`, `messages.rs`, `lorebook.rs`, `friends.rs`); inv 7 — the
 composite-cursor pagination canary in `messages.rs`; inv 9 — the

@@ -87,7 +87,7 @@ pub async fn test_db() -> Surreal<Client> {
 
     let db = Surreal::new::<Ws>(host)
         .await
-        .expect("connect to SurrealDB — is ./scripts/dev-db.sh running?");
+        .expect("connect to SurrealDB — start it with: surreal start --user root --pass root --bind 127.0.0.1:8000 memory");
     db.signin(Root {
         username: user,
         password: pass,
