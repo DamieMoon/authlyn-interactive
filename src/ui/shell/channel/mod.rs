@@ -427,6 +427,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                                 <InlineRename
                                                     value=body.clone()
                                                     multiline=true
+                                                    submit_on_enter=true
                                                     on_save=move |v| {
                                                         if let Some(cid) = save_cid.clone() {
                                                             act::edit_message(s, cid, save_mid.clone(), v);
@@ -608,6 +609,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                                 s.composer.compose_attachments.get_untracked().len();
                                             let mut skipped = false;
                                             let mut overflowed = false;
+                                            // Collect the accepted files first, then upload the
+                                            // whole pick at once so the staged order matches the
+                                            // selection order (mnjs2ljw…), not upload-completion
+                                            // order.
+                                            let mut picked: Vec<web_sys::File> = Vec::new();
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
                                                     // Generic picker can return any file;
@@ -623,10 +629,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                                         overflowed = true;
                                                         break;
                                                     }
-                                                    act::add_compose_attachment(s, file);
+                                                    picked.push(file);
                                                     current += 1;
                                                 }
                                             }
+                                            act::add_compose_attachments(s, picked);
                                             if overflowed {
                                                 s.composer.status.set(format!(
                                                     "Attachment limit ({COMPOSER_MAX_ATTACHMENTS}) reached"

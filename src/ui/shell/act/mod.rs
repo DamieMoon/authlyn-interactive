@@ -52,6 +52,10 @@ pub use message::{
 // re-exporting it on ssr fires "unused import" because nothing calls it there.
 #[cfg(feature = "hydrate")]
 pub use message::load_older;
+// `add_compose_attachments` (batch picker upload) is hydrate-only — the ssr
+// picker branch calls the single-file `add_compose_attachment` stub instead.
+#[cfg(feature = "hydrate")]
+pub use message::add_compose_attachments;
 // Notification-tray bookkeeping (feedback row kx24k2cwftdppidhmh0e). Hydrate-
 // only. `clear_notifs_for_channel` is referenced via `super::notify::…` from
 // `channel.rs`; only the one-time AppShell-mount installer is re-exported.

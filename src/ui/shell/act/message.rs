@@ -111,6 +111,45 @@ pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
     });
 }
 
+/// Upload a batch of picked files concurrently and stage them **in pick
+/// order**. `join_all` resolves to results in the input order, so a
+/// faster-uploading later file can't jump ahead of an earlier one — fixes the
+/// reversed/scrambled batch order (feedback mnjs2ljw…) that `add_compose_attachment`
+/// caused by pushing on each upload's completion. Mirrors the wardrobe's
+/// concurrent-upload pattern (`shell/wardrobe.rs`).
+#[cfg(feature = "hydrate")]
+pub fn add_compose_attachments(s: Shell, files: Vec<web_sys::File>) {
+    if files.is_empty() {
+        return;
+    }
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        // Pair each file's MIME (read synchronously) with its upload, then run
+        // them all at once; the result Vec stays in `files` order.
+        let uploads = files.iter().map(|f| {
+            let mime = f.type_();
+            async move {
+                api::upload_media(f)
+                    .await
+                    .map(|id| crate::protocol::Attachment { id, mime })
+            }
+        });
+        let results = futures_util::future::join_all(uploads).await;
+        let mut last_err = None;
+        s.composer.compose_attachments.update(|v| {
+            for r in results {
+                match r {
+                    Ok(att) => v.push(att),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+        });
+        if let Some(e) = last_err {
+            s.composer.status.set(api::humanize(&e));
+        }
+    });
+}
+
 /// Drop one staged attachment before sending.
 #[cfg(feature = "hydrate")]
 pub fn remove_compose_attachment(s: Shell, id: String) {

@@ -43,6 +43,10 @@ pub fn InlineRename(
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into, optional, default = "rename-input".to_string())] class: String,
     #[prop(optional)] multiline: bool,
+    /// `true` makes Enter submit (Shift+Enter inserts a newline) in multiline
+    /// mode — used by the message-body edit. Single-line Enter already submits.
+    #[prop(optional)]
+    submit_on_enter: bool,
 ) -> impl IntoView {
     let buf = RwSignal::new(value);
     // Mount Effect focuses + selects the input so the user can either type
@@ -75,11 +79,18 @@ pub fn InlineRename(
                 ev.prevent_default();
                 on_save.run(buf.get_untracked());
             }
+            // Message edit (submit_on_enter): Enter saves, Shift+Enter inserts a
+            // newline (feedback 7857wrqb…). Other multiline uses keep the
+            // standard newline-on-Enter (save via the ✓ button).
+            "Enter" if multiline && submit_on_enter && !ev.shift_key() => {
+                ev.prevent_default();
+                on_save.run(buf.get_untracked());
+            }
             "Escape" => on_cancel.run(()),
             _ => {}
         }
         #[cfg(not(feature = "hydrate"))]
-        let _ = &ev;
+        let _ = (&ev, submit_on_enter);
     };
 
     let input_field = if multiline {
