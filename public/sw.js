@@ -11,7 +11,11 @@
 // The cache name is versioned; bump CACHE_VERSION to invalidate. Old caches
 // are deleted on activate.
 
-const CACHE_VERSION = "authlyn-v7";
+// Bump on every release so the browser sees a new SW → it activates and claims,
+// firing `controllerchange`, which `register-sw.js` turns into the "new version
+// available" refresh banner. (Without a bump, sw.js is byte-identical and no
+// update fires; clients still get fresh /pkg/ on cold reopen via network-first.)
+const CACHE_VERSION = "authlyn-v8";
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",

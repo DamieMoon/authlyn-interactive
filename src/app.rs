@@ -34,11 +34,11 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <AutoReload options=options.clone() />
                 <HydrationScripts options/>
                 <MetaTags/>
-                // Register the service worker after load. No-op where the API
-                // is absent (older browsers, insecure contexts).
-                <script>
-                    "if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.error('SW registration failed:',e);});});}"
-                </script>
+                // Register the service worker + show the "new version available"
+                // refresh banner on update. External file (served from public/) so
+                // the logic stays readable and isn't subject to view! escaping.
+                // No-op where the serviceWorker API is absent.
+                <script src="/register-sw.js"></script>
             </head>
             <body>
                 <App/>
