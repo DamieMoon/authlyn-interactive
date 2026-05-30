@@ -159,13 +159,21 @@ are wire-format JSON. On `wasm32`, `getrandom` gets the `js` feature so
 
 This is load-bearing, not stylistic:
 
-1. **`ssr` ↔ `hydrate` never cross.** No code path may require both. Server
-   deps (surrealdb, axum, tokio, argon2, image, web-push, …) must **never**
-   enter the wasm bundle — they don't compile to `wasm32` and would bloat or
-   break the download. Browser deps (gloo-\*, web-sys, js-sys, emojis) must
-   never enter the SSR graph. The lint gate runs clippy on **both**
-   `wasm32` and the SSR target so a leak fails CI-equivalently
-   (`cargo clippy --features ssr` and `cargo clippy --features hydrate --target wasm32-unknown-unknown`).
+1. **`ssr` ↔ `hydrate` never cross in authlyn's own code.** No code path may
+   require both. Server deps (surrealdb, axum, tokio, argon2, image, web-push,
+   …) must **never** enter the wasm bundle — they don't compile to `wasm32` and
+   would bloat or break the download. This direction is absolute and cleanly
+   grep-assertable: `cargo tree --target wasm32-unknown-unknown
+   --no-default-features --features hydrate` shows none of them. The reverse is
+   narrower: **authlyn must not ADD browser deps to the SSR graph** — its own
+   `gloo-*` are `optional` + `hydrate`-gated (Cargo.toml), so they stay out of
+   `ssr`. But the reverse is *not* absolute at the dependency-tree level:
+   Leptos itself pulls gloo-net / web-sys / js-sys transitively into the SSR
+   graph (they compile to no-ops off `wasm32`), so a literal
+   `cargo tree --features ssr | grep gloo` would false-positive on a correct
+   build. The lint gate runs clippy on **both** `wasm32` and the SSR target so a
+   real leak fails CI-equivalently (`cargo clippy --features ssr` and
+   `cargo clippy --features hydrate --target wasm32-unknown-unknown`).
 2. **`protocol.rs` and `markup.rs` must stay wasm-clean.** They are the shared
    spine: both compile under both features, so they may depend only on
    `serde` / `std` — never on axum, surrealdb, tokio, gloo, or web-sys. A
