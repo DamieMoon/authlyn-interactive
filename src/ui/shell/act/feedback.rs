@@ -20,6 +20,7 @@ pub fn submit_feedback(
     body: String,
     context: Option<String>,
     modal_open: RwSignal<bool>,
+    inbox: RwSignal<Option<Vec<crate::protocol::FeedbackItem>>>,
 ) {
     use crate::protocol::SubmitFeedbackRequest;
     s.composer.status.set(String::new());
@@ -31,7 +32,18 @@ pub fn submit_feedback(
         })
         .await
         {
-            Ok(()) => modal_open.set(false),
+            Ok(()) => {
+                modal_open.set(false);
+                // If the admin inbox is loaded (Some), refetch so the just-sent
+                // item appears without closing + reopening the modal (feedback
+                // 0sow9yxg… / ecxro4eq…). Non-admins keep `inbox == None` (the
+                // GET /feedback admin gate 403s) → skip the refetch entirely.
+                if inbox.get_untracked().is_some() {
+                    if let Ok(r) = api::list_feedback().await {
+                        inbox.set(Some(r.items));
+                    }
+                }
+            }
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
@@ -100,6 +112,7 @@ pub fn submit_feedback(
     _body: String,
     _context: Option<String>,
     _modal_open: RwSignal<bool>,
+    _inbox: RwSignal<Option<Vec<crate::protocol::FeedbackItem>>>,
 ) {
 }
 #[cfg(not(feature = "hydrate"))]

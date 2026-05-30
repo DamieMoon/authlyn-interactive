@@ -100,7 +100,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         }
         // Build context JSON — hydrate-gated via act so web_sys never runs on ssr.
         let context = act::build_feedback_context(s);
-        act::submit_feedback(s, kind, body, context, feedback_open);
+        act::submit_feedback(s, kind, body, context, feedback_open, inbox);
         fb_body.set(String::new());
     };
 
