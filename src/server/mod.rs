@@ -224,8 +224,40 @@ fn media_routes() -> Router<AppState> {
         .layer(RequestBodyLimitLayer::new(MEDIA_BODY_LIMIT_BYTES))
 }
 
+/// `GET /sw.js` — the service worker, served from the embedded `public/sw.js`
+/// with its `__BUILD_REV__` placeholder replaced by the compile-time git short
+/// rev (`build.rs` sets `BUILD_REV`). A unique `CACHE_VERSION` per build makes
+/// the browser see a new SW each release, which drives `register-sw.js`'s
+/// "new version available" refresh banner. `no-cache` so the SW update check
+/// always reads fresh bytes.
+async fn serve_service_worker() -> impl axum::response::IntoResponse {
+    const SW: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/public/sw.js"));
+    let body = SW.replace("__BUILD_REV__", env!("BUILD_REV"));
+    (
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("text/javascript; charset=utf-8"),
+            ),
+            (
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-cache"),
+            ),
+            (
+                axum::http::HeaderName::from_static("service-worker-allowed"),
+                axum::http::HeaderValue::from_static("/"),
+            ),
+        ],
+        body,
+    )
+}
+
 fn api_routes() -> Router<AppState> {
     Router::new()
+        // The service worker, served dynamically so its CACHE_VERSION carries the
+        // per-build git rev (BUILD_REV via build.rs) — every release is a new SW,
+        // which drives register-sw.js's "new version available" prompt.
+        .route("/sw.js", get(serve_service_worker))
         .merge(small_body_routes())
         .merge(media_routes())
 }
