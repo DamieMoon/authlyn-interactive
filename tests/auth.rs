@@ -205,6 +205,25 @@ async fn change_password_requires_authentication() {
 }
 
 #[cfg(feature = "ssr")]
+#[tokio::test]
+async fn register_rejects_password_under_8_characters_even_when_8_bytes() {
+    // F-D5-2: the length rule must count CHARACTERS (matching its "at least 8
+    // characters" message and the username check), not bytes. Three lock emojis
+    // are 3 characters but 12 UTF-8 bytes; a byte-based check would wrongly
+    // accept them as "8+ characters", so this asserts the char-count gate 400s.
+    let a = common::arena().await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/register",
+        None,
+        Some(&json!({ "username": "Multibyte", "password": "🔒🔒🔒" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[cfg(feature = "ssr")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_register_same_username_never_500s() {
     // F-D6-1: two simultaneous registrations of the same username resolve to

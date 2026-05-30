@@ -15,7 +15,13 @@ use crate::server::errors::error_response;
 
 pub(super) const MIN_USERNAME_CHARS: usize = 3;
 pub(super) const MAX_USERNAME_CHARS: usize = 32;
-pub(super) const MIN_PASSWORD_BYTES: usize = 8;
+/// Minimum password length, counted in CHARACTERS to match the user-facing
+/// "at least 8 characters" message and the char-based username rule below. A
+/// byte count would let a sub-8-character multibyte password (e.g. three lock
+/// emoji = 3 chars but 12 bytes) slip past the gate (review F-D5-2).
+pub(super) const MIN_PASSWORD_CHARS: usize = 8;
+/// Maximum password length, counted in BYTES: this is a DoS / argon2-input
+/// bound, and bytes is the correct unit for capping the work fed to the hasher.
 pub(super) const MAX_PASSWORD_BYTES: usize = 4096;
 
 pub(super) fn random_token() -> String {
@@ -97,7 +103,7 @@ pub(super) fn validate_credentials(username: &str, password: &str) -> Result<(),
 
 /// The password length rule shared by register and change-password.
 pub(super) fn validate_password(password: &str) -> Result<(), &'static str> {
-    if password.len() < MIN_PASSWORD_BYTES {
+    if password.chars().count() < MIN_PASSWORD_CHARS {
         return Err("password must be at least 8 characters");
     }
     if password.len() > MAX_PASSWORD_BYTES {
