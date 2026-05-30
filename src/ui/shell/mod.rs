@@ -233,6 +233,10 @@ fn AppShell() -> impl IntoView {
     crate::ui::emoji::data::warm();
     let new_server = RwSignal::new(String::new());
     let new_channel = RwSignal::new(String::new());
+    // Channel-creator dialog: open/closed + the chosen kind (text|lorebook;
+    // the extension point where Gallery lands later).
+    let new_channel_kind = RwSignal::new("text".to_string());
+    let channel_creator_open = RwSignal::new(false);
     let new_invite = RwSignal::new(String::new());
     // Account-management modal visibility (change password, future options).
     let account_open = RwSignal::new(false);
@@ -477,16 +481,56 @@ fn AppShell() -> impl IntoView {
                     </ul>
                     <Show when=is_owner fallback=|| ()>
                         <div class="channel-add">
-                            <input prop:value=move || new_channel.get()
-                                on:input=move |ev| new_channel.set(event_target_value(&ev))
-                                placeholder="new text channel"/>
-                            <button on:click=move |_| {
-                                let name = new_channel.get_untracked();
-                                new_channel.set(String::new());
-                                act::create_channel(s, name);
-                            }>"+"</button>
+                            <button class="channel-add-btn" title="New channel"
+                                on:click=move |_| {
+                                    new_channel.set(String::new());
+                                    new_channel_kind.set("text".to_string());
+                                    channel_creator_open.set(true);
+                                }>"＋ Channel"</button>
                         </div>
                     </Show>
+                    // Channel-creator dialog (opened only via the owner-gated
+                    // button above): choose the channel type + name. The lorebook
+                    // kind is fully wired (LorebookPane); this dialog is also where
+                    // a Gallery kind will be added later (R2).
+                    {move || channel_creator_open.get().then(|| view! {
+                        <Modal class="channel-creator"
+                            close=move || channel_creator_open.set(false)>
+                            <h3>"New channel"</h3>
+                            <div class="creator-kind">
+                                <label class="pref-row">
+                                    <input type="radio" name="ch-kind" value="text"
+                                        prop:checked=move || new_channel_kind.get() == "text"
+                                        on:change=move |_| new_channel_kind.set("text".to_string())/>
+                                    <span>"# Text"</span>
+                                </label>
+                                <label class="pref-row">
+                                    <input type="radio" name="ch-kind" value="lorebook"
+                                        prop:checked=move || new_channel_kind.get() == "lorebook"
+                                        on:change=move |_| new_channel_kind.set("lorebook".to_string())/>
+                                    <span>"📖 Lorebook"</span>
+                                </label>
+                            </div>
+                            <input class="creator-name" prop:value=move || new_channel.get()
+                                on:input=move |ev| new_channel.set(event_target_value(&ev))
+                                placeholder="channel name"/>
+                            <div class="creator-actions">
+                                <button on:click=move |_| channel_creator_open.set(false)>
+                                    "Cancel"
+                                </button>
+                                <button class="account-save" on:click=move |_| {
+                                    let name = new_channel.get_untracked();
+                                    if name.trim().is_empty() {
+                                        return;
+                                    }
+                                    let kind = new_channel_kind.get_untracked();
+                                    new_channel.set(String::new());
+                                    channel_creator_open.set(false);
+                                    act::create_channel(s, name, kind);
+                                }>"Create"</button>
+                            </div>
+                        </Modal>
+                    })}
                     // Deleted-channels panel (owner only).
                     <Show when=is_owner fallback=|| ()>
                         <div class="trash-section">

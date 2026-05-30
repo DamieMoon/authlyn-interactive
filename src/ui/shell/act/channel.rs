@@ -162,7 +162,7 @@ pub fn restore_session(s: Shell) -> bool {
 }
 
 #[cfg(feature = "hydrate")]
-pub fn create_channel(s: Shell, name: String) {
+pub fn create_channel(s: Shell, name: String, kind: String) {
     let Some(gid) = s.sel.sel_server.get_untracked() else {
         return;
     };
@@ -170,7 +170,7 @@ pub fn create_channel(s: Shell, name: String) {
         return;
     }
     spawn_local(async move {
-        match api::create_channel(&gid, &name, "text").await {
+        match api::create_channel(&gid, &name, &kind).await {
             Ok(_) => super::guild::open_server(s, gid),
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
@@ -304,7 +304,7 @@ pub fn restore_session(_s: Shell) -> bool {
     false
 }
 #[cfg(not(feature = "hydrate"))]
-pub fn create_channel(_s: Shell, _name: String) {}
+pub fn create_channel(_s: Shell, _name: String, _kind: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
 #[cfg(not(feature = "hydrate"))]
