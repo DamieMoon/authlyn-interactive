@@ -30,7 +30,7 @@ async fn main() {
     // Connect to SurrealDB and apply the schema before serving traffic.
     let surreal = db::connect_with_retries()
         .await
-        .expect("SurrealDB connect failed after 10 retries (is `./scripts/dev-db.sh` running locally, or `surrealdb.service` on the Pi?)");
+        .expect("SurrealDB connect failed after 10 retries — start the local DB with: surreal start --user root --pass root --bind 127.0.0.1:8000 memory");
     db::apply_schema(&surreal)
         .await
         .expect("SurrealDB schema apply failed");

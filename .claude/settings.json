@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test --features ssr:*)",
+      "Bash(cargo clippy --features ssr:*)",
+      "Bash(cargo clippy --features hydrate --target wasm32-unknown-unknown:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo fmt --all --check:*)",
+      "Bash(cargo leptos build:*)",
+      "Bash(cargo leptos watch:*)",
+      "Bash(cargo run --example gen_emoji_json:*)",
+      "Bash(cargo build --release --bin nova-mcp --features nova:*)",
+      "Bash(surreal start --user root --pass root --bind 127.0.0.1:8000 memory:*)",
+      "Bash(surreal version)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git grep:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(jq:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$HOME/.cargo/bin:$PATH\"; f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.rs) command -v rustfmt >/dev/null 2>&1 && rustfmt --edition 2021 \"$f\" || true;; esac"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$HOME/.cargo/bin:$PATH\"; echo \"[authlyn] cargo: $(command -v cargo >/dev/null && echo present || echo MISSING) | cargo-leptos: $(command -v cargo-leptos >/dev/null && echo present || echo MISSING) | surreal: $(command -v surreal >/dev/null && echo present || echo MISSING) | dev-DB on :8000: $(pgrep -f 'surreal start' >/dev/null && echo up || echo down). Tests need --features ssr AND a live SurrealDB.\""
+          }
+        ]
+      }
+    ]
+  }
+}

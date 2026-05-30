@@ -1115,3 +1115,231 @@ async fn worn_per_channel_persona_stamps_bare_message() {
         "after unwear, a bare message has no persona"
     );
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn revoked_editor_per_channel_wear_stops_stamping_bare_messages() {
+    // Regression (review F-D1b-1): a per-channel wear (`channel_active_persona`)
+    // must NOT keep stamping an ex-editor's messages after their editor access is
+    // revoked. The send path re-derives `can_edit_persona` on the stored wear on
+    // EVERY send, so a stale wear row can no longer author as the persona.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let editor = common::register_account(&a.router, "Editor", "password123").await;
+
+    // Owner creates a persona and shares it with the editor.
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // The editor owns a guild+channel and wears the shared persona THERE,
+    // per-channel — the path that stamps bare messages.
+    let (_gid, cid) = guild_with_channel(&a.router, &editor).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&editor),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // While still an editor, a bare message IS stamped with the worn persona.
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "as persona" })),
+    )
+    .await;
+
+    // Owner revokes the editor.
+    let (_, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let editor_aid = roster["editors"][0]["account_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/editors/{editor_aid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The stale wear row must NOT let the ex-editor keep authoring as the
+    // persona — neither via the bare-send fallback nor by explicitly suggesting
+    // the persona they may no longer edit.
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "after revoke (bare)" })),
+    )
+    .await;
+    common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        Some(&json!({ "body": "after revoke (explicit)", "persona_id": pid })),
+    )
+    .await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&editor),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 3);
+    assert_eq!(
+        msgs[0]["persona_id"], pid,
+        "pre-revoke bare message stamped from the per-channel wear"
+    );
+    assert!(
+        msgs[1]["persona_id"].is_null(),
+        "post-revoke bare message must NOT be stamped as the persona"
+    );
+    assert!(
+        msgs[2]["persona_id"].is_null(),
+        "post-revoke explicit persona_id must be rejected, not stamped"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn revoking_editor_clears_their_channel_active_persona_row() {
+    // F-D1b-1/2/3 hygiene: revoke/leave/delete must clear the per-channel wear
+    // (`channel_active_persona`), not only the deprecated per-guild wear. This
+    // asserts the row deletion directly for remove_editor; leave_persona and
+    // delete_persona apply the identical idiom in the same transaction.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let editor = common::register_account(&a.router, "Editor", "password123").await;
+    let pid = create_persona(&a.router, &owner, "Shared").await;
+    let key = share_key_of(&a.router, &owner, &pid).await;
+    common::send(
+        &a.router,
+        Method::POST,
+        "/personas/redeem",
+        Some(&editor),
+        Some(&json!({ "key": key })),
+    )
+    .await;
+    let (_gid, cid) = guild_with_channel(&a.router, &editor).await;
+    common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/channels/{cid}/active-persona"),
+        Some(&editor),
+        Some(&json!({ "persona_id": pid })),
+    )
+    .await;
+
+    // Sanity: the wear row exists while the editor still has access.
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE persona = type::record('persona', $p)")
+        .bind(("p", pid.clone()))
+        .await
+        .expect("query before");
+    let before: Vec<String> = resp.take(0).expect("take before");
+    assert_eq!(before.len(), 1, "wear row should exist while editor");
+
+    // Revoke the editor.
+    let (_, _, roster) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/personas/{pid}/editors"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let editor_aid = roster["editors"][0]["account_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/personas/{pid}/editors/{editor_aid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+
+    // The per-channel wear row must be gone.
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE persona = type::record('persona', $p)")
+        .bind(("p", pid))
+        .await
+        .expect("query after");
+    let after: Vec<String> = resp.take(0).expect("take after");
+    assert!(
+        after.is_empty(),
+        "remove_editor must clear the editor's channel_active_persona rows"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_channel_wear_converges_to_one_row() {
+    // F-D6-2: two simultaneous PUT /channels/{cid}/active-persona for the same
+    // (account, channel) converge to one row and both 204 — never 500 on the
+    // channel_active_persona (account, channel) UNIQUE pair (with_write_conflict_retry).
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let pid = create_persona(&a.router, &owner, "Hero").await;
+
+    let body = json!({ "persona_id": pid });
+    let path = format!("/channels/{cid}/active-persona");
+    let req1 = common::build_json_request(Method::PUT, &path, Some(&owner), Some(&body));
+    let req2 = common::build_json_request(Method::PUT, &path, Some(&owner), Some(&body));
+    let h1 = tokio::spawn(common::status_of(a.router.clone(), req1));
+    let h2 = tokio::spawn(common::status_of(a.router.clone(), req2));
+    let got = [h1.await.unwrap(), h2.await.unwrap()];
+    assert!(
+        !got.contains(&StatusCode::INTERNAL_SERVER_ERROR),
+        "wear race must never 500: {got:?}"
+    );
+    assert!(
+        got.iter().all(|s| *s == StatusCode::NO_CONTENT),
+        "both concurrent wears should 204: {got:?}"
+    );
+
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel_active_persona WHERE channel = type::record('channel', $c)")
+        .bind(("c", cid))
+        .await
+        .expect("count query");
+    let rows: Vec<String> = resp.take(0).expect("take");
+    assert_eq!(rows.len(), 1, "exactly one wear row survives the race");
+}

@@ -13,16 +13,15 @@ Work in progress. Private / internal use.
 
 ## Versioning
 
-CalVer: `YYYY.M.D`. Each release also gets a random codename — generate one with
-`./scripts/release-name.sh` and set it in `Cargo.toml` under
-`[package.metadata.release].codename`.
+CalVer: `YYYY.M.D`. Each release also gets a random two-word codename — pick one
+manually and set it in `Cargo.toml` under `[package.metadata.release].codename`.
 
 ## Dev
 
 In one terminal, start the database:
 
 ```sh
-./scripts/dev-db.sh
+surreal start --user root --pass root --bind 127.0.0.1:8000 memory
 ```
 
 In another, run the app with live reload:
@@ -33,6 +32,8 @@ cargo leptos watch
 ```
 
 The app serves at <http://127.0.0.1:3000>; SurrealDB at `ws://127.0.0.1:8000`.
+
+Optional pre-commit gate (fmt + clippy), off by default — enable per-clone with `git config core.hooksPath .githooks`.
 
 ## Layout
 
@@ -50,7 +51,4 @@ src/
   storage/         SurrealDB schema (schema.surql)
   ui/              Leptos UI: auth + shell/ (Discord-style app shell)
   bin/nova-mcp.rs  standalone MCP bridge (optional `nova` feature)
-scripts/
-  dev-db.sh
-  release-name.sh
 ```

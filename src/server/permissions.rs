@@ -56,6 +56,11 @@ pub(crate) async fn require_manager(
     gid: &str,
     account: &str,
 ) -> Result<(), Response> {
+    // Management mutations require the guild to be LIVE as well as the caller to
+    // be owner/admin: a soft-deleted guild is invisible to reads and must be
+    // immutable too (review F-D1a-1). delete/restore_guild use require_owner,
+    // which stays liveness-agnostic so a restore can operate on a trashed guild.
+    ensure_guild_live(state, gid).await?;
     match caller_role(state, gid, account).await {
         Ok(Some(role)) if role == "owner" || role == "admin" => Ok(()),
         Ok(Some(_)) => Err(error_response(StatusCode::FORBIDDEN, "admin only")),
@@ -89,6 +94,43 @@ pub(crate) async fn require_owner(
             ))
         }
     }
+}
+
+/// `Ok(())` if the guild exists and is live; `Err(404)` if it is soft-deleted
+/// or absent. `require_manager` calls this so management mutations refuse a
+/// trashed guild — which is invisible to reads and must be immutable too
+/// (review F-D1a-1). Deliberately NOT folded into `caller_role`, because
+/// `require_owner` (delete/restore_guild) must still resolve a role on a
+/// soft-deleted guild so a restore can operate on it.
+async fn ensure_guild_live(state: &AppState, gid: &str) -> Result<(), Response> {
+    let storage_err = || error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+    let mut resp = match state
+        .db
+        .query(
+            "SELECT VALUE meta::id(id) FROM type::record('guild', $gid)
+                WHERE deleted_at = NONE;",
+        )
+        .bind(("gid", gid.to_string()))
+        .await
+        .and_then(|r| r.check())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "guild liveness check failed");
+            return Err(storage_err());
+        }
+    };
+    let rows: Vec<String> = match resp.take(0) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "guild liveness decode failed");
+            return Err(storage_err());
+        }
+    };
+    if rows.is_empty() {
+        return Err(error_response(StatusCode::NOT_FOUND, "guild not found"));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

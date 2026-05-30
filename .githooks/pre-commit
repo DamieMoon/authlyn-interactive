@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Git pre-commit hook — runs the project check gate (scripts/precommit.sh).
-# Wired via: git config core.hooksPath .githooks   (one-time, repo-local)
-# Bypass for WIP commits with: git commit --no-verify
-
+# Git pre-commit gate. Opt-in (off by default) — enable per-clone with:
+#   git config core.hooksPath .githooks
+# Bypass a WIP commit with: git commit --no-verify
 set -euo pipefail
 
-exec "$(git rev-parse --show-toplevel)/scripts/precommit.sh"
+# Make the rustup toolchain visible even in non-login shells / GUI clients.
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+cargo fmt --all --check
+cargo clippy --features ssr --no-deps -- -D warnings
+cargo clippy --features hydrate --target wasm32-unknown-unknown --no-deps -- -D warnings

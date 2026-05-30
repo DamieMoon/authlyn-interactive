@@ -1,8 +1,0 @@
-[Unit]
-Description=Pull authlyn.tplinkdns.com TLS cert from the Pi and reload Caddy on change
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/authlyn-sync-cert

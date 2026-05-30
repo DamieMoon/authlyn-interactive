@@ -33,9 +33,14 @@ pub async fn post_message(
     let body = req.body.trim_end().to_string();
     // Attachments: dedupe (preserve order), bound the count. A message is valid
     // with text, with images, or both — but not empty of both.
+    // Dedupe via a HashSet so the work is O(n), not the prior O(n²) linear scan
+    // over the fully-untrusted attachment_ids vector — the MAX_ATTACHMENTS cap is
+    // checked after dedup, so without this a body packed with distinct ids (up to
+    // the 512 KiB limit) cost quadratic CPU before the cap fired (review F-D12-4).
+    let mut seen = std::collections::HashSet::new();
     let mut attachments: Vec<String> = Vec::new();
     for id in req.attachment_ids {
-        if !attachments.contains(&id) {
+        if seen.insert(id.clone()) {
             attachments.push(id);
         }
     }
@@ -82,23 +87,31 @@ pub async fn post_message(
             return error_response(StatusCode::NOT_FOUND, "channel not found");
         }
     };
-    // Attribution is decided at send time, never racing the per-channel wear
-    // write: trust the persona the client says it's wearing here AFTER checking
-    // the caller may use it; if absent/invalid, fall back to the stored
-    // per-channel persona (`channel_active_persona`), else speak as the account.
-    let active_persona = match req.persona_id.as_deref() {
-        Some(pid) => {
-            match crate::server::permissions::can_edit_persona(&state, pid, &account.0).await {
-                Ok(true) => Some(pid.to_string()),
-                Ok(false) => stored_persona,
-                Err(e) => {
-                    tracing::error!(error = %e, "can_edit_persona failed");
-                    return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-                }
+    // Attribution is decided at send time and re-derived server-side on EVERY
+    // send. The client may SUGGEST persona_id; we honor it only if the caller may
+    // still edit it, else fall back to the stored per-channel wear — but that
+    // stored `channel_active_persona` value is ALSO re-checked here, never
+    // trusted: a revoked editor or a deleted persona must not keep stamping via a
+    // stale wear row (the row is cleared on revoke/leave/delete, and this re-gate
+    // is the defense-in-depth that holds even if a cleanup path is ever missed).
+    // Final fallback: speak as the bare account.
+    let mut active_persona: Option<String> = None;
+    for candidate in [req.persona_id.as_deref(), stored_persona.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        match crate::server::permissions::can_edit_persona(&state, candidate, &account.0).await {
+            Ok(true) => {
+                active_persona = Some(candidate.to_string());
+                break;
+            }
+            Ok(false) => continue,
+            Err(e) => {
+                tracing::error!(error = %e, "can_edit_persona failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
             }
         }
-        None => stored_persona,
-    };
+    }
 
     match persist_message(
         &state,

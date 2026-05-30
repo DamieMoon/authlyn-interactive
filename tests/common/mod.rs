@@ -87,7 +87,7 @@ pub async fn test_db() -> Surreal<Client> {
 
     let db = Surreal::new::<Ws>(host)
         .await
-        .expect("connect to SurrealDB — is ./scripts/dev-db.sh running?");
+        .expect("connect to SurrealDB — start it with: surreal start --user root --pass root --bind 127.0.0.1:8000 memory");
     db.signin(Root {
         username: user,
         password: pass,
@@ -116,6 +116,34 @@ pub fn random_id() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     hex::encode(bytes)
+}
+
+/// Build (but do not send) a JSON request, so several can be fired on cloned
+/// routers concurrently via [`status_of`] + `tokio::spawn` (concurrency tests).
+pub fn build_json_request(
+    method: Method,
+    path: &str,
+    cookie: Option<&str>,
+    body: Option<&Value>,
+) -> Request<Body> {
+    let mut builder = Request::builder().method(method).uri(path);
+    if let Some(c) = cookie {
+        builder = builder.header(header::COOKIE, c);
+    }
+    let body = match body {
+        Some(v) => {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+            Body::from(serde_json::to_vec(v).unwrap())
+        }
+        None => Body::empty(),
+    };
+    builder.body(body).unwrap()
+}
+
+/// Drive one prebuilt request through an owned router clone, returning the
+/// status — shaped for `tokio::spawn` in concurrency tests.
+pub async fn status_of(router: Router, req: Request<Body>) -> StatusCode {
+    router.oneshot(req).await.expect("oneshot").status()
 }
 
 /// Hit the router with a JSON request. Returns (status, parsed body).

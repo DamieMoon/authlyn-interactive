@@ -256,14 +256,30 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
         .query(
             r#"
             DELETE message WHERE deleted_at != NONE AND deleted_at < time::now() - 1h;
+            -- Channel 1d purge: cascade the channel's children before the channel.
             DELETE message WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            DELETE lorebook_entry WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
+            -- Guild 30d purge: cascade channels + their children + guild children.
             LET $g = (SELECT VALUE id FROM guild
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
             DELETE message WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            DELETE lorebook_entry WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel WHERE guild IN $g;
             DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
+            -- custom_emoji.(guild,name) is a composite index with guild leading,
+            -- so use an inline guild-subquery (not $g) to dodge the same mis-plan
+            -- noted above; user_guild_order matched the same way for consistency
+            -- (review F-D7-1).
+            DELETE custom_emoji WHERE guild IN (SELECT VALUE id FROM guild
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
+            DELETE user_guild_order WHERE guild IN (SELECT VALUE id FROM guild
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
             DELETE guild WHERE id IN $g;
             "#,

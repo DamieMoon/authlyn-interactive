@@ -537,6 +537,112 @@ async fn purge_cascades_guild_to_channels_and_messages() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn manager_mutations_on_a_soft_deleted_guild_are_404() {
+    // F-D1a-1: a soft-deleted guild is invisible to reads and must be immutable.
+    // require_manager refuses management mutations on a trashed guild (404),
+    // rather than letting an owner/admin keep writing to a guild treated as gone.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, _cid) = guild_with_channel(&a.router, &owner).await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "soft-delete guild");
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "ghost", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "create_channel on a trashed guild must 404"
+    );
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        Some(&json!({ "name": "ghost-name" })),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "patch_guild on a trashed guild must 404"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn purge_cascades_guild_to_all_child_tables() {
+    // F-D7-1/2: the 30d guild purge must also sweep guild/channel children it
+    // previously orphaned — custom_emoji, user_guild_order, lorebook_entry,
+    // channel_active_persona — not just channels/members/messages.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, cid, _mid, _member) = doomed_guild(&a, &owner).await;
+
+    // Seed one row in each child table keyed to the doomed guild/channel.
+    // Referential existence is not enforced, so placeholder FK targets are fine.
+    a.db.query(
+        r#"
+        CREATE type::record('custom_emoji', 'ce1') SET
+            guild = type::record('guild', $gid), name = 'e',
+            media = type::record('media_blob', 'm1'),
+            creator = type::record('account', 'a1');
+        CREATE type::record('user_guild_order', 'ugo1') SET
+            account = type::record('account', 'a1'),
+            guild = type::record('guild', $gid), position = 0;
+        CREATE type::record('lorebook_entry', 'le1') SET
+            channel = type::record('channel', $cid), keys = [], content = '';
+        CREATE type::record('channel_active_persona', 'cap1') SET
+            account = type::record('account', 'a1'),
+            channel = type::record('channel', $cid),
+            persona = type::record('persona', 'p1');
+        "#,
+    )
+    .bind(("gid", gid.clone()))
+    .bind(("cid", cid.clone()))
+    .await
+    .expect("seed children")
+    .check()
+    .expect("seed check");
+
+    let children = [
+        ("custom_emoji", "ce1"),
+        ("user_guild_order", "ugo1"),
+        ("lorebook_entry", "le1"),
+        ("channel_active_persona", "cap1"),
+    ];
+    for (t, id) in children {
+        assert!(row_exists(&a.db, t, id).await, "{t} seeded before purge");
+    }
+
+    let state = AppState::new(a.db.clone(), a.media_dir.clone());
+    purge_soft_deleted(&state).await.expect("purge");
+
+    for (t, id) in children {
+        assert!(
+            !row_exists(&a.db, t, id).await,
+            "purge must sweep the orphaned {t} row of a purged guild"
+        );
+    }
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn purge_should_cascade_guild_member_rows() {
     // Regression guard for the guild_member cascade. This previously FAILED: the
     // 30d guild purge left orphan guild_member rows because SurrealDB 3.1.0-beta.3

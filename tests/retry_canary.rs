@@ -14,7 +14,7 @@
 //! their own throwaway tables, not production indexes, so they validate the
 //! matchers regardless of how the app schema evolves.
 //!
-//! These hit a real SurrealDB. Run `./scripts/dev-db.sh` first.
+//! These hit a real SurrealDB. Run `surreal start --user root --pass root --bind 127.0.0.1:8000 memory` first.
 
 mod common;
 
@@ -67,7 +67,7 @@ async fn is_write_conflict_matches_real_surrealdb_conflict() {
             .to_string();
         let db = Surreal::new::<Ws>(host)
             .await
-            .expect("connect to SurrealDB — is ./scripts/dev-db.sh running?");
+            .expect("connect to SurrealDB — start it with: surreal start --user root --pass root --bind 127.0.0.1:8000 memory");
         db.signin(Root {
             username: std::env::var("SURREAL_USER").unwrap_or_else(|_| "root".into()),
             password: std::env::var("SURREAL_PASS").unwrap_or_else(|_| "root".into()),

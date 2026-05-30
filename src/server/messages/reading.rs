@@ -233,14 +233,14 @@ fn parse_cursor(q: &ListMessagesQuery) -> Result<CursorState, &'static str> {
     }
 }
 
-/// Necessary-condition RFC 3339 shape probe (maps malformed cursors to a
-/// typed 400 instead of letting SurrealDB's parse error bubble to a 500).
+/// Necessary-condition RFC 3339 probe: maps a malformed cursor to a typed 400
+/// instead of letting SurrealDB's `type::datetime` parse error bubble to a 500.
+/// A full chrono parse (not just a separator-position check) rejects a value
+/// with the right separators but a malformed sub-second/offset tail, e.g.
+/// `2026-05-22T12:00:00Xbogus`, which the old positional probe let through
+/// (review F-D4-3).
 fn is_rfc3339(s: &str) -> bool {
-    if s.len() < 20 {
-        return false;
-    }
-    let b = s.as_bytes();
-    b[4] == b'-' && b[7] == b'-' && b[10] == b'T' && b[13] == b':' && b[16] == b':'
+    chrono::DateTime::parse_from_rfc3339(s).is_ok()
 }
 
 #[derive(SurrealValue)]

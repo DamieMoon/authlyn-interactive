@@ -35,6 +35,24 @@ const DEFAULT_MIME: &str = "application/octet-stream";
 /// Reject absurd MIME strings (a sane image type is well under this).
 const MAX_MIME_LEN: usize = 255;
 
+/// Inline-renderable raster image MIME allowlist. The media store is image-only
+/// (avatars, persona art, gallery, attachments). Restricting uploads to these —
+/// and serving anything else as a download (see [`serve_original`]) — removes
+/// the stored-XSS / content-sniffing vector of serving attacker-controlled
+/// active content (e.g. `text/html`, `image/svg+xml`) from our own origin
+/// (review F-D8-3).
+const INLINE_IMAGE_MIMES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// True if `mime`'s base type (ignoring any `; charset=…` parameters) is an
+/// inline-safe raster image. SVG is deliberately excluded — it is XML and can
+/// carry script.
+fn is_inline_image_mime(mime: &str) -> bool {
+    let base = mime.split(';').next().unwrap_or("").trim();
+    INLINE_IMAGE_MIMES
+        .iter()
+        .any(|allowed| base.eq_ignore_ascii_case(allowed))
+}
+
 // ---------------------------------------------------------------------------
 // POST /media
 // ---------------------------------------------------------------------------
@@ -51,6 +69,16 @@ pub async fn upload_media(
     };
     if bytes.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "file must not be empty");
+    }
+    // Image-only store: reject anything else so attacker-controlled active
+    // content (text/html, image/svg+xml, …) can never be stored and later
+    // served from our origin (review F-D8-3). The serve path hardens legacy
+    // rows that predate this check.
+    if !is_inline_image_mime(&mime) {
+        return error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported media type (allowed: PNG, JPEG, GIF, WebP)",
+        );
     }
 
     let id = random_media_id();
@@ -226,18 +254,43 @@ pub async fn download_media(
 const THUMB_MIN_W: u32 = 16;
 const THUMB_MAX_W: u32 = 512;
 
-/// Serve raw blob bytes with the stored MIME (octet-stream fallback).
+/// Serve raw blob bytes. Always sends `X-Content-Type-Options: nosniff` so the
+/// browser cannot sniff stored bytes into active content. Inline-safe raster
+/// images are served with their stored type; anything else (legacy rows, svg,
+/// text/html, …) is forced to an `octet-stream` attachment so it can never
+/// render as active content on our origin (review F-D8-3).
 fn serve_original(bytes: Vec<u8>, mime: String) -> Response {
-    let content_type = if mime.is_empty() {
-        DEFAULT_MIME.to_string()
+    if is_inline_image_mime(&mime) {
+        (
+            [
+                (header::CONTENT_TYPE, mime),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            ],
+            bytes,
+        )
+            .into_response()
     } else {
-        mime
-    };
-    ([(header::CONTENT_TYPE, content_type)], bytes).into_response()
+        (
+            [
+                (header::CONTENT_TYPE, DEFAULT_MIME.to_string()),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+                (header::CONTENT_DISPOSITION, "attachment".to_string()),
+            ],
+            bytes,
+        )
+            .into_response()
+    }
 }
 
 fn jpeg_response(bytes: Vec<u8>) -> Response {
-    ([(header::CONTENT_TYPE, "image/jpeg")], bytes).into_response()
+    (
+        [
+            (header::CONTENT_TYPE, "image/jpeg"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 /// Decode `bytes`, downscale to ≤`max_w` px wide (preserving aspect, never

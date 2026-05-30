@@ -40,6 +40,28 @@ async fn owner_with_text_channel(router: &axum::Router) -> (String, String, Stri
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn malformed_cursor_is_400_not_500() {
+    // F-D4-3: a cursor with valid RFC3339 separators but a malformed tail must
+    // yield a deterministic 400, never a 500 from a type::datetime parse failure.
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages?before=2026-05-22T12:00:00Xbogus&before_id=abc"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "malformed cursor must 400, not 500"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn post_and_list_preserves_markup_verbatim() {
     let a = common::arena().await;
     let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
@@ -88,6 +110,27 @@ async fn empty_body_is_400() {
         &format!("/channels/{cid}/messages"),
         Some(&owner),
         Some(&json!({ "body": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// F-D12-1: the `MAX_BODY_CHARS` (50_000) cap is enforced on POST; a body one
+/// char over the cap must 400 "message body too long". Guards the cap against a
+/// silent refactor removing it (its empty-body / attachment-cap siblings are
+/// tested; this one was not).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn post_body_over_char_cap_is_400() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let over_cap = "x".repeat(50_001);
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": over_cap })),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -225,6 +268,32 @@ async fn empty_edit_body_is_400() {
     // The original body survives a rejected edit.
     let m = first_message(&a.router, &owner, &cid).await.unwrap();
     assert_eq!(m["body"], "keep me");
+}
+
+/// F-D12-2: the same `MAX_BODY_CHARS` cap on the edit path (PATCH) — a distinct
+/// code path from POST, so it needs its own guard. Patching a small message to
+/// one char over the cap must 400 "message body too long".
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn edit_body_over_char_cap_is_400() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let mid = post_one(&a.router, &owner, &cid, "small").await;
+
+    let over_cap = "x".repeat(50_001);
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        Some(&json!({ "body": over_cap })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The original body survives the rejected over-cap edit.
+    let m = first_message(&a.router, &owner, &cid).await.unwrap();
+    assert_eq!(m["body"], "small");
 }
 
 #[cfg(feature = "ssr")]

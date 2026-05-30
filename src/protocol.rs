@@ -274,10 +274,15 @@ pub struct MessageEnvelope {
     /// even after the persona is renamed or deleted (None if author wore none).
     pub persona_name: Option<String>,
     /// Persona description snapshotted at send time (None if it had no persona).
-    /// For the click-the-name info popup.
+    /// For the click-the-name info popup. `#[serde(default)]` because it was
+    /// added after the DTO shipped — matches the post-ship-field convention its
+    /// `persona_avatar_id`/`attachments` siblings follow (review F-D12-3).
+    #[serde(default)]
     pub persona_description: Option<String>,
     /// Persona name-tint (markup palette name) snapshotted at send time; the
-    /// chat name renders in this color. None/empty = default.
+    /// chat name renders in this color. None/empty = default. `#[serde(default)]`
+    /// for the same post-ship wire-compat reason as `persona_description`.
+    #[serde(default)]
     pub persona_color: Option<String>,
     /// Media id of the persona's avatar snapshotted at send time, used directly
     /// as a `/media/{id}` `<img>` source. Frozen so a past message keeps the
@@ -663,4 +668,37 @@ pub struct FeedbackItem {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListFeedbackResponse {
     pub items: Vec<FeedbackItem>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// F-D12-3: `persona_description` and `persona_color` were added to the
+    /// already-shipped `MessageEnvelope` DTO, so a producer that omits them
+    /// (a version-skewed server during a rolling deploy, or a hand-rolled
+    /// response) must still deserialize — they carry `#[serde(default)]` like
+    /// their same-era `persona_avatar_id` / `attachments` siblings. Without it,
+    /// the whole message page fails to deserialize on the client.
+    #[test]
+    fn message_envelope_deserializes_without_persona_description_or_color() {
+        let json = r#"{
+            "id": "m1",
+            "author_id": "a1",
+            "author_name": "alice",
+            "author_display": "Alice",
+            "persona_id": null,
+            "persona_name": null,
+            "body": "hello",
+            "tier": "default",
+            "sent_at": "2026-05-30T00:00:00.000000000Z"
+        }"#;
+        let env: MessageEnvelope = serde_json::from_str(json)
+            .expect("envelope omitting persona_description/persona_color must deserialize");
+        assert_eq!(env.persona_description, None);
+        assert_eq!(env.persona_color, None);
+        // The siblings that already had the attribute keep defaulting too.
+        assert_eq!(env.persona_avatar_id, None);
+        assert!(env.attachments.is_empty());
+    }
 }

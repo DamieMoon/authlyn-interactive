@@ -76,6 +76,9 @@ pub async fn remove_editor(
         UPDATE guild_member SET active_persona = NONE
             WHERE active_persona = type::record("persona", $pid)
               AND account = type::record("account", $aid);
+        DELETE FROM channel_active_persona
+            WHERE persona = type::record("persona", $pid)
+              AND account = type::record("account", $aid);
         COMMIT TRANSACTION;
     "#;
     match state

@@ -234,3 +234,35 @@ async fn subscribe_requires_auth() {
     .await;
     assert_eq!(st, StatusCode::UNAUTHORIZED);
 }
+
+#[cfg(feature = "ssr")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_subscribe_same_endpoint_converges_to_one_row() {
+    // F-D6-3: two simultaneous re-subscribes of the same endpoint (a service
+    // worker firing twice) both 204 and converge to one row — never 500 on the
+    // push_subscription endpoint UNIQUE index (with_write_conflict_retry).
+    let a = common::arena().await;
+    let user = common::register_account(&a.router, "User", "password123").await;
+    let endpoint = "https://push.example.com/race";
+    let body = full_sub(endpoint);
+    let req1 =
+        common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
+    let req2 =
+        common::build_json_request(Method::POST, "/push/subscribe", Some(&user), Some(&body));
+    let h1 = tokio::spawn(common::status_of(a.router.clone(), req1));
+    let h2 = tokio::spawn(common::status_of(a.router.clone(), req2));
+    let got = [h1.await.unwrap(), h2.await.unwrap()];
+    assert!(
+        !got.contains(&StatusCode::INTERNAL_SERVER_ERROR),
+        "subscribe race must never 500: {got:?}"
+    );
+    assert!(
+        got.iter().all(|s| *s == StatusCode::NO_CONTENT),
+        "both concurrent subscribes should 204: {got:?}"
+    );
+    assert_eq!(
+        subs_for_endpoint(&a.db, endpoint).await,
+        1,
+        "exactly one subscription row survives the race"
+    );
+}
