@@ -24,6 +24,11 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="mobile-web-app-capable" content="yes"/>
                 <meta name="apple-mobile-web-app-capable" content="yes"/>
                 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+                // iOS reads apple-touch-icon (NOT the manifest) for Add-to-Home-
+                // Screen; 180×180 is its canonical size. The precomposed variant
+                // covers older iOS. Best-effort for adgh3081… (no iPhone to verify).
+                <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png"/>
+                <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icons/icon-180.png"/>
                 <link rel="apple-touch-icon" href="/icons/icon-192.png"/>
                 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png"/>
                 <AutoReload options=options.clone() />
