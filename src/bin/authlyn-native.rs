@@ -26,6 +26,9 @@ fn main() {
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     let _rt = rt.enter();
 
+    // One process-global ApiClient holds the session for the app's life.
+    authlyn_interactive::native::api::init_client();
+
     launch(
         LaunchConfig::new().with_window(
             WindowConfig::new(app)

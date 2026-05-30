@@ -216,6 +216,7 @@ nova = [
 freya = [
     "dep:freya",
     "dep:reqwest",
+    "dep:bytes",
     "dep:tokio",
     "tokio/macros",
     "tokio/rt-multi-thread",

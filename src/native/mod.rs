@@ -7,5 +7,10 @@
 //! bridge follows. Phase 1 covers the foundations: an authenticated round-trip
 //! (login → `/auth/me` → `/guilds`) rendered in a Freya window.
 
+pub mod act;
 pub mod api;
+pub mod image;
+pub mod markup_view;
+pub mod state;
+pub mod theme;
 pub mod ui;

@@ -10,13 +10,29 @@
 //! only its SHA-256" invariant with no backend change. DTOs are reused from
 //! [`crate::protocol`], never redefined.
 
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Serialize};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
-    AuthResponse, CreateGuildRequest, ErrorBody, GuildSummary, ListGuildsResponse, LoginRequest,
-    MeResponse, RegisterRequest,
+    AuthResponse, CreateGuildRequest, ErrorBody, GuildDetail, GuildSummary, ListGuildsResponse,
+    ListMessagesResponse, LoginRequest, MeResponse, RegisterRequest,
 };
+
+/// The process-global client. One backend + one session for the app's life, so
+/// the shared signal-state can stay `Copy` and any spawn can reach the client.
+static API: OnceLock<ApiClient> = OnceLock::new();
+
+/// Initialize the global client. Call once in `main()` before `launch`.
+pub fn init_client() {
+    let _ = API.set(ApiClient::new());
+}
+
+/// The global client. Panics if [`init_client`] wasn't called.
+pub fn client() -> &'static ApiClient {
+    API.get()
+        .expect("ApiClient not initialized — call native::api::init_client() in main")
+}
 
 /// Name of the session cookie the server sets on login/register.
 const SESSION_COOKIE: &str = "authlyn_session";
@@ -92,6 +108,14 @@ impl ApiClient {
             .unwrap()
             .clone()
             .map(|tok| format!("{SESSION_COOKIE}={tok}"))
+    }
+
+    /// Attach the manual session cookie to a request builder, if we have one.
+    fn authed(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match self.cookie_header() {
+            Some(cookie) => req.header(reqwest::header::COOKIE, cookie),
+            None => req,
+        }
     }
 
     /// Pull the `authlyn_session` value out of a login/register `Set-Cookie`.
@@ -195,6 +219,83 @@ impl ApiClient {
             },
         )
         .await
+    }
+
+    /// GET /guilds/{gid} — a guild's detail (channels included).
+    pub async fn get_guild(&self, gid: &str) -> Result<GuildDetail, ApiError> {
+        self.get(&format!("/guilds/{gid}")).await
+    }
+
+    /// GET /channels/{cid}/messages — newest page, or the page after `cursor`
+    /// (the `(sent_at, id)` of the last seen message) when polling for new ones.
+    pub async fn list_messages(
+        &self,
+        cid: &str,
+        cursor: Option<&(String, String)>,
+    ) -> Result<ListMessagesResponse, ApiError> {
+        let mut req = self
+            .http
+            .get(self.url(&format!("/channels/{cid}/messages")));
+        if let Some((since, after_id)) = cursor {
+            req = req.query(&[("since", since.as_str()), ("after_id", after_id.as_str())]);
+        }
+        let resp = self
+            .authed(req)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+        decode(resp).await
+    }
+
+    /// GET /channels/{cid}/messages?before=… — the page of history strictly
+    /// older than `before` (scroll-up backfill).
+    pub async fn list_messages_before(
+        &self,
+        cid: &str,
+        before: &(String, String),
+    ) -> Result<ListMessagesResponse, ApiError> {
+        let req = self
+            .http
+            .get(self.url(&format!("/channels/{cid}/messages")))
+            .query(&[
+                ("before", before.0.as_str()),
+                ("before_id", before.1.as_str()),
+            ]);
+        let resp = self
+            .authed(req)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+        decode(resp).await
+    }
+
+    /// GET /media/{id}?w=N — raw bytes of a media blob (auth-gated; carries the
+    /// session cookie). Used for avatars + message attachments.
+    pub async fn get_media_bytes(&self, id: &str, w: u32) -> Result<Bytes, ApiError> {
+        let req = self
+            .http
+            .get(self.url(&format!("/media/{id}")))
+            .query(&[("w", w)]);
+        self.bytes(self.authed(req)).await
+    }
+
+    /// GET an arbitrary URL's bytes (no cookie) — markup `Image(url)` nodes.
+    pub async fn fetch_bytes(&self, url: &str) -> Result<Bytes, ApiError> {
+        self.bytes(self.http.get(url)).await
+    }
+
+    async fn bytes(&self, req: reqwest::RequestBuilder) -> Result<Bytes, ApiError> {
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(ApiError::Status(status, error_message(resp).await));
+        }
+        resp.bytes()
+            .await
+            .map_err(|e| ApiError::Codec(e.to_string()))
     }
 }
 
