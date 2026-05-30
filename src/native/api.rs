@@ -16,8 +16,8 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
     AuthResponse, CreateGuildRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
-    ListGuildsResponse, ListMessagesResponse, LoginRequest, MeResponse, RegisterRequest,
-    SendMessageRequest, SendMessageResponse,
+    ListGuildsResponse, ListMessagesResponse, ListPersonasResponse, LoginRequest, MeResponse,
+    RegisterRequest, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -201,6 +201,15 @@ impl ApiClient {
         }
     }
 
+    /// POST /auth/logout — end the session server-side, then forget the locally
+    /// captured cookie so subsequent requests are unauthenticated.
+    pub async fn logout(&self) -> Result<(), ApiError> {
+        let req = self.http.post(self.url("/auth/logout"));
+        let r = self.empty(self.authed(req)).await;
+        *self.session.lock().unwrap() = None;
+        r
+    }
+
     /// GET /auth/me — the authenticated caller's profile.
     pub async fn current_user(&self) -> Result<MeResponse, ApiError> {
         self.get("/auth/me").await
@@ -225,6 +234,28 @@ impl ApiClient {
     /// GET /guilds/{gid} — a guild's detail (channels included).
     pub async fn get_guild(&self, gid: &str) -> Result<GuildDetail, ApiError> {
         self.get(&format!("/guilds/{gid}")).await
+    }
+
+    /// GET /personas — the caller's personas (owned + shared-as-editor), for the
+    /// wardrobe and the composer's "speaking as" picker.
+    pub async fn list_personas(&self) -> Result<ListPersonasResponse, ApiError> {
+        self.get("/personas").await
+    }
+
+    /// PUT /channels/{cid}/active-persona — wear (`Some`) or take off (`None`) a
+    /// persona in this channel. The send-path also carries the worn id so
+    /// attribution is decided at send time; this stores the per-channel state so
+    /// it survives a reopen (web parity — `set_channel_active_persona`).
+    pub async fn set_channel_active_persona(
+        &self,
+        cid: &str,
+        persona_id: Option<String>,
+    ) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url(&format!("/channels/{cid}/active-persona")))
+            .json(&SetActivePersonaRequest { persona_id });
+        self.empty(self.authed(req)).await
     }
 
     /// GET /channels/{cid}/messages — newest page, or the page after `cursor`

@@ -8,7 +8,7 @@
 use freya::prelude::*;
 use std::collections::HashSet;
 
-use crate::protocol::{ChannelSummary, GuildSummary, MeResponse, MessageEnvelope};
+use crate::protocol::{ChannelSummary, GuildSummary, MeResponse, MessageEnvelope, PersonaSummary};
 
 /// Composite message cursor `(sent_at, id)` — the same lex-monotonic tie-break
 /// key the web client uses (`reading.rs`); never reorder its parts.
@@ -16,6 +16,18 @@ pub type Cursor = (String, String);
 
 #[derive(Clone, Copy)]
 pub struct NativeState {
+    // Auth gate (pre-shell login/register form)
+    /// True once a session is established → render the shell; false → login form.
+    pub authed: State<bool>,
+    pub auth_user: State<String>,
+    pub auth_pass: State<String>,
+    /// Login (false) vs register (true) mode for the form.
+    pub auth_register: State<bool>,
+    /// Last auth error to show under the form (empty = none).
+    pub auth_error: State<String>,
+    /// An auth request is in flight (disables the submit button).
+    pub auth_busy: State<bool>,
+
     // Sync / identity
     pub me: State<Option<MeResponse>>,
     pub status: State<String>,
@@ -45,11 +57,27 @@ pub struct NativeState {
     /// Id of the message currently being edited inline, if any.
     pub editing: State<Option<String>>,
     pub edit_buf: State<String>,
+
+    // Personas (worn-persona-on-send)
+    /// The caller's personas (owned + shared-as-editor), for the picker.
+    pub personas: State<Vec<PersonaSummary>>,
+    /// The persona worn in the OPEN channel (`None` = speaking as the account).
+    /// Restored from the message list's `active_persona` on channel open; sent
+    /// with each message so attribution is race-proof (web parity).
+    pub active_persona: State<Option<String>>,
+    /// Whether the composer's "speaking as" picker panel is open.
+    pub persona_menu: State<bool>,
 }
 
 /// Create the root state. MUST be called once, in component context (the app fn).
 pub fn use_native_state() -> NativeState {
     NativeState {
+        authed: use_state(|| false),
+        auth_user: use_state(String::new),
+        auth_pass: use_state(String::new),
+        auth_register: use_state(|| false),
+        auth_error: use_state(String::new),
+        auth_busy: use_state(|| false),
         me: use_state(|| None),
         status: use_state(|| "connecting…".to_string()),
         polling: use_state(|| false),
@@ -68,5 +96,8 @@ pub fn use_native_state() -> NativeState {
         compose: use_state(String::new),
         editing: use_state(|| None),
         edit_buf: use_state(String::new),
+        personas: use_state(Vec::new),
+        active_persona: use_state(|| None),
+        persona_menu: use_state(|| false),
     }
 }

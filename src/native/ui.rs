@@ -13,7 +13,8 @@ use crate::native::state::{use_native_state, NativeState};
 use crate::native::{act, markup_view::render_body, theme};
 use crate::protocol::MessageEnvelope;
 
-/// Root component.
+/// Root component. Branches between the login form and the authenticated shell;
+/// `bootstrap` auto-logs-in only when env creds are set (dev/headless).
 pub fn app() -> impl IntoElement {
     let state = use_native_state();
 
@@ -22,6 +23,16 @@ pub fn app() -> impl IntoElement {
         act::start_poll(state);
     });
 
+    let view: Element = if *state.authed.read() {
+        shell(state)
+    } else {
+        login_view(state)
+    };
+    view
+}
+
+/// The authenticated three-pane shell.
+fn shell(state: NativeState) -> Element {
     rect()
         .horizontal()
         .width(Size::fill())
@@ -31,6 +42,91 @@ pub fn app() -> impl IntoElement {
         .child(rail(state))
         .child(sidebar(state))
         .child(channel_pane(state))
+        .into()
+}
+
+/// Pre-shell login / register form, centered on the page. NOTE: Freya 0.4-rc
+/// `Input` has no obscured/password mode, so the password shows as plain text —
+/// a known limitation until Freya gains masking (or a custom widget lands).
+fn login_view(state: NativeState) -> Element {
+    let register = *state.auth_register.read();
+    let err = state.auth_error.read().clone();
+    let submit_label = if register {
+        "Create account"
+    } else {
+        "Sign in"
+    };
+    let toggle_label = if register {
+        "Have an account? Sign in"
+    } else {
+        "New here? Create an account"
+    };
+
+    let mut card = rect()
+        .vertical()
+        .width(Size::px(320.0))
+        .spacing(10.)
+        .padding(20.)
+        .background(theme::VELLUM)
+        .corner_radius(theme::RADIUS)
+        .child(
+            label()
+                .color(theme::INK)
+                .font_size(theme::FS_H2)
+                .font_weight(FontWeight::BOLD)
+                .text(if register {
+                    "Create account"
+                } else {
+                    "Welcome back"
+                }),
+        )
+        .child(
+            Input::new(state.auth_user)
+                .placeholder("username")
+                .width(Size::fill())
+                .auto_focus(true),
+        )
+        .child(
+            Input::new(state.auth_pass)
+                .placeholder("password")
+                .width(Size::fill())
+                .on_submit(move |_: String| act::submit_login(state)),
+        )
+        .child(
+            Button::new()
+                .on_press(move |_| act::submit_login(state))
+                .child(submit_label),
+        )
+        .child(
+            rect()
+                .on_press(move |_| {
+                    let r = *state.auth_register.peek();
+                    *state.auth_register.write_unchecked() = !r;
+                    *state.auth_error.write_unchecked() = String::new();
+                })
+                .child(
+                    label()
+                        .color(theme::GOLD)
+                        .font_size(theme::FS_META)
+                        .text(toggle_label),
+                ),
+        );
+    if !err.is_empty() {
+        card = card.child(
+            label()
+                .color(theme::INK_DANGER)
+                .font_size(theme::FS_META)
+                .text(err),
+        );
+    }
+
+    rect()
+        .width(Size::fill())
+        .height(Size::fill())
+        .background(theme::PARCHMENT)
+        .center()
+        .child(card)
+        .into()
 }
 
 fn rail(state: NativeState) -> Element {
@@ -120,11 +216,14 @@ fn channel_pane(state: NativeState) -> Element {
     // Freya 0.4-rc `Size::flex`/`fill` don't reserve space for fixed siblings in
     // a column (the scroll area grows and pushes the composer off-screen), so the
     // message list gets a definite height sized to the fixed window: 860 minus the
-    // header (44) + typing (20) + composer (60). Responsive sizing is a follow-up.
+    // header (44) + typing (20) + composer (60). The "speaking as" picker, when
+    // open, takes a fixed slice that the list gives back so the total stays put.
+    let menu_open = *state.persona_menu.read();
+    let menu_h = if menu_open { PERSONA_MENU_H } else { 0.0 };
     let mut list = ScrollView::new()
         .spacing(2.)
         .width(Size::fill())
-        .height(Size::px(720.0));
+        .height(Size::px(720.0 - menu_h));
     for m in state.messages.read().iter() {
         list = list.child(message_row(state, m));
     }
@@ -136,25 +235,93 @@ fn channel_pane(state: NativeState) -> Element {
         .background(theme::PARCHMENT)
         .child(
             rect()
+                .horizontal()
                 .width(Size::fill())
                 .height(Size::px(44.0))
                 .cross_align(Alignment::Center)
                 .padding((0., 12.))
                 .background(theme::VELLUM)
                 .child(
-                    label()
-                        .color(theme::INK)
-                        .font_weight(FontWeight::BOLD)
-                        .text(header),
+                    rect().width(Size::fill()).child(
+                        label()
+                            .color(theme::INK)
+                            .font_weight(FontWeight::BOLD)
+                            .text(header),
+                    ),
+                )
+                .child(
+                    rect().on_press(move |_| act::logout(state)).child(
+                        label()
+                            .color(theme::INK_MUTED)
+                            .font_size(theme::FS_META)
+                            .text("log out"),
+                    ),
                 ),
         )
         .child(list)
         .child(typing_line(&typing))
+        .child(persona_menu(state, menu_open))
         .child(composer(state))
         .into()
 }
 
-/// Bottom composer: a text input (Enter submits) + a Send button.
+/// Height of the "speaking as" picker panel when open.
+const PERSONA_MENU_H: f32 = 160.0;
+
+/// The "speaking as" picker: a scrollable list of the caller's personas plus an
+/// "as yourself" option. Rendered with zero height when closed so the column
+/// layout is unchanged. Selecting an entry wears it in the open channel.
+fn persona_menu(state: NativeState, open: bool) -> Element {
+    if !open {
+        return rect().height(Size::px(0.0)).into();
+    }
+    let active = state.active_persona.read().clone();
+    // A plain column, NOT a ScrollView: under the bare-rect press path a
+    // ScrollView swallows child `on_press` (the proven sidebar channel rows are
+    // plain rects too). Personas are few; overflow past PERSONA_MENU_H clips.
+    let mut menu = rect()
+        .vertical()
+        .spacing(2.)
+        .width(Size::fill())
+        .height(Size::px(PERSONA_MENU_H));
+    menu = menu.child(persona_option(
+        state,
+        None,
+        "Speak as yourself",
+        active.is_none(),
+    ));
+    for p in state.personas.read().iter() {
+        let chosen = active.as_deref() == Some(p.id.as_str());
+        menu = menu.child(persona_option(state, Some(p.id.clone()), &p.name, chosen));
+    }
+    rect()
+        .vertical()
+        .width(Size::fill())
+        .background(theme::VELLUM_2)
+        .padding(6.)
+        .child(menu)
+        .into()
+}
+
+/// One row in the persona picker.
+fn persona_option(state: NativeState, pid: Option<String>, name: &str, chosen: bool) -> Element {
+    rect()
+        .width(Size::fill())
+        .padding((5., 8.))
+        .corner_radius(theme::RADIUS_SM)
+        .background(if chosen { theme::GOLD } else { theme::VELLUM })
+        .color(if chosen {
+            theme::PARCHMENT_DEEP
+        } else {
+            theme::INK_SOFT
+        })
+        .on_press(move |_| act::wear_persona(state, pid.clone()))
+        .child(label().text(name.to_string()))
+        .into()
+}
+
+/// Bottom composer: a "speaking as" persona button + a text input (Enter
+/// submits) + a Send button.
 fn composer(state: NativeState) -> Element {
     rect()
         .horizontal()
@@ -164,6 +331,7 @@ fn composer(state: NativeState) -> Element {
         .padding((8., 12.))
         .spacing(6.)
         .background(theme::VELLUM)
+        .child(persona_button(state))
         .child(
             Input::new(state.compose)
                 .placeholder("Write a message\u{2026}")
@@ -179,6 +347,35 @@ fn composer(state: NativeState) -> Element {
                 })
                 .child("Send"),
         )
+        .into()
+}
+
+/// The composer's "speaking as" button: shows the worn persona's name (or
+/// "you"), and toggles the picker panel.
+fn persona_button(state: NativeState) -> Element {
+    let active = state.active_persona.read().clone();
+    let name = match &active {
+        Some(pid) => state
+            .personas
+            .read()
+            .iter()
+            .find(|p| &p.id == pid)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "persona".to_string()),
+        None => "you".to_string(),
+    };
+    rect()
+        .height(Size::px(36.0))
+        .corner_radius(theme::RADIUS_SM)
+        .background(theme::INPUT_BG)
+        .color(theme::INK_SOFT)
+        .cross_align(Alignment::Center)
+        .padding((0., 10.))
+        .on_press(move |_| {
+            let cur = *state.persona_menu.peek();
+            *state.persona_menu.write_unchecked() = !cur;
+        })
+        .child(label().font_size(theme::FS_META).text(format!("as {name}")))
         .into()
 }
 

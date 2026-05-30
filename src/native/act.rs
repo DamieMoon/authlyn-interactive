@@ -23,18 +23,85 @@ use crate::protocol::{ChannelSummary, MessageEnvelope};
 /// Newest-page size; a short page means the whole channel fits (web parity).
 const MESSAGES_PAGE_LIMIT: usize = 100;
 
-/// One-shot mount flow: authenticate, load the profile + guild rail, and open
-/// the first guild's first text channel. Fully inline (no nested `spawn`) so it
-/// can be awaited from the app's mount task.
+/// Mount-time auto-login for dev/headless runs: when `AUTHLYN_NATIVE_USER` is
+/// set in the environment, log in (creating the account on first run) and enter
+/// the shell directly. With no env creds, this is a no-op and the interactive
+/// login form is shown instead.
 pub async fn bootstrap(state: NativeState) {
-    let user = std::env::var("AUTHLYN_NATIVE_USER").unwrap_or_else(|_| "native-dev".to_string());
+    let Ok(user) = std::env::var("AUTHLYN_NATIVE_USER") else {
+        return;
+    };
     let pass =
         std::env::var("AUTHLYN_NATIVE_PASS").unwrap_or_else(|_| "native-dev-password".to_string());
-
     if client().ensure_session(&user, &pass).await.is_err() {
-        *state.status.write_unchecked() = "authentication failed".to_string();
+        *state.auth_error.write_unchecked() = "auto-login failed".to_string();
         return;
     }
+    *state.authed.write_unchecked() = true;
+    post_auth_load(state).await;
+}
+
+/// Submit the interactive login/register form: authenticate per the current
+/// mode, and on success enter the shell + load its data; on failure surface a
+/// friendly message under the form.
+pub fn submit_login(state: NativeState) {
+    let user = state.auth_user.peek().trim().to_string();
+    let pass = state.auth_pass.peek().clone();
+    if user.is_empty() || pass.is_empty() {
+        *state.auth_error.write_unchecked() = "Enter a username and password.".to_string();
+        return;
+    }
+    if *state.auth_busy.peek() {
+        return;
+    }
+    let register = *state.auth_register.peek();
+    *state.auth_busy.write_unchecked() = true;
+    *state.auth_error.write_unchecked() = String::new();
+    spawn(async move {
+        let res = if register {
+            client().register(&user, &pass).await
+        } else {
+            client().login(&user, &pass).await
+        };
+        *state.auth_busy.write_unchecked() = false;
+        match res {
+            Ok(_) => {
+                *state.auth_pass.write_unchecked() = String::new();
+                *state.authed.write_unchecked() = true;
+                post_auth_load(state).await;
+            }
+            Err(e) => {
+                *state.auth_error.write_unchecked() = auth_error_message(&e, register);
+            }
+        }
+    });
+}
+
+/// Log out: end the session, forget the cookie, and return to the login form
+/// with the shell state cleared.
+pub fn logout(state: NativeState) {
+    spawn(async move {
+        let _ = client().logout().await;
+        *state.authed.write_unchecked() = false;
+        *state.me.write_unchecked() = None;
+        *state.guilds.write_unchecked() = Vec::new();
+        *state.channels.write_unchecked() = Vec::new();
+        *state.sel_server.write_unchecked() = None;
+        *state.sel_channel.write_unchecked() = None;
+        *state.messages.write_unchecked() = Vec::new();
+        *state.seen.write_unchecked() = HashSet::new();
+        *state.personas.write_unchecked() = Vec::new();
+        *state.active_persona.write_unchecked() = None;
+        *state.auth_user.write_unchecked() = String::new();
+        *state.auth_pass.write_unchecked() = String::new();
+        *state.status.write_unchecked() = "connecting\u{2026}".to_string();
+    });
+}
+
+/// Load the post-auth shell data: profile, guild rail, personas, and open the
+/// first guild's first text channel. Fully inline (no nested `spawn`) so it can
+/// be awaited from the mount task or the form-submit task.
+async fn post_auth_load(state: NativeState) {
     if let Ok(me) = client().current_user().await {
         *state.me.write_unchecked() = Some(me);
     }
@@ -45,6 +112,10 @@ pub async fn bootstrap(state: NativeState) {
     let guilds = r.guilds;
     *state.status.write_unchecked() = format!("ready \u{b7} {} guild(s)", guilds.len());
     *state.guilds.write_unchecked() = guilds.clone();
+
+    if let Ok(p) = client().list_personas().await {
+        *state.personas.write_unchecked() = p.personas;
+    }
 
     if let Some(g) = guilds.first().cloned() {
         *state.sel_server.write_unchecked() = Some(g.id.clone());
@@ -60,6 +131,16 @@ pub async fn bootstrap(state: NativeState) {
                 open_channel_inner(state, ch).await;
             }
         }
+    }
+}
+
+/// Map an auth failure to a friendly message for the form.
+fn auth_error_message(e: &crate::native::api::ApiError, register: bool) -> String {
+    match e.status() {
+        Some(401) => "Wrong username or password.".to_string(),
+        Some(409) => "That username is taken.".to_string(),
+        _ if register => format!("Could not create account: {e}"),
+        _ => format!("Could not sign in: {e}"),
     }
 }
 
@@ -110,6 +191,8 @@ async fn open_channel_inner(state: NativeState, ch: ChannelSummary) {
     *state.more_history.write_unchecked() = true;
     *state.seen.write_unchecked() = HashSet::new();
     *state.typing.write_unchecked() = Vec::new();
+    *state.persona_menu.write_unchecked() = false;
+    *state.active_persona.write_unchecked() = None;
 
     if let Ok(l) = client().list_messages(&ch.id, None).await {
         // A newer switch happened while we were fetching — drop this result.
@@ -122,8 +205,35 @@ async fn open_channel_inner(state: NativeState, ch: ChannelSummary) {
             .first()
             .map(|m| (m.sent_at.clone(), m.id.clone()));
         *state.typing.write_unchecked() = l.typing;
+        // Restore the "speaking as" state for this channel (web parity).
+        *state.active_persona.write_unchecked() = l.active_persona;
         ingest(state, l.messages);
     }
+}
+
+/// Refresh the caller's persona list (for the composer picker / wardrobe).
+pub fn refresh_personas(state: NativeState) {
+    spawn(async move {
+        if let Ok(p) = client().list_personas().await {
+            *state.personas.write_unchecked() = p.personas;
+        }
+    });
+}
+
+/// Wear (`Some`) or take off (`None`) a persona in the open channel. Updates the
+/// signal immediately (so sends attribute right away) and persists the
+/// per-channel state server-side; closes the picker.
+pub fn wear_persona(state: NativeState, persona_id: Option<String>) {
+    *state.active_persona.write_unchecked() = persona_id.clone();
+    *state.persona_menu.write_unchecked() = false;
+    let Some(ch) = state.sel_channel.peek().clone() else {
+        return;
+    };
+    spawn(async move {
+        let _ = client()
+            .set_channel_active_persona(&ch.id, persona_id)
+            .await;
+    });
 }
 
 /// Dedupe by id via `seen`, append in order, advance `cursor` to the last.
@@ -190,7 +300,8 @@ pub fn load_older(state: NativeState) {
     });
 }
 
-/// Send `body` to the open channel (as the account; persona-on-send is later).
+/// Send `body` to the open channel, wearing the channel's active persona (the
+/// server re-validates `can_edit_persona` and falls back to the account).
 /// Clears the composer, then pulls the new message in immediately (no poll wait).
 pub fn send_message(state: NativeState, body: String) {
     let body = body.trim().to_string();
@@ -201,10 +312,11 @@ pub fn send_message(state: NativeState, body: String) {
         return;
     };
     *state.compose.write_unchecked() = String::new();
+    let persona = state.active_persona.peek().clone();
     let epoch = *state.epoch.peek();
     spawn(async move {
         if client()
-            .post_message(&ch.id, &body, Vec::new(), None)
+            .post_message(&ch.id, &body, Vec::new(), persona)
             .await
             .is_ok()
         {
