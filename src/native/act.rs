@@ -190,6 +190,67 @@ pub fn load_older(state: NativeState) {
     });
 }
 
+/// Send `body` to the open channel (as the account; persona-on-send is later).
+/// Clears the composer, then pulls the new message in immediately (no poll wait).
+pub fn send_message(state: NativeState, body: String) {
+    let body = body.trim().to_string();
+    if body.is_empty() {
+        return;
+    }
+    let Some(ch) = state.sel_channel.peek().clone() else {
+        return;
+    };
+    *state.compose.write_unchecked() = String::new();
+    let epoch = *state.epoch.peek();
+    spawn(async move {
+        if client()
+            .post_message(&ch.id, &body, Vec::new(), None)
+            .await
+            .is_ok()
+        {
+            let cursor = state.cursor.peek().clone();
+            if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
+                if *state.epoch.peek() == epoch {
+                    ingest(state, l.messages);
+                }
+            }
+        }
+    });
+}
+
+/// Edit one of your own messages; updates the row in place on success.
+pub fn edit_message(state: NativeState, mid: String, body: String) {
+    let body = body.trim().to_string();
+    let Some(ch) = state.sel_channel.peek().clone() else {
+        return;
+    };
+    *state.editing.write_unchecked() = None;
+    if body.is_empty() {
+        return;
+    }
+    spawn(async move {
+        if client().edit_message(&ch.id, &mid, &body).await.is_ok() {
+            let mut msgs = state.messages.write_unchecked();
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == mid) {
+                m.body = body;
+            }
+        }
+    });
+}
+
+/// Delete one of your own messages; removes the row on success.
+pub fn delete_message(state: NativeState, mid: String) {
+    let Some(ch) = state.sel_channel.peek().clone() else {
+        return;
+    };
+    spawn(async move {
+        if client().delete_message(&ch.id, &mid).await.is_ok() {
+            state.messages.write_unchecked().retain(|m| m.id != mid);
+            state.seen.write_unchecked().remove(&mid);
+        }
+    });
+}
+
 /// Start the 1.5s poll loop (idempotent). Refreshes the open channel's new
 /// messages; re-fetches the guild list every ~6s. Inlines its fetches so it
 /// never nests a `spawn` inside this task.

@@ -39,6 +39,12 @@ pub struct NativeState {
     /// Bumped on every channel switch; a poll/fetch tagged with a stale epoch
     /// must not ingest into the freshly-switched channel (the web's switch guard).
     pub epoch: State<u64>,
+
+    // Composer / edit (write path)
+    pub compose: State<String>,
+    /// Id of the message currently being edited inline, if any.
+    pub editing: State<Option<String>>,
+    pub edit_buf: State<String>,
 }
 
 /// Create the root state. MUST be called once, in component context (the app fn).
@@ -59,5 +65,8 @@ pub fn use_native_state() -> NativeState {
         seen: use_state(HashSet::new),
         typing: use_state(Vec::new),
         epoch: use_state(|| 0u64),
+        compose: use_state(String::new),
+        editing: use_state(|| None),
+        edit_buf: use_state(String::new),
     }
 }

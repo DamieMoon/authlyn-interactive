@@ -15,8 +15,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
-    AuthResponse, CreateGuildRequest, ErrorBody, GuildDetail, GuildSummary, ListGuildsResponse,
-    ListMessagesResponse, LoginRequest, MeResponse, RegisterRequest,
+    AuthResponse, CreateGuildRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
+    ListGuildsResponse, ListMessagesResponse, LoginRequest, MeResponse, RegisterRequest,
+    SendMessageRequest, SendMessageResponse,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -267,6 +268,58 @@ impl ApiClient {
             .await
             .map_err(|e| ApiError::Network(e.to_string()))?;
         decode(resp).await
+    }
+
+    /// POST /channels/{cid}/messages — send a message; returns the new id.
+    pub async fn post_message(
+        &self,
+        cid: &str,
+        body: &str,
+        attachment_ids: Vec<String>,
+        persona_id: Option<String>,
+    ) -> Result<SendMessageResponse, ApiError> {
+        self.post_json(
+            &format!("/channels/{cid}/messages"),
+            &SendMessageRequest {
+                body: body.to_string(),
+                attachment_ids,
+                persona_id,
+            },
+        )
+        .await
+    }
+
+    /// PATCH /channels/{cid}/messages/{mid} — edit one of your own messages.
+    pub async fn edit_message(&self, cid: &str, mid: &str, body: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/channels/{cid}/messages/{mid}")))
+            .json(&EditMessageRequest {
+                body: body.to_string(),
+            });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /channels/{cid}/messages/{mid} — soft-delete your own message.
+    pub async fn delete_message(&self, cid: &str, mid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/channels/{cid}/messages/{mid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// Send a request that returns no body; map non-2xx to `ApiError::Status`.
+    async fn empty(&self, req: reqwest::RequestBuilder) -> Result<(), ApiError> {
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let status = resp.status().as_u16();
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            Err(ApiError::Status(status, error_message(resp).await))
+        }
     }
 
     /// GET /media/{id}?w=N — raw bytes of a media blob (auth-gated; carries the
