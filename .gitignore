@@ -1,9 +1,8 @@
-# Cargo build artefacts
+# Cargo build artefacts. `target/` also holds the cargo-leptos site output
+# (Cargo.toml sets site-root = "target/site", site-pkg-dir = pkg under it),
+# so the compiled WASM/JS/CSS bundle needs no separate rule.
 debug/
 target/
-
-# Claude Code agent worktrees (created in-repo by the harness)
-/.claude/
 
 # rustfmt backup files
 **/*.rs.bk
@@ -11,11 +10,10 @@ target/
 # MSVC Windows builds
 *.pdb
 
-# Local env / secrets
+# Local env / secrets. `.env.example` is TRACKED (the `cp .env.example .env`
+# workflow), so do NOT broaden these to `.env*` or the example gets ignored.
 .env
 .env.local
-deploy/.env
-deploy/.github_token
 
 # macOS
 .DS_Store
@@ -26,7 +24,17 @@ history.txt
 # Per-machine Claude notes (deployment IPs, SSH key names, etc.)
 CLAUDE.local.md
 
-# Encrypted-attachment storage root (dev default). `main.rs` creates this
-# at startup if `$MEDIA_STORAGE_DIR` is unset; on the Pi the dir lives at
-# `/opt/authlyn/media` so the in-repo path is dev-only.
+# Media storage root (dev default). `main.rs` creates this at startup when
+# `$MEDIA_STORAGE_DIR` is unset; production points MEDIA_STORAGE_DIR elsewhere,
+# so the in-repo path is dev-only and never committed.
 /media/
+
+# Claude Code config — INTENTIONAL whitelist after the config-contamination
+# cleanup: ignore everything under .claude/ (harness agent worktrees, the
+# personal settings.local.json, plugin caches, etc.) and re-include ONLY the
+# shared, committed settings.json. To share another .claude/ file later (a
+# command, agent, or skill), add an explicit `!` negation below. Project
+# slash-commands under .claude/commands/ are shared (whitelisted below).
+/.claude/*
+!/.claude/settings.json
+!/.claude/commands/
