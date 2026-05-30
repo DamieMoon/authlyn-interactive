@@ -1,17 +1,26 @@
-// Registers the service worker and surfaces a gentle "new version available"
-// banner when an updated SW takes control (the `controllerchange` event, which
-// fires because sw.js does skipWaiting() + clients.claim()). Deliberately NO
-// auto-reload — the user taps Refresh, so an in-progress message draft is never
-// lost. The banner is styled by `.sw-update-banner` in style/_modal.scss.
+// Registers the service worker and drives a coordinated, user-gated update flow:
+// when an updated SW finishes installing and is WAITING (sw.js no longer calls
+// skipWaiting() on install), we show a dismissible "new version available"
+// banner. Tapping Refresh posts {type:"SKIP_WAITING"} to the waiting worker;
+// it activates + clients.claim()s, which fires `controllerchange`, and we then
+// reload the page EXACTLY ONCE. No auto-reload before the tap, so an in-progress
+// message draft is never lost. The banner is styled by `.sw-update-banner` in
+// style/_modal.scss.
 (function () {
   if (!("serviceWorker" in navigator)) return;
 
-  // A controller already present means this page is being taken over by an
-  // UPDATED worker (not the very first install) — only then is it an update.
-  var hadController = !!navigator.serviceWorker.controller;
-
+  // Guard so the controllerchange handler reloads only once (avoids a loop if
+  // several updates land in quick succession).
+  var refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", function () {
-    if (!hadController || document.getElementById("sw-update-banner")) return;
+    if (refreshing) return;
+    refreshing = true;
+    location.reload();
+  });
+
+  function showBanner(worker) {
+    // Don't double-insert if a banner is already up.
+    if (document.getElementById("sw-update-banner")) return;
 
     var banner = document.createElement("div");
     banner.id = "sw-update-banner";
@@ -25,7 +34,14 @@
     refresh.className = "sw-update-refresh";
     refresh.textContent = "Refresh";
     refresh.addEventListener("click", function () {
-      location.reload();
+      // Ask the waiting worker to take over; the reload happens on the
+      // resulting controllerchange. Fall back to a plain reload if for some
+      // reason there's no waiting worker to message.
+      if (worker) {
+        worker.postMessage({ type: "SKIP_WAITING" });
+      } else {
+        location.reload();
+      }
     });
 
     var dismiss = document.createElement("button");
@@ -41,11 +57,47 @@
     banner.appendChild(refresh);
     banner.appendChild(dismiss);
     document.body.appendChild(banner);
-  });
+  }
 
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("/sw.js").catch(function (e) {
-      console.error("SW registration failed:", e);
-    });
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then(function (reg) {
+        // Case 1: a worker is already waiting (updated SW installed during a
+        // previous visit / before this listener was attached).
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          showBanner(reg.waiting);
+        }
+
+        // Case 2: an update is found now — watch the new worker until it's
+        // installed-and-waiting (controller present ⇒ it's an update, not the
+        // very first install).
+        reg.addEventListener("updatefound", function () {
+          var installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener("statechange", function () {
+            if (
+              installing.state === "installed" &&
+              navigator.serviceWorker.controller
+            ) {
+              showBanner(reg.waiting || installing);
+            }
+          });
+        });
+
+        // Proactively check for a new SW now and whenever the app is brought
+        // back to the foreground. A resumed PWA (esp. Android, from the app
+        // switcher) may never do a cold navigation, so without this the browser
+        // might not notice a new release until its periodic 24h check.
+        reg.update().catch(function () {});
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "visible") {
+            reg.update().catch(function () {});
+          }
+        });
+      })
+      .catch(function (e) {
+        console.error("SW registration failed:", e);
+      });
   });
 })();

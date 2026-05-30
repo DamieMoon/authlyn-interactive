@@ -29,7 +29,11 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) => cache.addAll(PRECACHE))
   );
-  self.skipWaiting();
+  // NB: deliberately NO self.skipWaiting() here. A new SW installs and then
+  // WAITS, so it never swaps the bundle out from under a live session. The
+  // client (register-sw.js) shows a "new version" banner and only posts
+  // {type:"SKIP_WAITING"} (handled below) when the user taps Refresh — so the
+  // activation + the single reload are user-gated and coordinated.
 });
 
 self.addEventListener("activate", (event) => {
@@ -185,6 +189,14 @@ self.addEventListener("push", (event) => {
 self.addEventListener("message", (event) => {
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
+  // The page asks a WAITING worker to activate (user tapped Refresh). This is
+  // the only path that calls skipWaiting() — see the install handler's note.
+  // Once it activates, clients.claim() fires controllerchange, and the page
+  // reloads exactly once (register-sw.js).
+  if (msg.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
   if (msg.type === "CLEAR_NOTIFS_TAG" && typeof msg.tag === "string") {
     event.waitUntil(
       self.registration

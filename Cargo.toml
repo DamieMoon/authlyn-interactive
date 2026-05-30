@@ -206,6 +206,18 @@ panic = "abort"
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
 output-name = "authlyn-interactive"
+# NB: `hash-files = true` was evaluated for PWA cache-busting (2026-05-30) and
+# BACKED OUT. With cargo-leptos 0.3.6 + leptos 0.8 the index DID reference hashed
+# js/css/wasm and all three served 200 — but NO `hash.txt` was emitted (the
+# documented hash-files artifact; cargo-leptos issue #347), so the JS glue's
+# internal `import` of `*_bg.wasm` couldn't be verified to use the hashed name.
+# That unverified path is the exact #347 failure mode, and if the glue requests
+# an unhashed wasm hydration dies silently (dead SSR shell) — a worse prod
+# regression than stale bundles. Not safely verifiable headless here, so the PWA
+# staleness fix instead rides on the service-worker update lifecycle (public/sw.js
+# + public/register-sw.js: waiting-worker → user-gated skipWaiting → single
+# reload) plus the per-build CACHE_VERSION that busts old caches on `activate`.
+# Revisit hash-files (with a real headless hydration check) on a newer toolchain.
 
 # The crate now has two bin targets (the server + the `nova-mcp` bridge), so
 # cargo-leptos can't auto-pick the server bin — name it explicitly or
