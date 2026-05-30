@@ -12,6 +12,39 @@ use crate::protocol::{
     ChannelSummary, CustomEmoji, GuildSummary, MeResponse, MessageEnvelope, PersonaSummary,
 };
 
+/// Which pane the 3rd column shows. The native mirror of the web's "active view"
+/// routing: the channel reader, the account-scoped wardrobe, or the guild-scoped
+/// custom-emoji manager. `Copy`/`PartialEq` so it sits in a `State<NativeView>`
+/// and compares cheaply in the `ui.rs` dispatch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NativeView {
+    /// The existing 3-pane channel reader/composer.
+    Channel,
+    /// The persona wardrobe (account-scoped).
+    Wardrobe,
+    /// The per-guild custom-emoji manager (guild-scoped).
+    EmojiManager,
+}
+
+/// A confirm/edit overlay rendered over the shell — the native mirror of the
+/// web's `PendingDelete` confirm flow plus the persona detail editor. The leaves
+/// open one by writing `Some(..)` into [`NativeState::modal`] and close it by
+/// writing `None`; the confirm handlers dispatch their `act` fn then clear it.
+#[derive(Clone, Debug)]
+pub enum NativeModal {
+    /// The persona detail editor for persona `pid` (name/description/color/
+    /// gallery/avatar/sharing). The working buffers live on [`NativeState`]
+    /// (`pe_*`); this variant only carries which persona is open.
+    PersonaEditor { pid: String },
+    /// Confirm deleting (owner) the persona `pid`; `name` is shown in the prompt.
+    ConfirmDeletePersona { pid: String, name: String },
+    /// Confirm removing gallery image `img_id` (a `persona_image` row id) from
+    /// persona `pid`.
+    ConfirmDeleteGalleryImage { pid: String, img_id: String },
+    /// Confirm deleting custom emoji `name` from guild `gid`.
+    ConfirmDeleteEmoji { gid: String, name: String },
+}
+
 /// Composite message cursor `(sent_at, id)` — the same lex-monotonic tie-break
 /// key the web client uses (`reading.rs`); never reorder its parts.
 pub type Cursor = (String, String);
@@ -86,6 +119,39 @@ pub struct NativeState {
     /// Custom emoji of the open guild — powers the composer `:`-autocomplete
     /// (and, later, `:name:` render resolution). Reloaded on guild open.
     pub guild_emoji: State<Vec<CustomEmoji>>,
+
+    // ---- Phase 4b: wardrobe + emoji-manager panes ----
+    /// Which pane the 3rd column renders (channel / wardrobe / emoji manager).
+    pub view: State<NativeView>,
+    /// The confirm/edit overlay rendered over the shell, if any (`None` = closed).
+    pub modal: State<Option<NativeModal>>,
+
+    // Persona detail-editor working buffers (the `PersonaEditor` modal binds
+    // these). Seeded from the grid + `get_persona`/sharing fetches when the
+    // editor opens; cleared/ignored when it closes.
+    /// Editable persona name.
+    pub pe_name: State<String>,
+    /// Editable persona description (markup-capable).
+    pub pe_description: State<String>,
+    /// The persona's name-tint markup palette name (empty = default).
+    pub pe_color: State<String>,
+    /// The persona's gallery images, loaded on open; reloaded after add/remove.
+    pub pe_gallery: State<Vec<crate::protocol::GalleryImage>>,
+    /// The persona's current primary-avatar media id (drives the portrait + the
+    /// gallery "current" ring), if any.
+    pub pe_avatar_id: State<Option<String>>,
+    /// Accounts granted editor access (owner-only sharing checklist).
+    pub pe_editors: State<Vec<crate::protocol::PersonaEditor>>,
+    /// The caller's friends (owner-only sharing checklist source).
+    pub pe_friends: State<Vec<crate::protocol::FriendSummary>>,
+
+    // Emoji-manager add-row buffers (the manager pane binds these).
+    /// Media id of an uploaded-but-unnamed emoji image, staged for "Add".
+    pub emoji_staged_media: State<Option<String>>,
+    /// Raw bytes of the staged emoji image, for an instant local preview.
+    pub emoji_staged_bytes: State<Option<bytes::Bytes>>,
+    /// The new emoji's shortcode name being typed.
+    pub emoji_new_name: State<String>,
 }
 
 /// Create the root state. MUST be called once, in component context (the app fn).
@@ -120,5 +186,17 @@ pub fn use_native_state() -> NativeState {
         persona_menu: use_state(|| false),
         staged_attachments: use_state(Vec::new),
         guild_emoji: use_state(Vec::new),
+        view: use_state(|| NativeView::Channel),
+        modal: use_state(|| None),
+        pe_name: use_state(String::new),
+        pe_description: use_state(String::new),
+        pe_color: use_state(String::new),
+        pe_gallery: use_state(Vec::new),
+        pe_avatar_id: use_state(|| None),
+        pe_editors: use_state(Vec::new),
+        pe_friends: use_state(Vec::new),
+        emoji_staged_media: use_state(|| None),
+        emoji_staged_bytes: use_state(|| None),
+        emoji_new_name: use_state(String::new),
     }
 }

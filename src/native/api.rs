@@ -15,10 +15,13 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
-    AuthResponse, CreateGuildRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
-    ListEmojiResponse, ListGuildsResponse, ListMessagesResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest,
+    AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
+    AddGalleryImagesBatchResponse, AuthResponse, CreateEmojiRequest, CreateGuildRequest,
+    CreatePersonaRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
+    ListEmojiResponse, ListFriendsResponse, ListGuildsResponse, ListMessagesResponse,
+    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
+    PatchPersonaRequest, PersonaDetail, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, SetAvatarRequest,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -342,6 +345,190 @@ impl ApiClient {
         let req = self
             .http
             .delete(self.url(&format!("/channels/{cid}/messages/{mid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Personas + wardrobe (Phase 4b) — the reqwest port of the persona section
+    // in `src/client/api.rs`. Same endpoints/verbs/DTOs; the session cookie
+    // rides via `self.authed`.
+    // -----------------------------------------------------------------------
+
+    /// POST /personas — create a persona owned by the caller.
+    pub async fn create_persona(
+        &self,
+        name: &str,
+        description: &str,
+    ) -> Result<crate::protocol::PersonaSummary, ApiError> {
+        self.post_json(
+            "/personas",
+            &CreatePersonaRequest {
+                name: name.to_string(),
+                description: Some(description.to_string()),
+                color: None,
+            },
+        )
+        .await
+    }
+
+    /// PATCH /personas/{pid} — update a persona's name/description/color/position
+    /// (owner/editor). `None` fields are left unchanged; `position` durably
+    /// reorders the caller's wardrobe (`reorder_persona` in `wardrobe.rs`).
+    pub async fn patch_persona(
+        &self,
+        pid: &str,
+        name: Option<String>,
+        description: Option<String>,
+        color: Option<String>,
+        position: Option<i64>,
+    ) -> Result<(), ApiError> {
+        let req =
+            self.http
+                .patch(self.url(&format!("/personas/{pid}")))
+                .json(&PatchPersonaRequest {
+                    name,
+                    description,
+                    color,
+                    position,
+                });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /personas/{pid} — delete a persona (owner only).
+    pub async fn delete_persona(&self, pid: &str) -> Result<(), ApiError> {
+        let req = self.http.delete(self.url(&format!("/personas/{pid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /personas/{pid} — a persona's detail: name/description/avatar plus
+    /// its gallery and (for the owner) its share key + editor roster.
+    pub async fn get_persona(&self, pid: &str) -> Result<PersonaDetail, ApiError> {
+        self.get(&format!("/personas/{pid}")).await
+    }
+
+    /// PUT /personas/{pid}/avatar — set the persona's primary avatar to an
+    /// already-uploaded media id.
+    pub async fn set_persona_avatar(&self, pid: &str, media_id: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url(&format!("/personas/{pid}/avatar")))
+            .json(&SetAvatarRequest {
+                media_id: media_id.to_string(),
+            });
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /personas/{pid}/gallery — attach one already-uploaded media id to a
+    /// persona's gallery. Returns the new gallery-row id.
+    pub async fn add_gallery_image(
+        &self,
+        pid: &str,
+        media_id: &str,
+    ) -> Result<AddGalleryImageResponse, ApiError> {
+        self.post_json(
+            &format!("/personas/{pid}/gallery"),
+            &AddGalleryImageRequest {
+                media_id: media_id.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// POST /personas/{pid}/gallery/batch — atomically append multiple media
+    /// ids (paste-many). `ids` come back in the same order as `media_ids`.
+    pub async fn add_gallery_images_batch(
+        &self,
+        pid: &str,
+        media_ids: &[String],
+    ) -> Result<AddGalleryImagesBatchResponse, ApiError> {
+        self.post_json(
+            &format!("/personas/{pid}/gallery/batch"),
+            &AddGalleryImagesBatchRequest {
+                media_ids: media_ids.to_vec(),
+            },
+        )
+        .await
+    }
+
+    /// DELETE /personas/{pid}/gallery/{img} — remove a gallery image (owner/
+    /// editor).
+    pub async fn remove_gallery_image(&self, pid: &str, img: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/personas/{pid}/gallery/{img}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /personas/{pid}/leave — leave a shared persona (editor only),
+    /// dropping it from the caller's wardrobe.
+    pub async fn leave_persona(&self, pid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/personas/{pid}/leave")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /personas/{pid}/editors — the persona's editor roster (owner only).
+    pub async fn list_persona_editors(
+        &self,
+        pid: &str,
+    ) -> Result<ListPersonaEditorsResponse, ApiError> {
+        self.get(&format!("/personas/{pid}/editors")).await
+    }
+
+    /// PUT /personas/{pid}/editors/{aid} — grant a friend editor access (owner
+    /// only). Empty body.
+    pub async fn set_persona_editor(&self, pid: &str, aid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url(&format!("/personas/{pid}/editors/{aid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /personas/{pid}/editors/{aid} — revoke a friend's editor access
+    /// (owner only).
+    pub async fn remove_persona_editor(&self, pid: &str, aid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/personas/{pid}/editors/{aid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /friends — the caller's friends + pending requests (the sharing
+    /// checklist source).
+    pub async fn list_friends(&self) -> Result<ListFriendsResponse, ApiError> {
+        self.get("/friends").await
+    }
+
+    // -----------------------------------------------------------------------
+    // Custom emoji (Phase 4b) — create/delete for the emoji-manager pane.
+    // -----------------------------------------------------------------------
+
+    /// POST /guilds/{gid}/emoji — register a named custom emoji against an
+    /// already-uploaded media id. `name` must match `^[a-z0-9_]{2,32}$` (the
+    /// server re-validates).
+    pub async fn create_emoji(
+        &self,
+        gid: &str,
+        name: &str,
+        media_id: &str,
+    ) -> Result<crate::protocol::CustomEmoji, ApiError> {
+        self.post_json(
+            &format!("/guilds/{gid}/emoji"),
+            &CreateEmojiRequest {
+                name: name.to_string(),
+                media_id: media_id.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// DELETE /guilds/{gid}/emoji/{name} — delete a custom emoji by shortcode
+    /// name (manager/admin only — the server enforces).
+    pub async fn delete_emoji(&self, gid: &str, name: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/guilds/{gid}/emoji/{name}")));
         self.empty(self.authed(req)).await
     }
 

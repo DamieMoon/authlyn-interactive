@@ -494,6 +494,51 @@ pub fn delete_message(state: NativeState, mid: String) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4b confirm-action handlers — the destructive ops the modal dialogs
+// dispatch. Kept here (not in the leaf modules) because `ui.rs`'s shared
+// `modal_view` wiring calls them. Each refreshes the relevant list on success;
+// the wardrobe / emoji-manager leaves extend these with their richer flows.
+// ---------------------------------------------------------------------------
+
+/// Delete a persona the caller owns, then refresh the wardrobe list. Takes the
+/// persona off locally first if it was worn in the open channel (web parity).
+pub fn delete_persona(state: NativeState, pid: String) {
+    if state.active_persona.peek().as_deref() == Some(pid.as_str()) {
+        *state.active_persona.write_unchecked() = None;
+    }
+    spawn(async move {
+        if client().delete_persona(&pid).await.is_ok() {
+            if let Ok(p) = client().list_personas().await {
+                *state.personas.write_unchecked() = p.personas;
+            }
+        }
+    });
+}
+
+/// Remove a gallery image from a persona, then reload the editor's gallery
+/// buffer so the thumbnail strip updates.
+pub fn remove_gallery_image(state: NativeState, pid: String, img_id: String) {
+    spawn(async move {
+        if client().remove_gallery_image(&pid, &img_id).await.is_ok() {
+            if let Ok(d) = client().get_persona(&pid).await {
+                *state.pe_gallery.write_unchecked() = d.gallery;
+            }
+        }
+    });
+}
+
+/// Delete a custom emoji from a guild, then reload the guild's emoji list.
+pub fn delete_guild_emoji(state: NativeState, gid: String, name: String) {
+    spawn(async move {
+        if client().delete_emoji(&gid, &name).await.is_ok() {
+            if let Ok(r) = client().list_guild_emoji(&gid).await {
+                *state.guild_emoji.write_unchecked() = r.emoji;
+            }
+        }
+    });
+}
+
 /// Start the 1.5s poll loop (idempotent). Refreshes the open channel's new
 /// messages; re-fetches the guild list every ~6s. Inlines its fetches so it
 /// never nests a `spawn` inside this task.

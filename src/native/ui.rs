@@ -9,8 +9,8 @@
 use freya::prelude::*;
 
 use crate::native::image::RemoteImage;
-use crate::native::state::{use_native_state, NativeState};
-use crate::native::{act, markup_view::render_body, theme};
+use crate::native::state::{use_native_state, NativeModal, NativeState, NativeView};
+use crate::native::{act, markup_view::render_body, modal, theme};
 use crate::protocol::MessageEnvelope;
 
 /// Root component. Branches between the login form and the authenticated shell;
@@ -31,9 +31,24 @@ pub fn app() -> impl IntoElement {
     view
 }
 
-/// The authenticated three-pane shell.
+/// The authenticated three-pane shell. The 3rd column dispatches on
+/// `state.view`: the channel reader, the wardrobe, or the emoji manager. Any
+/// open `state.modal` is rendered as a Global overlay on top of everything.
 fn shell(state: NativeState) -> Element {
-    rect()
+    let view = *state.view.read();
+    let third: Element = match view {
+        NativeView::Channel => channel_pane(state),
+        NativeView::Wardrobe => {
+            let body = crate::native::wardrobe::pane(state);
+            pane_with_back(state, "Wardrobe", body)
+        }
+        NativeView::EmojiManager => {
+            let body = crate::native::emoji_manager::pane(state);
+            pane_with_back(state, "Custom emoji", body)
+        }
+    };
+
+    let mut root = rect()
         .horizontal()
         .width(Size::fill())
         .height(Size::fill())
@@ -41,8 +56,108 @@ fn shell(state: NativeState) -> Element {
         .color(theme::INK)
         .child(rail(state))
         .child(sidebar(state))
-        .child(channel_pane(state))
+        .child(third);
+
+    if let Some(m) = state.modal.read().clone() {
+        root = root.child(modal_view(state, m));
+    }
+    root.into()
+}
+
+/// Wrap a non-Channel pane with a slim header bar carrying a "← Back" control
+/// that returns the 3rd column to the channel reader.
+fn pane_with_back(state: NativeState, title: &str, body: Element) -> Element {
+    rect()
+        .vertical()
+        .width(Size::fill())
+        .height(Size::fill())
+        .background(theme::PARCHMENT)
+        .child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .height(Size::px(44.0))
+                .cross_align(Alignment::Center)
+                .padding((0., 12.))
+                .spacing(10.)
+                .background(theme::VELLUM)
+                .child(
+                    rect()
+                        .corner_radius(theme::RADIUS_SM)
+                        .padding((4., 8.))
+                        .background(theme::VELLUM_2)
+                        .color(theme::INK_SOFT)
+                        .on_press(move |_| {
+                            *state.view.write_unchecked() = NativeView::Channel;
+                        })
+                        .child(label().font_size(theme::FS_META).text("\u{2190} Back")),
+                )
+                .child(
+                    label()
+                        .color(theme::INK)
+                        .font_weight(FontWeight::BOLD)
+                        .text(title.to_string()),
+                ),
+        )
+        .child(body)
         .into()
+}
+
+/// Render an open modal: a destructive-confirm prompt for the three
+/// `ConfirmDelete*` variants, or the persona detail editor (built by the
+/// wardrobe leaf's [`crate::native::wardrobe::editor_modal`]). Every path closes
+/// by writing `None` into `state.modal`.
+fn modal_view(state: NativeState, m: NativeModal) -> Element {
+    let close = move || *state.modal.write_unchecked() = None;
+    match m {
+        NativeModal::ConfirmDeletePersona { pid, name } => {
+            let confirm = move || {
+                act::delete_persona(state, pid.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal(
+                "Delete persona",
+                &format!("Delete the persona \u{201c}{name}\u{201d}? This cannot be undone."),
+                "Delete",
+                confirm,
+                close,
+            )
+        }
+        NativeModal::ConfirmDeleteGalleryImage { pid, img_id } => {
+            let confirm = move || {
+                act::remove_gallery_image(state, pid.clone(), img_id.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal(
+                "Remove image",
+                "Remove this image from the gallery?",
+                "Remove",
+                confirm,
+                close,
+            )
+        }
+        NativeModal::ConfirmDeleteEmoji { gid, name } => {
+            // Build the prompt before `name` moves into the confirm closure.
+            let body = format!("Delete the custom emoji \u{201c}:{name}:\u{201d}?");
+            let confirm = move || {
+                act::delete_guild_emoji(state, gid.clone(), name.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal("Delete emoji", &body, "Delete", confirm, close)
+        }
+        // The persona detail editor: built by the wardrobe leaf. Its close also
+        // clears the `pe_name`/`pe_description` buffers it shares with the
+        // wardrobe create row, so dismissing the editor doesn't leave the edited
+        // persona's values bleeding into the create row.
+        NativeModal::PersonaEditor { pid } => {
+            let close_editor = move || {
+                *state.modal.write_unchecked() = None;
+                *state.pe_name.write_unchecked() = String::new();
+                *state.pe_description.write_unchecked() = String::new();
+            };
+            crate::native::wardrobe::editor_modal(state, pid, close_editor)
+        }
+    }
 }
 
 /// Pre-shell login / register form, centered on the page. NOTE: Freya 0.4-rc
@@ -163,7 +278,33 @@ fn rail(state: NativeState) -> Element {
                 .child(monogram(g.name.as_str())),
         );
     }
-    col.into()
+
+    // Account-scoped Wardrobe entry, pinned at the bottom of the rail. Refreshes
+    // the persona list, then switches the 3rd column to the wardrobe pane.
+    let wardrobe_active = *state.view.read() == NativeView::Wardrobe;
+    col.child(
+        rect()
+            .width(Size::px(theme::GUILD_TILE))
+            .height(Size::px(theme::GUILD_TILE))
+            .corner_radius(theme::GUILD_TILE / 2.0)
+            .background(if wardrobe_active {
+                theme::GOLD
+            } else {
+                theme::AVATAR_TILE
+            })
+            .color(if wardrobe_active {
+                theme::PARCHMENT_DEEP
+            } else {
+                theme::INK_SOFT
+            })
+            .center()
+            .on_press(move |_| {
+                act::refresh_personas(state);
+                *state.view.write_unchecked() = NativeView::Wardrobe;
+            })
+            .child(label().text("\u{1f9e5}")),
+    )
+    .into()
 }
 
 fn sidebar(state: NativeState) -> Element {
@@ -176,10 +317,34 @@ fn sidebar(state: NativeState) -> Element {
         .spacing(2.)
         .padding(10.)
         .child(
-            label()
-                .color(theme::INK_MUTED)
-                .font_size(theme::FS_META)
-                .text("CHANNELS"),
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .cross_align(Alignment::Center)
+                .child(
+                    rect().width(Size::fill()).child(
+                        label()
+                            .color(theme::INK_MUTED)
+                            .font_size(theme::FS_META)
+                            .text("CHANNELS"),
+                    ),
+                )
+                // Guild-scoped emoji manager entry (only meaningful with a guild
+                // selected); switches the 3rd column to the emoji pane.
+                .child(
+                    rect()
+                        .corner_radius(theme::RADIUS_SM)
+                        .padding((2., 6.))
+                        .on_press(move |_| {
+                            *state.view.write_unchecked() = NativeView::EmojiManager;
+                        })
+                        .child(
+                            label()
+                                .color(theme::INK_MUTED)
+                                .font_size(theme::FS_META)
+                                .text("emoji"),
+                        ),
+                ),
         );
 
     for c in state.channels.read().iter() {

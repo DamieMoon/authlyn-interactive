@@ -9,8 +9,11 @@
 
 pub mod act;
 pub mod api;
+pub mod emoji_manager;
 pub mod image;
 pub mod markup_view;
+pub mod modal;
 pub mod state;
 pub mod theme;
 pub mod ui;
+pub mod wardrobe;
