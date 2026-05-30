@@ -18,6 +18,13 @@ name = "nova-mcp"
 path = "src/bin/nova-mcp.rs"
 required-features = ["nova"]
 
+# Native desktop/Android client (Freya). Only built with the `freya` feature,
+# so the default build / cargo-leptos never compiles it (mirrors nova-mcp).
+[[bin]]
+name = "authlyn-native"
+path = "src/bin/authlyn-native.rs"
+required-features = ["freya"]
+
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
@@ -114,6 +121,12 @@ rmcp     = { version = "0.8", features = ["server", "macros", "transport-streama
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies"], optional = true }
 anyhow   = { version = "1", optional = true }
 
+# Native GUI for the desktop/Android client (the `freya` feature + the
+# `authlyn-native` bin). True no-webview, Skia-rendered, own reactive core
+# (0.4 dropped Dioxus). Pinned to the exact rc that Phase 0 de-risked — rc
+# churn is real. Native-only; never in the leptos ssr/hydrate graph.
+freya    = { version = "=0.4.0-rc.21", optional = true }
+
 # `Send + Sync` shim for !Send wasm types. Already vendored transitively via
 # leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
 # across the `Effect` / `on_cleanup` boundary (W7/D2 focus-restoration). Wasm
@@ -193,6 +206,19 @@ nova = [
     "tokio/rt-multi-thread",
     "dep:tracing",
     "dep:tracing-subscriber",
+]
+# The native desktop/Android client (Freya). Standalone bin behind a disjoint
+# feature, like `nova`: it imports zero ssr/hydrate crates and reuses only the
+# always-on `protocol`/`markup` modules. Build with
+# `cargo build --bin authlyn-native --features freya`. Pulls Freya (Skia/winit)
+# + reqwest (loopback http; no TLS yet) + a tokio runtime — all native-only,
+# never in the leptos ssr/hydrate graph.
+freya = [
+    "dep:freya",
+    "dep:reqwest",
+    "dep:tokio",
+    "tokio/macros",
+    "tokio/rt-multi-thread",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
