@@ -8,10 +8,14 @@
 //! backoff schedule, attempt cap, and write-conflict matcher.
 
 /// Cap on how many times we'll re-issue a SurrealDB statement that got
-/// rejected with a retryable write conflict. 5 attempts gives us linear
-/// backoff up to ~25ms + jitter — well under any meaningful client timeout,
-/// but enough headroom for the contention windows we've seen in concurrent
-/// claims (a fraction of a millisecond each).
+/// rejected with a retryable write conflict. With 5 attempts we sleep between
+/// the first four — the 5th attempt's error returns without sleeping (the loop
+/// guard is `attempt < MAX_WRITE_CONFLICT_ATTEMPTS`) — so the linear
+/// `BASE_BACKOFF_MS · n + jitter` schedule is a deterministic floor of
+/// 5+10+15+20 = 50ms across those four sleeps, up to ~126ms with maximum jitter
+/// (4 × up-to-19ms). Still well under any meaningful client timeout, but enough
+/// headroom for the sub-millisecond contention windows we've seen in concurrent
+/// claims.
 const MAX_WRITE_CONFLICT_ATTEMPTS: u32 = 5;
 
 /// Base unit of the backoff schedule. Attempt `n` waits
@@ -56,23 +60,28 @@ where
 
 /// Identify SurrealDB write-conflict errors via their Display string. The
 /// SDK exposes them as plain `surrealdb::Error` values rather than a typed
-/// variant, so substring matching is the cheapest reliable test. Both the
-/// "Write conflict" and the "retry the transaction" markers appear in the
-/// 3.x error text we've observed (full message:
-/// `"Query not executed: Transaction conflict: Write conflict, retry the
-/// transaction. This transaction can be retried"`).
+/// variant, so substring matching is the cheapest reliable test. The exact
+/// wording drifts between SurrealDB releases, so we match CASE-INSENSITIVELY on
+/// two markers present in BOTH texts we've observed: the `=3.1.0-beta.3` SDK
+/// emits `"...Transaction conflict: Write conflict, retry the transaction. This
+/// transaction can be retried"`, while the `3.0.4` server the dev box runs
+/// emits `"...Transaction conflict: Transaction write conflict. This transaction
+/// can be retried"`. Both contain `"write conflict"` and `"can be retried"`
+/// (either match suffices — defense-in-depth), and both are absent from the
+/// UNIQUE-violation text (`"already contains"`), so the two predicates stay
+/// disjoint (the `is_unique_violation` canary asserts this).
 ///
 /// Exposed as `pub` (not `pub(crate)`) so the
 /// `is_write_conflict_matches_real_surrealdb_conflict` regression test in
-/// `tests/keys.rs` can call it directly. Integration tests are compiled as
-/// a separate crate, so `pub(crate)` would not be reachable. That canary
+/// `tests/retry_canary.rs` can call it directly. Integration tests are compiled
+/// as a separate crate, so `pub(crate)` would not be reachable. That canary
 /// synthesises a real MVCC conflict against the dev DB and asserts this
-/// predicate still fires; a future SurrealDB rename of either substring
-/// would silently disable the retry loop everywhere without any compile-
-/// time signal, so the canary is load-bearing.
+/// predicate still fires; a future SurrealDB rename of BOTH markers would
+/// silently disable the retry loop everywhere without any compile-time signal,
+/// so the canary is load-bearing.
 pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
-    let s = err.to_string();
-    s.contains("Write conflict") || s.contains("retry the transaction")
+    let s = err.to_string().to_ascii_lowercase();
+    s.contains("write conflict") || s.contains("can be retried")
 }
 
 /// Identify SurrealDB UNIQUE-index violation errors via their Display
