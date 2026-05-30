@@ -220,10 +220,12 @@ fn channel_pane(state: NativeState) -> Element {
     // open, takes a fixed slice that the list gives back so the total stays put.
     let menu_open = *state.persona_menu.read();
     let menu_h = if menu_open { PERSONA_MENU_H } else { 0.0 };
+    let strip_open = !state.staged_attachments.read().is_empty();
+    let strip_h = if strip_open { ATTACH_STRIP_H } else { 0.0 };
     let mut list = ScrollView::new()
         .spacing(2.)
         .width(Size::fill())
-        .height(Size::px(720.0 - menu_h));
+        .height(Size::px(720.0 - menu_h - strip_h));
     for m in state.messages.read().iter() {
         list = list.child(message_row(state, m));
     }
@@ -261,8 +263,55 @@ fn channel_pane(state: NativeState) -> Element {
         .child(list)
         .child(typing_line(&typing))
         .child(persona_menu(state, menu_open))
+        .child(attach_strip(state, strip_open))
         .child(composer(state))
         .into()
+}
+
+/// Height of the staged-attachment thumbnail strip when shown.
+const ATTACH_STRIP_H: f32 = 72.0;
+
+/// A horizontal strip of staged-attachment thumbnails (local bytes → instant
+/// preview), each with a remove control. Zero-height when nothing is staged.
+fn attach_strip(state: NativeState, open: bool) -> Element {
+    if !open {
+        return rect().height(Size::px(0.0)).into();
+    }
+    let mut strip = rect()
+        .horizontal()
+        .spacing(8.)
+        .padding((6., 12.))
+        .height(Size::px(ATTACH_STRIP_H))
+        .background(theme::VELLUM);
+    for a in state.staged_attachments.read().iter() {
+        let rid = a.id.clone();
+        strip = strip.child(
+            rect()
+                .vertical()
+                .spacing(2.)
+                .cross_align(Alignment::Center)
+                .child(
+                    ImageViewer::new(ImageSource::Bytes(
+                        crate::native::image::hash_id(&a.id),
+                        a.bytes.clone(),
+                    ))
+                    .width(Size::px(44.0))
+                    .height(Size::px(44.0))
+                    .corner_radius(theme::RADIUS_SM),
+                )
+                .child(
+                    rect()
+                        .on_press(move |_| act::remove_staged_attachment(state, rid.clone()))
+                        .child(
+                            label()
+                                .color(theme::INK_DANGER)
+                                .font_size(theme::FS_META)
+                                .text("remove"),
+                        ),
+                ),
+        );
+    }
+    strip.into()
 }
 
 /// Height of the "speaking as" picker panel when open.
@@ -332,6 +381,17 @@ fn composer(state: NativeState) -> Element {
         .spacing(6.)
         .background(theme::VELLUM)
         .child(persona_button(state))
+        .child(
+            rect()
+                .height(Size::px(36.0))
+                .corner_radius(theme::RADIUS_SM)
+                .background(theme::INPUT_BG)
+                .color(theme::INK_SOFT)
+                .center()
+                .padding((0., 12.))
+                .on_press(move |_| act::pick_and_stage_attachments(state))
+                .child(label().text("+")),
+        )
         .child(
             Input::new(state.compose)
                 .placeholder("Write a message\u{2026}")

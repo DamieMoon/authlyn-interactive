@@ -17,7 +17,7 @@ use std::time::Duration;
 use freya::prelude::*;
 
 use crate::native::api::client;
-use crate::native::state::NativeState;
+use crate::native::state::{NativeState, StagedAttachment};
 use crate::protocol::{ChannelSummary, MessageEnvelope};
 
 /// Newest-page size; a short page means the whole channel fits (web parity).
@@ -305,7 +305,15 @@ pub fn load_older(state: NativeState) {
 /// Clears the composer, then pulls the new message in immediately (no poll wait).
 pub fn send_message(state: NativeState, body: String) {
     let body = body.trim().to_string();
-    if body.is_empty() {
+    let attachment_ids: Vec<String> = state
+        .staged_attachments
+        .peek()
+        .iter()
+        .map(|a| a.id.clone())
+        .collect();
+    // A message with attachments may have an empty body (protocol.rs); only bail
+    // when there is truly nothing to send.
+    if body.is_empty() && attachment_ids.is_empty() {
         return;
     }
     let Some(ch) = state.sel_channel.peek().clone() else {
@@ -316,10 +324,12 @@ pub fn send_message(state: NativeState, body: String) {
     let epoch = *state.epoch.peek();
     spawn(async move {
         if client()
-            .post_message(&ch.id, &body, Vec::new(), persona)
+            .post_message(&ch.id, &body, attachment_ids, persona)
             .await
             .is_ok()
         {
+            // Clear staged attachments only after the server accepted them.
+            state.staged_attachments.write_unchecked().clear();
             let cursor = state.cursor.peek().clone();
             if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
                 if *state.epoch.peek() == epoch {
@@ -328,6 +338,68 @@ pub fn send_message(state: NativeState, body: String) {
             }
         }
     });
+}
+
+/// Open the OS file picker (images only), upload each chosen file over the
+/// authenticated session, and stage the returned media ids for the next send.
+/// Runs in a `spawn` task so the winit/Skia event loop never blocks (rfd's sync
+/// `FileDialog` would freeze the window — only `AsyncFileDialog` is safe here).
+pub fn pick_and_stage_attachments(state: NativeState) {
+    spawn(async move {
+        let Some(files) = rfd::AsyncFileDialog::new()
+            .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"])
+            .set_title("Attach images")
+            .pick_files()
+            .await
+        else {
+            return; // cancelled
+        };
+        for f in files {
+            let name = f.file_name();
+            let mime = mime_from_name(&name);
+            let bytes = f.read().await;
+            if bytes.is_empty() {
+                continue;
+            }
+            match client()
+                .upload_media(bytes.clone(), name, mime.clone())
+                .await
+            {
+                Ok(id) => state
+                    .staged_attachments
+                    .write_unchecked()
+                    .push(StagedAttachment {
+                        id,
+                        bytes: bytes::Bytes::from(bytes),
+                        mime,
+                    }),
+                Err(e) => *state.status.write_unchecked() = format!("attach failed: {e}"),
+            }
+        }
+    });
+}
+
+/// Drop a staged attachment (its media id stays on the server, just unreferenced).
+pub fn remove_staged_attachment(state: NativeState, id: String) {
+    state
+        .staged_attachments
+        .write_unchecked()
+        .retain(|a| a.id != id);
+}
+
+/// Infer an upload MIME from the file extension, matching the server's image
+/// allowlist (`server/media.rs`). The server reads the multipart part's
+/// Content-Type and re-validates, rejecting a spoofed extension with 415.
+fn mime_from_name(name: &str) -> String {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    }
+    .to_string()
 }
 
 /// Edit one of your own messages; updates the row in place on success.

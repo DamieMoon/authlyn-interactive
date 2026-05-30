@@ -363,6 +363,32 @@ impl ApiClient {
         self.bytes(self.authed(req)).await
     }
 
+    /// POST /media — upload image bytes as multipart/form-data (field `file`,
+    /// matching `server/media.rs` FILE_FIELD), carrying the session cookie.
+    /// Returns the new media id. The server reads the part's `Content-Type` for
+    /// the stored MIME and enforces its image allowlist + the 64 MiB route
+    /// limit, so a bad type/size surfaces as `ApiError::Status`.
+    pub async fn upload_media(
+        &self,
+        bytes: Vec<u8>,
+        filename: String,
+        mime: String,
+    ) -> Result<String, ApiError> {
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(filename)
+            .mime_str(&mime)
+            .map_err(|e| ApiError::Codec(format!("bad mime: {e}")))?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let req = self.http.post(self.url("/media")).multipart(form);
+        let resp = self
+            .authed(req)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let body: crate::protocol::MediaUploadResponse = decode(resp).await?;
+        Ok(body.id)
+    }
+
     /// GET an arbitrary URL's bytes (no cookie) — markup `Image(url)` nodes.
     pub async fn fetch_bytes(&self, url: &str) -> Result<Bytes, ApiError> {
         self.bytes(self.http.get(url)).await

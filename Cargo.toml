@@ -118,7 +118,7 @@ web-push           = { version = "0.11", optional = true }
 # official Rust MCP SDK; reqwest is the HTTP client (cookie jar for the session;
 # no TLS — the target is loopback http).
 rmcp     = { version = "0.8", features = ["server", "macros", "transport-streamable-http-server"], optional = true }
-reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies"], optional = true }
+reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart"], optional = true }
 anyhow   = { version = "1", optional = true }
 
 # Native GUI for the desktop/Android client (the `freya` feature + the
@@ -126,6 +126,13 @@ anyhow   = { version = "1", optional = true }
 # (0.4 dropped Dioxus). Pinned to the exact rc that Phase 0 de-risked — rc
 # churn is real. Native-only; never in the leptos ssr/hydrate graph.
 freya    = { version = "=0.4.0-rc.21", optional = true }
+
+# Native OS file picker for the composer's attach button (the `freya` feature).
+# `AsyncFileDialog` is driven from a Freya `spawn` task on the tokio runtime —
+# the sync dialog would block winit/Skia. 0.17 dropped the tokio/async-std
+# feature split, so default features suffice (XDG portal backend on Linux; no
+# libgtk-3 build dep). Native-only; never in the ssr/hydrate/nova graph.
+rfd      = { version = "0.17", optional = true }
 
 # `Send + Sync` shim for !Send wasm types. Already vendored transitively via
 # leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
@@ -217,6 +224,7 @@ freya = [
     "dep:freya",
     "dep:reqwest",
     "dep:bytes",
+    "dep:rfd",
     "dep:tokio",
     "tokio/macros",
     "tokio/rt-multi-thread",

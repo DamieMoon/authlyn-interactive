@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 use crate::native::api::client;
 use crate::native::theme;
 
-fn hash_id(s: &str) -> u64 {
+pub fn hash_id(s: &str) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     s.hash(&mut h);
     h.finish()

@@ -14,6 +14,16 @@ use crate::protocol::{ChannelSummary, GuildSummary, MeResponse, MessageEnvelope,
 /// key the web client uses (`reading.rs`); never reorder its parts.
 pub type Cursor = (String, String);
 
+/// A composer attachment already uploaded to `/media`, awaiting send. `bytes`
+/// are kept for an instant local thumbnail (no auth round-trip); `id` is what
+/// goes into `SendMessageRequest.attachment_ids`.
+#[derive(Clone)]
+pub struct StagedAttachment {
+    pub id: String,
+    pub bytes: bytes::Bytes,
+    pub mime: String,
+}
+
 #[derive(Clone, Copy)]
 pub struct NativeState {
     // Auth gate (pre-shell login/register form)
@@ -67,6 +77,9 @@ pub struct NativeState {
     pub active_persona: State<Option<String>>,
     /// Whether the composer's "speaking as" picker panel is open.
     pub persona_menu: State<bool>,
+
+    /// Image attachments uploaded and staged for the next send, in display order.
+    pub staged_attachments: State<Vec<StagedAttachment>>,
 }
 
 /// Create the root state. MUST be called once, in component context (the app fn).
@@ -99,5 +112,6 @@ pub fn use_native_state() -> NativeState {
         personas: use_state(Vec::new),
         active_persona: use_state(|| None),
         persona_menu: use_state(|| false),
+        staged_attachments: use_state(Vec::new),
     }
 }
