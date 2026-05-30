@@ -119,6 +119,7 @@ async fn post_auth_load(state: NativeState) {
 
     if let Some(g) = guilds.first().cloned() {
         *state.sel_server.write_unchecked() = Some(g.id.clone());
+        load_guild_emoji(state, &g.id).await;
         if let Ok(d) = client().get_guild(&g.id).await {
             *state.channels.write_unchecked() = d.channels.clone();
             let first = d
@@ -131,6 +132,14 @@ async fn post_auth_load(state: NativeState) {
                 open_channel_inner(state, ch).await;
             }
         }
+    }
+}
+
+/// Load the open guild's custom emoji (for `:`-autocomplete). Inline (no nested
+/// `spawn`) so it can be awaited from another task.
+async fn load_guild_emoji(state: NativeState, gid: &str) {
+    if let Ok(r) = client().list_guild_emoji(gid).await {
+        *state.guild_emoji.write_unchecked() = r.emoji;
     }
 }
 
@@ -157,7 +166,9 @@ pub fn refresh_guilds(state: NativeState) {
 pub fn open_server(state: NativeState, gid: String) {
     *state.sel_server.write_unchecked() = Some(gid.clone());
     *state.channels.write_unchecked() = Vec::new();
+    *state.guild_emoji.write_unchecked() = Vec::new();
     spawn(async move {
+        load_guild_emoji(state, &gid).await;
         if let Ok(d) = client().get_guild(&gid).await {
             *state.channels.write_unchecked() = d.channels.clone();
             let first = d
@@ -385,6 +396,54 @@ pub fn remove_staged_attachment(state: NativeState, id: String) {
         .staged_attachments
         .write_unchecked()
         .retain(|a| a.id != id);
+}
+
+/// Replace the trailing `:query` token in the composer with `:name: ` (the
+/// chosen emoji shortcode). Native detects the token at the END of the compose
+/// string (caret-at-end, the common typing case) rather than at an arbitrary
+/// caret, since Freya's `Input` doesn't surface a caret offset.
+pub fn apply_emoji(state: NativeState, name: &str) {
+    let text = state.compose.peek().clone();
+    if let Some((_, start)) = active_shortcode_token(&text) {
+        let mut next = text[..start].to_string();
+        next.push_str(&format!(":{name}: "));
+        *state.compose.write_unchecked() = next;
+    }
+}
+
+/// Find a trailing `:query` shortcode token at the end of `text` (caret-at-end).
+/// Returns `(query, colon_byte_index)` — the query after the colon and the byte
+/// offset of the `:`. Mirrors the web `active_shortcode_token` rules: the body
+/// is `[a-z0-9_]+`, and the colon must not follow an alphanumeric (blocks
+/// `12:30`, `http:smile`). Returns `None` when there's no active token.
+pub fn active_shortcode_token(text: &str) -> Option<(String, usize)> {
+    let b = text.as_bytes();
+    let mut i = b.len();
+    while i > 0 && (b[i - 1].is_ascii_lowercase() || b[i - 1].is_ascii_digit() || b[i - 1] == b'_')
+    {
+        i -= 1;
+    }
+    if i == b.len() || i == 0 || b[i - 1] != b':' {
+        return None;
+    }
+    let colon = i - 1;
+    if colon > 0 && b[colon - 1].is_ascii_alphanumeric() {
+        return None;
+    }
+    Some((text[i..].to_string(), colon))
+}
+
+/// Custom guild emoji whose names start with `query` (case-insensitive), capped.
+pub fn emoji_suggestions(state: NativeState, query: &str) -> Vec<crate::protocol::CustomEmoji> {
+    let q = query.to_lowercase();
+    state
+        .guild_emoji
+        .peek()
+        .iter()
+        .filter(|e| e.name.to_lowercase().starts_with(&q))
+        .take(8)
+        .cloned()
+        .collect()
 }
 
 /// Infer an upload MIME from the file extension, matching the server's image

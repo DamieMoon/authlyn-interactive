@@ -8,7 +8,9 @@
 use freya::prelude::*;
 use std::collections::HashSet;
 
-use crate::protocol::{ChannelSummary, GuildSummary, MeResponse, MessageEnvelope, PersonaSummary};
+use crate::protocol::{
+    ChannelSummary, CustomEmoji, GuildSummary, MeResponse, MessageEnvelope, PersonaSummary,
+};
 
 /// Composite message cursor `(sent_at, id)` — the same lex-monotonic tie-break
 /// key the web client uses (`reading.rs`); never reorder its parts.
@@ -80,6 +82,10 @@ pub struct NativeState {
 
     /// Image attachments uploaded and staged for the next send, in display order.
     pub staged_attachments: State<Vec<StagedAttachment>>,
+
+    /// Custom emoji of the open guild — powers the composer `:`-autocomplete
+    /// (and, later, `:name:` render resolution). Reloaded on guild open.
+    pub guild_emoji: State<Vec<CustomEmoji>>,
 }
 
 /// Create the root state. MUST be called once, in component context (the app fn).
@@ -113,5 +119,6 @@ pub fn use_native_state() -> NativeState {
         active_persona: use_state(|| None),
         persona_menu: use_state(|| false),
         staged_attachments: use_state(Vec::new),
+        guild_emoji: use_state(Vec::new),
     }
 }

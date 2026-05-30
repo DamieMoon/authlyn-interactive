@@ -222,10 +222,21 @@ fn channel_pane(state: NativeState) -> Element {
     let menu_h = if menu_open { PERSONA_MENU_H } else { 0.0 };
     let strip_open = !state.staged_attachments.read().is_empty();
     let strip_h = if strip_open { ATTACH_STRIP_H } else { 0.0 };
+    // `:`-emoji suggestions for the current composer token (reading `compose`
+    // here subscribes the scope so the popover updates as the user types).
+    let emoji_sugg = match act::active_shortcode_token(&state.compose.read()) {
+        Some((q, _)) => act::emoji_suggestions(state, &q),
+        None => Vec::new(),
+    };
+    let emoji_h = if emoji_sugg.is_empty() {
+        0.0
+    } else {
+        EMOJI_POPOVER_H
+    };
     let mut list = ScrollView::new()
         .spacing(2.)
         .width(Size::fill())
-        .height(Size::px(720.0 - menu_h - strip_h));
+        .height(Size::px(720.0 - menu_h - strip_h - emoji_h));
     for m in state.messages.read().iter() {
         list = list.child(message_row(state, m));
     }
@@ -264,8 +275,51 @@ fn channel_pane(state: NativeState) -> Element {
         .child(typing_line(&typing))
         .child(persona_menu(state, menu_open))
         .child(attach_strip(state, strip_open))
+        .child(emoji_popover(state, emoji_sugg))
         .child(composer(state))
         .into()
+}
+
+/// Height of the `:`-emoji suggestion popover when shown.
+const EMOJI_POPOVER_H: f32 = 160.0;
+
+/// A list of custom-emoji suggestions for the active `:query` token; clicking a
+/// row splices `:name: ` into the composer. Zero-height when no suggestions.
+/// Plain column (not a ScrollView) so child `on_press` fires (see persona menu).
+fn emoji_popover(state: NativeState, suggestions: Vec<crate::protocol::CustomEmoji>) -> Element {
+    if suggestions.is_empty() {
+        return rect().height(Size::px(0.0)).into();
+    }
+    let mut col = rect()
+        .vertical()
+        .spacing(2.)
+        .width(Size::fill())
+        .height(Size::px(EMOJI_POPOVER_H))
+        .padding(6.)
+        .background(theme::VELLUM_2);
+    for e in suggestions {
+        let name = e.name.clone();
+        col = col.child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .cross_align(Alignment::Center)
+                .spacing(8.)
+                .padding((4., 8.))
+                .corner_radius(theme::RADIUS_SM)
+                .background(theme::VELLUM)
+                .color(theme::INK_SOFT)
+                .on_press(move |_| act::apply_emoji(state, &name))
+                .child(RemoteImage {
+                    media_id: e.media_id.clone(),
+                    size: 20.0,
+                    fallback: e.name.clone(),
+                    circle: false,
+                })
+                .child(label().text(format!(":{}:", e.name))),
+        );
+    }
+    col.into()
 }
 
 /// Height of the staged-attachment thumbnail strip when shown.

@@ -16,8 +16,9 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
     AuthResponse, CreateGuildRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
-    ListGuildsResponse, ListMessagesResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    RegisterRequest, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
+    ListEmojiResponse, ListGuildsResponse, ListMessagesResponse, ListPersonasResponse,
+    LoginRequest, MeResponse, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -240,6 +241,11 @@ impl ApiClient {
     /// wardrobe and the composer's "speaking as" picker.
     pub async fn list_personas(&self) -> Result<ListPersonasResponse, ApiError> {
         self.get("/personas").await
+    }
+
+    /// GET /guilds/{gid}/emoji — the guild's custom emoji, for `:`-autocomplete.
+    pub async fn list_guild_emoji(&self, gid: &str) -> Result<ListEmojiResponse, ApiError> {
+        self.get(&format!("/guilds/{gid}/emoji")).await
     }
 
     /// PUT /channels/{cid}/active-persona — wear (`Some`) or take off (`None`) a
