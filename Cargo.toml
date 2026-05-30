@@ -1,12 +1,12 @@
 [package]
 name = "authlyn-interactive"
 # CalVer: YYYY.M.D. Bump the date on every release; codename in [package.metadata.release].
-version = "2026.5.21"
+version = "2026.5.30"
 edition = "2021"
 
 [package.metadata.release]
 # Suggested codename for this build. Pick a fresh two-word name manually and set it here.
-codename = "giggly-crescent"
+codename = "amber-quill"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

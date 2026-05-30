@@ -306,7 +306,7 @@ dependencies = [
 
 [[package]]
 name = "authlyn-interactive"
-version = "2026.5.21"
+version = "2026.5.30"
 dependencies = [
  "anyhow",
  "argon2",
