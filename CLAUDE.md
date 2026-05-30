@@ -60,9 +60,9 @@ First run on a fresh clone (in order — `cargo`/`cargo-leptos` are not vendored
 
 ## Gotchas
 - The intentionally-deleted `deploy/`, `scripts/`, `end2end/` tooling must never be restored or re-referenced (the last commit removed it on purpose). Stale references were scrubbed 2026-05-30; reintroducing one is a regression. `.githooks/pre-commit` is now a working opt-in fmt+clippy gate (enable: `git config core.hooksPath .githooks`).
-- `src/server/retry.rs` module doc is STALE (mentions Megolm / `server::keys` / `/rooms/{id}/join` from a different domain) — the code is correct; do not carry that language anywhere.
+- `src/server/retry.rs` docs were scrubbed of stale Megolm/`server::keys`/`/rooms/{id}/join` language (2026-05-30); they now describe the real authlyn consumers (registration, `guild_member`, `persona_editor`, `friendship`, `custom_emoji`, `channel_active_persona`, `push_subscription`). Do not reintroduce the E2EE-domain wording.
 - `.gitignore` whitelists `.claude/`: only `settings.json` is tracked (`/.claude/*` + `!/.claude/settings.json`); everything else, incl. `settings.local.json` and harness worktrees, stays local. To share a new `.claude/` file, add an explicit `!` negation.
-- SurrealDB skew: installed binary is 3.0.4 vs SDK `=3.1.0-beta.3` — first suspect on WS handshake errors.
+- SurrealDB skew: installed binary is 3.0.4 vs SDK `=3.1.0-beta.3` — first suspect on WS handshake errors. The two also emit DIFFERENT write-conflict text ("Transaction write conflict…" vs "Write conflict, retry the transaction…"); `retry::is_write_conflict` matches both (case-insensitive "write conflict" / "can be retried"), pinned by the `tests/retry_canary.rs` canary (review F-D6 live adjudication).
 - Two body-limit route groups (512 KiB JSON, 64 MiB media) are mandatory: `RequestBodyLimitLayer` composes with MIN-limit semantics, and media must also raise axum `DefaultBodyLimit` or uploads silently cap at ~2 MB (`server/mod.rs`).
 - Two bin targets exist, so `bin-target = "authlyn-interactive"` in `[package.metadata.leptos]` is load-bearing — removing it makes `cargo leptos build` error with "Several bin targets found".
 - Building `ssr` needs system libcurl (web-push) and the `image` crate at build time — native, ssr-only.

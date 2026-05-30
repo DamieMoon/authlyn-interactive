@@ -1,11 +1,13 @@
-//! SurrealDB write-conflict retry helper, shared between `server::keys` and
-//! `server::keyshare` (and future Megolm-rotation work in step 6).
+//! SurrealDB write-conflict retry helper, shared by every handler that issues
+//! a racy CREATE against a UNIQUE index — registration (`account`), guild
+//! membership (`guild_member`), persona editors (`persona_editor`), friendships
+//! (`friendship`), custom emoji (`custom_emoji`), per-channel persona wear
+//! (`channel_active_persona`), and push subscriptions (`push_subscription`).
 //!
-//! Step 3 (`172c777`) introduced this pattern in `server::keys` with the
-//! explicit note that "steps 5 + 6 will copy this pattern for room
-//! key-share + Megolm rotation." Step 5 hoists it here so the retry policy
-//! is defined in exactly one place and every consumer shares the same
-//! backoff schedule, attempt cap, and write-conflict matcher.
+//! Centralising the policy here means every consumer shares one backoff
+//! schedule, one attempt cap, and the same write-conflict / UNIQUE-violation
+//! matchers — so inv13 (a racy CREATE resolves to an idempotent 409, never a
+//! 500) is realised in exactly one place.
 
 /// Cap on how many times we'll re-issue a SurrealDB statement that got
 /// rejected with a retryable write conflict. With 5 attempts we sleep between
@@ -85,32 +87,31 @@ pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
 }
 
 /// Identify SurrealDB UNIQUE-index violation errors via their Display
-/// string. SurrealDB 3.1.0-beta.3 surfaces these as plain
-/// [`surrealdb::Error`] values whose message is shaped like
-/// `"Database index `<index_name>` already contains <key_tuple>, with
-/// record `<table>:<existing_id>`"` — empirically captured against
-/// `prekey_otk` (`otk_lookup` index, `(device, kid)` UNIQUE) when issuing
-/// two CREATEs with the same key tuple from the same connection. The
-/// `"already contains"` substring is the load-bearing marker.
+/// string. SurrealDB surfaces these as plain [`surrealdb::Error`] values
+/// whose message is shaped like `"Database index `<index_name>` already
+/// contains <key_tuple>, with record `<table>:<existing_id>`"` — captured
+/// against `guild_member_pair` (`(guild, account)` UNIQUE) when two CREATEs
+/// race the same key tuple. The `"already contains"` substring is the
+/// load-bearing marker.
 ///
-/// Step 7's `POST /rooms/{id}/join` handler maps this to `409 "user is
+/// `invite_member` (`guilds/membership.rs`) maps this to `409 "user is
 /// already a member"` for the concurrent-inviter race: two inviters racing
-/// to add the same target survive their respective pre-checks (the row
-/// genuinely doesn't exist yet from either snapshot's point of view), then
-/// MVCC arbitrates. Under the canary probe one racer surfaces a
-/// [`is_write_conflict`] which retries against a fresh snapshot, observes
-/// the winner's row, and surfaces this UNIQUE violation. The two
-/// predicates' substrings are disjoint by inspection (`"Write conflict"` /
-/// `"retry the transaction"` vs `"already contains"`), so neither matcher
-/// fires on the other's error.
+/// to add the same target both pass their pre-check (the row genuinely
+/// doesn't exist yet from either snapshot), then MVCC arbitrates. One racer
+/// surfaces an [`is_write_conflict`], retries against a fresh snapshot,
+/// observes the winner's row, and surfaces this UNIQUE violation. The same
+/// idempotent-409 shape covers registration, persona editors, friendships,
+/// custom emoji, and push subscriptions. The two predicates' substrings are
+/// disjoint by inspection (`"write conflict"` / `"can be retried"` vs
+/// `"already contains"`), so neither matcher fires on the other's error.
 ///
 /// Exposed as `pub` so the `is_unique_violation_matches_real_surrealdb_violation`
-/// canary in `tests/keys.rs` can call it. Integration tests compile as a
-/// separate crate, so `pub(crate)` would not reach. The canary synthesises
-/// a real UNIQUE collision against the dev DB and asserts this predicate
-/// still fires; if SurrealDB renames the message in a future release the
-/// 409 path silently degrades to a 500 (the retry loop would surface the
-/// raw error), so the canary is mandatory.
+/// canary in `tests/retry_canary.rs` can call it. Integration tests compile
+/// as a separate crate, so `pub(crate)` would not reach. The canary
+/// synthesises a real UNIQUE collision against the dev DB and asserts this
+/// predicate still fires; if SurrealDB renames the message in a future
+/// release the 409 path silently degrades to a 500 (the retry loop would
+/// surface the raw error), so the canary is mandatory.
 ///
 /// Mapping happens *outside* [`with_write_conflict_retry`] — UNIQUE
 /// violations are not retryable: re-issuing the same CREATE against the
