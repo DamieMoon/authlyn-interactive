@@ -36,7 +36,7 @@ pub(crate) fn EmojiManagerPane() -> impl IntoView {
     let name_error = move || {
         let n = new_name.get();
         (!n.is_empty() && !valid_emoji_name(&n))
-            .then(|| "Name must be 2–32 chars: a–z, 0–9, _".to_string())
+            .then(|| "Name must be 2-32 chars: a-z, 0-9, _".to_string())
     };
 
     let gid = move || s.sel.sel_server.get().unwrap_or_default();

@@ -100,7 +100,7 @@ pub fn RegisterPage() -> impl IntoView {
             <input
                 prop:value=move || username.get()
                 on:input=move |ev| username.set(event_target_value(&ev))
-                placeholder="username (3–32 chars)"
+                placeholder="username (3-32 chars)"
             />
             <input
                 type="password"

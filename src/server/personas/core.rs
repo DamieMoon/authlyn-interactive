@@ -309,7 +309,7 @@ pub async fn patch_persona(
     let mut sets: Vec<&str> = Vec::new();
     if let Some(ref raw) = req.name {
         if validate_name(raw.trim()).is_err() {
-            return error_response(StatusCode::BAD_REQUEST, "name must be 1–100 characters");
+            return error_response(StatusCode::BAD_REQUEST, "name must be 1-100 characters");
         }
         sets.push("name = $name");
     }
