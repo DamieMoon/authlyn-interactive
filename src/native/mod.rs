@@ -18,5 +18,6 @@ pub mod members;
 pub mod modal;
 pub mod state;
 pub mod theme;
+pub mod trash;
 pub mod ui;
 pub mod wardrobe;

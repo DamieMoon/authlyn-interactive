@@ -54,6 +54,10 @@ fn shell(state: NativeState) -> Element {
             let body = crate::native::members::pane(state);
             pane_with_back(state, "Members", body)
         }
+        NativeView::Trash => {
+            let body = crate::native::trash::pane(state);
+            pane_with_back(state, "Trash", body)
+        }
     };
 
     let mut root = rect()
@@ -183,6 +187,79 @@ fn modal_view(state: NativeState, m: NativeModal) -> Element {
                 *state.modal.write_unchecked() = None;
             };
             modal::confirm_modal("Kick member", &body, "Kick", confirm, close)
+        }
+        NativeModal::CreateGuild => {
+            let confirm = move |name: String| act::create_guild(state, name);
+            modal::input_modal(
+                "Create guild",
+                state.guild_new_name,
+                "Guild name",
+                "Create",
+                confirm,
+                close,
+                None,
+            )
+        }
+        NativeModal::RenameGuild { gid } => {
+            let confirm = move |name: String| act::rename_guild(state, gid.clone(), name);
+            modal::input_modal(
+                "Rename guild",
+                state.guild_rename_buf,
+                "New name",
+                "Save",
+                confirm,
+                close,
+                None,
+            )
+        }
+        NativeModal::ConfirmDeleteGuild { gid, name } => {
+            let body = format!(
+                "Delete the guild \u{201c}{name}\u{201d}? It moves to the trash (auto-purged \
+                 after 30 days) and can be restored."
+            );
+            let confirm = move || {
+                act::delete_guild(state, gid.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal("Delete guild", &body, "Delete", confirm, close)
+        }
+        NativeModal::CreateChannel { gid } => {
+            let confirm = move |name: String| {
+                let kind = state.channel_new_kind.peek().clone();
+                act::create_channel(state, gid.clone(), name, kind);
+            };
+            let toggle = kind_toggle(state);
+            modal::input_modal(
+                "Create channel",
+                state.channel_new_name,
+                "Channel name",
+                "Create",
+                confirm,
+                close,
+                Some(toggle),
+            )
+        }
+        NativeModal::RenameChannel { gid, cid } => {
+            let confirm =
+                move |name: String| act::rename_channel(state, gid.clone(), cid.clone(), name);
+            modal::input_modal(
+                "Rename channel",
+                state.channel_rename_buf,
+                "New name",
+                "Save",
+                confirm,
+                close,
+                None,
+            )
+        }
+        NativeModal::ConfirmDeleteChannel { gid, cid, name } => {
+            let body =
+                format!("Delete the channel \u{201c}{name}\u{201d}? It moves to the trash and can be restored.");
+            let confirm = move || {
+                act::delete_channel(state, gid.clone(), cid.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal("Delete channel", &body, "Delete", confirm, close)
         }
         // The persona detail editor: built by the wardrobe leaf. Its close also
         // clears the `pe_name`/`pe_description` buffers it shares with the
@@ -347,7 +424,7 @@ fn rail(state: NativeState) -> Element {
     // Account-scoped Friends entry, pinned beneath the wardrobe. Loads the
     // friend lists, then switches the 3rd column to the friends pane.
     let friends_active = *state.view.read() == NativeView::Friends;
-    col.child(
+    col = col.child(
         rect()
             .width(Size::px(theme::GUILD_TILE))
             .height(Size::px(theme::GUILD_TILE))
@@ -365,82 +442,324 @@ fn rail(state: NativeState) -> Element {
             .center()
             .on_press(move |_| act::show_friends(state))
             .child(label().text("\u{1f465}")),
+    );
+
+    // Create-guild "+" tile (account-scoped — any user may create a guild).
+    col.child(
+        rect()
+            .width(Size::px(theme::GUILD_TILE))
+            .height(Size::px(theme::GUILD_TILE))
+            .corner_radius(theme::GUILD_TILE / 2.0)
+            .background(theme::AVATAR_TILE)
+            .color(theme::INK_SOFT)
+            .center()
+            .on_press(move |_| {
+                *state.guild_new_name.write_unchecked() = String::new();
+                *state.modal.write_unchecked() = Some(NativeModal::CreateGuild);
+            })
+            .child(label().font_size(theme::FS_H3).text("+")),
     )
     .into()
 }
 
 fn sidebar(state: NativeState) -> Element {
     let sel_ch = state.sel_channel.read().as_ref().map(|c| c.id.clone());
+    let me_id = state.me.read().as_ref().map(|m| m.account_id.clone());
+    let is_owner = me_id.is_some() && me_id.as_deref() == state.sel_owner.read().as_deref();
+    let have_guild = state.sel_server.read().is_some();
+
+    // CHANNELS header: label + owner-only create-channel "+" + members + emoji.
+    // Plain horizontal siblings (no `fill` spacer — Freya's `fill` starves the
+    // narrow sidebar's fixed trailing controls, squashing them to vertical text).
+    let mut header = rect()
+        .horizontal()
+        .width(Size::fill())
+        .cross_align(Alignment::Center)
+        .spacing(8.)
+        .child(
+            label()
+                .color(theme::INK_MUTED)
+                .font_size(theme::FS_META)
+                .text("CHANNELS"),
+        );
+    if is_owner {
+        if let Some(gid) = state.sel_server.read().clone() {
+            header = header.child(
+                rect()
+                    .corner_radius(theme::RADIUS_SM)
+                    .padding((2., 6.))
+                    .on_press(move |_| {
+                        *state.channel_new_name.write_unchecked() = String::new();
+                        *state.channel_new_kind.write_unchecked() = "text".to_string();
+                        *state.modal.write_unchecked() =
+                            Some(NativeModal::CreateChannel { gid: gid.clone() });
+                    })
+                    .child(
+                        label()
+                            .color(theme::INK_MUTED)
+                            .font_size(theme::FS_META)
+                            .text("+"),
+                    ),
+            );
+        }
+    }
+    header = header
+        .child(
+            rect()
+                .corner_radius(theme::RADIUS_SM)
+                .padding((2., 6.))
+                .on_press(move |_| act::show_members(state))
+                .child(
+                    label()
+                        .color(theme::INK_MUTED)
+                        .font_size(theme::FS_META)
+                        .text("members"),
+                ),
+        )
+        .child(
+            rect()
+                .corner_radius(theme::RADIUS_SM)
+                .padding((2., 6.))
+                .on_press(move |_| {
+                    *state.view.write_unchecked() = NativeView::EmojiManager;
+                })
+                .child(
+                    label()
+                        .color(theme::INK_MUTED)
+                        .font_size(theme::FS_META)
+                        .text("emoji"),
+                ),
+        );
+
     let mut col = rect()
         .vertical()
         .width(Size::px(theme::SIDEBAR_W))
         .height(Size::fill())
         .background(theme::VELLUM)
         .spacing(2.)
-        .padding(10.)
-        .child(
-            rect()
-                .horizontal()
-                .width(Size::fill())
-                .cross_align(Alignment::Center)
-                .spacing(8.)
-                .child(
-                    label()
-                        .color(theme::INK_MUTED)
-                        .font_size(theme::FS_META)
-                        .text("CHANNELS"),
-                )
-                // Guild-scoped members + emoji entries (only meaningful with a
-                // guild selected); switch the 3rd column to those panes. Plain
-                // horizontal siblings (no `fill` spacer — Freya's `fill` starves
-                // fixed trailing siblings, squashing them to vertical text).
-                .child(
-                    rect()
-                        .corner_radius(theme::RADIUS_SM)
-                        .padding((2., 6.))
-                        .on_press(move |_| act::show_members(state))
-                        .child(
-                            label()
-                                .color(theme::INK_MUTED)
-                                .font_size(theme::FS_META)
-                                .text("members"),
-                        ),
-                )
-                .child(
-                    rect()
-                        .corner_radius(theme::RADIUS_SM)
-                        .padding((2., 6.))
-                        .on_press(move |_| {
-                            *state.view.write_unchecked() = NativeView::EmojiManager;
-                        })
-                        .child(
-                            label()
-                                .color(theme::INK_MUTED)
-                                .font_size(theme::FS_META)
-                                .text("emoji"),
-                        ),
-                ),
-        );
+        .padding(10.);
+    if have_guild {
+        col = col.child(guild_header(state, is_owner));
+    }
+    col = col.child(header);
 
-    for c in state.channels.read().iter() {
+    let channels: Vec<crate::protocol::ChannelSummary> = state.channels.read().clone();
+    let count = channels.len();
+    for (idx, c) in channels.into_iter().enumerate() {
         let active = sel_ch.as_deref() == Some(c.id.as_str());
-        let ch = c.clone();
         let sigil = if c.kind == "text" { "# " } else { "\u{1f4d6} " };
-        col = col.child(
-            rect()
-                .padding((4., 8.))
-                .corner_radius(theme::RADIUS_SM)
-                .background(if active {
-                    theme::VELLUM_2
-                } else {
-                    theme::VELLUM
-                })
-                .color(if active { theme::INK } else { theme::INK_SOFT })
-                .on_press(move |_| act::open_channel(state, ch.clone()))
-                .child(label().text(format!("{sigil}{}", c.name))),
-        );
+        let ch = c.clone();
+        let name_area = rect()
+            .padding((4., 8.))
+            .corner_radius(theme::RADIUS_SM)
+            .background(if active {
+                theme::VELLUM_2
+            } else {
+                theme::VELLUM
+            })
+            .color(if active { theme::INK } else { theme::INK_SOFT })
+            .on_press(move |_| act::open_channel(state, ch.clone()))
+            .child(label().text(format!("{sigil}{}", c.name)));
+        // Owner-only inline reorder/rename/delete controls. The row has no
+        // `on_press` of its own (the name_area carries the open press), mirroring
+        // `message_row` so a control press never also opens the channel.
+        if is_owner {
+            col = col.child(
+                rect()
+                    .horizontal()
+                    .width(Size::fill())
+                    .cross_align(Alignment::Center)
+                    .spacing(4.)
+                    .child(name_area)
+                    .child(channel_controls(state, &c, idx, count)),
+            );
+        } else {
+            col = col.child(name_area);
+        }
     }
     col.into()
+}
+
+/// The sidebar's guild header (shown when a guild is open): the guild name and,
+/// for the owner, a controls row — rename, move up/down in the rail order,
+/// delete, and a trash entry. Two rows so the controls get the full sidebar width
+/// (the narrow sidebar can't fit name + 5 controls on one line).
+fn guild_header(state: NativeState, is_owner: bool) -> Element {
+    let gname = {
+        let sel = state.sel_server.read().clone();
+        state
+            .guilds
+            .read()
+            .iter()
+            .find(|g| Some(g.id.as_str()) == sel.as_deref())
+            .map(|g| g.name.clone())
+            .unwrap_or_default()
+    };
+    let mut block = rect()
+        .vertical()
+        .width(Size::fill())
+        .spacing(4.)
+        .padding((0., 2.))
+        .child(
+            label()
+                .color(theme::INK)
+                .font_weight(FontWeight::BOLD)
+                .text(gname.clone()),
+        );
+    if is_owner {
+        let name_r = gname.clone();
+        let name_d = gname.clone();
+        let controls = rect()
+            .horizontal()
+            .spacing(6.)
+            .cross_align(Alignment::Center)
+            .child(ctrl_btn("rename", move || {
+                if let Some(gid) = state.sel_server.peek().clone() {
+                    *state.guild_rename_buf.write_unchecked() = name_r.clone();
+                    *state.modal.write_unchecked() = Some(NativeModal::RenameGuild { gid });
+                }
+            }))
+            .child(ctrl_btn("\u{2191}", move || {
+                if let Some(idx) = guild_index(state) {
+                    act::swap_guild(state, idx, true);
+                }
+            }))
+            .child(ctrl_btn("\u{2193}", move || {
+                if let Some(idx) = guild_index(state) {
+                    act::swap_guild(state, idx, false);
+                }
+            }))
+            .child(danger_btn("delete", move || {
+                if let Some(gid) = state.sel_server.peek().clone() {
+                    *state.modal.write_unchecked() = Some(NativeModal::ConfirmDeleteGuild {
+                        gid,
+                        name: name_d.clone(),
+                    });
+                }
+            }))
+            .child(ctrl_btn("trash", move || act::show_trash(state)));
+        block = block.child(controls);
+    }
+    block.into()
+}
+
+/// Index of the open guild within the rail (`state.guilds`), for `swap_guild`.
+fn guild_index(state: NativeState) -> Option<usize> {
+    let sel = state.sel_server.peek().clone()?;
+    state.guilds.peek().iter().position(|g| g.id == sel)
+}
+
+/// Owner-only inline channel controls: move up/down (when not at an edge),
+/// rename, and delete.
+fn channel_controls(
+    state: NativeState,
+    c: &crate::protocol::ChannelSummary,
+    idx: usize,
+    count: usize,
+) -> Element {
+    let cid = c.id.clone();
+    let name = c.name.clone();
+    let mut row = rect()
+        .horizontal()
+        .spacing(4.)
+        .cross_align(Alignment::Center);
+    if idx > 0 {
+        row = row.child(ctrl_btn("\u{2191}", move || {
+            act::swap_channel(state, idx, true)
+        }));
+    }
+    if idx + 1 < count {
+        row = row.child(ctrl_btn("\u{2193}", move || {
+            act::swap_channel(state, idx, false)
+        }));
+    }
+    {
+        let cid = cid.clone();
+        let name = name.clone();
+        row = row.child(ctrl_btn("edit", move || {
+            if let Some(gid) = state.sel_server.peek().clone() {
+                *state.channel_rename_buf.write_unchecked() = name.clone();
+                *state.modal.write_unchecked() = Some(NativeModal::RenameChannel {
+                    gid,
+                    cid: cid.clone(),
+                });
+            }
+        }));
+    }
+    {
+        let cid = cid.clone();
+        let name = name.clone();
+        row = row.child(danger_btn("\u{00d7}", move || {
+            if let Some(gid) = state.sel_server.peek().clone() {
+                *state.modal.write_unchecked() = Some(NativeModal::ConfirmDeleteChannel {
+                    gid,
+                    cid: cid.clone(),
+                    name: name.clone(),
+                });
+            }
+        }));
+    }
+    row.into()
+}
+
+/// A small muted text control used in the sidebar headers/rows.
+fn ctrl_btn(text: &str, on_press: impl Fn() + 'static) -> Element {
+    rect()
+        .corner_radius(theme::RADIUS_SM)
+        .padding((2., 6.))
+        .on_press(move |_| on_press())
+        .child(
+            label()
+                .color(theme::INK_MUTED)
+                .font_size(theme::FS_META)
+                .text(text.to_string()),
+        )
+        .into()
+}
+
+/// Like [`ctrl_btn`] but rendered in the danger tint (destructive controls).
+fn danger_btn(text: &str, on_press: impl Fn() + 'static) -> Element {
+    rect()
+        .corner_radius(theme::RADIUS_SM)
+        .padding((2., 6.))
+        .on_press(move |_| on_press())
+        .child(
+            label()
+                .color(theme::INK_DANGER)
+                .font_size(theme::FS_META)
+                .text(text.to_string()),
+        )
+        .into()
+}
+
+/// The text/lorebook kind selector shown in the Create-channel modal.
+fn kind_toggle(state: NativeState) -> Element {
+    let kind = state.channel_new_kind.read().clone();
+    let opt = |label_txt: &str, value: &str, active: bool| -> Element {
+        let value = value.to_string();
+        rect()
+            .corner_radius(theme::RADIUS_SM)
+            .padding((4., 10.))
+            .background(if active { theme::GOLD } else { theme::VELLUM_2 })
+            .color(if active {
+                theme::PARCHMENT_DEEP
+            } else {
+                theme::INK_SOFT
+            })
+            .on_press(move |_| *state.channel_new_kind.write_unchecked() = value.clone())
+            .child(
+                label()
+                    .font_size(theme::FS_META)
+                    .text(label_txt.to_string()),
+            )
+            .into()
+    };
+    rect()
+        .horizontal()
+        .spacing(8.)
+        .child(opt("# Text", "text", kind == "text"))
+        .child(opt("\u{1f4d6} Lorebook", "lorebook", kind == "lorebook"))
+        .into()
 }
 
 fn channel_pane(state: NativeState) -> Element {

@@ -16,14 +16,15 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
-    AddGalleryImagesBatchResponse, AuthResponse, CreateEmojiRequest, CreateGuildRequest,
-    CreateLorebookEntryRequest, CreateLorebookEntryResponse, CreatePersonaRequest,
-    EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary, ListEmojiResponse,
-    ListFriendsResponse, ListGuildsResponse, ListLorebookResponse, ListMembersResponse,
-    ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest,
-    MeResponse, PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, RegisterRequest,
-    SendMessageRequest, SendMessageResponse, SetActivePersonaRequest, SetAvatarRequest,
-    SetMemberRoleRequest,
+    AddGalleryImagesBatchResponse, AuthResponse, ChannelListResponse, ChannelSummary,
+    CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
+    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
+    FriendRequest, GuildDetail, GuildSummary, ListEmojiResponse, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
+    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
+    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
+    PersonaDetail, RailOrderRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, SetAvatarRequest, SetMemberRoleRequest,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -240,6 +241,113 @@ impl ApiClient {
     /// GET /guilds/{gid} — a guild's detail (channels included).
     pub async fn get_guild(&self, gid: &str) -> Result<GuildDetail, ApiError> {
         self.get(&format!("/guilds/{gid}")).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Guild lifecycle (Phase 4c PR2) — rename/delete/restore/reorder. Mutations
+    // are owner/manager gated server-side (privacy-404); the reqwest port mirrors
+    // the web `client/api.rs` guild section.
+    // -----------------------------------------------------------------------
+
+    /// PATCH /guilds/{gid} — rename a guild (owner/admin).
+    pub async fn patch_guild(&self, gid: &str, name: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/guilds/{gid}")))
+            .json(&PatchGuildRequest {
+                name: Some(name.to_string()),
+            });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /guilds/{gid} — soft-delete a guild (owner only).
+    pub async fn delete_guild(&self, gid: &str) -> Result<(), ApiError> {
+        let req = self.http.delete(self.url(&format!("/guilds/{gid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /guilds/{gid}/restore — restore a soft-deleted guild (owner only).
+    pub async fn restore_guild(&self, gid: &str) -> Result<(), ApiError> {
+        let req = self.http.post(self.url(&format!("/guilds/{gid}/restore")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /guilds/trash — the caller's soft-deleted guilds (owner-scoped).
+    pub async fn list_deleted_guilds(&self) -> Result<ListGuildsResponse, ApiError> {
+        self.get("/guilds/trash").await
+    }
+
+    /// PUT /rail/order — set the caller's full guild-rail order. Full-list
+    /// replacement: the server wipes and rewrites the caller's order rows.
+    pub async fn set_rail_order(&self, guild_ids: Vec<String>) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url("/rail/order"))
+            .json(&RailOrderRequest { guild_ids });
+        self.empty(self.authed(req)).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Channel lifecycle (Phase 4c PR2) — create/rename/reorder/delete/restore.
+    // All owner/manager gated server-side.
+    // -----------------------------------------------------------------------
+
+    /// POST /guilds/{gid}/channels — create a channel (`kind` = "text" or
+    /// "lorebook"); returns its summary (owner/admin).
+    pub async fn create_channel(
+        &self,
+        gid: &str,
+        name: &str,
+        kind: &str,
+    ) -> Result<ChannelSummary, ApiError> {
+        self.post_json(
+            &format!("/guilds/{gid}/channels"),
+            &CreateChannelRequest {
+                name: name.to_string(),
+                kind: kind.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// PATCH /guilds/{gid}/channels/{cid} — rename and/or reposition a channel
+    /// (owner/admin). `None` fields are left unchanged; `position` drives the
+    /// renumber-and-PATCH reorder (`swap_channel` in `act.rs`).
+    pub async fn patch_channel(
+        &self,
+        gid: &str,
+        cid: &str,
+        name: Option<String>,
+        position: Option<i64>,
+    ) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/guilds/{gid}/channels/{cid}")))
+            .json(&PatchChannelRequest { name, position });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /guilds/{gid}/channels/{cid} — soft-delete a channel (owner/admin).
+    pub async fn delete_channel(&self, gid: &str, cid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/guilds/{gid}/channels/{cid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /guilds/{gid}/channels/{cid}/restore — restore a soft-deleted
+    /// channel (owner/admin).
+    pub async fn restore_channel(&self, gid: &str, cid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .post(self.url(&format!("/guilds/{gid}/channels/{cid}/restore")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /guilds/{gid}/trash/channels — the guild's soft-deleted channels
+    /// (owner/admin).
+    pub async fn list_deleted_channels(&self, gid: &str) -> Result<ChannelListResponse, ApiError> {
+        self.get(&format!("/guilds/{gid}/trash/channels")).await
     }
 
     /// GET /personas — the caller's personas (owned + shared-as-editor), for the

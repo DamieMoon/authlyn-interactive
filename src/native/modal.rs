@@ -135,3 +135,70 @@ pub fn confirm_modal(
     );
     modal_overlay(card, on_close)
 }
+
+/// A titled single-input modal: a bold title, an `Input` bound to `buf`, an
+/// optional `extra` child (e.g. a kind toggle), and a right-aligned
+/// `[Cancel] [confirm_label]` row. `on_confirm` receives the current input text
+/// (fired by Enter-to-submit OR the confirm button — Enter matters since the
+/// headless harness is keyboard-only). `on_close` dismisses. Used by the
+/// create/rename flows.
+#[allow(clippy::too_many_arguments)]
+pub fn input_modal(
+    title: &str,
+    buf: State<String>,
+    placeholder: &str,
+    confirm_label: &str,
+    on_confirm: impl Fn(String) + Clone + 'static,
+    on_close: impl Fn() + Clone + 'static,
+    extra: Option<Element>,
+) -> Element {
+    let on_close_btn = on_close.clone();
+    let on_submit = on_confirm.clone();
+    let on_confirm_btn = on_confirm.clone();
+    let mut body = rect()
+        .vertical()
+        .width(Size::fill())
+        .spacing(10.)
+        .child(
+            label()
+                .color(theme::INK)
+                .font_size(theme::FS_H3)
+                .font_weight(FontWeight::BOLD)
+                .text(title.to_string()),
+        )
+        .child(
+            Input::new(buf)
+                .placeholder(placeholder.to_string())
+                .width(Size::fill())
+                .auto_focus(true)
+                .on_submit(move |t: String| on_submit(t)),
+        );
+    if let Some(e) = extra {
+        body = body.child(e);
+    }
+    let card = modal_card(
+        body.child(
+            rect()
+                .horizontal()
+                .width(Size::fill())
+                .main_align(Alignment::End)
+                .spacing(8.)
+                .child(
+                    Button::new()
+                        .on_press(move |_| on_close_btn())
+                        .child("Cancel"),
+                )
+                .child(
+                    rect()
+                        .corner_radius(theme::RADIUS_SM)
+                        .background(theme::GOLD)
+                        .color(theme::PARCHMENT_DEEP)
+                        .padding((6., 12.))
+                        .on_press(move |_| on_confirm_btn(buf.peek().clone()))
+                        .child(label().text(confirm_label.to_string())),
+                ),
+        )
+        .into(),
+    );
+    modal_overlay(card, on_close)
+}

@@ -29,6 +29,9 @@ pub enum NativeView {
     Friends,
     /// The member roster of the open guild (guild-scoped).
     Members,
+    /// The trash pane: the caller's soft-deleted guilds + the open guild's
+    /// soft-deleted channels, each restorable (Phase 4c PR2).
+    Trash,
 }
 
 /// A confirm/edit overlay rendered over the shell — the native mirror of the
@@ -54,6 +57,23 @@ pub enum NativeModal {
     ConfirmKickMember {
         gid: String,
         aid: String,
+        name: String,
+    },
+    /// Create a new guild (name typed into `guild_new_name`).
+    CreateGuild,
+    /// Rename guild `gid` (new name typed into `guild_rename_buf`).
+    RenameGuild { gid: String },
+    /// Confirm soft-deleting guild `gid`; `name` is shown in the prompt.
+    ConfirmDeleteGuild { gid: String, name: String },
+    /// Create a channel in guild `gid` (name in `channel_new_name`, kind in
+    /// `channel_new_kind`).
+    CreateChannel { gid: String },
+    /// Rename channel `cid` in guild `gid` (new name in `channel_rename_buf`).
+    RenameChannel { gid: String, cid: String },
+    /// Confirm soft-deleting channel `cid` in guild `gid`; `name` is shown.
+    ConfirmDeleteChannel {
+        gid: String,
+        cid: String,
         name: String,
     },
 }
@@ -188,6 +208,23 @@ pub struct NativeState {
     /// Add-entry row buffers (trigger keywords + content).
     pub lore_new_keys: State<String>,
     pub lore_new_content: State<String>,
+
+    // ---- Phase 4c PR2: guild/channel lifecycle + trash ----
+    /// New-guild name buffer (the `CreateGuild` modal input).
+    pub guild_new_name: State<String>,
+    /// Rename-guild name buffer (the `RenameGuild` modal input).
+    pub guild_rename_buf: State<String>,
+    /// New-channel name buffer (the `CreateChannel` modal input).
+    pub channel_new_name: State<String>,
+    /// New-channel kind ("text" or "lorebook"), toggled in the `CreateChannel`
+    /// modal; defaults to "text".
+    pub channel_new_kind: State<String>,
+    /// Rename-channel name buffer (the `RenameChannel` modal input).
+    pub channel_rename_buf: State<String>,
+    /// The caller's soft-deleted guilds (the Trash pane; owner-scoped).
+    pub deleted_guilds: State<Vec<GuildSummary>>,
+    /// The open guild's soft-deleted channels (the Trash pane).
+    pub deleted_channels: State<Vec<ChannelSummary>>,
 }
 
 /// An empty friend-lists response — the init + logout-reset value for
@@ -255,5 +292,12 @@ pub fn use_native_state() -> NativeState {
         lore_edit_content: use_state(String::new),
         lore_new_keys: use_state(String::new),
         lore_new_content: use_state(String::new),
+        guild_new_name: use_state(String::new),
+        guild_rename_buf: use_state(String::new),
+        channel_new_name: use_state(String::new),
+        channel_new_kind: use_state(|| "text".to_string()),
+        channel_rename_buf: use_state(String::new),
+        deleted_guilds: use_state(Vec::new),
+        deleted_channels: use_state(Vec::new),
     }
 }
