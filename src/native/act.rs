@@ -17,7 +17,7 @@ use std::time::Duration;
 use freya::prelude::*;
 
 use crate::native::api::client;
-use crate::native::state::{NativeState, NativeView, StagedAttachment};
+use crate::native::state::{empty_friends, NativeState, NativeView, StagedAttachment};
 use crate::protocol::{ChannelSummary, MessageEnvelope};
 
 /// Newest-page size; a short page means the whole channel fits (web parity).
@@ -114,6 +114,17 @@ pub fn logout(state: NativeState) {
         *state.emoji_staged_media.write_unchecked() = None;
         *state.emoji_staged_bytes.write_unchecked() = None;
         *state.emoji_new_name.write_unchecked() = String::new();
+        *state.friends.write_unchecked() = empty_friends();
+        *state.friend_add.write_unchecked() = String::new();
+        *state.members.write_unchecked() = Vec::new();
+        *state.sel_owner.write_unchecked() = None;
+        *state.lore.write_unchecked() = Vec::new();
+        *state.lore_editing.write_unchecked() = None;
+        *state.lore_edit_title.write_unchecked() = String::new();
+        *state.lore_edit_keys.write_unchecked() = String::new();
+        *state.lore_edit_content.write_unchecked() = String::new();
+        *state.lore_new_keys.write_unchecked() = String::new();
+        *state.lore_new_content.write_unchecked() = String::new();
         *state.view.write_unchecked() = NativeView::Channel;
         *state.modal.write_unchecked() = None;
     });
@@ -142,6 +153,7 @@ async fn post_auth_load(state: NativeState) {
         *state.sel_server.write_unchecked() = Some(g.id.clone());
         load_guild_emoji(state, &g.id).await;
         if let Ok(d) = client().get_guild(&g.id).await {
+            *state.sel_owner.write_unchecked() = Some(d.owner_id.clone());
             *state.channels.write_unchecked() = d.channels.clone();
             let first = d
                 .channels
@@ -186,12 +198,19 @@ pub fn refresh_guilds(state: NativeState) {
 /// Open a guild: fetch its channels, then open the first text channel.
 pub fn open_server(state: NativeState, gid: String) {
     *state.sel_server.write_unchecked() = Some(gid.clone());
+    *state.sel_owner.write_unchecked() = None;
     *state.channels.write_unchecked() = Vec::new();
     *state.guild_emoji.write_unchecked() = Vec::new();
     spawn(async move {
         load_guild_emoji(state, &gid).await;
         if let Ok(d) = client().get_guild(&gid).await {
+            *state.sel_owner.write_unchecked() = Some(d.owner_id.clone());
             *state.channels.write_unchecked() = d.channels.clone();
+            // The members pane has no web-style mount Effect keyed on the open
+            // guild, so refresh its roster here when it's the active view.
+            if *state.view.peek() == NativeView::Members {
+                reload_members(state, &gid).await;
+            }
             let first = d
                 .channels
                 .iter()
@@ -225,6 +244,15 @@ async fn open_channel_inner(state: NativeState, ch: ChannelSummary) {
     *state.typing.write_unchecked() = Vec::new();
     *state.persona_menu.write_unchecked() = false;
     *state.active_persona.write_unchecked() = None;
+
+    // A lorebook channel renders the lore editor, not the message reader: load
+    // its entries instead of a message page (web parity — lorebook IS the
+    // channel content). `enter_channel` epoch-guards its own fetch against a
+    // mid-load channel switch.
+    if ch.kind == "lorebook" {
+        crate::native::lorebook::enter_channel(state, &ch.id).await;
+        return;
+    }
 
     if let Ok(l) = client().list_messages(&ch.id, None).await {
         // A newer switch happened while we were fetching — drop this result.
@@ -583,6 +611,101 @@ pub fn delete_guild_emoji(state: NativeState, gid: String, name: String) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4c — friends + members panes. Friends are account-scoped; members are
+// the open guild's roster. Both follow the native action shape (spawn once,
+// refresh-on-Ok, error → status). Lorebook writes live in `lorebook.rs`.
+// ---------------------------------------------------------------------------
+
+/// Re-fetch the friend lists into `state.friends`.
+async fn reload_friends(state: NativeState) {
+    match client().list_friends().await {
+        Ok(r) => *state.friends.write_unchecked() = r,
+        Err(e) => *state.status.write_unchecked() = format!("friends: {e}"),
+    }
+}
+
+/// Switch to the friends pane and (re)load the lists.
+pub fn show_friends(state: NativeState) {
+    *state.view.write_unchecked() = NativeView::Friends;
+    spawn(async move { reload_friends(state).await });
+}
+
+/// Send a friend request by username (the server auto-accepts a reverse-pending
+/// request); clear the input and refresh the lists.
+pub fn add_friend(state: NativeState, username: String) {
+    let username = username.trim().to_string();
+    if username.is_empty() {
+        return;
+    }
+    *state.friend_add.write_unchecked() = String::new();
+    spawn(async move {
+        match client().add_friend(&username).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("add friend failed: {e}"),
+        }
+    });
+}
+
+/// Accept an incoming friend request, then refresh the lists.
+pub fn accept_friend(state: NativeState, aid: String) {
+    spawn(async move {
+        match client().accept_friend(&aid).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("accept failed: {e}"),
+        }
+    });
+}
+
+/// Remove a friend / decline a request (from the `ConfirmRemoveFriend` modal),
+/// then refresh the lists.
+pub fn remove_friend(state: NativeState, aid: String) {
+    spawn(async move {
+        match client().remove_friend(&aid).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("remove friend failed: {e}"),
+        }
+    });
+}
+
+/// Re-fetch the guild's member roster into `state.members`.
+async fn reload_members(state: NativeState, gid: &str) {
+    match client().list_members(gid).await {
+        Ok(r) => *state.members.write_unchecked() = r.members,
+        Err(e) => *state.status.write_unchecked() = format!("members: {e}"),
+    }
+}
+
+/// Switch to the members pane and load the open guild's roster.
+pub fn show_members(state: NativeState) {
+    *state.view.write_unchecked() = NativeView::Members;
+    let Some(gid) = state.sel_server.peek().clone() else {
+        *state.members.write_unchecked() = Vec::new();
+        return;
+    };
+    spawn(async move { reload_members(state, &gid).await });
+}
+
+/// Set a member's role (`"admin"`/`"member"`), then reload the roster.
+pub fn set_member_role(state: NativeState, gid: String, aid: String, role: String) {
+    spawn(async move {
+        match client().set_member_role(&gid, &aid, &role).await {
+            Ok(()) => reload_members(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("role change failed: {e}"),
+        }
+    });
+}
+
+/// Kick a member (from the `ConfirmKickMember` modal), then reload the roster.
+pub fn remove_member(state: NativeState, gid: String, aid: String) {
+    spawn(async move {
+        match client().remove_member(&gid, &aid).await {
+            Ok(()) => reload_members(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("kick failed: {e}"),
+        }
+    });
+}
+
 /// Start the 1.5s poll loop (idempotent). Refreshes the open channel's new
 /// messages; re-fetches the guild list every ~6s. Inlines its fetches so it
 /// never nests a `spawn` inside this task.
@@ -606,6 +729,10 @@ pub fn start_poll(state: NativeState) {
             let Some(ch) = state.sel_channel.peek().clone() else {
                 continue;
             };
+            // Lorebook channels have no message stream — don't poll them.
+            if ch.kind == "lorebook" {
+                continue;
+            }
             let epoch = *state.epoch.peek();
             // One paginated call per tick: `cursor` is `None` on a fresh channel
             // (server returns the whole <100-msg channel) or `Some` after the

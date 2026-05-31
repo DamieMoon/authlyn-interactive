@@ -46,6 +46,14 @@ fn shell(state: NativeState) -> Element {
             let body = crate::native::emoji_manager::pane(state);
             pane_with_back(state, "Custom emoji", body)
         }
+        NativeView::Friends => {
+            let body = crate::native::friends::pane(state);
+            pane_with_back(state, "Friends", body)
+        }
+        NativeView::Members => {
+            let body = crate::native::members::pane(state);
+            pane_with_back(state, "Members", body)
+        }
     };
 
     let mut root = rect()
@@ -159,6 +167,22 @@ fn modal_view(state: NativeState, m: NativeModal) -> Element {
                 *state.modal.write_unchecked() = None;
             };
             modal::confirm_modal("Delete emoji", &body, "Delete", confirm, close)
+        }
+        NativeModal::ConfirmRemoveFriend { aid, username } => {
+            let body = format!("Remove \u{201c}{username}\u{201d} from your friends?");
+            let confirm = move || {
+                act::remove_friend(state, aid.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal("Remove friend", &body, "Remove", confirm, close)
+        }
+        NativeModal::ConfirmKickMember { gid, aid, name } => {
+            let body = format!("Kick \u{201c}{name}\u{201d} from this guild?");
+            let confirm = move || {
+                act::remove_member(state, gid.clone(), aid.clone());
+                *state.modal.write_unchecked() = None;
+            };
+            modal::confirm_modal("Kick member", &body, "Kick", confirm, close)
         }
         // The persona detail editor: built by the wardrobe leaf. Its close also
         // clears the `pe_name`/`pe_description` buffers it shares with the
@@ -297,7 +321,7 @@ fn rail(state: NativeState) -> Element {
     // Account-scoped Wardrobe entry, pinned at the bottom of the rail. Refreshes
     // the persona list, then switches the 3rd column to the wardrobe pane.
     let wardrobe_active = *state.view.read() == NativeView::Wardrobe;
-    col.child(
+    col = col.child(
         rect()
             .width(Size::px(theme::GUILD_TILE))
             .height(Size::px(theme::GUILD_TILE))
@@ -318,6 +342,29 @@ fn rail(state: NativeState) -> Element {
                 *state.view.write_unchecked() = NativeView::Wardrobe;
             })
             .child(label().text("\u{1f9e5}")),
+    );
+
+    // Account-scoped Friends entry, pinned beneath the wardrobe. Loads the
+    // friend lists, then switches the 3rd column to the friends pane.
+    let friends_active = *state.view.read() == NativeView::Friends;
+    col.child(
+        rect()
+            .width(Size::px(theme::GUILD_TILE))
+            .height(Size::px(theme::GUILD_TILE))
+            .corner_radius(theme::GUILD_TILE / 2.0)
+            .background(if friends_active {
+                theme::GOLD
+            } else {
+                theme::AVATAR_TILE
+            })
+            .color(if friends_active {
+                theme::PARCHMENT_DEEP
+            } else {
+                theme::INK_SOFT
+            })
+            .center()
+            .on_press(move |_| act::show_friends(state))
+            .child(label().text("\u{1f465}")),
     )
     .into()
 }
@@ -336,16 +383,29 @@ fn sidebar(state: NativeState) -> Element {
                 .horizontal()
                 .width(Size::fill())
                 .cross_align(Alignment::Center)
+                .spacing(8.)
                 .child(
-                    rect().width(Size::fill()).child(
-                        label()
-                            .color(theme::INK_MUTED)
-                            .font_size(theme::FS_META)
-                            .text("CHANNELS"),
-                    ),
+                    label()
+                        .color(theme::INK_MUTED)
+                        .font_size(theme::FS_META)
+                        .text("CHANNELS"),
                 )
-                // Guild-scoped emoji manager entry (only meaningful with a guild
-                // selected); switches the 3rd column to the emoji pane.
+                // Guild-scoped members + emoji entries (only meaningful with a
+                // guild selected); switch the 3rd column to those panes. Plain
+                // horizontal siblings (no `fill` spacer — Freya's `fill` starves
+                // fixed trailing siblings, squashing them to vertical text).
+                .child(
+                    rect()
+                        .corner_radius(theme::RADIUS_SM)
+                        .padding((2., 6.))
+                        .on_press(move |_| act::show_members(state))
+                        .child(
+                            label()
+                                .color(theme::INK_MUTED)
+                                .font_size(theme::FS_META)
+                                .text("members"),
+                        ),
+                )
                 .child(
                     rect()
                         .corner_radius(theme::RADIUS_SM)
@@ -384,6 +444,25 @@ fn sidebar(state: NativeState) -> Element {
 }
 
 fn channel_pane(state: NativeState) -> Element {
+    // A lorebook channel renders the lore editor in place of the message reader
+    // (web parity); the message list / composer / poll don't apply to it.
+    let lore_title = state
+        .sel_channel
+        .read()
+        .as_ref()
+        .filter(|c| c.kind == "lorebook")
+        .map(|c| format!("\u{1f4d6} {}", c.name));
+    if let Some(title) = lore_title {
+        return rect()
+            .vertical()
+            .width(Size::fill())
+            .height(Size::fill())
+            .background(theme::PARCHMENT)
+            .child(channel_header(state, title))
+            .child(crate::native::lorebook::pane(state))
+            .into();
+    }
+
     let header = state
         .sel_channel
         .read()
@@ -426,37 +505,42 @@ fn channel_pane(state: NativeState) -> Element {
         .width(Size::fill())
         .height(Size::fill())
         .background(theme::PARCHMENT)
-        .child(
-            rect()
-                .horizontal()
-                .width(Size::fill())
-                .height(Size::px(44.0))
-                .cross_align(Alignment::Center)
-                .padding((0., 12.))
-                .background(theme::VELLUM)
-                .child(
-                    rect().width(Size::fill()).child(
-                        label()
-                            .color(theme::INK)
-                            .font_weight(FontWeight::BOLD)
-                            .text(header),
-                    ),
-                )
-                .child(
-                    rect().on_press(move |_| act::logout(state)).child(
-                        label()
-                            .color(theme::INK_MUTED)
-                            .font_size(theme::FS_META)
-                            .text("log out"),
-                    ),
-                ),
-        )
+        .child(channel_header(state, header))
         .child(list)
         .child(typing_line(&typing))
         .child(persona_menu(state, menu_open))
         .child(attach_strip(state, strip_open))
         .child(emoji_popover(state, emoji_sugg))
         .child(composer(state))
+        .into()
+}
+
+/// The slim channel header bar: the title (fill) + a "log out" control. Shared
+/// by the message reader and the lorebook editor.
+fn channel_header(state: NativeState, title: String) -> Element {
+    rect()
+        .horizontal()
+        .width(Size::fill())
+        .height(Size::px(44.0))
+        .cross_align(Alignment::Center)
+        .padding((0., 12.))
+        .background(theme::VELLUM)
+        .child(
+            rect().width(Size::fill()).child(
+                label()
+                    .color(theme::INK)
+                    .font_weight(FontWeight::BOLD)
+                    .text(title),
+            ),
+        )
+        .child(
+            rect().on_press(move |_| act::logout(state)).child(
+                label()
+                    .color(theme::INK_MUTED)
+                    .font_size(theme::FS_META)
+                    .text("log out"),
+            ),
+        )
         .into()
 }
 
