@@ -105,8 +105,10 @@ fn pane_with_back(state: NativeState, title: &str, body: Element) -> Element {
 
 /// Render an open modal: a destructive-confirm prompt for the three
 /// `ConfirmDelete*` variants, or the persona detail editor (built by the
-/// wardrobe leaf's [`crate::native::wardrobe::editor_modal`]). Every path closes
-/// by writing `None` into `state.modal`.
+/// wardrobe leaf's [`crate::native::wardrobe::editor_modal`]). Most paths close
+/// by writing `None` into `state.modal`; the `ConfirmDeleteGalleryImage` arm is
+/// the exception — both its close paths RESTORE the `PersonaEditor` so dismissing
+/// or confirming the gallery-remove returns to the still-open editor (web parity).
 fn modal_view(state: NativeState, m: NativeModal) -> Element {
     let close = move || *state.modal.write_unchecked() = None;
     match m {
@@ -124,16 +126,29 @@ fn modal_view(state: NativeState, m: NativeModal) -> Element {
             )
         }
         NativeModal::ConfirmDeleteGalleryImage { pid, img_id } => {
+            // pending_remove is editor-local in the web (wardrobe.rs PersonaDetail):
+            // dismissing OR confirming the gallery-remove returns to the OPEN editor.
+            // The native modal is a single Option slot, so both close paths must
+            // RESTORE the PersonaEditor here (not write None) — otherwise the editor
+            // is dismissed and re-opening it re-seeds the pe_* buffers from the grid,
+            // clobbering unsaved name/description edits.
+            let restore_pid = pid.clone();
+            let dismiss = move || {
+                *state.modal.write_unchecked() = Some(NativeModal::PersonaEditor {
+                    pid: restore_pid.clone(),
+                });
+            };
             let confirm = move || {
                 act::remove_gallery_image(state, pid.clone(), img_id.clone());
-                *state.modal.write_unchecked() = None;
+                *state.modal.write_unchecked() =
+                    Some(NativeModal::PersonaEditor { pid: pid.clone() });
             };
             modal::confirm_modal(
                 "Remove image",
                 "Remove this image from the gallery?",
                 "Remove",
                 confirm,
-                close,
+                dismiss,
             )
         }
         NativeModal::ConfirmDeleteEmoji { gid, name } => {

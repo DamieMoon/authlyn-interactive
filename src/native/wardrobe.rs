@@ -117,13 +117,18 @@ pub fn leave_persona(state: NativeState, pid: String) {
 /// then durably persist the new order (web parity with `act::swap_persona`).
 ///
 /// Optimistic: swap the two rows locally first so the list updates instantly,
-/// then PATCH each moved persona's `position` to its new 0-based index. The
-/// server stores `position`; a subsequent `refresh_personas` re-sorts by it, so
-/// the chosen order survives a reload.
+/// then PATCH the `position` of EVERY row whose stored value no longer matches
+/// its visible index. Patching only the two swapped rows is not enough: rows
+/// with `position=None` (legacy personas predating the field) otherwise re-sort
+/// by the server's MAX-sentinel + name fallback on the next `refresh_personas`,
+/// reverting the order. Renumbering the whole list pins it durably.
 pub fn reorder_persona(state: NativeState, idx: usize, up: bool) {
     let mut list = state.personas.peek().clone();
     let other = if up {
-        if idx == 0 {
+        // `idx` is captured at render time; guard a stale value if the list
+        // shrank (e.g. a sibling was deleted) before this click landed, so the
+        // swap below can never index out of bounds.
+        if idx == 0 || idx >= list.len() {
             return;
         }
         idx - 1
@@ -134,18 +139,21 @@ pub fn reorder_persona(state: NativeState, idx: usize, up: bool) {
         idx + 1
     };
     list.swap(idx, other);
-    // After the swap, `list[idx]`/`list[other]` are the two moved rows; assign
-    // each its new visible index as `position`, then persist both.
-    let a = list[idx].clone();
-    let b = list[other].clone();
+    // Persist every row whose stored position no longer matches its index, so
+    // personas with position=None (legacy rows) get renumbered too.
+    let patches: Vec<(String, i64)> = list
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| p.position != Some(*i as i64))
+        .map(|(i, p)| (p.id.clone(), i as i64))
+        .collect();
     *state.personas.write_unchecked() = list;
     spawn(async move {
-        let _ = client()
-            .patch_persona(&a.id, None, None, None, Some(idx as i64))
-            .await;
-        let _ = client()
-            .patch_persona(&b.id, None, None, None, Some(other as i64))
-            .await;
+        for (id, pos) in patches {
+            let _ = client()
+                .patch_persona(&id, None, None, None, Some(pos))
+                .await;
+        }
     });
 }
 
@@ -246,6 +254,7 @@ pub fn pick_and_add_gallery(state: NativeState, pid: String) {
 /// `share=true` grants, `false` revokes. Refreshes the editor roster the
 /// checklist binds to.
 pub fn set_persona_share(state: NativeState, pid: String, aid: String, share: bool) {
+    let pid_guard = pid.clone();
     spawn(async move {
         let res = if share {
             client().set_persona_editor(&pid, &aid).await
@@ -255,7 +264,12 @@ pub fn set_persona_share(state: NativeState, pid: String, aid: String, share: bo
         match res {
             Ok(()) => {
                 if let Ok(r) = client().list_persona_editors(&pid).await {
-                    *state.pe_editors.write_unchecked() = r.editors;
+                    // Same global-buffer guard as `open_editor`: drop a late
+                    // roster reload if the open editor has since switched pids.
+                    if matches!(state.modal.peek().as_ref(), Some(NativeModal::PersonaEditor { pid: p }) if *p == pid_guard)
+                    {
+                        *state.pe_editors.write_unchecked() = r.editors;
+                    }
                 }
             }
             Err(e) => *state.status.write_unchecked() = format!("share failed: {e}"),
@@ -266,6 +280,13 @@ pub fn set_persona_share(state: NativeState, pid: String, aid: String, share: bo
 /// Open the persona detail editor: seed the `pe_*` buffers from the grid entry,
 /// load the gallery + (owner-only) sharing state, then show the modal. Called
 /// from the card's Edit control.
+///
+/// The `pe_*` buffers are GLOBAL on [`NativeState`] and shared across every
+/// editor instance (unlike the web, whose modal scopes them to component-local
+/// signals that drop on close). So a late fetch from a previously-closed editor
+/// would clobber the buffers of the one now open. Guard against it like
+/// `act.rs::open_channel_inner`'s epoch: after each await, only write if the
+/// modal still names the SAME `pid` we opened for.
 pub fn open_editor(state: NativeState, pid: String, owned: bool) {
     // Seed name/description/color/avatar from the already-loaded grid entry.
     if let Some(p) = state.personas.peek().iter().find(|p| p.id == pid).cloned() {
@@ -278,18 +299,28 @@ pub fn open_editor(state: NativeState, pid: String, owned: bool) {
     *state.pe_editors.write_unchecked() = Vec::new();
     *state.pe_friends.write_unchecked() = Vec::new();
     *state.modal.write_unchecked() = Some(NativeModal::PersonaEditor { pid: pid.clone() });
+    let pid_guard = pid.clone();
     spawn(async move {
         if let Ok(d) = client().get_persona(&pid).await {
-            *state.pe_gallery.write_unchecked() = d.gallery;
-            // Trust the detail's avatar pointer over the (possibly stale) seed.
-            *state.pe_avatar_id.write_unchecked() = d.avatar_id;
+            if matches!(state.modal.peek().as_ref(), Some(NativeModal::PersonaEditor { pid: p }) if *p == pid_guard)
+            {
+                *state.pe_gallery.write_unchecked() = d.gallery;
+                // Trust the detail's avatar pointer over the (possibly stale) seed.
+                *state.pe_avatar_id.write_unchecked() = d.avatar_id;
+            }
         }
         if owned {
             if let Ok(r) = client().list_friends().await {
-                *state.pe_friends.write_unchecked() = r.friends;
+                if matches!(state.modal.peek().as_ref(), Some(NativeModal::PersonaEditor { pid: p }) if *p == pid_guard)
+                {
+                    *state.pe_friends.write_unchecked() = r.friends;
+                }
             }
             if let Ok(r) = client().list_persona_editors(&pid).await {
-                *state.pe_editors.write_unchecked() = r.editors;
+                if matches!(state.modal.peek().as_ref(), Some(NativeModal::PersonaEditor { pid: p }) if *p == pid_guard)
+                {
+                    *state.pe_editors.write_unchecked() = r.editors;
+                }
             }
         }
     });

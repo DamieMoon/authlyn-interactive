@@ -17,7 +17,7 @@ use std::time::Duration;
 use freya::prelude::*;
 
 use crate::native::api::client;
-use crate::native::state::{NativeState, StagedAttachment};
+use crate::native::state::{NativeState, NativeView, StagedAttachment};
 use crate::protocol::{ChannelSummary, MessageEnvelope};
 
 /// Newest-page size; a short page means the whole channel fits (web parity).
@@ -95,6 +95,27 @@ pub fn logout(state: NativeState) {
         *state.auth_user.write_unchecked() = String::new();
         *state.auth_pass.write_unchecked() = String::new();
         *state.status.write_unchecked() = "connecting\u{2026}".to_string();
+        // NativeState is instantiated once at the app root, so the composer,
+        // editor, and emoji-manager buffers persist across a logout/login on the
+        // same window. Clear them too, or the next user inherits the prior user's
+        // draft text, staged media ids, and editor state (native-only leak — the
+        // web SPA resets signals by navigating to /login).
+        *state.compose.write_unchecked() = String::new();
+        *state.staged_attachments.write_unchecked() = Vec::new();
+        *state.editing.write_unchecked() = None;
+        *state.edit_buf.write_unchecked() = String::new();
+        *state.pe_name.write_unchecked() = String::new();
+        *state.pe_description.write_unchecked() = String::new();
+        *state.pe_color.write_unchecked() = String::new();
+        *state.pe_gallery.write_unchecked() = Vec::new();
+        *state.pe_avatar_id.write_unchecked() = None;
+        *state.pe_editors.write_unchecked() = Vec::new();
+        *state.pe_friends.write_unchecked() = Vec::new();
+        *state.emoji_staged_media.write_unchecked() = None;
+        *state.emoji_staged_bytes.write_unchecked() = None;
+        *state.emoji_new_name.write_unchecked() = String::new();
+        *state.view.write_unchecked() = NativeView::Channel;
+        *state.modal.write_unchecked() = None;
     });
 }
 
@@ -233,13 +254,16 @@ pub fn refresh_personas(state: NativeState) {
 
 /// Wear (`Some`) or take off (`None`) a persona in the open channel. Updates the
 /// signal immediately (so sends attribute right away) and persists the
-/// per-channel state server-side; closes the picker.
+/// per-channel state server-side; closes the picker. Per-channel: with no open
+/// channel there's nowhere to wear it, so this is a no-op (web parity — guard
+/// FIRST, before touching local state, or `open_channel_inner` would later
+/// overwrite a worn-but-never-persisted persona with the server value).
 pub fn wear_persona(state: NativeState, persona_id: Option<String>) {
-    *state.active_persona.write_unchecked() = persona_id.clone();
-    *state.persona_menu.write_unchecked() = false;
     let Some(ch) = state.sel_channel.peek().clone() else {
         return;
     };
+    *state.active_persona.write_unchecked() = persona_id.clone();
+    *state.persona_menu.write_unchecked() = false;
     spawn(async move {
         let _ = client()
             .set_channel_active_persona(&ch.id, persona_id)
@@ -330,23 +354,35 @@ pub fn send_message(state: NativeState, body: String) {
     let Some(ch) = state.sel_channel.peek().clone() else {
         return;
     };
+    // Clear the composer AND the staged attachments before the spawn (web
+    // parity): a bare `.clear()` after the await would also wipe attachments
+    // staged DURING the in-flight POST (a mid-send `+`/multi-file pick),
+    // orphaning their media ids. Snapshot above; any picks after this point land
+    // in a fresh list.
     *state.compose.write_unchecked() = String::new();
+    *state.staged_attachments.write_unchecked() = Vec::new();
     let persona = state.active_persona.peek().clone();
     let epoch = *state.epoch.peek();
     spawn(async move {
-        if client()
-            .post_message(&ch.id, &body, attachment_ids, persona)
+        match client()
+            .post_message(&ch.id, &body, attachment_ids.clone(), persona)
             .await
-            .is_ok()
         {
-            // Clear staged attachments only after the server accepted them.
-            state.staged_attachments.write_unchecked().clear();
-            let cursor = state.cursor.peek().clone();
-            if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
-                if *state.epoch.peek() == epoch {
-                    ingest(state, l.messages);
+            Ok(_) => {
+                // Defensive: only the just-sent ids are dropped, in case any
+                // slipped back in (the pre-spawn clear is the real fix).
+                state
+                    .staged_attachments
+                    .write_unchecked()
+                    .retain(|a| !attachment_ids.contains(&a.id));
+                let cursor = state.cursor.peek().clone();
+                if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
+                    if *state.epoch.peek() == epoch {
+                        ingest(state, l.messages);
+                    }
                 }
             }
+            Err(e) => *state.status.write_unchecked() = format!("send failed: {e}"),
         }
     });
 }
@@ -502,16 +538,24 @@ pub fn delete_message(state: NativeState, mid: String) {
 // ---------------------------------------------------------------------------
 
 /// Delete a persona the caller owns, then refresh the wardrobe list. Takes the
-/// persona off locally first if it was worn in the open channel (web parity).
+/// persona off locally only AFTER the server confirms (web parity): an optimistic
+/// clear on a transient 5xx/network blip would drop attribution while the persona
+/// is still worn server-side, silently re-attributing the next send to the
+/// account. On error, surface a message instead of swallowing it.
 pub fn delete_persona(state: NativeState, pid: String) {
-    if state.active_persona.peek().as_deref() == Some(pid.as_str()) {
-        *state.active_persona.write_unchecked() = None;
-    }
     spawn(async move {
-        if client().delete_persona(&pid).await.is_ok() {
-            if let Ok(p) = client().list_personas().await {
-                *state.personas.write_unchecked() = p.personas;
+        match client().delete_persona(&pid).await {
+            Ok(()) => {
+                // If the removed persona was being worn in the open channel,
+                // take it off locally (per-channel signal).
+                if state.active_persona.peek().as_deref() == Some(pid.as_str()) {
+                    *state.active_persona.write_unchecked() = None;
+                }
+                if let Ok(p) = client().list_personas().await {
+                    *state.personas.write_unchecked() = p.personas;
+                }
             }
+            Err(e) => *state.status.write_unchecked() = format!("Failed to delete persona: {e}"),
         }
     });
 }
@@ -563,27 +607,19 @@ pub fn start_poll(state: NativeState) {
                 continue;
             };
             let epoch = *state.epoch.peek();
-            match client().list_messages(&ch.id, None).await {
-                // Short page: the whole channel fits — ingest any unseen.
-                Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
-                    if *state.epoch.peek() != epoch {
-                        continue;
-                    }
-                    *state.typing.write_unchecked() = l.typing;
-                    ingest(state, l.messages);
+            // One paginated call per tick: `cursor` is `None` on a fresh channel
+            // (server returns the whole <100-msg channel) or `Some` after the
+            // initial load (server returns only messages past it). `ingest`
+            // dedupes both cases via `seen`, so — unlike the web (which uses
+            // `sync_messages` on short pages and `ingest` on long ones) — there
+            // is no need for a separate probe round-trip to size the channel.
+            let cursor = state.cursor.peek().clone();
+            if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
+                if *state.epoch.peek() != epoch {
+                    continue;
                 }
-                // Long history: append only messages past the cursor.
-                Ok(_) => {
-                    let cursor = state.cursor.peek().clone();
-                    if let Ok(l) = client().list_messages(&ch.id, cursor.as_ref()).await {
-                        if *state.epoch.peek() != epoch {
-                            continue;
-                        }
-                        *state.typing.write_unchecked() = l.typing;
-                        ingest(state, l.messages);
-                    }
-                }
-                Err(_) => {}
+                *state.typing.write_unchecked() = l.typing;
+                ingest(state, l.messages);
             }
         }
     });
