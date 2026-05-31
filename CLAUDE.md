@@ -2,6 +2,13 @@
 
 Project memory for **authlyn-interactive**, built fresh from current code. A tracked file that still references a deleted `deploy/`, `scripts/`, or `end2end/` path is a DANGLING reference to REPORT — never honor or restore it (see Gotchas).
 
+## Working style
+Before writing, reviewing, or refactoring code, follow `andrej-karpathy-skills:karpathy-guidelines` (invoke the Skill for full text):
+- Think before coding: state assumptions, surface tradeoffs, ask when unclear.
+- Simplicity first: minimum code that solves it; nothing speculative.
+- Surgical changes: touch only what the task needs; match surrounding style.
+- Goal-driven: define a verifiable success check, loop until it passes.
+
 ## Identity
 A Discord-style roleplay chat app: accounts/sessions, guilds, channels, messages, personas (editors + per-channel wear), media uploads, and Web Push.
 
