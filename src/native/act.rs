@@ -17,7 +17,7 @@ use std::time::Duration;
 use freya::prelude::*;
 
 use crate::native::api::client;
-use crate::native::state::{NativeState, NativeView, StagedAttachment};
+use crate::native::state::{empty_friends, NativeState, NativeView, StagedAttachment};
 use crate::protocol::{ChannelSummary, MessageEnvelope};
 
 /// Newest-page size; a short page means the whole channel fits (web parity).
@@ -114,6 +114,24 @@ pub fn logout(state: NativeState) {
         *state.emoji_staged_media.write_unchecked() = None;
         *state.emoji_staged_bytes.write_unchecked() = None;
         *state.emoji_new_name.write_unchecked() = String::new();
+        *state.friends.write_unchecked() = empty_friends();
+        *state.friend_add.write_unchecked() = String::new();
+        *state.members.write_unchecked() = Vec::new();
+        *state.sel_owner.write_unchecked() = None;
+        *state.lore.write_unchecked() = Vec::new();
+        *state.lore_editing.write_unchecked() = None;
+        *state.lore_edit_title.write_unchecked() = String::new();
+        *state.lore_edit_keys.write_unchecked() = String::new();
+        *state.lore_edit_content.write_unchecked() = String::new();
+        *state.lore_new_keys.write_unchecked() = String::new();
+        *state.lore_new_content.write_unchecked() = String::new();
+        *state.guild_new_name.write_unchecked() = String::new();
+        *state.guild_rename_buf.write_unchecked() = String::new();
+        *state.channel_new_name.write_unchecked() = String::new();
+        *state.channel_new_kind.write_unchecked() = "text".to_string();
+        *state.channel_rename_buf.write_unchecked() = String::new();
+        *state.deleted_guilds.write_unchecked() = Vec::new();
+        *state.deleted_channels.write_unchecked() = Vec::new();
         *state.view.write_unchecked() = NativeView::Channel;
         *state.modal.write_unchecked() = None;
     });
@@ -142,6 +160,7 @@ async fn post_auth_load(state: NativeState) {
         *state.sel_server.write_unchecked() = Some(g.id.clone());
         load_guild_emoji(state, &g.id).await;
         if let Ok(d) = client().get_guild(&g.id).await {
+            *state.sel_owner.write_unchecked() = Some(d.owner_id.clone());
             *state.channels.write_unchecked() = d.channels.clone();
             let first = d
                 .channels
@@ -186,12 +205,19 @@ pub fn refresh_guilds(state: NativeState) {
 /// Open a guild: fetch its channels, then open the first text channel.
 pub fn open_server(state: NativeState, gid: String) {
     *state.sel_server.write_unchecked() = Some(gid.clone());
+    *state.sel_owner.write_unchecked() = None;
     *state.channels.write_unchecked() = Vec::new();
     *state.guild_emoji.write_unchecked() = Vec::new();
     spawn(async move {
         load_guild_emoji(state, &gid).await;
         if let Ok(d) = client().get_guild(&gid).await {
+            *state.sel_owner.write_unchecked() = Some(d.owner_id.clone());
             *state.channels.write_unchecked() = d.channels.clone();
+            // The members pane has no web-style mount Effect keyed on the open
+            // guild, so refresh its roster here when it's the active view.
+            if *state.view.peek() == NativeView::Members {
+                reload_members(state, &gid).await;
+            }
             let first = d
                 .channels
                 .iter()
@@ -225,6 +251,15 @@ async fn open_channel_inner(state: NativeState, ch: ChannelSummary) {
     *state.typing.write_unchecked() = Vec::new();
     *state.persona_menu.write_unchecked() = false;
     *state.active_persona.write_unchecked() = None;
+
+    // A lorebook channel renders the lore editor, not the message reader: load
+    // its entries instead of a message page (web parity — lorebook IS the
+    // channel content). `enter_channel` epoch-guards its own fetch against a
+    // mid-load channel switch.
+    if ch.kind == "lorebook" {
+        crate::native::lorebook::enter_channel(state, &ch.id).await;
+        return;
+    }
 
     if let Ok(l) = client().list_messages(&ch.id, None).await {
         // A newer switch happened while we were fetching — drop this result.
@@ -583,6 +618,377 @@ pub fn delete_guild_emoji(state: NativeState, gid: String, name: String) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4c — friends + members panes. Friends are account-scoped; members are
+// the open guild's roster. Both follow the native action shape (spawn once,
+// refresh-on-Ok, error → status). Lorebook writes live in `lorebook.rs`.
+// ---------------------------------------------------------------------------
+
+/// Re-fetch the friend lists into `state.friends`.
+async fn reload_friends(state: NativeState) {
+    match client().list_friends().await {
+        Ok(r) => *state.friends.write_unchecked() = r,
+        Err(e) => *state.status.write_unchecked() = format!("friends: {e}"),
+    }
+}
+
+/// Switch to the friends pane and (re)load the lists.
+pub fn show_friends(state: NativeState) {
+    *state.view.write_unchecked() = NativeView::Friends;
+    spawn(async move { reload_friends(state).await });
+}
+
+/// Send a friend request by username (the server auto-accepts a reverse-pending
+/// request); clear the input and refresh the lists.
+pub fn add_friend(state: NativeState, username: String) {
+    let username = username.trim().to_string();
+    if username.is_empty() {
+        return;
+    }
+    *state.friend_add.write_unchecked() = String::new();
+    spawn(async move {
+        match client().add_friend(&username).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("add friend failed: {e}"),
+        }
+    });
+}
+
+/// Accept an incoming friend request, then refresh the lists.
+pub fn accept_friend(state: NativeState, aid: String) {
+    spawn(async move {
+        match client().accept_friend(&aid).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("accept failed: {e}"),
+        }
+    });
+}
+
+/// Remove a friend / decline a request (from the `ConfirmRemoveFriend` modal),
+/// then refresh the lists.
+pub fn remove_friend(state: NativeState, aid: String) {
+    spawn(async move {
+        match client().remove_friend(&aid).await {
+            Ok(()) => reload_friends(state).await,
+            Err(e) => *state.status.write_unchecked() = format!("remove friend failed: {e}"),
+        }
+    });
+}
+
+/// Re-fetch the guild's member roster into `state.members`.
+async fn reload_members(state: NativeState, gid: &str) {
+    match client().list_members(gid).await {
+        Ok(r) => *state.members.write_unchecked() = r.members,
+        Err(e) => *state.status.write_unchecked() = format!("members: {e}"),
+    }
+}
+
+/// Switch to the members pane and load the open guild's roster.
+pub fn show_members(state: NativeState) {
+    *state.view.write_unchecked() = NativeView::Members;
+    let Some(gid) = state.sel_server.peek().clone() else {
+        *state.members.write_unchecked() = Vec::new();
+        return;
+    };
+    spawn(async move { reload_members(state, &gid).await });
+}
+
+/// Set a member's role (`"admin"`/`"member"`), then reload the roster.
+pub fn set_member_role(state: NativeState, gid: String, aid: String, role: String) {
+    spawn(async move {
+        match client().set_member_role(&gid, &aid, &role).await {
+            Ok(()) => reload_members(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("role change failed: {e}"),
+        }
+    });
+}
+
+/// Kick a member (from the `ConfirmKickMember` modal), then reload the roster.
+pub fn remove_member(state: NativeState, gid: String, aid: String) {
+    spawn(async move {
+        match client().remove_member(&gid, &aid).await {
+            Ok(()) => reload_members(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("kick failed: {e}"),
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4c PR2 — guild + channel lifecycle and trash/restore. Mirrors the web
+// `act/guild.rs` + `act/channel.rs`. Mutations are owner/manager gated
+// server-side (privacy-404); the UI hides controls from non-owners cosmetically.
+// ---------------------------------------------------------------------------
+
+/// Create a guild from the `CreateGuild` modal, then open it.
+pub fn create_guild(state: NativeState, name: String) {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    *state.guild_new_name.write_unchecked() = String::new();
+    *state.modal.write_unchecked() = None;
+    spawn(async move {
+        match client().create_guild(&name).await {
+            Ok(g) => {
+                if let Ok(r) = client().list_guilds().await {
+                    *state.guilds.write_unchecked() = r.guilds;
+                }
+                open_server(state, g.id);
+            }
+            Err(e) => *state.status.write_unchecked() = format!("create guild failed: {e}"),
+        }
+    });
+}
+
+/// Rename a guild (from the `RenameGuild` modal); refresh the rail on success.
+pub fn rename_guild(state: NativeState, gid: String, name: String) {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    *state.guild_rename_buf.write_unchecked() = String::new();
+    *state.modal.write_unchecked() = None;
+    spawn(async move {
+        match client().patch_guild(&gid, &name).await {
+            Ok(()) => {
+                if let Ok(r) = client().list_guilds().await {
+                    *state.guilds.write_unchecked() = r.guilds;
+                }
+            }
+            Err(e) => *state.status.write_unchecked() = format!("rename guild failed: {e}"),
+        }
+    });
+}
+
+/// Soft-delete a guild (from the `ConfirmDeleteGuild` modal). If it was open,
+/// clear the selection; refresh the rail.
+pub fn delete_guild(state: NativeState, gid: String) {
+    spawn(async move {
+        match client().delete_guild(&gid).await {
+            Ok(()) => {
+                if state.sel_server.peek().as_deref() == Some(gid.as_str()) {
+                    *state.sel_server.write_unchecked() = None;
+                    *state.sel_owner.write_unchecked() = None;
+                    *state.channels.write_unchecked() = Vec::new();
+                    *state.sel_channel.write_unchecked() = None;
+                    *state.messages.write_unchecked() = Vec::new();
+                }
+                if let Ok(r) = client().list_guilds().await {
+                    *state.guilds.write_unchecked() = r.guilds;
+                }
+            }
+            Err(e) => *state.status.write_unchecked() = format!("delete guild failed: {e}"),
+        }
+    });
+}
+
+/// Move the guild at `idx` one slot up (`up`) or down in the rail, persisting the
+/// full new order (`PUT /rail/order` is a full-list replacement). Reorders the
+/// local list optimistically, then pushes the order; reverts from the server on
+/// failure.
+pub fn swap_guild(state: NativeState, idx: usize, up: bool) {
+    let mut guilds = state.guilds.peek().clone();
+    let j = if up {
+        if idx == 0 {
+            return;
+        }
+        idx - 1
+    } else {
+        if idx + 1 >= guilds.len() {
+            return;
+        }
+        idx + 1
+    };
+    guilds.swap(idx, j);
+    let order: Vec<String> = guilds.iter().map(|g| g.id.clone()).collect();
+    *state.guilds.write_unchecked() = guilds;
+    spawn(async move {
+        if let Err(e) = client().set_rail_order(order).await {
+            *state.status.write_unchecked() = format!("reorder failed: {e}");
+            if let Ok(r) = client().list_guilds().await {
+                *state.guilds.write_unchecked() = r.guilds;
+            }
+        }
+    });
+}
+
+/// Restore a soft-deleted guild (from the Trash pane); refresh the rail and the
+/// trash list.
+pub fn restore_guild(state: NativeState, gid: String) {
+    spawn(async move {
+        match client().restore_guild(&gid).await {
+            Ok(()) => {
+                if let Ok(r) = client().list_guilds().await {
+                    *state.guilds.write_unchecked() = r.guilds;
+                }
+                reload_deleted_guilds(state).await;
+            }
+            Err(e) => *state.status.write_unchecked() = format!("restore guild failed: {e}"),
+        }
+    });
+}
+
+/// Create a channel in `gid` (from the `CreateChannel` modal), then reopen the
+/// guild so its channel list refreshes.
+pub fn create_channel(state: NativeState, gid: String, name: String, kind: String) {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    *state.channel_new_name.write_unchecked() = String::new();
+    *state.channel_new_kind.write_unchecked() = "text".to_string();
+    *state.modal.write_unchecked() = None;
+    spawn(async move {
+        match client().create_channel(&gid, &name, &kind).await {
+            Ok(_) => reopen_guild(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("create channel failed: {e}"),
+        }
+    });
+}
+
+/// Rename a channel (from the `RenameChannel` modal); reopen the guild on success.
+pub fn rename_channel(state: NativeState, gid: String, cid: String, name: String) {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    *state.channel_rename_buf.write_unchecked() = String::new();
+    *state.modal.write_unchecked() = None;
+    spawn(async move {
+        match client().patch_channel(&gid, &cid, Some(name), None).await {
+            Ok(()) => reopen_guild(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("rename channel failed: {e}"),
+        }
+    });
+}
+
+/// Soft-delete a channel (from the `ConfirmDeleteChannel` modal); reopen the
+/// guild so the list (and selection) refreshes.
+pub fn delete_channel(state: NativeState, gid: String, cid: String) {
+    spawn(async move {
+        match client().delete_channel(&gid, &cid).await {
+            Ok(()) => reopen_guild(state, &gid).await,
+            Err(e) => *state.status.write_unchecked() = format!("delete channel failed: {e}"),
+        }
+    });
+}
+
+/// Move the channel at `idx` one slot up/down. Renumber the whole list to gap-
+/// free indices and PATCH only the channels whose position changed (the web's
+/// renumber-and-PATCH). Reorders locally first, then persists; reopens the guild
+/// to confirm.
+pub fn swap_channel(state: NativeState, idx: usize, up: bool) {
+    let mut channels = state.channels.peek().clone();
+    let j = if up {
+        if idx == 0 {
+            return;
+        }
+        idx - 1
+    } else {
+        if idx + 1 >= channels.len() {
+            return;
+        }
+        idx + 1
+    };
+    channels.swap(idx, j);
+    let Some(gid) = state.sel_server.peek().clone() else {
+        return;
+    };
+    // Renumber to 0..n; collect only the channels whose stored position changed.
+    let mut patches: Vec<(String, i64)> = Vec::new();
+    for (pos, c) in channels.iter_mut().enumerate() {
+        let pos = pos as i64;
+        if c.position != pos {
+            c.position = pos;
+            patches.push((c.id.clone(), pos));
+        }
+    }
+    *state.channels.write_unchecked() = channels;
+    spawn(async move {
+        for (cid, pos) in patches {
+            if let Err(e) = client().patch_channel(&gid, &cid, None, Some(pos)).await {
+                *state.status.write_unchecked() = format!("reorder failed: {e}");
+                break;
+            }
+        }
+        reopen_guild(state, &gid).await;
+    });
+}
+
+/// Restore a soft-deleted channel (from the Trash pane); reload the trash list
+/// and reopen the guild.
+pub fn restore_channel(state: NativeState, gid: String, cid: String) {
+    spawn(async move {
+        match client().restore_channel(&gid, &cid).await {
+            Ok(()) => {
+                reload_deleted_channels(state, &gid).await;
+                reopen_guild(state, &gid).await;
+            }
+            Err(e) => *state.status.write_unchecked() = format!("restore channel failed: {e}"),
+        }
+    });
+}
+
+/// Re-fetch a guild's detail into the channel list. Preserves the open channel
+/// selection when it still exists; otherwise falls back to the first channel
+/// (used after channel mutations). Inline (no nested `spawn`).
+async fn reopen_guild(state: NativeState, gid: &str) {
+    if let Ok(d) = client().get_guild(gid).await {
+        *state.sel_owner.write_unchecked() = Some(d.owner_id.clone());
+        *state.channels.write_unchecked() = d.channels.clone();
+        let open = state.sel_channel.peek().as_ref().map(|c| c.id.clone());
+        let still = open
+            .as_deref()
+            .map(|id| d.channels.iter().any(|c| c.id == id))
+            .unwrap_or(false);
+        if !still {
+            let first = d
+                .channels
+                .iter()
+                .find(|c| c.kind == "text")
+                .or_else(|| d.channels.first())
+                .cloned();
+            if let Some(ch) = first {
+                open_channel_inner(state, ch).await;
+            } else {
+                *state.sel_channel.write_unchecked() = None;
+                *state.messages.write_unchecked() = Vec::new();
+            }
+        }
+    }
+}
+
+/// Switch to the Trash pane and load the caller's deleted guilds + the open
+/// guild's deleted channels.
+pub fn show_trash(state: NativeState) {
+    *state.view.write_unchecked() = NativeView::Trash;
+    let gid = state.sel_server.peek().clone();
+    spawn(async move {
+        reload_deleted_guilds(state).await;
+        if let Some(gid) = gid {
+            reload_deleted_channels(state, &gid).await;
+        } else {
+            *state.deleted_channels.write_unchecked() = Vec::new();
+        }
+    });
+}
+
+/// Re-fetch the caller's soft-deleted guilds into `state.deleted_guilds`.
+async fn reload_deleted_guilds(state: NativeState) {
+    match client().list_deleted_guilds().await {
+        Ok(r) => *state.deleted_guilds.write_unchecked() = r.guilds,
+        Err(e) => *state.status.write_unchecked() = format!("trash guilds: {e}"),
+    }
+}
+
+/// Re-fetch a guild's soft-deleted channels into `state.deleted_channels`.
+async fn reload_deleted_channels(state: NativeState, gid: &str) {
+    match client().list_deleted_channels(gid).await {
+        Ok(r) => *state.deleted_channels.write_unchecked() = r.channels,
+        Err(e) => *state.status.write_unchecked() = format!("trash channels: {e}"),
+    }
+}
+
 /// Start the 1.5s poll loop (idempotent). Refreshes the open channel's new
 /// messages; re-fetches the guild list every ~6s. Inlines its fetches so it
 /// never nests a `spawn` inside this task.
@@ -606,6 +1012,10 @@ pub fn start_poll(state: NativeState) {
             let Some(ch) = state.sel_channel.peek().clone() else {
                 continue;
             };
+            // Lorebook channels have no message stream — don't poll them.
+            if ch.kind == "lorebook" {
+                continue;
+            }
             let epoch = *state.epoch.peek();
             // One paginated call per tick: `cursor` is `None` on a fresh channel
             // (server returns the whole <100-msg channel) or `Some` after the

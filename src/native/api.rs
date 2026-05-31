@@ -16,12 +16,15 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
-    AddGalleryImagesBatchResponse, AuthResponse, CreateEmojiRequest, CreateGuildRequest,
-    CreatePersonaRequest, EditMessageRequest, ErrorBody, GuildDetail, GuildSummary,
-    ListEmojiResponse, ListFriendsResponse, ListGuildsResponse, ListMessagesResponse,
+    AddGalleryImagesBatchResponse, AuthResponse, ChannelListResponse, ChannelSummary,
+    CreateChannelRequest, CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
+    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
+    FriendRequest, GuildDetail, GuildSummary, ListEmojiResponse, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
     ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MeResponse,
-    PatchPersonaRequest, PersonaDetail, RegisterRequest, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest, SetAvatarRequest,
+    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
+    PersonaDetail, RailOrderRequest, RegisterRequest, SendMessageRequest, SendMessageResponse,
+    SetActivePersonaRequest, SetAvatarRequest, SetMemberRoleRequest,
 };
 
 /// The process-global client. One backend + one session for the app's life, so
@@ -238,6 +241,113 @@ impl ApiClient {
     /// GET /guilds/{gid} — a guild's detail (channels included).
     pub async fn get_guild(&self, gid: &str) -> Result<GuildDetail, ApiError> {
         self.get(&format!("/guilds/{gid}")).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Guild lifecycle (Phase 4c PR2) — rename/delete/restore/reorder. Mutations
+    // are owner/manager gated server-side (privacy-404); the reqwest port mirrors
+    // the web `client/api.rs` guild section.
+    // -----------------------------------------------------------------------
+
+    /// PATCH /guilds/{gid} — rename a guild (owner/admin).
+    pub async fn patch_guild(&self, gid: &str, name: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/guilds/{gid}")))
+            .json(&PatchGuildRequest {
+                name: Some(name.to_string()),
+            });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /guilds/{gid} — soft-delete a guild (owner only).
+    pub async fn delete_guild(&self, gid: &str) -> Result<(), ApiError> {
+        let req = self.http.delete(self.url(&format!("/guilds/{gid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /guilds/{gid}/restore — restore a soft-deleted guild (owner only).
+    pub async fn restore_guild(&self, gid: &str) -> Result<(), ApiError> {
+        let req = self.http.post(self.url(&format!("/guilds/{gid}/restore")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /guilds/trash — the caller's soft-deleted guilds (owner-scoped).
+    pub async fn list_deleted_guilds(&self) -> Result<ListGuildsResponse, ApiError> {
+        self.get("/guilds/trash").await
+    }
+
+    /// PUT /rail/order — set the caller's full guild-rail order. Full-list
+    /// replacement: the server wipes and rewrites the caller's order rows.
+    pub async fn set_rail_order(&self, guild_ids: Vec<String>) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url("/rail/order"))
+            .json(&RailOrderRequest { guild_ids });
+        self.empty(self.authed(req)).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Channel lifecycle (Phase 4c PR2) — create/rename/reorder/delete/restore.
+    // All owner/manager gated server-side.
+    // -----------------------------------------------------------------------
+
+    /// POST /guilds/{gid}/channels — create a channel (`kind` = "text" or
+    /// "lorebook"); returns its summary (owner/admin).
+    pub async fn create_channel(
+        &self,
+        gid: &str,
+        name: &str,
+        kind: &str,
+    ) -> Result<ChannelSummary, ApiError> {
+        self.post_json(
+            &format!("/guilds/{gid}/channels"),
+            &CreateChannelRequest {
+                name: name.to_string(),
+                kind: kind.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// PATCH /guilds/{gid}/channels/{cid} — rename and/or reposition a channel
+    /// (owner/admin). `None` fields are left unchanged; `position` drives the
+    /// renumber-and-PATCH reorder (`swap_channel` in `act.rs`).
+    pub async fn patch_channel(
+        &self,
+        gid: &str,
+        cid: &str,
+        name: Option<String>,
+        position: Option<i64>,
+    ) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/guilds/{gid}/channels/{cid}")))
+            .json(&PatchChannelRequest { name, position });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /guilds/{gid}/channels/{cid} — soft-delete a channel (owner/admin).
+    pub async fn delete_channel(&self, gid: &str, cid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/guilds/{gid}/channels/{cid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /guilds/{gid}/channels/{cid}/restore — restore a soft-deleted
+    /// channel (owner/admin).
+    pub async fn restore_channel(&self, gid: &str, cid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .post(self.url(&format!("/guilds/{gid}/channels/{cid}/restore")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// GET /guilds/{gid}/trash/channels — the guild's soft-deleted channels
+    /// (owner/admin).
+    pub async fn list_deleted_channels(&self, gid: &str) -> Result<ChannelListResponse, ApiError> {
+        self.get(&format!("/guilds/{gid}/trash/channels")).await
     }
 
     /// GET /personas — the caller's personas (owned + shared-as-editor), for the
@@ -495,9 +605,31 @@ impl ApiClient {
     }
 
     /// GET /friends — the caller's friends + pending requests (the sharing
-    /// checklist source).
+    /// checklist source and the friends pane).
     pub async fn list_friends(&self) -> Result<ListFriendsResponse, ApiError> {
         self.get("/friends").await
+    }
+
+    /// POST /friends — send a friend request by username (the server auto-accepts
+    /// when the target already requested the caller). Empty body on success.
+    pub async fn add_friend(&self, username: &str) -> Result<(), ApiError> {
+        let req = self.http.post(self.url("/friends")).json(&FriendRequest {
+            username: username.to_string(),
+        });
+        self.empty(self.authed(req)).await
+    }
+
+    /// POST /friends/{aid}/accept — accept an incoming request from account `aid`.
+    pub async fn accept_friend(&self, aid: &str) -> Result<(), ApiError> {
+        let req = self.http.post(self.url(&format!("/friends/{aid}/accept")));
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /friends/{aid} — remove a friend, or cancel/decline a request
+    /// (idempotent either direction).
+    pub async fn remove_friend(&self, aid: &str) -> Result<(), ApiError> {
+        let req = self.http.delete(self.url(&format!("/friends/{aid}")));
+        self.empty(self.authed(req)).await
     }
 
     // -----------------------------------------------------------------------
@@ -529,6 +661,90 @@ impl ApiClient {
         let req = self
             .http
             .delete(self.url(&format!("/guilds/{gid}/emoji/{name}")));
+        self.empty(self.authed(req)).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Guild members (Phase 4c) — the roster pane. Mutations are owner/admin
+    // gated server-side (privacy-404), so a UI gate slip is cosmetic only.
+    // -----------------------------------------------------------------------
+
+    /// GET /guilds/{gid}/members — the guild's member roster.
+    pub async fn list_members(&self, gid: &str) -> Result<ListMembersResponse, ApiError> {
+        self.get(&format!("/guilds/{gid}/members")).await
+    }
+
+    /// PUT /guilds/{gid}/members/{aid}/role — set member `aid`'s role
+    /// (`"admin"` or `"member"`; the owner's role is fixed).
+    pub async fn set_member_role(&self, gid: &str, aid: &str, role: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .put(self.url(&format!("/guilds/{gid}/members/{aid}/role")))
+            .json(&SetMemberRoleRequest {
+                role: role.to_string(),
+            });
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /guilds/{gid}/members/{aid} — kick member `aid` from the guild.
+    pub async fn remove_member(&self, gid: &str, aid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/guilds/{gid}/members/{aid}")));
+        self.empty(self.authed(req)).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Lorebook (Phase 4c) — entries on a `kind='lorebook'` channel. Any guild
+    // member may read/write; entries order by `position` (no datetime cursor).
+    // -----------------------------------------------------------------------
+
+    /// GET /channels/{cid}/lorebook — the channel's lore entries (by position).
+    pub async fn list_lore(&self, cid: &str) -> Result<ListLorebookResponse, ApiError> {
+        self.get(&format!("/channels/{cid}/lorebook")).await
+    }
+
+    /// POST /channels/{cid}/lorebook — create an entry from `keys` + `content`
+    /// (server assigns the next position). Returns the new id.
+    pub async fn create_lore(
+        &self,
+        cid: &str,
+        keys: Vec<String>,
+        content: &str,
+    ) -> Result<CreateLorebookEntryResponse, ApiError> {
+        self.post_json(
+            &format!("/channels/{cid}/lorebook"),
+            &CreateLorebookEntryRequest {
+                title: None,
+                keys,
+                content: content.to_string(),
+                enabled: None,
+                position: None,
+            },
+        )
+        .await
+    }
+
+    /// PATCH /channels/{cid}/lorebook/{eid} — partial update; the caller chooses
+    /// which fields change (enable toggle, inline edit, reorder).
+    pub async fn patch_lore(
+        &self,
+        cid: &str,
+        eid: &str,
+        body: &PatchLorebookEntryRequest,
+    ) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .patch(self.url(&format!("/channels/{cid}/lorebook/{eid}")))
+            .json(body);
+        self.empty(self.authed(req)).await
+    }
+
+    /// DELETE /channels/{cid}/lorebook/{eid} — delete an entry (hard delete).
+    pub async fn delete_lore(&self, cid: &str, eid: &str) -> Result<(), ApiError> {
+        let req = self
+            .http
+            .delete(self.url(&format!("/channels/{cid}/lorebook/{eid}")));
         self.empty(self.authed(req)).await
     }
 

@@ -10,10 +10,14 @@
 pub mod act;
 pub mod api;
 pub mod emoji_manager;
+pub mod friends;
 pub mod image;
+pub mod lorebook;
 pub mod markup_view;
+pub mod members;
 pub mod modal;
 pub mod state;
 pub mod theme;
+pub mod trash;
 pub mod ui;
 pub mod wardrobe;
