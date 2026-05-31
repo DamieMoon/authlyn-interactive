@@ -475,7 +475,7 @@ fn sidebar(state: NativeState) -> Element {
         .horizontal()
         .width(Size::fill())
         .cross_align(Alignment::Center)
-        .spacing(8.)
+        .spacing(4.)
         .child(
             label()
                 .color(theme::INK_MUTED)
@@ -487,7 +487,7 @@ fn sidebar(state: NativeState) -> Element {
             header = header.child(
                 rect()
                     .corner_radius(theme::RADIUS_SM)
-                    .padding((2., 6.))
+                    .padding((2., 3.))
                     .on_press(move |_| {
                         *state.channel_new_name.write_unchecked() = String::new();
                         *state.channel_new_kind.write_unchecked() = "text".to_string();
@@ -507,7 +507,7 @@ fn sidebar(state: NativeState) -> Element {
         .child(
             rect()
                 .corner_radius(theme::RADIUS_SM)
-                .padding((2., 6.))
+                .padding((2., 3.))
                 .on_press(move |_| act::show_members(state))
                 .child(
                     label()
@@ -519,7 +519,7 @@ fn sidebar(state: NativeState) -> Element {
         .child(
             rect()
                 .corner_radius(theme::RADIUS_SM)
-                .padding((2., 6.))
+                .padding((2., 3.))
                 .on_press(move |_| {
                     *state.view.write_unchecked() = NativeView::EmojiManager;
                 })
@@ -815,8 +815,13 @@ fn channel_pane(state: NativeState) -> Element {
         .spacing(2.)
         .width(Size::fill())
         .height(Size::px(720.0 - menu_h - strip_h - emoji_h));
+    // While a modal is open, suppress message images: the Skia `ImageViewer`
+    // draws on a layer above the `Global` modal overlay (a Freya 0.4-rc z-order
+    // limitation), so an attachment/avatar image would punch through the scrim
+    // and over the dialog. Monogram fallbacks (plain rects) are unaffected.
+    let modal_open = state.modal.read().is_some();
     for m in state.messages.read().iter() {
-        list = list.child(message_row(state, m));
+        list = list.child(message_row(state, m, modal_open));
     }
 
     rect()
@@ -1095,7 +1100,7 @@ fn typing_line(typing: &[String]) -> Element {
         .into()
 }
 
-fn message_row(state: NativeState, m: &MessageEnvelope) -> Element {
+fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Element {
     let who = display_name(m);
     let me_id = state.me.read().as_ref().map(|me| me.account_id.clone());
     let mine = me_id.as_deref() == Some(m.author_id.as_str());
@@ -1181,7 +1186,7 @@ fn message_row(state: NativeState, m: &MessageEnvelope) -> Element {
         .iter()
         .filter(|a| a.mime.starts_with("image/"))
         .collect();
-    if !images.is_empty() {
+    if !images.is_empty() && !modal_open {
         let mut grid = rect().horizontal().spacing(6.).padding((4., 0.));
         for a in images {
             grid = grid.child(RemoteImage {
@@ -1199,22 +1204,24 @@ fn message_row(state: NativeState, m: &MessageEnvelope) -> Element {
         .width(Size::fill())
         .spacing(8.)
         .padding((4., 8.))
-        .child(avatar(m, &who))
+        .child(avatar(m, &who, modal_open))
         .child(body_col)
         .into()
 }
 
 /// Persona avatar over the authed session, else a monogram tile.
-fn avatar(m: &MessageEnvelope, who: &str) -> Element {
-    match &m.persona_avatar_id {
-        Some(id) => RemoteImage {
+fn avatar(m: &MessageEnvelope, who: &str, suppress_image: bool) -> Element {
+    // `suppress_image` forces the monogram branch while a modal is open (the
+    // ImageViewer-over-overlay z-order limitation; see `channel_pane`).
+    match (&m.persona_avatar_id, suppress_image) {
+        (Some(id), false) => RemoteImage {
             media_id: id.clone(),
             size: theme::AVATAR,
             fallback: who.to_string(),
             circle: true,
         }
         .into(),
-        None => rect()
+        _ => rect()
             .width(Size::px(theme::AVATAR))
             .height(Size::px(theme::AVATAR))
             .corner_radius(theme::AVATAR / 2.0)
