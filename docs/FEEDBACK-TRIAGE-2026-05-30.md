@@ -191,3 +191,14 @@ the schema/server `kind` + the grid rendering.
 - `record<>` links are type annotations only — no referential enforcement; cascade/cleanup is the
   app's job (central to R1).
 - Markup parser stays panic-free on arbitrary input (relevant to the hyperlinks idea).
+
+---
+
+## Addendum — 2026-05-31 (backlog)
+
+- **`feedback:qu5ogwxou87v3826wqq3`** — *"em-dashes in client UI"* (kind: bug, 2026-05-31, v2026.5.30, Android Chrome). **Backlogged / deferred.**
+  - **Summary:** User reports em-dashes (`—`) appearing in the client UI text. Likely an auto-typography/`--`→`—` conversion (or literal em-dashes in copy/markup rendering) the user finds undesirable.
+  - **Suspected area:** markup/typography rendering (`src/markup/`) and/or static UI copy strings. Triage whether the dashes are author-entered, auto-converted on render, or baked into UI labels.
+  - **Status:** left `new` in the inbox; recorded here for a later pass. Not blocking.
+
+- **`feedback:kx09a1k1fuh1yz6n1ciw`** — *"Media stored in /data/authlyn/ is accessible by anyone and not even hashed or stored in a database"* — **archived (status=`deleted`)** on 2026-05-31. Triaged as mostly-inaccurate / LOW: media is session-gated, DB-tracked, and served via random 16-byte ids (see security audit + memory `security-findings-backlog`). The only real residual is the deferred per-blob ACL gap, already captured in the security backlog.
