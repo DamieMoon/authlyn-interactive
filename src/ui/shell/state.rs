@@ -93,6 +93,10 @@ pub(crate) struct Composer {
     /// (the composer's pending image attachments, in pick order).
     pub(crate) compose_attachments: RwSignal<Vec<Attachment>>,
     pub(crate) status: RwSignal<String>,
+    /// Per-channel saved drafts (channel id -> in-progress text), stashed on
+    /// channel switch so each channel keeps its own draft (feedback fvffwu /
+    /// fkqdtp). Client-only: never persisted or sent to the server.
+    pub(crate) drafts: RwSignal<HashMap<String, String>>,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the

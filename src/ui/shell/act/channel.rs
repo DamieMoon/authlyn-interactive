@@ -36,6 +36,29 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // commits. Only adopt the server's remembered persona when SWITCHING
     // to a different channel.
     let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
+    // Per-channel draft scoping: when actually switching channels, stash the
+    // outgoing channel's in-progress composer text under its id and restore the
+    // incoming channel's saved draft (feedback fvffwu / fkqdtp). Client-only.
+    if !same_channel {
+        if let Some(prev) = s.sel.sel_channel.get_untracked() {
+            let text = s.composer.compose.get_untracked();
+            s.composer.drafts.update(|m| {
+                if text.is_empty() {
+                    m.remove(&prev.id);
+                } else {
+                    m.insert(prev.id, text);
+                }
+            });
+        }
+        let restored = s
+            .composer
+            .drafts
+            .get_untracked()
+            .get(&cid)
+            .cloned()
+            .unwrap_or_default();
+        s.composer.compose.set(restored);
+    }
     let _ = LocalStorage::set(KEY_CHANNEL, &cid);
     s.sel.sel_channel.set(Some(ch));
     if kind == "lorebook" {
@@ -66,6 +89,12 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         let seen_cid = cid.clone();
         spawn_local(async move {
             if let Ok(l) = api::list_messages(&cid, None).await {
+                // Stale-guard: if the user switched channels while this initial
+                // page was in flight, drop it so we don't paint the previous
+                // channel's messages under the new header (feedback gwiif7xy).
+                if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(cid.clone()) {
+                    return;
+                }
                 // The initial page is the NEWEST messages (ASC); remember the
                 // oldest of it as the scroll-up cursor, and whether a full page
                 // came back (i.e. older history may exist).

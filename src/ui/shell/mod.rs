@@ -147,6 +147,7 @@ fn AppShell() -> impl IntoView {
         compose: RwSignal::new(String::new()),
         compose_attachments: RwSignal::new(Vec::new()),
         status: RwSignal::new(String::new()),
+        drafts: RwSignal::new(std::collections::HashMap::new()),
     };
     provide_context(composer);
 
