@@ -11,6 +11,27 @@ use crate::protocol::Attachment;
 /// fill the width.
 const ROW_CAP: usize = 3;
 
+/// Short human label for a download tile, derived from the stored MIME's base
+/// type (e.g. `application/pdf` → "PDF", `application/zip` → "ZIP"). Falls back
+/// to "FILE" for an unknown/empty mime. Purely cosmetic — the link still serves
+/// the raw blob regardless.
+fn file_label(mime: &str) -> &'static str {
+    match mime.split(';').next().unwrap_or("").trim() {
+        "application/pdf" => "PDF",
+        "application/zip" => "ZIP",
+        "text/plain" => "TXT",
+        m if m.starts_with("audio/") => "AUDIO",
+        _ => "FILE",
+    }
+}
+
+/// True if an attachment renders as a media tile (`<img>`/`<video>`) rather
+/// than a download link. Anything that is neither an image nor a video — PDFs,
+/// audio, zips, plain text — is shown as a file download tile.
+fn is_media_tile(mime: &str) -> bool {
+    mime.starts_with("image/") || mime.starts_with("video/")
+}
+
 /// Outer wrapper classes: the message owns its own `.attachments` block, and
 /// the lone-image case gets an extra `.lone` flag so the natural-aspect rule
 /// applies only when the whole message is one image (not a trailing remainder
@@ -72,7 +93,19 @@ pub(super) fn attachment_grid(
                             let open = att.clone();
                             let is_video = att.mime.starts_with("video/");
                             let id = att.id.clone();
-                            if is_video {
+                            if !is_media_tile(&att.mime) {
+                                // Non-image/video: a file-icon download tile. The blob is
+                                // served with attachment disposition + nosniff (serve_original),
+                                // so following the link downloads rather than renders it.
+                                let label = file_label(&att.mime);
+                                view! {
+                                    <a class="att-file" href=format!("/media/{id}") download
+                                        title="download attachment">
+                                        <span class="att-file-icon">"📄"</span>
+                                        <span class="att-file-label">{label}</span>
+                                    </a>
+                                }.into_any()
+                            } else if is_video {
                                 // Videos use the raw blob (the `?w=512` thumbnail path is
                                 // image-only); play inline and open the lightbox on click.
                                 view! {
@@ -121,7 +154,18 @@ pub(super) fn attachment_grid(
                         {row.into_iter().map(|att| {
                             let id = att.id.clone();
                             let is_video = att.mime.starts_with("video/");
-                            if is_video {
+                            if !is_media_tile(&att.mime) {
+                                // Non-image/video: a file-icon download tile (raw blob is
+                                // served as an attachment + nosniff by serve_original).
+                                let label = file_label(&att.mime);
+                                view! {
+                                    <a class="att-file" href=format!("/media/{id}") download
+                                        title="download attachment">
+                                        <span class="att-file-icon">"📄"</span>
+                                        <span class="att-file-label">{label}</span>
+                                    </a>
+                                }.into_any()
+                            } else if is_video {
                                 view! {
                                     <video class="att-thumb" controls preload="metadata"
                                         src=format!("/media/{id}")></video>
