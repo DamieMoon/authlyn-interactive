@@ -11,6 +11,19 @@
 	}
 }
 
+// When the wardrobe is rendered inside its dismissible popup (F-2) the
+// surrounding `.modal.wardrobe-modal` already scrolls and supplies the frame,
+// so the inner `.pane` drops its own scroll container and trims its padding
+// (the floating X lives in the top-right; nudge the heading clear of it).
+.modal.wardrobe-modal .pane.wardrobe {
+	padding: 0;
+	overflow-y: visible;
+
+	> h3 {
+		margin-right: 1.5rem;
+	}
+}
+
 .wardrobe {
 	.add-row {
 		display: flex;

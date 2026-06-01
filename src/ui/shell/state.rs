@@ -112,6 +112,11 @@ pub(crate) struct SyncState {
     pub(crate) pane: RwSignal<Pane>,
     /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
     pub(crate) nav_open: RwSignal<bool>,
+    /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
+    /// wardrobe is no longer a full pane you can only leave by selecting
+    /// another pane — it overlays the current view and closes on backdrop
+    /// click / Esc / X, and auto-closes when a channel is opened.
+    pub(crate) wardrobe_open: RwSignal<bool>,
 }
 
 /// Friends, the wardrobe, the active worn persona, and the open channel's

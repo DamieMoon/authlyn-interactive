@@ -333,9 +333,12 @@ pub fn show_friends(s: Shell) {
     reload_friends(s);
 }
 
+/// Open the wardrobe as a dismissible modal popup (F-2) and refresh the
+/// persona list. The wardrobe is no longer a full pane — it overlays the
+/// current view via `wardrobe_open` and closes on backdrop click / Esc / X.
 #[cfg(feature = "hydrate")]
 pub fn show_wardrobe(s: Shell) {
-    s.sync.pane.set(Pane::Wardrobe);
+    s.sync.wardrobe_open.set(true);
     spawn_local(async move {
         if let Ok(r) = api::list_personas().await {
             s.social.personas.set(r.personas);

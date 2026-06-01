@@ -75,7 +75,6 @@ pub(crate) enum Pane {
     Friends,
     Channel,
     Lorebook,
-    Wardrobe,
     Emoji,
     Members,
 }
@@ -156,6 +155,7 @@ fn AppShell() -> impl IntoView {
         me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
         nav_open: RwSignal::new(false),
+        wardrobe_open: RwSignal::new(false),
     };
     provide_context(sync);
 
@@ -644,7 +644,6 @@ fn AppShell() -> impl IntoView {
                     Pane::Friends => view! { <FriendsPane/> }.into_any(),
                     Pane::Channel => view! { <ChannelPane/> }.into_any(),
                     Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
-                    Pane::Wardrobe => view! { <WardrobePane/> }.into_any(),
                     Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
                     Pane::Members => view! { <MembersPane/> }.into_any(),
                 }}
@@ -659,6 +658,22 @@ fn AppShell() -> impl IntoView {
             } else {
                 ().into_any()
             }}
+
+            // Wardrobe popup (F-2): a dismissible Modal — backdrop click, Esc, or
+            // the X close it. Auto-closes when a channel is opened (act::open_channel
+            // clears `wardrobe_open`). The wide variant widens the dialog for the
+            // persona grid; nested modals inside `WardrobePane` (detail editor, info
+            // popup) keep their own `stop_propagation` so inner backdrop clicks only
+            // dismiss the inner modal, not this one.
+            {move || s.sync.wardrobe_open.get().then(|| {
+                view! {
+                    <Modal class="wardrobe-modal" close=move || s.sync.wardrobe_open.set(false)>
+                        <button class="modal-x" title="close" aria-label="Close wardrobe"
+                            on:click=move |_| s.sync.wardrobe_open.set(false)>"✕"</button>
+                        <WardrobePane/>
+                    </Modal>
+                }
+            })}
 
             // Top-level confirm dialog for destructive actions. Shown whenever a
             // `PendingDelete` is queued; backdrop/Cancel clears it without acting,

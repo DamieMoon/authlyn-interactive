@@ -78,6 +78,9 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
             .unwrap_or_default();
         s.composer.compose.set(restored);
     }
+    // Opening a channel auto-dismisses the wardrobe popup (F-2): navigating to
+    // a channel should leave nothing overlaying it.
+    s.sync.wardrobe_open.set(false);
     let _ = LocalStorage::set(KEY_CHANNEL, &cid);
     s.sel.sel_channel.set(Some(ch));
     if kind == "lorebook" {
