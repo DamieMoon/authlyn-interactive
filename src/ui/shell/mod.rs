@@ -316,6 +316,13 @@ fn AppShell() -> impl IntoView {
         // kx24k2cwftdppidhmh0e).
         #[cfg(feature = "hydrate")]
         act::wire_focus_clears_notifs(s);
+        // SW message listener: a push notification clicked from a backgrounded
+        // PWA routes via the SW's `client.navigate()`, which throws in some
+        // standalone contexts; its fallback posts a NOTIFICATION_CLICK message
+        // to this window. Register the listener so that payload deep-links the
+        // app instead of being silently dropped (feedback br3ebxgjj1lh3qfbz3n8).
+        #[cfg(feature = "hydrate")]
+        act::wire_notification_click(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();

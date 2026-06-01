@@ -61,6 +61,11 @@ pub use message::add_compose_attachments;
 // `channel.rs`; only the one-time AppShell-mount installer is re-exported.
 #[cfg(feature = "hydrate")]
 pub use notify::wire_focus_clears_notifs;
+// SW `NOTIFICATION_CLICK` postMessage listener: deep-links the app when a push
+// notification is clicked from a backgrounded PWA and the SW's `client.navigate`
+// fallback fires (feedback row br3ebxgjj1lh3qfbz3n8). Hydrate-only.
+#[cfg(feature = "hydrate")]
+pub use notify::wire_notification_click;
 pub use persona::{
     create_persona, leave_shared_persona, load_persona_sharing, set_persona_avatar,
     set_persona_share, swap_persona, unwear, update_persona, wear_persona,

@@ -349,6 +349,72 @@ pub fn wire_focus_clears_notifs(s: Shell) {
     on_focus.forget();
 }
 
+/// Add a `message` listener to `navigator.serviceWorker` that deep-links the
+/// app when the service worker posts a `NOTIFICATION_CLICK` payload. The SW's
+/// `notificationclick` handler (public/sw.js) normally routes a click via
+/// `client.navigate()`, but that throws in some standalone/PWA contexts; its
+/// fallback posts `{ type: "NOTIFICATION_CLICK", channel, server, message }`
+/// to the focused window instead. Without a listener that payload was silently
+/// dropped and the click "bugged out" the backgrounded PWA (feedback row
+/// br3ebxgjj1lh3qfbz3n8). Here we reuse the exact deep-link path the
+/// `/?server=&channel=&m=` query string uses (`open_deep_link`).
+///
+/// Reflection-driven (same `Reflect::get + Function::call` pattern as the rest
+/// of this module) so no extra `Navigator`/`ServiceWorker` web-sys feature is
+/// needed. Runs once at AppShell mount; the closure stays alive for the page
+/// lifetime via `forget()` (the page is gone when the AppShell unmounts).
+#[cfg(feature = "hydrate")]
+pub fn wire_notification_click(s: Shell) {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+    let _ = (|| -> Option<()> {
+        let win = leptos::web_sys::window()?;
+        let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
+        let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
+        if sw.is_undefined() || sw.is_null() {
+            return None;
+        }
+        let add: js_sys::Function =
+            js_sys::Reflect::get(&sw, &JsValue::from_str("addEventListener"))
+                .ok()?
+                .dyn_into()
+                .ok()?;
+        // The MessageEvent carries `data` = the object the SW posted. Read the
+        // fields by reflection and, on a NOTIFICATION_CLICK with a channel,
+        // follow the same deep-link the query-param path does.
+        let on_message = Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+            let _ = (|| -> Option<()> {
+                let data = js_sys::Reflect::get(&event, &JsValue::from_str("data")).ok()?;
+                if data.is_undefined() || data.is_null() {
+                    return None;
+                }
+                let ty = js_sys::Reflect::get(&data, &JsValue::from_str("type"))
+                    .ok()?
+                    .as_string()?;
+                if ty != "NOTIFICATION_CLICK" {
+                    return None;
+                }
+                // sw.js posts `server` (the guild id), `channel`, `message`.
+                let gid = js_sys::Reflect::get(&data, &JsValue::from_str("server"))
+                    .ok()?
+                    .as_string()?;
+                let cid = js_sys::Reflect::get(&data, &JsValue::from_str("channel"))
+                    .ok()?
+                    .as_string()?;
+                let message = js_sys::Reflect::get(&data, &JsValue::from_str("message"))
+                    .ok()
+                    .and_then(|v| v.as_string());
+                super::open_deep_link(s, gid, cid, message);
+                Some(())
+            })();
+        });
+        add.call2(&sw, &JsValue::from_str("message"), on_message.as_ref())
+            .ok()?;
+        on_message.forget();
+        Some(())
+    })();
+}
+
 /// Fire a Web Notification for new messages in `ch` — but only when the tab
 /// is backgrounded (you'd see them otherwise), the channel isn't muted, and
 /// permission was granted. Title-only to keep the web-sys surface minimal.
