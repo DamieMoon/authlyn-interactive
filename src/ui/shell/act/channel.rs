@@ -7,7 +7,7 @@ use super::super::Shell;
 use crate::protocol::ChannelSummary;
 
 #[cfg(feature = "hydrate")]
-use super::guild::{KEY_CHANNEL, KEY_SERVER};
+use super::guild::{KEY_CHANNEL, KEY_DRAFTS, KEY_SERVER};
 #[cfg(feature = "hydrate")]
 use crate::client::api;
 #[cfg(feature = "hydrate")]
@@ -20,6 +20,34 @@ use leptos::task::spawn_local;
 #[cfg(feature = "hydrate")]
 pub fn open_channel(s: Shell, ch: ChannelSummary) {
     open_channel_at(s, ch, None);
+}
+
+/// Load the persisted per-channel drafts (channel id -> text) from
+/// localStorage. Called once when the [`super::super::Composer`] is built so
+/// drafts survive a reload / PWA close.
+#[cfg(feature = "hydrate")]
+pub fn load_drafts() -> std::collections::HashMap<String, String> {
+    LocalStorage::get(KEY_DRAFTS).unwrap_or_default()
+}
+
+/// Save the open channel's in-progress composer `text` to the in-memory map and
+/// persist the whole map to localStorage. Empty text removes the entry (so a
+/// cleared composer or sent message drops the draft). No-op if no channel is
+/// open.
+#[cfg(feature = "hydrate")]
+pub fn save_draft(s: Shell, text: &str) {
+    let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) else {
+        return;
+    };
+    s.composer.drafts.update(|m| {
+        if text.is_empty() {
+            m.remove(&cid);
+        } else {
+            m.insert(cid, text.to_string());
+        }
+    });
+    let map = s.composer.drafts.get_untracked();
+    let _ = LocalStorage::set(KEY_DRAFTS, &map);
 }
 
 /// Like [`open_channel`] but, after the first page loads, asks the scroll
@@ -36,20 +64,11 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // commits. Only adopt the server's remembered persona when SWITCHING
     // to a different channel.
     let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
-    // Per-channel draft scoping: when actually switching channels, stash the
-    // outgoing channel's in-progress composer text under its id and restore the
-    // incoming channel's saved draft (feedback fvffwu / fkqdtp). Client-only.
+    // Per-channel draft scoping: when actually switching channels, restore the
+    // incoming channel's saved draft (feedback fvffwu / fkqdtp). The outgoing
+    // channel's text is already in `drafts` — `save_draft` keeps the map current
+    // on every keystroke — so no stash is needed here. Client-only.
     if !same_channel {
-        if let Some(prev) = s.sel.sel_channel.get_untracked() {
-            let text = s.composer.compose.get_untracked();
-            s.composer.drafts.update(|m| {
-                if text.is_empty() {
-                    m.remove(&prev.id);
-                } else {
-                    m.insert(prev.id, text);
-                }
-            });
-        }
         let restored = s
             .composer
             .drafts
@@ -323,6 +342,14 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn load_drafts() -> std::collections::HashMap<String, String> {
+    Default::default()
+}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn save_draft(_s: Shell, _text: &str) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn open_channel_at(_s: Shell, _ch: ChannelSummary, _anchor: Option<String>) {}

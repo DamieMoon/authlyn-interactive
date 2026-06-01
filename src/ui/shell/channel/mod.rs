@@ -809,7 +809,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     node_ref=composer_ref
                     prop:value=move || s.composer.compose.get()
                     on:input=move |ev| {
-                        s.composer.compose.set(event_target_value(&ev));
+                        let value = event_target_value(&ev);
+                        s.composer.compose.set(value.clone());
+                        // Persist the current channel's draft on every keystroke
+                        // so a reload / PWA close doesn't lose unsent typing.
+                        act::channel::save_draft(s, &value);
                         // Track the trailing `:query` token under the caret to
                         // drive the autocomplete popover.
                         #[cfg(feature = "hydrate")]

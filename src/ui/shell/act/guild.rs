@@ -21,6 +21,11 @@ use leptos::task::spawn_local;
 pub(super) const KEY_SERVER: &str = "authlyn.last_server";
 #[cfg(feature = "hydrate")]
 pub(super) const KEY_CHANNEL: &str = "authlyn.last_channel";
+// Per-channel composer drafts (channel id -> in-progress text), persisted so a
+// reload / PWA close doesn't lose unsent typing. Read/written by
+// `super::channel` (load on startup, save per-keystroke, clear on send).
+#[cfg(feature = "hydrate")]
+pub(super) const KEY_DRAFTS: &str = "authlyn.drafts";
 
 #[cfg(feature = "hydrate")]
 pub fn refresh_guilds(s: Shell) {

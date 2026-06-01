@@ -64,6 +64,8 @@ pub fn send_message(s: Shell) {
         return;
     }
     s.composer.compose.set(String::new());
+    // Drop the now-sent channel's persisted draft (removes the key + persists).
+    super::channel::save_draft(s, "");
     s.composer.compose_attachments.set(Vec::new());
     s.composer.status.set(String::new());
     // Sending is a user gesture — a reliable point to request notification
