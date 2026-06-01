@@ -148,6 +148,11 @@ pub(crate) struct Notify {
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.
     pub(crate) last_seen: RwSignal<HashMap<String, (String, String)>>,
+    /// True once a Web Push subscription has been successfully registered with
+    /// the server this session. While true, the poll-loop suppresses its own
+    /// client `Notification` (server push already delivers it — see
+    /// `notify::notify_messages`); when false the poll path is the fallback.
+    pub(crate) web_push_enabled: RwSignal<bool>,
 }
 
 /// Soft-deleted-item overlays (#22 Phase 2): own deleted guilds, deleted
