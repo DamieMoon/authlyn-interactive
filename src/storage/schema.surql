@@ -240,6 +240,24 @@ DEFINE FIELD IF NOT EXISTS created_at ON custom_emoji TYPE datetime DEFAULT time
 -- Per-guild uniqueness: one shortcode per guild (same name OK in different guilds).
 DEFINE INDEX IF NOT EXISTS custom_emoji_guild_name ON custom_emoji FIELDS guild, name UNIQUE;
 
+-- Cross-device read state (L-1) --------------------------------------------
+-- Persists each account's per-channel "last seen" high-water mark server-side
+-- so a second device knows what was already read (today it's client-only
+-- localStorage). One row per (account, channel); the POST /channels/{cid}/mark-read
+-- handler UPSERTs it, keeping the MAX cursor (an older POST never regresses a
+-- newer mark). `last_seen_at` is the message's `sent_at` and `last_seen_id` its
+-- id — the same (sent_at, id) composite the client cursor uses. Brand-new table
+-- → no NONE-coercion backfill hazard (the trap only hits fields added to tables
+-- with pre-existing rows). The (account, channel) UNIQUE index makes the UPSERT
+-- idempotent; a racy double-mark resolves via with_write_conflict_retry.
+DEFINE TABLE IF NOT EXISTS channel_read_state SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS account      ON channel_read_state TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS channel      ON channel_read_state TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS last_seen_at ON channel_read_state TYPE datetime;
+DEFINE FIELD IF NOT EXISTS last_seen_id ON channel_read_state TYPE string;
+DEFINE FIELD IF NOT EXISTS updated_at   ON channel_read_state TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS channel_read_state_pair ON channel_read_state FIELDS account, channel UNIQUE;
+
 -- Per-user guild rail order (#17/FB2) --------------------------------------
 -- Each row records one account's chosen display position for one guild in
 -- their personal server rail. New table; no rows predate these fields, so no

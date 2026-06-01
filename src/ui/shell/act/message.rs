@@ -559,6 +559,8 @@ pub fn load_muted(s: Shell) {
 const KEY_LAST_SEEN: &str = "authlyn.last_seen";
 
 /// Load last-seen marks from localStorage into the reactive map (on mount).
+/// This is the OFFLINE fallback; [`hydrate_last_seen`] overlays the
+/// server-synced cursors on top when the network fetch succeeds.
 #[cfg(feature = "hydrate")]
 pub fn load_last_seen(s: Shell) {
     s.notify
@@ -566,14 +568,67 @@ pub fn load_last_seen(s: Shell) {
         .set(LocalStorage::get(KEY_LAST_SEEN).unwrap_or_default());
 }
 
-/// Record `cur = (sent_at, id)` as the last message seen in `cid`, and
-/// persist the whole map. Idempotent. Public to siblings.
+/// Hydrate `notify.last_seen` from the SERVER's stored per-channel read cursors
+/// (L-1 cross-device sync), so a second device knows what was already read.
+/// Runs on shell mount AFTER [`load_last_seen`]: a server cursor wins over the
+/// localStorage one only when it is strictly NEWER (the same MAX-cursor rule the
+/// server enforces on write), so a stale server row can't rewind a fresher local
+/// mark and vice-versa. On fetch failure we keep the localStorage values as the
+/// offline fallback. The merged map is written back to localStorage.
+#[cfg(feature = "hydrate")]
+pub fn hydrate_last_seen(s: Shell) {
+    spawn_local(async move {
+        let Ok(r) = api::read_state().await else {
+            return; // offline — keep the localStorage fallback already loaded.
+        };
+        let mut changed = false;
+        s.notify.last_seen.update(|m| {
+            for c in r.cursors {
+                let incoming = (c.sent_at, c.id);
+                let newer = match m.get(&c.channel_id) {
+                    // Composite (sent_at, id) compare — String tuple ordering
+                    // matches the cursor's strict tie-break (sent_at is the
+                    // fixed-9-digit lex-monotonic shape, so this is correct).
+                    Some(local) => incoming > *local,
+                    None => true,
+                };
+                if newer {
+                    m.insert(c.channel_id, incoming);
+                    changed = true;
+                }
+            }
+        });
+        if changed {
+            let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+        }
+    });
+}
+
+/// Record `cur = (sent_at, id)` as the last message seen in `cid`, persist the
+/// whole map to localStorage, AND push the mark to the server so read state
+/// syncs across devices (L-1) — but ONLY when the cursor actually advanced for
+/// this channel, so an idle re-mark (the poll re-asserting the open channel each
+/// tick) doesn't spam the endpoint. The server itself also keeps the MAX cursor,
+/// so a racing older POST is harmless. Idempotent. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
+    let advanced = s
+        .notify
+        .last_seen
+        .with_untracked(|m| m.get(cid).map(|prev| cur > *prev).unwrap_or(true));
     s.notify.last_seen.update(|m| {
-        m.insert(cid.to_string(), cur);
+        m.insert(cid.to_string(), cur.clone());
     });
     let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+    if advanced {
+        let cid = cid.to_string();
+        let (sent_at, id) = cur;
+        spawn_local(async move {
+            // Fire-and-forget: localStorage is the offline source of truth, the
+            // server POST is best-effort cross-device sync.
+            let _ = api::mark_read(&cid, &sent_at, &id).await;
+        });
+    }
 }
 
 /// Recompute the unread set across EVERY guild the caller belongs to (#23).
@@ -978,6 +1033,8 @@ pub fn delete_lore(_s: Shell, _cid: String, _eid: String) {}
 pub fn load_muted(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn load_last_seen(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn hydrate_last_seen(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn toggle_mute(_s: Shell, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]

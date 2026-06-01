@@ -21,11 +21,11 @@ use crate::protocol::{
     FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListEmojiResponse,
     ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
     ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
-    LoginRequest, MeResponse, PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest,
-    PatchPersonaRequest, PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest,
-    RegisterRequest, ResetQuestionResponse, SendMessageRequest, SendMessageResponse,
-    SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
-    SubmitFeedbackRequest, VapidKeyResponse,
+    LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
+    PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
+    ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
+    SetMemberRoleRequest, SetSecurityQuestionRequest, SubmitFeedbackRequest, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -354,6 +354,31 @@ pub async fn edit_message(cid: &str, mid: &str, body: &str) -> Result<(), ApiErr
 /// messages.
 pub async fn delete_message(cid: &str, mid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/channels/{cid}/messages/{mid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Cross-device read state (L-1)
+// ---------------------------------------------------------------------------
+
+/// POST /channels/{cid}/mark-read — persist the caller's last-seen `(sent_at, id)`
+/// cursor for this channel so read/unread syncs across devices. Fire-and-forget
+/// from the caller's side (the local mark + localStorage write is the offline
+/// source of truth); the server keeps the MAX cursor so an older mark can't regress.
+pub async fn mark_read(cid: &str, sent_at: &str, id: &str) -> Result<(), ApiError> {
+    post_json_empty(
+        &format!("/channels/{cid}/mark-read"),
+        &MarkReadRequest {
+            sent_at: sent_at.to_string(),
+            id: id.to_string(),
+        },
+    )
+    .await
+}
+
+/// GET /channels/read-state — the caller's stored per-channel read cursors,
+/// used to hydrate `notify.last_seen` on shell mount (cross-device sync).
+pub async fn read_state() -> Result<ReadStateResponse, ApiError> {
+    get("/channels/read-state").await
 }
 
 // ---------------------------------------------------------------------------
