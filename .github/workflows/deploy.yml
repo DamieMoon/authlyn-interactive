@@ -1,0 +1,52 @@
+name: Deploy to novahome
+
+# Autodeploy on every push to main, plus a manual trigger. Runs on the
+# self-hosted runner that lives ON novahome, so it builds in the canonical
+# repo dir (warm target/ cache) and calls the existing root-owned deploy
+# bridge — no SSH keys or stored secrets are involved.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize deploys; never interrupt one that is mid-swap.
+concurrency:
+  group: deploy-novahome
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, novahome]
+    timeout-minutes: 30
+    steps:
+      - name: Sync repo to the pushed commit
+        run: |
+          set -euo pipefail
+          cd /home/damien/authlyn-interactive
+          git fetch --prune origin
+          git checkout -f -B main "$GITHUB_SHA"   # hard-reset this tree to the pushed commit
+          git log -1 --oneline
+
+      - name: Build release
+        run: |
+          set -euo pipefail
+          cd /home/damien/authlyn-interactive
+          . "$HOME/.cargo/env"
+          cargo leptos build --release            # build failure stops here: no backup, no deploy
+
+      - name: Backup prod DB before deploy
+        run: |
+          set -euo pipefail
+          ts=$(date -u +%Y%m%dT%H%M%SZ)
+          dir=/data/prod_backups
+          mkdir -p "$dir"
+          tmp="$dir/prod_backup_${ts}.surql"
+          surreal export --endpoint http://127.0.0.1:8000 \
+            --user root --pass root --ns authlyn --db prod "$tmp"
+          test -s "$tmp" || { echo "::error::prod DB backup is empty — aborting deploy"; exit 1; }
+          gzip -f "$tmp"
+          echo "backup: ${tmp}.gz ($(du -h "${tmp}.gz" | cut -f1))"
+          ls -1t "$dir"/prod_backup_*.surql.gz | tail -n +16 | xargs -r rm -f   # keep newest 15
+
+      - name: Deploy (scoped sudo bridge — health-check + auto-rollback)
+        run: sudo -n /opt/authlyn/deploy.sh
