@@ -77,6 +77,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
             .cloned()
             .unwrap_or_default();
         s.composer.compose.set(restored);
+        // The reply target is channel-scoped (the parent must be in THIS
+        // channel); drop it when actually switching so a reply doesn't carry
+        // over to a channel where its parent doesn't live (L-3).
+        s.composer.replying_to.set(None);
     }
     let _ = LocalStorage::set(KEY_CHANNEL, &cid);
     s.sel.sel_channel.set(Some(ch));

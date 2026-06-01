@@ -150,6 +150,14 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
+-- Reply-to (L-3): the message this one is replying to (Discord-style quote),
+-- or NONE for a non-reply. A live record link — the reply preview is resolved
+-- by a null-safe join at read time (MSG_PROJECTION), NOT snapshotted, and a
+-- soft-deleted / since-deleted parent simply joins to NONE. option<> ⇒ NONE is
+-- a valid value on old rows, but a field added to a populated table still trips
+-- the SCHEMAFULL NONE-coercion crash on the next message UPDATE unless an
+-- idempotent backfill materialises it FIRST (see the backfill block below).
+DEFINE FIELD IF NOT EXISTS reply_to ON message TYPE option<record<message>>;
 -- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -165,6 +173,15 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- below, or that UPDATE trips over the still-NONE `attachments` and aborts
 -- schema apply (crash-loops the service). Idempotent via the WHERE.
 UPDATE message SET attachments = [] WHERE attachments = NONE;
+
+-- Backfill `reply_to` to NONE on every pre-reply row (L-3). Same hazard as the
+-- `attachments` backfill above: old rows hold NONE for a field added after they
+-- existed, and the persona-snapshot UPDATE below re-validates EVERY field — so
+-- without materialising it first that UPDATE would trip the SCHEMAFULL coercion
+-- and crash-loop schema apply. Must stay between the `attachments` backfill and
+-- the persona backfill. Idempotent via the WHERE (a no-op once materialised).
+-- (L-4 mentions backfill should slot in alongside this one, not nest inside it.)
+UPDATE message SET reply_to = NONE WHERE reply_to = NONE;
 
 UPDATE message SET
     persona_name = persona.name,

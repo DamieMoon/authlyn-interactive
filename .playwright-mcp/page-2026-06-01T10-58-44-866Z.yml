@@ -1,0 +1,69 @@
+- main [ref=e2]:
+  - generic [ref=e15]:
+    - navigation [ref=e16]:
+      - button "@" [ref=e17] [cursor=pointer]
+      - button "V" [ref=e37] [cursor=pointer]
+      - button "🗑" [ref=e18] [cursor=pointer]
+      - generic [ref=e19]:
+        - textbox "new server" [ref=e20]
+        - button "+" [ref=e21] [cursor=pointer]
+    - complementary [ref=e22]:
+      - generic [ref=e38]:
+        - generic [ref=e39]: Verify Guild
+        - button "✎" [ref=e40] [cursor=pointer]
+        - button "🗑" [ref=e41] [cursor=pointer]
+      - button "🎭 Wardrobe" [ref=e42] [cursor=pointer]
+      - button "😀 Emoji" [ref=e43] [cursor=pointer]
+      - button "👥 Members" [ref=e44] [cursor=pointer]
+      - list [ref=e45]:
+        - listitem [ref=e46]:
+          - button "# general" [ref=e47] [cursor=pointer]
+          - button "↑" [disabled] [ref=e48]
+          - button "↓" [disabled] [ref=e49]
+          - button "✎" [ref=e50] [cursor=pointer]
+          - button "🗑" [ref=e51] [cursor=pointer]
+      - button "＋ Channel" [ref=e53] [cursor=pointer]
+      - button "🗑 Trashed channels" [ref=e55] [cursor=pointer]
+      - generic [ref=e56]:
+        - textbox "invite by username" [ref=e57]
+        - button "Invite" [ref=e58] [cursor=pointer]
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - text: Signed in as
+          - strong [ref=e27]: verifier
+        - button "🔔" [ref=e59] [cursor=pointer]
+        - button "🗑" [ref=e60] [cursor=pointer]
+        - button "⚙" [ref=e28] [cursor=pointer]
+        - button "Log out" [ref=e29] [cursor=pointer]
+      - generic [ref=e30]:
+        - list [ref=e61]
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - generic "attach a file" [ref=e64] [cursor=pointer]: 📎
+            - button "B" [ref=e65] [cursor=pointer]:
+              - strong [ref=e66]: B
+            - button "i" [ref=e67] [cursor=pointer]:
+              - emphasis [ref=e68]: i
+            - button "H" [ref=e69] [cursor=pointer]
+            - button "-#" [ref=e70] [cursor=pointer]
+            - button "</>" [ref=e71] [cursor=pointer]:
+              - code [ref=e72]: </>
+            - 'button "{}" [ref=e73] [cursor=pointer]':
+              - code [ref=e74]: "{}"
+            - button "blue" [ref=e90] [cursor=pointer]
+            - button "▼" [ref=e75] [cursor=pointer]
+            - button "😀" [ref=e76] [cursor=pointer]
+            - button "👁" [ref=e77] [cursor=pointer]
+          - textbox "type a message — **bold**, *italic*, [red]color[/red]" [ref=e78]: "[blue][/blue]"
+          - button "Send" [ref=e79] [cursor=pointer]
+      - paragraph [ref=e35]
+    - dialog [ref=e92]:
+      - button "Close wardrobe" [active] [ref=e93] [cursor=pointer]: ✕
+      - generic [ref=e94]:
+        - heading "Wardrobe" [level=3] [ref=e95]
+        - generic [ref=e96]:
+          - textbox "persona name" [ref=e97]
+          - textbox "description (Shift+Enter for a new line)" [ref=e98]
+          - button "Create persona" [ref=e99] [cursor=pointer]
+        - textbox "search personas" [ref=e100]

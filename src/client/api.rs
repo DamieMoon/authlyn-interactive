@@ -313,13 +313,14 @@ pub async fn list_messages_before(
     .await
 }
 
-/// POST /channels/{cid}/messages — send a message with optional attachments
-/// and a worn persona.
+/// POST /channels/{cid}/messages — send a message with optional attachments,
+/// a worn persona, and an optional reply-to parent (L-3).
 pub async fn post_message(
     cid: &str,
     body: &str,
     attachment_ids: Vec<String>,
     persona_id: Option<String>,
+    reply_to_id: Option<String>,
 ) -> Result<SendMessageResponse, ApiError> {
     post_json(
         &format!("/channels/{cid}/messages"),
@@ -327,6 +328,7 @@ pub async fn post_message(
             body: body.to_string(),
             attachment_ids,
             persona_id,
+            reply_to_id,
         },
     )
     .await

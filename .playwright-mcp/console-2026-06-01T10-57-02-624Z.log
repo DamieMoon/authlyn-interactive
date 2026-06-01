@@ -1,0 +1,7 @@
+[      57ms] [LOG] [HOT RELOADING] Connected to server. @ http://127.0.0.1:3000/register:0
+[      96ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:3000/register:0
+[     242ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3000/auth/me:0
+[  658069ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:3000/push/vapid-key:0
+[  658070ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:3000/push/vapid-key:0
+[ 2641624ms] [WARNING] Live-reload disconnected. Reconnecting... @ http://127.0.0.1:3000/register:505
+[ 2641699ms] [LOG] [HOT RELOADING] Connected to server. @ http://127.0.0.1:3000/:0

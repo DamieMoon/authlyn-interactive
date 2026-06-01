@@ -1,0 +1,10 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - heading "authlyn" [level=1] [ref=e4]
+    - heading "Create an account" [level=2] [ref=e5]
+    - textbox "username (3-32 chars)" [ref=e6]
+    - textbox "password (8+ chars)" [ref=e7]
+    - button "Sign up" [ref=e8] [cursor=pointer]
+    - paragraph [ref=e9]
+    - link "I already have an account" [ref=e10] [cursor=pointer]:
+      - /url: /login

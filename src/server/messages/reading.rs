@@ -9,7 +9,7 @@ use axum::Json;
 use serde::Deserialize;
 use surrealdb::types::{Datetime, SurrealValue};
 
-use crate::protocol::{Attachment, ListMessagesResponse, MessageEnvelope};
+use crate::protocol::{Attachment, ListMessagesResponse, MessageEnvelope, ReplyPreview};
 use crate::server::auth::AuthAccount;
 use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::errors::error_response;
@@ -243,6 +243,18 @@ fn is_rfc3339(s: &str) -> bool {
     chrono::DateTime::parse_from_rfc3339(s).is_ok()
 }
 
+/// The reply-preview sub-object joined in by MSG_PROJECTION's `reply_to` arm
+/// (L-3). Built from the parent message LIVE at read time; the projection only
+/// emits it when the parent exists and is not soft-deleted (else the arm is
+/// NONE → `Option` here is `None`), so a since-deleted parent degrades to no
+/// quote rather than a dangling reference.
+#[derive(SurrealValue)]
+pub(super) struct ReplyPreviewRow {
+    pub id: String,
+    pub author_display: String,
+    pub body_snippet: String,
+}
+
 #[derive(SurrealValue)]
 pub(super) struct MessageRow {
     pub id_key: String,
@@ -258,6 +270,7 @@ pub(super) struct MessageRow {
     pub attachments: Vec<String>,
     pub tier: String,
     pub sent_at: Datetime,
+    pub reply_to: Option<ReplyPreviewRow>,
 }
 
 impl MessageRow {
@@ -286,6 +299,11 @@ impl MessageRow {
                 .collect(),
             tier: self.tier,
             sent_at: to_rfc3339_fixed(self.sent_at),
+            reply_to: self.reply_to.map(|r| ReplyPreview {
+                id: r.id,
+                author_display: r.author_display,
+                body_snippet: r.body_snippet,
+            }),
         }
     }
 }
@@ -310,7 +328,12 @@ pub(super) const MSG_PROJECTION: &str = "
         body,
         (attachments ?? []) AS attachments,
         tier,
-        sent_at";
+        sent_at,
+        (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
+            id: meta::id(reply_to),
+            author_display: (reply_to.author.display_name ?: reply_to.author.username),
+            body_snippet: string::slice(reply_to.body, 0, 100)
+         } ELSE NONE END) AS reply_to";
 
 async fn load_messages(
     state: &AppState,

@@ -143,6 +143,44 @@
 				white-space: pre-wrap;
 				overflow-wrap: break-word;
 			}
+
+			// Reply quote (L-3): a compact clickable line above a reply's body
+			// showing the parent author + a one-line snippet, with a left rail
+			// accent like Discord. Clicking scrolls the parent into view.
+			.reply-quote {
+				display: flex;
+				align-items: baseline;
+				gap: 0.4rem;
+				width: 100%;
+				text-align: left;
+				background: transparent;
+				border: none;
+				border-left: 2px solid var(--gold);
+				padding: 0 0 0 0.5rem;
+				margin-bottom: 0.1rem;
+				color: var(--ink-muted);
+				font-size: 0.8rem;
+				cursor: pointer;
+				overflow: hidden;
+
+				&:hover {
+					color: var(--ink);
+				}
+
+				.reply-quote-who {
+					font-weight: 600;
+					color: var(--ink-soft);
+					flex: none;
+				}
+
+				// Single-line clamp so a long parent body doesn't wrap the quote.
+				.reply-quote-body {
+					white-space: nowrap;
+					overflow: hidden;
+					text-overflow: ellipsis;
+					min-width: 0;
+				}
+			}
 		}
 
 		// Ghost draft row: lays out exactly like a real .msg (inherits the base
@@ -235,6 +273,52 @@
 		flex-wrap: wrap;
 		gap: 0.25rem;
 		align-items: flex-start;
+
+		// "Replying to X" banner (L-3): a full-width strip at the top of the
+		// composer while a reply target is staged, with a left rail accent and a
+		// ✕ to clear it.
+		.reply-banner {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			width: 100%;
+			padding: 0.25rem 0.5rem;
+			border-left: 2px solid var(--gold);
+			background: var(--vellum-2);
+			border-radius: 0.3rem;
+			font-size: 0.8rem;
+			color: var(--ink-muted);
+
+			.reply-banner-text {
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+
+				strong {
+					color: var(--ink-soft);
+				}
+
+				.reply-banner-snippet {
+					margin-left: 0.4rem;
+					color: var(--ink-muted);
+				}
+			}
+
+			.reply-banner-cancel {
+				margin-left: auto;
+				flex: none;
+				background: transparent;
+				border: none;
+				color: var(--ink-muted);
+				cursor: pointer;
+				padding: 0 0.2rem;
+
+				&:hover {
+					color: var(--ink);
+				}
+			}
+		}
 
 		.toolbar {
 			display: flex;

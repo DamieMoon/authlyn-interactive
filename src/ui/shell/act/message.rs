@@ -63,6 +63,10 @@ pub fn send_message(s: Shell) {
     if body.trim().is_empty() && attachments.is_empty() {
         return;
     }
+    // Capture + clear the reply target (L-3): the parent id rides as
+    // `reply_to_id`, and the banner clears the moment we send.
+    let reply_to_id = s.composer.replying_to.get_untracked().map(|r| r.id);
+    s.composer.replying_to.set(None);
     s.composer.compose.set(String::new());
     // Drop the now-sent channel's persisted draft (removes the key + persists).
     super::channel::save_draft(s, "");
@@ -76,7 +80,7 @@ pub fn send_message(s: Shell) {
     // per-channel row having committed.
     let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
-        match api::post_message(&ch.id, &body, attachments, persona).await {
+        match api::post_message(&ch.id, &body, attachments, persona, reply_to_id).await {
             Ok(_) => {
                 let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
@@ -158,6 +162,42 @@ pub fn remove_compose_attachment(s: Shell, id: String) {
     s.composer
         .compose_attachments
         .update(|v| v.retain(|a| a.id != id));
+}
+
+/// Begin replying to message `m` (L-3): stash a [`ReplyPreview`] built from the
+/// row so the composer banner shows the parent author + snippet, and so the
+/// next send carries `reply_to_id`. Single-level — replying to a reply quotes
+/// THAT message, never its own parent. Focuses the composer for a fast reply.
+#[cfg(feature = "hydrate")]
+pub fn start_reply(s: Shell, m: MessageEnvelope) {
+    let who = m
+        .persona_name
+        .clone()
+        .unwrap_or_else(|| m.author_display.clone());
+    let snippet: String = m.body.chars().take(100).collect();
+    s.composer
+        .replying_to
+        .set(Some(crate::protocol::ReplyPreview {
+            id: m.id,
+            author_display: who,
+            body_snippet: snippet,
+        }));
+    if let Some(el) = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.query_selector(".composer textarea").ok().flatten())
+    {
+        use wasm_bindgen::JsCast;
+        if let Ok(input) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+            let _ = input.focus();
+        }
+    }
+}
+
+/// Clear the active reply target (the banner's ✕), reverting the next send to a
+/// normal non-reply message.
+#[cfg(feature = "hydrate")]
+pub fn cancel_reply(s: Shell) {
+    s.composer.replying_to.set(None);
 }
 
 /// Copy a message body to the clipboard as raw markup, **stripping color
@@ -969,6 +1009,10 @@ pub fn send_message(_s: Shell) {}
 pub fn add_compose_attachment(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn remove_compose_attachment(_s: Shell, _id: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn start_reply(_s: Shell, _m: crate::protocol::MessageEnvelope) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn cancel_reply(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
 #[cfg(not(feature = "hydrate"))]

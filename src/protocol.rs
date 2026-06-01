@@ -233,6 +233,12 @@ pub struct SendMessageRequest {
     /// per-channel persona (`channel_active_persona`), else speaks as the account.
     #[serde(default)]
     pub persona_id: Option<String>,
+    /// Id of the message this one replies to (Discord-style quote), `None` for a
+    /// non-reply (L-3). The server VALIDATES the referenced message exists, is in
+    /// the SAME channel, and is not soft-deleted, else 400. Single-level only:
+    /// replying to a reply quotes that reply, not its own parent.
+    #[serde(default)]
+    pub reply_to_id: Option<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
@@ -299,6 +305,26 @@ pub struct MessageEnvelope {
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,
     pub sent_at: String,
+    /// Lightweight preview of the message this one replies to (L-3), resolved by
+    /// a LIVE null-safe join at read time (not a send-time snapshot). `None` when
+    /// this isn't a reply OR the parent was soft-deleted / hard-deleted (the join
+    /// degrades gracefully to `None`). `#[serde(default)]` for the same post-ship
+    /// wire-compat reason as the persona/attachment siblings above.
+    #[serde(default)]
+    pub reply_to: Option<ReplyPreview>,
+}
+
+/// A lightweight preview of a replied-to (parent) message, rendered as a
+/// clickable quote above the reply body (L-3). Carries just enough to show the
+/// quote and scroll to the parent: its `id` (the scroll-to-message anchor), the
+/// parent author's display name, and a short body snippet. Resolved live at read
+/// time, so it reflects the parent's CURRENT body/author and is `None` once the
+/// parent is deleted.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReplyPreview {
+    pub id: String,
+    pub author_display: String,
+    pub body_snippet: String,
 }
 
 /// One inline attachment on a message: the media id plus its stored MIME type

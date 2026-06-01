@@ -56,6 +56,31 @@ fn display_name(m: &MessageEnvelope) -> String {
         .unwrap_or_else(|| m.author_display.clone())
 }
 
+/// The clickable reply quote rendered ABOVE a reply's body (L-3): the parent
+/// author + a short body snippet. Clicking it scrolls the parent into view via
+/// the same `msg-{id}` anchor the deep-link / unread-pill / older-history paths
+/// use. A non-reply message renders no quote (the caller only calls this for
+/// `Some(reply_to)`).
+fn reply_quote(r: crate::protocol::ReplyPreview) -> impl IntoView {
+    let pid = r.id.clone();
+    view! {
+        <button class="reply-quote" title="jump to replied message"
+            on:click=move |_| {
+                #[cfg(feature = "hydrate")]
+                if let Some(el) = leptos::prelude::document()
+                    .get_element_by_id(&format!("msg-{pid}"))
+                {
+                    el.scroll_into_view();
+                }
+                #[cfg(not(feature = "hydrate"))]
+                let _ = &pid;
+            }>
+            <span class="reply-quote-who">{r.author_display}</span>
+            <span class="reply-quote-body">{r.body_snippet}</span>
+        </button>
+    }
+}
+
 /// One row in the deleted-messages panel: the message snippet plus a Restore button.
 fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) -> impl IntoView {
     let cid = s
@@ -414,10 +439,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         let body = m.body.clone();
                         let cid = cid.clone();
                         let dom_id = format!("msg-{}", m.id);
+                        let reply_quote = m.reply_to.clone().map(reply_quote);
                         let meta = message_meta(s, &m, &cid, mine, editing_msg, info);
                         view! {
                             <li class="msg" id=dom_id>
                                 {meta}
+                                {reply_quote}
                                 {move || {
                                     let mid = mid.clone();
                                     let body = body.clone();
@@ -583,6 +610,21 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             }}
 
             <div class="composer">
+                // "Replying to X" banner (L-3): shown while a reply target is
+                // staged; the ✕ clears it back to a normal send.
+                {move || s.composer.replying_to.get().map(|r| {
+                    let snippet = r.body_snippet.clone();
+                    view! {
+                        <div class="reply-banner">
+                            <span class="reply-banner-text">
+                                "Replying to "<strong>{r.author_display}</strong>
+                                <span class="reply-banner-snippet">{snippet}</span>
+                            </span>
+                            <button class="reply-banner-cancel" type="button" title="cancel reply"
+                                on:click=move |_| act::cancel_reply(s)>"✕"</button>
+                        </div>
+                    }
+                })}
                 <div class="toolbar">
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.

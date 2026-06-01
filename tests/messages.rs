@@ -740,3 +740,236 @@ async fn typing_indicator_lists_other_typists_and_excludes_caller() {
         "both other typists are resolved by username (display_name = '' → username fallback); caller is excluded"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Reply-to-message (L-3)
+// ---------------------------------------------------------------------------
+
+/// Post a reply to `parent` in `cid` and return the raw `(status, body)`.
+#[cfg(feature = "ssr")]
+async fn reply_to(
+    router: &axum::Router,
+    cookie: &str,
+    cid: &str,
+    body: &str,
+    parent: &str,
+) -> (StatusCode, serde_json::Value) {
+    let (status, _, m) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(cookie),
+        Some(&json!({ "body": body, "reply_to_id": parent })),
+    )
+    .await;
+    (status, m)
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_to_same_channel_persists() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let parent = post_one(&a.router, &owner, &cid, "the original").await;
+
+    let (status, m) = reply_to(&a.router, &owner, &cid, "a reply", &parent).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let reply_id = m["id"].as_str().unwrap().to_string();
+
+    // The reply is returned with a live preview of its parent.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    let reply = msgs.iter().find(|m| m["id"] == reply_id).unwrap();
+    assert_eq!(
+        reply["reply_to"]["id"].as_str().unwrap(),
+        parent,
+        "reply preview points at the parent message"
+    );
+    assert_eq!(reply["reply_to"]["body_snippet"], "the original");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_to_other_channel_is_400() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = owner_with_text_channel(&a.router).await;
+    let parent = post_one(&a.router, &owner, &cid, "lives in channel 1").await;
+
+    // A second text channel in the same guild.
+    let (status, _, second) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "two", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let cid2 = second["id"].as_str().unwrap();
+
+    // Replying in channel 2 to a parent in channel 1 is rejected.
+    let (status, _) = reply_to(&a.router, &owner, cid2, "cross-channel reply", &parent).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a reply target in a different channel must 400"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_to_soft_deleted_parent_is_400() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let parent = post_one(&a.router, &owner, &cid, "doomed").await;
+
+    // Soft-delete the parent (DELETE soft-deletes the author's own message).
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{parent}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = reply_to(&a.router, &owner, &cid, "reply to a tombstone", &parent).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a soft-deleted reply target must 400"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_preview_renders_author_and_snippet() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    // A long parent body so the snippet is truncated to ~100 chars.
+    let long = "x".repeat(250);
+    let parent = post_one(&a.router, &owner, &cid, &long).await;
+    let (status, _m) = reply_to(&a.router, &owner, &cid, "see above", &parent).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    let reply = msgs.iter().find(|m| m["body"] == "see above").unwrap();
+    let preview = &reply["reply_to"];
+    // author_display falls back to the username ("Owner") since no display_name.
+    assert_eq!(preview["author_display"], "Owner");
+    let snippet = preview["body_snippet"].as_str().unwrap();
+    assert_eq!(snippet.chars().count(), 100, "snippet capped at ~100 chars");
+    assert!(snippet.chars().all(|c| c == 'x'));
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_to_deleted_after_send_null_joins_gracefully() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let parent = post_one(&a.router, &owner, &cid, "soon gone").await;
+    let (status, m) = reply_to(&a.router, &owner, &cid, "still here", &parent).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let reply_id = m["id"].as_str().unwrap().to_string();
+
+    // Soft-delete the PARENT after the reply already exists.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{parent}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The reply still lists; its preview degrades to null rather than dangling.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    let reply = msgs.iter().find(|m| m["id"] == reply_id).unwrap();
+    assert!(
+        reply["reply_to"].is_null(),
+        "a parent soft-deleted after send null-joins the preview, not a 500/dangle"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn composite_cursor_unaffected_by_reply_to() {
+    // Reply rows participate in the same (sent_at, id) cursor as any other
+    // message; a page of replies paginates in send order without dups/gaps.
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    const TOTAL: usize = 150;
+    // First message is a plain root; every subsequent one replies to the root,
+    // so the cursor must still order all 150 by send order.
+    let root = post_one(&a.router, &owner, &cid, "m0").await;
+    for i in 1..TOTAL {
+        let (status, _) = reply_to(&a.router, &owner, &cid, &format!("m{i}"), &root).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page1 = body["messages"].as_array().unwrap().clone();
+    assert_eq!(page1.len(), 100);
+    assert_eq!(page1.first().unwrap()["body"], "m50");
+    assert_eq!(page1.last().unwrap()["body"], "m149");
+
+    let first = page1.first().unwrap();
+    let before = first["sent_at"].as_str().unwrap();
+    let before_id = first["id"].as_str().unwrap();
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages?before={before}&before_id={before_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page2 = body["messages"].as_array().unwrap().clone();
+    assert_eq!(page2.len(), 50);
+
+    let bodies: Vec<String> = page2
+        .iter()
+        .chain(page1.iter())
+        .map(|m| m["body"].as_str().unwrap().to_string())
+        .collect();
+    let expected: Vec<String> = (0..TOTAL).map(|i| format!("m{i}")).collect();
+    assert_eq!(bodies, expected, "reply rows reassemble in send order");
+}

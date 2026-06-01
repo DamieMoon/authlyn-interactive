@@ -25,7 +25,7 @@ use leptos::prelude::RwSignal;
 
 use crate::protocol::{
     Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
-    MessageEnvelope, PersonaSummary,
+    MessageEnvelope, PersonaSummary, ReplyPreview,
 };
 
 use super::{Pane, PendingDelete};
@@ -97,6 +97,12 @@ pub(crate) struct Composer {
     /// channel switch so each channel keeps its own draft (feedback fvffwu /
     /// fkqdtp). Client-only: never persisted or sent to the server.
     pub(crate) drafts: RwSignal<HashMap<String, String>>,
+    /// The message this compose is replying to (L-3), or `None` for a normal
+    /// send. Drives the "replying to X" composer banner and rides as
+    /// `reply_to_id` on the next send. Reuses the wire [`ReplyPreview`] shape so
+    /// the banner shows the parent author + snippet without a lookup. Cleared on
+    /// send and on channel switch.
+    pub(crate) replying_to: RwSignal<Option<ReplyPreview>>,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the

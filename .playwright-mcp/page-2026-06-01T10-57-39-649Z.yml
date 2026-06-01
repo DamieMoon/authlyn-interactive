@@ -1,0 +1,24 @@
+- main [ref=e2]:
+  - generic [ref=e15]:
+    - navigation [ref=e16]:
+      - button "@" [ref=e17] [cursor=pointer]
+      - button "🗑" [ref=e18] [cursor=pointer]
+      - generic [ref=e19]:
+        - textbox "new server" [active] [ref=e20]: Verify Guild
+        - button "+" [ref=e21] [cursor=pointer]
+    - complementary [ref=e22]:
+      - paragraph [ref=e23]: Pick or create a server, or visit Friends (@).
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - text: Signed in as
+          - strong [ref=e27]: verifier
+        - button "⚙" [ref=e28] [cursor=pointer]
+        - button "Log out" [ref=e29] [cursor=pointer]
+      - generic [ref=e30]:
+        - heading "Friends" [level=3] [ref=e31]
+        - generic [ref=e32]:
+          - textbox "add by username" [ref=e33]
+          - button "Add" [ref=e34] [cursor=pointer]
+        - list
+      - paragraph [ref=e35]

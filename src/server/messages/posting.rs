@@ -66,6 +66,21 @@ pub async fn post_message(
         }
     }
 
+    // Reply target (L-3): the parent must exist, live in THIS channel, and not be
+    // soft-deleted — else 400. Validated before any write so a reply never stores
+    // a dangling / cross-channel / deleted-parent link. NONE when not a reply.
+    let reply_to = match req.reply_to_id.as_deref().map(str::trim) {
+        Some(rid) if !rid.is_empty() => match reply_target_valid(&state, &cid, rid).await {
+            Ok(true) => Some(rid.to_string()),
+            Ok(false) => return error_response(StatusCode::BAD_REQUEST, "invalid reply target"),
+            Err(e) => {
+                tracing::error!(error = %e, "reply target check failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        },
+        _ => None,
+    };
+
     let access = match channel_access(&state, &cid, &account.0).await {
         Ok(a) => a,
         Err(e) => {
@@ -120,6 +135,7 @@ pub async fn post_message(
         active_persona.as_deref(),
         &body,
         &attachments,
+        reply_to.as_deref(),
     )
     .await
     {
@@ -143,31 +159,39 @@ async fn persist_message(
     persona: Option<&str>,
     body: &str,
     attachments: &[String],
+    reply_to: Option<&str>,
 ) -> surrealdb::Result<String> {
     // `persona` is optional; only set the field when the caller is wearing
-    // one, so a personaless author leaves it NONE.
-    let sql = if persona.is_some() {
+    // one, so a personaless author leaves it NONE. `reply_to` is likewise only
+    // set when this is a reply, so a non-reply leaves it NONE. Both are spliced
+    // as static column fragments (no user values in the SQL text); the values
+    // ride in via `.bind()`.
+    let persona_set = if persona.is_some() {
         // Snapshot the worn persona's name/description onto the row so the
         // message survives the persona being renamed or deleted later.
-        "CREATE message SET
-            channel = type::record('channel', $cid),
-            author  = type::record('account', $author),
+        ",
             persona = type::record('persona', $persona),
             persona_name = (SELECT VALUE name FROM ONLY type::record('persona', $persona)),
             persona_description = (SELECT VALUE description FROM ONLY type::record('persona', $persona)),
             persona_color = (SELECT VALUE color FROM ONLY type::record('persona', $persona)),
-            persona_avatar = (SELECT VALUE avatar FROM ONLY type::record('persona', $persona)),
-            body    = $body,
-            attachments = $attachments
-            RETURN meta::id(id) AS id_key;"
+            persona_avatar = (SELECT VALUE avatar FROM ONLY type::record('persona', $persona))"
     } else {
+        ""
+    };
+    let reply_set = if reply_to.is_some() {
+        ",
+            reply_to = type::record('message', $reply_to)"
+    } else {
+        ""
+    };
+    let sql = format!(
         "CREATE message SET
             channel = type::record('channel', $cid),
             author  = type::record('account', $author),
             body    = $body,
-            attachments = $attachments
+            attachments = $attachments{persona_set}{reply_set}
             RETURN meta::id(id) AS id_key;"
-    };
+    );
     let mut q = state
         .db
         .query(sql)
@@ -178,10 +202,33 @@ async fn persist_message(
     if let Some(persona) = persona {
         q = q.bind(("persona", persona.to_string()));
     }
+    if let Some(reply_to) = reply_to {
+        q = q.bind(("reply_to", reply_to.to_string()));
+    }
     let mut resp = q.await?.check()?;
     let row: Option<IdRow> = resp.take(0)?;
     row.map(|r| r.id_key)
         .ok_or_else(|| surrealdb::Error::thrown("CREATE message returned no row".to_string()))
+}
+
+/// True iff `rid` names a message that exists, lives in channel `cid`, and is
+/// not soft-deleted (L-3 reply target validation). Parameterized via
+/// `type::record` / `.bind`; a missing row, a cross-channel row, or a
+/// soft-deleted row all return false (caller maps to a 400).
+async fn reply_target_valid(state: &AppState, cid: &str, rid: &str) -> surrealdb::Result<bool> {
+    let mut resp = state
+        .db
+        .query(
+            "SELECT VALUE meta::id(id) FROM type::record('message', $rid)
+                WHERE channel = type::record('channel', $cid)
+                  AND deleted_at = NONE;",
+        )
+        .bind(("rid", rid.to_string()))
+        .bind(("cid", cid.to_string()))
+        .await?
+        .check()?;
+    let found: Vec<String> = resp.take(0)?;
+    Ok(!found.is_empty())
 }
 
 /// True when every id in `ids` names an existing `media_blob` (empty → true).
