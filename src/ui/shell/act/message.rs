@@ -858,6 +858,11 @@ pub(super) fn start_poll(s: Shell) {
             };
             match api::list_messages(&ch.id, None).await {
                 Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
+                    // Stale-guard: drop this tick's data if the channel changed
+                    // while the fetch was in flight (feedback gwiif7xy).
+                    if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                        continue;
+                    }
                     let fresh = unseen(s, &l.messages);
                     s.msg.typing.set(l.typing);
                     sync_messages(s, l.messages);
@@ -868,6 +873,12 @@ pub(super) fn start_poll(s: Shell) {
                     // append new messages past the cursor.
                     let cur = s.msg.cursor.get_untracked();
                     if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
+                        // Stale-guard: drop this tick's data if the channel
+                        // changed while the fetch was in flight (feedback
+                        // gwiif7xy).
+                        if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                            continue;
+                        }
                         let fresh = unseen(s, &l.messages);
                         s.msg.typing.set(l.typing);
                         ingest(s, l.messages);

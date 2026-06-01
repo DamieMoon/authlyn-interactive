@@ -92,7 +92,7 @@ pub async fn set_security_question(
 
     let question = req.question.trim().to_string();
     if !(1..=200).contains(&question.chars().count()) {
-        return error_response(StatusCode::BAD_REQUEST, "question must be 1–200 characters");
+        return error_response(StatusCode::BAD_REQUEST, "question must be 1-200 characters");
     }
     let answer = normalize_answer(&req.answer);
     if answer.chars().count() < MIN_SECURITY_ANSWER_CHARS {

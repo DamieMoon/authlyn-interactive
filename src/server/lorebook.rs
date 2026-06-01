@@ -201,7 +201,7 @@ pub async fn patch_entry(
     }
     if let Some(ref content) = req.content {
         if content.trim().is_empty() || content.chars().count() > MAX_CONTENT_CHARS {
-            return error_response(StatusCode::BAD_REQUEST, "content must be 1–8000 characters");
+            return error_response(StatusCode::BAD_REQUEST, "content must be 1-8000 characters");
         }
         sets.push("content = $content");
     }

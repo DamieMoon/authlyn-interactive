@@ -93,7 +93,7 @@ pub(super) async fn verify_on_blocking_pool(
 pub(super) fn validate_credentials(username: &str, password: &str) -> Result<(), &'static str> {
     let n = username.chars().count();
     if !(MIN_USERNAME_CHARS..=MAX_USERNAME_CHARS).contains(&n) {
-        return Err("username must be 3–32 characters");
+        return Err("username must be 3-32 characters");
     }
     if username.chars().any(char::is_whitespace) {
         return Err("username must not contain whitespace");

@@ -46,7 +46,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     Effect::new(move |_| {
         let is_open = open.get();
         #[cfg(feature = "hydrate")]
-        if is_open && inbox.get_untracked().is_none() {
+        if is_open {
             leptos::task::spawn_local(async move {
                 if let Ok(r) = crate::client::api::list_feedback().await {
                     inbox.set(Some(r.items));

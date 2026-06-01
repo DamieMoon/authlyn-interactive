@@ -136,7 +136,7 @@ pub async fn patch_channel(
         if validate_name(raw.trim()).is_err() {
             return error_response(
                 StatusCode::BAD_REQUEST,
-                "channel name must be 1–100 characters",
+                "channel name must be 1-100 characters",
             );
         }
         sets.push("name = $name");
