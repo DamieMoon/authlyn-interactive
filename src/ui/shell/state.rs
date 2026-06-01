@@ -25,7 +25,7 @@ use leptos::prelude::RwSignal;
 
 use crate::protocol::{
     Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
-    MessageEnvelope, PersonaSummary,
+    MessageEnvelope, PersonaSummary, ReplyPreview,
 };
 
 use super::{Pane, PendingDelete};
@@ -67,6 +67,11 @@ pub(crate) struct MessageView {
     pub(crate) loading_older: RwSignal<bool>,
     /// `false` once a backfill returns a short page (start of history reached).
     pub(crate) more_history: RwSignal<bool>,
+    /// True while the channel's FIRST page is in flight (set on switch, cleared
+    /// when the initial `list_messages` lands or fails). Drives the loading
+    /// skeleton: skeleton rows show only while this is set AND `messages` is
+    /// still empty (F-7). Transient client-only flag — never persisted/sent.
+    pub(crate) loading_initial: RwSignal<bool>,
     /// After an older-history prepend, the message id to re-anchor to the top
     /// so the viewport doesn't jump; the channel pane scrolls it into view.
     pub(crate) anchor_to: RwSignal<Option<String>>,
@@ -84,19 +89,59 @@ pub(crate) struct MessageView {
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) const COMPOSER_MAX_ATTACHMENTS: usize = 100;
 
+/// Lifecycle of one staged compose attachment's upload (F-8). Client-only
+/// transient state — never serialized; the wire SEND request carries only the
+/// media id once `Ready`.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) enum UploadStatus {
+    /// Bytes are going up; `f32` is the fraction `0.0..=1.0`, or `None` when the
+    /// browser can't compute a total (render an indeterminate bar).
+    Uploading(Option<f32>),
+    /// Upload finished; `att.id` is a real media id ready to send.
+    Ready,
+    /// Upload failed; the slot shows a retry button. Holds a short message.
+    Failed(String),
+}
+
+/// A composer attachment plus its transient upload lifecycle (F-8). Wraps the
+/// wire [`Attachment`] DTO rather than mutating it, so the serialized shape the
+/// server emits is untouched. While `Uploading`/`Failed` the inner
+/// `att.id` is a client-only placeholder (the file's object key index, not a
+/// media id); it becomes a real media id only on `Ready`.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct StagedAttachment {
+    /// Stable per-stage key so the view can address a slot for progress
+    /// updates / removal / retry independent of the (late-arriving) media id.
+    pub(crate) key: u64,
+    pub(crate) att: Attachment,
+    pub(crate) status: UploadStatus,
+}
+
 /// Compose box (draft text + staged attachments + last status line).
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct Composer {
     pub(crate) compose: RwSignal<String>,
-    /// Media ids already uploaded and staged to send with the next message
-    /// (the composer's pending image attachments, in pick order).
-    pub(crate) compose_attachments: RwSignal<Vec<Attachment>>,
+    /// Staged attachments with per-item upload progress/status (F-8), in pick
+    /// order. Only `Ready` items' media ids are sent with the next message.
+    pub(crate) compose_attachments: RwSignal<Vec<StagedAttachment>>,
     pub(crate) status: RwSignal<String>,
     /// Per-channel saved drafts (channel id -> in-progress text), stashed on
     /// channel switch so each channel keeps its own draft (feedback fvffwu /
     /// fkqdtp). Client-only: never persisted or sent to the server.
     pub(crate) drafts: RwSignal<HashMap<String, String>>,
+    /// Quick-swap color-swatch history (tag names, most-recent-first, capped at
+    /// 3) shown inline in the composer toolbar (feedback rli3tsora4ho7lsi9q31).
+    /// Persisted to localStorage; client-only, never sent to the server.
+    pub(crate) last_used_colors: RwSignal<Vec<String>>,
+    /// The message this compose is replying to (L-3), or `None` for a normal
+    /// send. Drives the "replying to X" composer banner and rides as
+    /// `reply_to_id` on the next send. Reuses the wire [`ReplyPreview`] shape so
+    /// the banner shows the parent author + snippet without a lookup. Cleared on
+    /// send and on channel switch.
+    pub(crate) replying_to: RwSignal<Option<ReplyPreview>>,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the
@@ -112,6 +157,11 @@ pub(crate) struct SyncState {
     pub(crate) pane: RwSignal<Pane>,
     /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
     pub(crate) nav_open: RwSignal<bool>,
+    /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
+    /// wardrobe is no longer a full pane you can only leave by selecting
+    /// another pane — it overlays the current view and closes on backdrop
+    /// click / Esc / X, and auto-closes when a channel is opened.
+    pub(crate) wardrobe_open: RwSignal<bool>,
 }
 
 /// Friends, the wardrobe, the active worn persona, and the open channel's
@@ -141,13 +191,29 @@ pub(crate) struct Notify {
     /// Channel ids the user has muted (no new-message notifications). Mirrored
     /// to localStorage so it survives reloads.
     pub(crate) muted: RwSignal<HashSet<String>>,
-    /// Channel ids with unread messages — drives the sidebar glow (#23).
+    /// Channel ids with unread messages — drives the sidebar's white glow (#23).
     /// Recomputed by the background poll against `last_seen`.
     pub(crate) unread: RwSignal<HashSet<String>>,
+    /// Channel ids whose unread messages include at least one that `@`-mentions
+    /// the signed-in user (L-4) — drives the sidebar's ORANGE ping glow, which
+    /// wins over the plain white unread glow. A subset of `unread` in practice
+    /// (a ping is always also unread). Recomputed alongside `unread` by the
+    /// poll; cleared for a channel when it's opened.
+    pub(crate) pinged: RwSignal<HashSet<String>>,
+    /// Per-channel count of unread messages (channel id → number past
+    /// `last_seen`), capped at the page size — drives the sidebar count badge
+    /// (L-4). Absent / 0 ⇒ no badge. Recomputed alongside `unread` by the poll;
+    /// cleared for a channel when it's opened.
+    pub(crate) unread_count: RwSignal<HashMap<String, usize>>,
     /// Per-channel high-water mark this client has seen: channel id →
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.
     pub(crate) last_seen: RwSignal<HashMap<String, (String, String)>>,
+    /// True once a Web Push subscription has been successfully registered with
+    /// the server this session. While true, the poll-loop suppresses its own
+    /// client `Notification` (server push already delivers it — see
+    /// `notify::notify_messages`); when false the poll path is the fallback.
+    pub(crate) web_push_enabled: RwSignal<bool>,
 }
 
 /// Soft-deleted-item overlays (#22 Phase 2): own deleted guilds, deleted

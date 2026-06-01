@@ -155,6 +155,9 @@ self.addEventListener("push", (event) => {
         channel,
         guild,
         message,
+        // The message author's persona avatar media id (server omits it when the
+        // persona has no avatar). Mapped to the large notification `image`.
+        image,
         // accept a pre-built data blob or synthesise one from top-level fields
         data,
       } = parsePushPayload(event);
@@ -167,9 +170,14 @@ self.addEventListener("push", (event) => {
       // focused window — that would silently kill push on iOS PWAs. (A
       // focused-client suppression could be gated on non-iOS later.)
       await self.registration.showNotification(title, {
+        // App icon is the small monochrome-ish badge AND the per-notification
+        // icon; the persona avatar (when present) fills the large `image` slot
+        // that was previously rendered as an empty white square. Omit `image`
+        // entirely when there's no avatar so no placeholder shows.
         body,
         icon,
         badge,
+        ...(image != null && { image: "/media/" + image }),
         // tag deduplicates: a second push with the same tag replaces the first.
         // Only set it when the payload provides one so unrelated pushes stack.
         ...(tag != null && { tag, renotify: true }),

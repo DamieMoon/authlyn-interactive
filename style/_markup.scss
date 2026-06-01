@@ -113,6 +113,28 @@
 	color: var(--ink-muted);
 }
 
+.mk-link {
+	color: var(--gold);
+	text-decoration: underline;
+	overflow-wrap: anywhere;
+
+	&:hover {
+		color: var(--gold-warm);
+	}
+}
+
+// Mention `@username` (L-4): a tinted, slightly highlighted pill — readable in
+// the body flow without being a link. Mirrors the blue palette tint used for
+// `[blue]` so it sits naturally in the existing color vocabulary.
+.mk-mention {
+	color: var(--tint-blue);
+	background: rgba(99, 132, 255, 0.14);
+	border-radius: 0.25rem;
+	padding: 0.02rem 0.22rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
 .mk-code {
 	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 	font-size: 0.88em;

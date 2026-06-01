@@ -41,7 +41,7 @@ pub(crate) use state::{
 };
 
 use account::AccountModal;
-use channel::ChannelPane;
+use channel::{ChannelManagerModal, ChannelPane};
 use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
@@ -75,7 +75,6 @@ pub(crate) enum Pane {
     Friends,
     Channel,
     Lorebook,
-    Wardrobe,
     Emoji,
     Members,
 }
@@ -113,6 +112,98 @@ pub(crate) struct Shell {
     pub(crate) prefs: Prefs,
 }
 
+/// Touch/pointer edge-swipe gesture for the mobile nav drawer (feedback row
+/// 1k0avo909pw47mmfn1zt). Attaches `pointerdown`/`pointermove`/`pointerup`
+/// listeners to `window` for the page lifetime (via `forget()`, mirroring
+/// [`act::wire_focus_clears_notifs`]).
+///
+/// Rules (discrete toggle — CSS animates the existing `transform` transition):
+/// - A drag that STARTS in the left ~20% of the viewport and moves right by
+///   more than 40px (with the horizontal travel dominating any vertical, so
+///   normal vertical scrolling isn't hijacked) opens the drawer.
+/// - A leftward drag of more than 40px while the drawer is open closes it.
+///
+/// The handlers only `.set()` the existing `nav_open` signal, which remains
+/// the single source of truth (scrim-click and channel/guild selection still
+/// drive it too). Event coordinates and `window.innerWidth` are read by
+/// reflection so no extra `web-sys` interface features are needed (same
+/// pattern as `act/notify.rs`).
+#[cfg(feature = "hydrate")]
+fn wire_swipe_drawer(s: Shell) {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    const EDGE_FRACTION: f64 = 0.20;
+    const THRESHOLD_PX: f64 = 40.0;
+
+    let Some(win) = leptos::web_sys::window() else {
+        return;
+    };
+
+    // Read `event.clientX` / `clientY` reflectively (no MouseEvent feature).
+    fn coord(ev: &JsValue, key: &str) -> Option<f64> {
+        js_sys::Reflect::get(ev, &JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.as_f64())
+    }
+    // Viewport width via reflection on `window.innerWidth`.
+    fn viewport_width(win: &leptos::web_sys::Window) -> f64 {
+        js_sys::Reflect::get(win, &JsValue::from_str("innerWidth"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    }
+
+    // (start_x, start_y, started_in_edge) — None while no drag is in flight.
+    let start: Rc<Cell<Option<(f64, f64, bool)>>> = Rc::new(Cell::new(None));
+
+    let down = {
+        let start = start.clone();
+        let win = win.clone();
+        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
+                start.set(None);
+                return;
+            };
+            let vw = viewport_width(&win);
+            let in_edge = vw > 0.0 && x <= vw * EDGE_FRACTION;
+            start.set(Some((x, y, in_edge)));
+        })
+    };
+
+    let up = {
+        let start = start.clone();
+        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+            let Some((sx, sy, in_edge)) = start.replace(None) else {
+                return;
+            };
+            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
+                return;
+            };
+            let dx = x - sx;
+            let dy = y - sy;
+            // Require horizontal travel to dominate so vertical scrolls
+            // don't toggle the drawer.
+            if dy.abs() >= dx.abs() {
+                return;
+            }
+            let open = s.sync.nav_open.get_untracked();
+            if !open && in_edge && dx > THRESHOLD_PX {
+                s.sync.nav_open.set(true);
+            } else if open && dx < -THRESHOLD_PX {
+                s.sync.nav_open.set(false);
+            }
+        })
+    };
+
+    let _ = win.add_event_listener_with_callback("pointerdown", down.as_ref().unchecked_ref());
+    let _ = win.add_event_listener_with_callback("pointerup", up.as_ref().unchecked_ref());
+    down.forget();
+    up.forget();
+}
+
 #[component]
 fn AppShell() -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
@@ -137,6 +228,7 @@ fn AppShell() -> impl IntoView {
         oldest: RwSignal::new(None),
         loading_older: RwSignal::new(false),
         more_history: RwSignal::new(true),
+        loading_initial: RwSignal::new(false),
         anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         typing: RwSignal::new(Vec::new()),
@@ -148,6 +240,8 @@ fn AppShell() -> impl IntoView {
         compose_attachments: RwSignal::new(Vec::new()),
         status: RwSignal::new(String::new()),
         drafts: RwSignal::new(crate::ui::shell::act::channel::load_drafts()),
+        last_used_colors: RwSignal::new(act::load_color_history()),
+        replying_to: RwSignal::new(None),
     };
     provide_context(composer);
 
@@ -156,6 +250,7 @@ fn AppShell() -> impl IntoView {
         me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
         nav_open: RwSignal::new(false),
+        wardrobe_open: RwSignal::new(false),
     };
     provide_context(sync);
 
@@ -180,7 +275,10 @@ fn AppShell() -> impl IntoView {
     let notify = Notify {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
+        pinged: RwSignal::new(HashSet::new()),
+        unread_count: RwSignal::new(HashMap::new()),
         last_seen: RwSignal::new(HashMap::new()),
+        web_push_enabled: RwSignal::new(false),
     };
     provide_context(notify);
 
@@ -245,6 +343,15 @@ fn AppShell() -> impl IntoView {
     let guild_trash_open = RwSignal::new(false);
     // Deleted-channel list open/closed in the sidebar (owner-only).
     let chan_trash_open = RwSignal::new(false);
+    // L-5: the unified channel-management window (create/rename/delete/reorder),
+    // opened from the owner-gated "⚙ Manage" button in the server header.
+    let channel_manager_open = RwSignal::new(false);
+    // L-5: index of the rail guild currently being dragged (HTML5 DnD), or None
+    // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
+    let rail_drag_from = RwSignal::new(None::<usize>);
+    // L-5: same, for the sidebar channel rows (shared across rows so the drop
+    // target row can read which row started the drag).
+    let chan_drag_from = RwSignal::new(None::<usize>);
     // Inline-rename edit state (owner only): the server title and per-channel rows.
     // The edit buffers live INSIDE `<InlineRename>` now (W6/C7); these signals
     // just gate whether the input is rendered at all.
@@ -309,13 +416,30 @@ fn AppShell() -> impl IntoView {
         // Keep the rail/sidebar/friends + open channel live (idempotent).
         act::start_sync(s);
         act::load_muted(s);
+        // Load the offline localStorage marks first, then overlay the
+        // server-synced read cursors on top (L-1 cross-device sync): a newer
+        // server cursor wins, a failed fetch falls back to localStorage.
         act::load_last_seen(s);
+        act::hydrate_last_seen(s);
         // Window-focus listener: when the user returns to the tab with a
         // channel already open, clear any tray notifications that arrived
         // for that channel while we were backgrounded (feedback row
         // kx24k2cwftdppidhmh0e).
         #[cfg(feature = "hydrate")]
         act::wire_focus_clears_notifs(s);
+        // SW message listener: a push notification clicked from a backgrounded
+        // PWA routes via the SW's `client.navigate()`, which throws in some
+        // standalone contexts; its fallback posts a NOTIFICATION_CLICK message
+        // to this window. Register the listener so that payload deep-links the
+        // app instead of being silently dropped (feedback br3ebxgjj1lh3qfbz3n8).
+        #[cfg(feature = "hydrate")]
+        act::wire_notification_click(s);
+        // Mobile edge-swipe: a rightward drag starting in the left edge zone
+        // opens the nav drawer; a leftward drag while open closes it. The
+        // handlers only `.set()` the existing `nav_open` signal, so it stays
+        // the single source of truth (scrim-click / channel-open still win).
+        #[cfg(feature = "hydrate")]
+        wire_swipe_drawer(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -337,15 +461,33 @@ fn AppShell() -> impl IntoView {
                         let gid_active = gid.clone();
                         let gid_unread = gid.clone();
                         view! {
-                            <div class="rail-guild-wrap">
+                            // Drag-to-reorder (HTML5): the wrap is draggable;
+                            // dragstart records this index, dragover allows the
+                            // drop, drop moves the dragged guild here (L-5).
+                            <div class="rail-guild-wrap" draggable="true"
+                                on:dragstart=move |_ev| rail_drag_from.set(Some(idx))
+                                on:dragover=move |_ev| {
+                                    #[cfg(feature = "hydrate")] _ev.prevent_default();
+                                }
+                                on:drop=move |_ev| {
+                                    #[cfg(feature = "hydrate")] {
+                                        _ev.prevent_default();
+                                        if let Some(from) = rail_drag_from.get_untracked() {
+                                            act::move_guild(s, from, idx);
+                                        }
+                                        rail_drag_from.set(None);
+                                    }
+                                }
+                                on:dragend=move |_ev| rail_drag_from.set(None)>
                                 <button class="rail-guild" title=g.name
                                     class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
                                     class:unread=move || act::guild_has_unread(s, &gid_unread)
                                     on:click=move |_| act::open_server(s, gid.clone())>
                                     {initial}
                                 </button>
-                                // Personal rail reorder ↑/↓ (#17/FB2). ↑ disabled
-                                // on the first guild, ↓ on the last.
+                                // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
+                                // a neighbour, ⤒/⤓ bring to top/bottom. ↑/⤒
+                                // disabled on the first guild, ↓/⤓ on the last.
                                 <div class="rail-reorder">
                                     <button class="rail-reorder-btn" title="Move up"
                                         disabled=move || idx == 0
@@ -353,6 +495,12 @@ fn AppShell() -> impl IntoView {
                                     <button class="rail-reorder-btn" title="Move down"
                                         disabled=move || idx == len.saturating_sub(1)
                                         on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
+                                    <button class="rail-reorder-btn" title="Bring to top"
+                                        disabled=move || idx == 0
+                                        on:click=move |_| act::move_guild_to_bounds(s, idx, true)>"⤒"</button>
+                                    <button class="rail-reorder-btn" title="Bring to bottom"
+                                        disabled=move || idx == len.saturating_sub(1)
+                                        on:click=move |_| act::move_guild_to_bounds(s, idx, false)>"⤓"</button>
                                 </div>
                             </div>
                         }
@@ -439,6 +587,10 @@ fn AppShell() -> impl IntoView {
                             view! {
                                 <span class="server-title">{server_name()}</span>
                                 <Show when=is_owner fallback=|| ()>
+                                    // L-5: open the unified channel-management
+                                    // window (create/rename/delete/reorder).
+                                    <button class="row-edit" title="Manage channels"
+                                        on:click=move |_| channel_manager_open.set(true)>"⚙"</button>
                                     <button class="row-edit" title="rename server"
                                         on:click=move |_| editing_server.set(true)>"✎"</button>
                                     <button class="row-edit danger" title="delete server"
@@ -476,7 +628,7 @@ fn AppShell() -> impl IntoView {
                             let chans = s.sel.channels.get();
                             let len = chans.len();
                             chans.into_iter().enumerate().map(|(idx, c)| {
-                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel/> }
+                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel drag_from=chan_drag_from/> }
                             }).collect_view()
                         }}
                     </ul>
@@ -531,6 +683,12 @@ fn AppShell() -> impl IntoView {
                                 }>"Create"</button>
                             </div>
                         </Modal>
+                    })}
+                    // L-5: the unified channel-management window. Owner-gated
+                    // open (the server re-checks require_manager on every
+                    // mutate, so the gate is defence-in-depth, not the boundary).
+                    {move || (channel_manager_open.get() && is_owner()).then(|| view! {
+                        <ChannelManagerModal s=s open=channel_manager_open/>
                     })}
                     // Deleted-channels panel (owner only).
                     <Show when=is_owner fallback=|| ()>
@@ -644,7 +802,6 @@ fn AppShell() -> impl IntoView {
                     Pane::Friends => view! { <FriendsPane/> }.into_any(),
                     Pane::Channel => view! { <ChannelPane/> }.into_any(),
                     Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
-                    Pane::Wardrobe => view! { <WardrobePane/> }.into_any(),
                     Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
                     Pane::Members => view! { <MembersPane/> }.into_any(),
                 }}
@@ -659,6 +816,22 @@ fn AppShell() -> impl IntoView {
             } else {
                 ().into_any()
             }}
+
+            // Wardrobe popup (F-2): a dismissible Modal — backdrop click, Esc, or
+            // the X close it. Auto-closes when a channel is opened (act::open_channel
+            // clears `wardrobe_open`). The wide variant widens the dialog for the
+            // persona grid; nested modals inside `WardrobePane` (detail editor, info
+            // popup) keep their own `stop_propagation` so inner backdrop clicks only
+            // dismiss the inner modal, not this one.
+            {move || s.sync.wardrobe_open.get().then(|| {
+                view! {
+                    <Modal class="wardrobe-modal" close=move || s.sync.wardrobe_open.set(false)>
+                        <button class="modal-x" title="close" aria-label="Close wardrobe"
+                            on:click=move |_| s.sync.wardrobe_open.set(false)>"✕"</button>
+                        <WardrobePane/>
+                    </Modal>
+                }
+            })}
 
             // Top-level confirm dialog for destructive actions. Shown whenever a
             // `PendingDelete` is queued; backdrop/Cancel clears it without acting,
@@ -692,21 +865,41 @@ fn ChannelRow(
     idx: usize,
     len: usize,
     editing: RwSignal<Option<String>>,
+    // L-5: the shared drag-source index for HTML5 drag-to-reorder (owned by
+    // `AppShell`). `None` between drags.
+    drag_from: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
         me.is_some() && me == s.sel.sel_owner.get()
     };
-    // `idx`/`len` feed the reorder buttons' `disabled` closures, which the
-    // `view!` macro strips on ssr — silence the ssr-side unused warning the same
-    // way wardrobe.rs does for the persona reorder controls.
-    let _ = (idx, len);
+    // `idx`/`len`/`drag_from` feed the reorder buttons' `disabled` closures and
+    // the drag handlers, which the `view!` macro strips on ssr — silence the
+    // ssr-side unused warning the same way wardrobe.rs does.
+    let _ = (idx, len, drag_from);
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
     let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
     view! {
-        <li>
+        // Drag-to-reorder (owner only in practice; the server re-checks).
+        // dragstart records this row, dragover allows the drop, drop moves the
+        // dragged channel to this index (L-5).
+        <li draggable="true"
+            on:dragstart=move |_ev| drag_from.set(Some(idx))
+            on:dragover=move |_ev| {
+                #[cfg(feature = "hydrate")] _ev.prevent_default();
+            }
+            on:drop=move |_ev| {
+                #[cfg(feature = "hydrate")] {
+                    _ev.prevent_default();
+                    if let Some(from) = drag_from.get_untracked() {
+                        act::move_channel(s, from, idx);
+                    }
+                    drag_from.set(None);
+                }
+            }
+            on:dragend=move |_ev| drag_from.set(None)>
             {move || {
                 let cid = cid.clone();
                 let name0 = name0.clone();
@@ -729,23 +922,56 @@ fn ChannelRow(
                     let active_cid = cid.clone();
                     let active = move || s.sel.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
                     let unread_cid = cid.clone();
+                    // White glow for plain unread; orange `pinged` glow WINS when
+                    // the channel has a ping for me (L-4). The CSS keys off both
+                    // classes — `.pinged` overrides `.unread` styling.
                     let unread = move || s.notify.unread.get().contains(&unread_cid);
+                    let pinged_cid = cid.clone();
+                    let pinged = move || s.notify.pinged.get().contains(&pinged_cid);
+                    // Per-channel unread count badge (L-4): a small pill showing
+                    // the number of unread messages, hidden (no badge) at 0. One
+                    // reactive closure owning a single cid clone renders either the
+                    // badge span or an empty view, so it stays `Fn` (a non-`Copy`
+                    // String can't be shared across a separate `when` + children).
+                    let badge_cid = cid.clone();
+                    let badge = move || {
+                        let n = s
+                            .notify
+                            .unread_count
+                            .get()
+                            .get(&badge_cid)
+                            .copied()
+                            .unwrap_or(0);
+                        if n == 0 {
+                            return ().into_any();
+                        }
+                        let label = if n > 99 { "99+".to_string() } else { n.to_string() };
+                        view! { <span class="channel-badge">{label}</span> }.into_any()
+                    };
                     let start_cid = cid.clone();
                     let start_name = name0.clone();
                     view! {
-                        <button class="channel" class:active=active class:unread=unread
+                        <button class="channel" class:active=active class:unread=unread class:pinged=pinged
                             on:click=move |_| { act::open_channel(s, ch.clone()); s.sync.nav_open.set(false); }>
                             {sigil}{name0.clone()}
+                            {badge}
                         </button>
                         <Show when=is_owner fallback=|| ()>
-                            // Reorder ↑/↓ — mirrors the persona/lorebook pattern.
-                            // ↑ disabled on the first channel, ↓ on the last.
+                            // Reorder (L-5): ↑/↓ swap a neighbour, ⤒/⤓ bring to
+                            // top/bottom. ↑/⤒ disabled on the first channel,
+                            // ↓/⤓ on the last.
                             <button class="channel-reorder" title="Move up"
                                 disabled=move || idx == 0
                                 on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
                             <button class="channel-reorder" title="Move down"
                                 disabled=move || idx == len.saturating_sub(1)
                                 on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
+                            <button class="channel-reorder" title="Bring to top"
+                                disabled=move || idx == 0
+                                on:click=move |_| act::move_channel_to_bounds(s, idx, true)>"⤒"</button>
+                            <button class="channel-reorder" title="Bring to bottom"
+                                disabled=move || idx == len.saturating_sub(1)
+                                on:click=move |_| act::move_channel_to_bounds(s, idx, false)>"⤓"</button>
                             <button class="row-edit" title="rename channel" on:click={
                                 let start_cid = start_cid.clone();
                                 move |_| editing.set(Some(start_cid.clone()))

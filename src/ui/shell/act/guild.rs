@@ -55,6 +55,41 @@ pub fn swap_guild(s: Shell, idx: usize, up: bool) {
         idx + 1
     };
     list.swap(idx, other);
+    persist_rail_order(s, list);
+}
+
+/// Move a rail guild to an absolute `target` index (drag-and-drop drop target).
+/// Removes the dragged guild from `idx` and re-inserts it at `target`, then
+/// PUTs the full new order like [`swap_guild`]. No-op when `idx == target` or
+/// either is out of range.
+#[cfg(feature = "hydrate")]
+pub fn move_guild(s: Shell, idx: usize, target: usize) {
+    let mut list = s.sel.guilds.get_untracked();
+    if idx >= list.len() || target >= list.len() || idx == target {
+        return;
+    }
+    let item = list.remove(idx);
+    list.insert(target, item);
+    persist_rail_order(s, list);
+}
+
+/// Bring a rail guild to the very top (`top = true`) or bottom — the mobile /
+/// keyboard fallback for drag. Defers to [`move_guild`].
+#[cfg(feature = "hydrate")]
+pub fn move_guild_to_bounds(s: Shell, idx: usize, top: bool) {
+    let len = s.sel.guilds.get_untracked().len();
+    if len == 0 {
+        return;
+    }
+    let target = if top { 0 } else { len - 1 };
+    move_guild(s, idx, target);
+}
+
+/// Shared tail of the rail reorders: optimistically set the new local order,
+/// PUT the full id list, then reload to confirm. Factored out of
+/// [`swap_guild`]'s body so the drag / bounds helpers reuse the same flow.
+#[cfg(feature = "hydrate")]
+fn persist_rail_order(s: Shell, list: Vec<crate::protocol::GuildSummary>) {
     s.sel.guilds.set(list.clone());
     let order: Vec<String> = list.iter().map(|g| g.id.clone()).collect();
     spawn_local(async move {
@@ -183,6 +218,11 @@ pub fn restore_deleted_guild(s: Shell, gid: String) {
 pub fn refresh_guilds(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn swap_guild(_s: Shell, _idx: usize, _up: bool) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn move_guild(_s: Shell, _idx: usize, _target: usize) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn move_guild_to_bounds(_s: Shell, _idx: usize, _top: bool) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn open_server(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]

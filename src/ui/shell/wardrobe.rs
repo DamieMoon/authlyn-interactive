@@ -218,6 +218,9 @@ pub(crate) fn WardrobePane() -> impl IntoView {
     // description, case-insensitive). Reorder controls are hidden while a query
     // is active, since card indices then wouldn't map to the full list.
     let search = RwSignal::new(String::new());
+    // L-5: shared drag-source index for HTML5 drag-to-reorder across cards.
+    // `None` between drags. Only live while not filtering (see PersonaCard).
+    let drag_from = RwSignal::new(None::<usize>);
 
     view! {
         <div class="pane wardrobe">
@@ -293,7 +296,7 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                         .map(|(idx, p)| {
                             view! {
                                 <PersonaCard s=s p=p selected=selected info=info
-                                    idx=idx len=len reorder=!filtering/>
+                                    idx=idx len=len reorder=!filtering drag_from=drag_from/>
                             }
                         })
                         .collect_view()
@@ -317,6 +320,9 @@ fn PersonaCard(
     idx: usize,
     len: usize,
     reorder: bool,
+    // L-5: shared drag-source index for HTML5 drag-to-reorder. Drag is only
+    // wired when `reorder` (filtering off), so indices map to the full list.
+    drag_from: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let pid = p.id.clone();
     let pid_worn = pid.clone();
@@ -334,10 +340,35 @@ fn PersonaCard(
 
     // Suppress spurious "unused" warnings: clippy can't always trace captures
     // through the view! macro (mirrors the lorebook reorder workaround).
-    let _ = (idx, len, reorder);
+    let _ = (idx, len, reorder, drag_from);
 
     view! {
-        <div class="persona-card" class:worn=move || worn.get()>
+        // Drag-to-reorder (only when not filtering). dragstart records this
+        // card, dragover allows the drop, drop moves the dragged card here.
+        <div class="persona-card" class:worn=move || worn.get()
+            draggable=move || if reorder { "true" } else { "false" }
+            on:dragstart=move |_ev| {
+                if reorder {
+                    drag_from.set(Some(idx));
+                }
+            }
+            on:dragover=move |_ev| {
+                #[cfg(feature = "hydrate")]
+                if reorder {
+                    _ev.prevent_default();
+                }
+            }
+            on:drop=move |_ev| {
+                #[cfg(feature = "hydrate")]
+                if reorder {
+                    _ev.prevent_default();
+                    if let Some(from) = drag_from.get_untracked() {
+                        act::move_persona(s, from, idx);
+                    }
+                    drag_from.set(None);
+                }
+            }
+            on:dragend=move |_ev| drag_from.set(None)>
             // Portrait slot: the uploaded avatar if set, else the monogram.
             <div class="card-portrait" title="persona portrait">
                 {portrait(&p.avatar_id, &p.name)}
@@ -364,6 +395,12 @@ fn PersonaCard(
                     <button class="persona-reorder" title="Move down"
                         disabled=move || idx == len.saturating_sub(1)
                         on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
+                    <button class="persona-reorder" title="Bring to top"
+                        disabled=move || idx == 0
+                        on:click=move |_| act::move_persona_to_bounds(s, idx, true)>"⤒"</button>
+                    <button class="persona-reorder" title="Bring to bottom"
+                        disabled=move || idx == len.saturating_sub(1)
+                        on:click=move |_| act::move_persona_to_bounds(s, idx, false)>"⤓"</button>
                 })}
                 <Show when=move || worn.get()
                     fallback=move || {

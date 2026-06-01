@@ -35,20 +35,54 @@ const DEFAULT_MIME: &str = "application/octet-stream";
 /// Reject absurd MIME strings (a sane image type is well under this).
 const MAX_MIME_LEN: usize = 255;
 
-/// Inline-renderable raster image MIME allowlist. The media store is image-only
-/// (avatars, persona art, gallery, attachments). Restricting uploads to these —
-/// and serving anything else as a download (see [`serve_original`]) — removes
-/// the stored-XSS / content-sniffing vector of serving attacker-controlled
-/// active content (e.g. `text/html`, `image/svg+xml`) from our own origin
-/// (review F-D8-3).
+/// Inline-renderable raster image MIME allowlist. These are the only types
+/// served back with their stored `Content-Type` so `<img src="/media/{id}">`
+/// renders; every other allowed type is forced to an attachment download (see
+/// [`serve_original`]). SVG is deliberately excluded — it is XML and can carry
+/// script, so serving it inline would be a stored-XSS vector (review F-D8-3).
 const INLINE_IMAGE_MIMES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
-/// True if `mime`'s base type (ignoring any `; charset=…` parameters) is an
-/// inline-safe raster image. SVG is deliberately excluded — it is XML and can
-/// carry script.
+/// Non-image MIME types accepted for upload but never served inline — each is
+/// neutralized to an `octet-stream` attachment on GET (see [`serve_original`]).
+/// SCRIPT-CAPABLE types are intentionally absent (`text/html`,
+/// `image/svg+xml`, `application/javascript`, `application/xhtml+xml`, any
+/// executable): they are REJECTED at upload so attacker-controlled active
+/// content can never be stored and later served from our own origin (F-D8-3).
+const ALLOWED_DOWNLOAD_MIMES: [&str; 8] = [
+    "video/mp4",
+    "video/webm",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/wav",
+    "application/pdf",
+    "application/zip",
+    "text/plain",
+];
+
+/// Base type of `mime`, lowercased — strips any `; charset=…` parameters.
+fn mime_base(mime: &str) -> &str {
+    mime.split(';').next().unwrap_or("").trim()
+}
+
+/// True if `mime`'s base type is an inline-safe raster image. SVG is excluded
+/// (it is XML and can carry script); these are served with their stored type.
 fn is_inline_image_mime(mime: &str) -> bool {
-    let base = mime.split(';').next().unwrap_or("").trim();
+    let base = mime_base(mime);
     INLINE_IMAGE_MIMES
+        .iter()
+        .any(|allowed| base.eq_ignore_ascii_case(allowed))
+}
+
+/// True if `mime` may be uploaded: an inline-safe image OR one of the
+/// download-only types. Everything else (script-capable / unknown) is rejected.
+/// Inline-renderable images keep their type on serve; download types are forced
+/// to a safe attachment by [`serve_original`].
+fn is_allowed_attachment_mime(mime: &str) -> bool {
+    if is_inline_image_mime(mime) {
+        return true;
+    }
+    let base = mime_base(mime);
+    ALLOWED_DOWNLOAD_MIMES
         .iter()
         .any(|allowed| base.eq_ignore_ascii_case(allowed))
 }
@@ -70,14 +104,15 @@ pub async fn upload_media(
     if bytes.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "file must not be empty");
     }
-    // Image-only store: reject anything else so attacker-controlled active
-    // content (text/html, image/svg+xml, …) can never be stored and later
-    // served from our origin (review F-D8-3). The serve path hardens legacy
-    // rows that predate this check.
-    if !is_inline_image_mime(&mime) {
+    // Allowlist: images render inline, the other allowed types download as a
+    // neutralized attachment. SCRIPT-CAPABLE types (text/html, image/svg+xml,
+    // application/javascript, …) are rejected so attacker-controlled active
+    // content can never be stored and later served from our origin (F-D8-3).
+    // The serve path additionally hardens legacy rows predating this check.
+    if !is_allowed_attachment_mime(&mime) {
         return error_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "unsupported media type (allowed: PNG, JPEG, GIF, WebP)",
+            "unsupported media type (images, MP4/WebM video, MP3/M4A/WAV audio, PDF, ZIP, or plain text)",
         );
     }
 

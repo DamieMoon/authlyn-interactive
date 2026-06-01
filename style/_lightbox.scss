@@ -1,6 +1,9 @@
 @use "tokens" as *;
 
-// Near-fullscreen image viewer.
+// Near-fullscreen image viewer with same-message gallery nav + CSS-transform
+// zoom. `touch-action: none` (also added by Wave 0 P-1 — keep deduped on merge)
+// + preventDefault on pointer events stops the browser back-swipe / page-scroll
+// from firing while swiping between gallery images.
 .lightbox {
 	position: fixed;
 	inset: 0;
@@ -10,12 +13,19 @@
 	align-items: center;
 	justify-content: center;
 	cursor: zoom-out;
+	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
+	// lightbox can't trigger zoom/ghosting in the standalone PWA.
+	touch-action: none;
 
 	.lightbox-img {
 		max-width: 95vw;
 		max-height: 95vh;
 		object-fit: contain;
 		border-radius: 6px;
+		// Zoom is a CSS transform driven by the inline `scale()` style; animate
+		// the step so +/- feels smooth. No drag-to-pan in v1 (centres only).
+		transition: transform 0.12s ease-out;
+		transform-origin: center center;
 	}
 
 	.lightbox-close {
@@ -30,5 +40,55 @@
 		color: var(--ink);
 		font-size: 1.1rem;
 		cursor: pointer;
+	}
+
+	// Prev/next gallery arrows — only rendered for multi-image messages.
+	.lightbox-nav {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 2.8rem;
+		height: 2.8rem;
+		border-radius: 50%;
+		border: none;
+		background: rgba(28, 26, 43, 0.9);
+		color: var(--ink);
+		font-size: 1.6rem;
+		line-height: 1;
+		cursor: pointer;
+
+		&:disabled {
+			opacity: 0.3;
+			cursor: default;
+		}
+	}
+
+	.lightbox-prev {
+		left: 1rem;
+	}
+
+	.lightbox-next {
+		right: 1rem;
+	}
+
+	// Zoom control cluster, bottom-centre.
+	.lightbox-zoom {
+		position: absolute;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		gap: 0.4rem;
+
+		button {
+			width: 2.4rem;
+			height: 2.4rem;
+			border-radius: 50%;
+			border: none;
+			background: rgba(28, 26, 43, 0.9);
+			color: var(--ink);
+			font-size: 1.1rem;
+			cursor: pointer;
+		}
 	}
 }

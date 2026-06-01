@@ -46,6 +46,9 @@ pub(super) fn message_meta(
     let mid = m.id.clone();
     let cid = cid.clone();
     let copy_body = m.body.clone();
+    // The whole envelope, captured for the reply affordance — `start_reply`
+    // builds the banner preview from it (L-3).
+    let reply_m = m.clone();
 
     view! {
         <div class="meta">
@@ -57,6 +60,10 @@ pub(super) fn message_meta(
             // so the markup source can be re-pasted under a different persona;
             // edit + delete remain own-message only.
             <span class="msg-actions">
+                // Reply is available on every message (own AND others), like
+                // copy; click stashes the parent in the composer banner (L-3).
+                <button class="row-edit" title="reply"
+                    on:click=move |_| act::start_reply(s, reply_m.clone())>"↩"</button>
                 <button class="row-edit" title="copy markup (no color)"
                     on:click=move |_| act::copy_message_body(s, copy_body.clone())>"📋"</button>
                 {mine.then(|| {

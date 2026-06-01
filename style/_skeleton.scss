@@ -1,0 +1,92 @@
+// Loading skeletons (F-7): CSS-only shimmer placeholders shown while a
+// channel's first page (or an image thumb) is loading. No per-frame JS — the
+// `shimmer` keyframes sweep a gradient across each placeholder surface.
+//
+// Two consumers:
+//  - `.msg-skeleton` rows in the message list (rendered by
+//    `channel/skeleton.rs`), modeled on the real `.msg` card so the swap to
+//    real content doesn't shift the pane.
+//  - `.att-thumb.att-loading` image cells, which carry the shimmer until the
+//    thumbnail's first `load`/`error` event clears the class.
+
+// Reused shimmer background: a soft highlight band swept left-to-right over
+// the placeholder surface. `200% 100%` so the sweep has room to travel.
+@mixin shimmer-surface {
+	background-image: linear-gradient(
+		90deg,
+		var(--vellum-2) 0%,
+		var(--rule-line) 20%,
+		var(--vellum-2) 40%,
+		var(--vellum-2) 100%
+	);
+	background-size: 200% 100%;
+	animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
+
+.content {
+	.channel-view {
+		// A skeleton row mirrors the real `.msg` card layout (avatar to the
+		// left, body bars to the right) so real content swaps in without a
+		// jump. Subtle — slightly dimmed so it reads as "loading", not content.
+		.msg.msg-skeleton {
+			flex-direction: row;
+			align-items: flex-start;
+			gap: 0.6rem;
+			opacity: 0.7;
+
+			.skel-avatar {
+				flex: none;
+				width: 2.2rem;
+				height: 2.2rem;
+				border-radius: 50%;
+				@include shimmer-surface;
+			}
+
+			.skel-body {
+				flex: 1;
+				min-width: 0;
+				display: flex;
+				flex-direction: column;
+				gap: 0.4rem;
+				padding-top: 0.15rem;
+			}
+
+			.skel-bar {
+				display: block;
+				height: 0.7rem;
+				border-radius: 0.35rem;
+				@include shimmer-surface;
+			}
+
+			// The "author name" bar is shorter; body lines span most of the
+			// width, with an alternating shorter trailing line for variety.
+			.skel-name {
+				width: 30%;
+				height: 0.6rem;
+			}
+
+			.skel-line {
+				width: 90%;
+			}
+
+			.skel-short {
+				width: 55%;
+			}
+		}
+	}
+}
+
+// Image thumbnails shimmer until their first load. The class is removed on
+// `load`/`error`, at which point the painted image covers the gradient.
+.attachments .att-thumb.att-loading {
+	@include shimmer-surface;
+}

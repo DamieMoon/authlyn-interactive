@@ -51,18 +51,25 @@ pub fn send_message(s: Shell) {
         return;
     };
     let body = s.composer.compose.get_untracked();
-    // The wire SEND request is ids-only; map the staged attachments down.
+    // The wire SEND request is ids-only; map the staged attachments down,
+    // keeping only the ones whose upload has finished (`Ready`) — in-flight or
+    // failed slots carry a placeholder id, not a real media id (F-8).
     let attachments: Vec<String> = s
         .composer
         .compose_attachments
         .get_untracked()
         .into_iter()
-        .map(|a| a.id)
+        .filter(|a| a.status == super::super::state::UploadStatus::Ready)
+        .map(|a| a.att.id)
         .collect();
     // A message needs text OR at least one attachment.
     if body.trim().is_empty() && attachments.is_empty() {
         return;
     }
+    // Capture + clear the reply target (L-3): the parent id rides as
+    // `reply_to_id`, and the banner clears the moment we send.
+    let reply_to_id = s.composer.replying_to.get_untracked().map(|r| r.id);
+    s.composer.replying_to.set(None);
     s.composer.compose.set(String::new());
     // Drop the now-sent channel's persisted draft (removes the key + persists).
     super::channel::save_draft(s, "");
@@ -70,13 +77,13 @@ pub fn send_message(s: Shell) {
     s.composer.status.set(String::new());
     // Sending is a user gesture — a reliable point to request notification
     // permission so background channels can notify later.
-    super::notify::request_notify_permission();
+    super::notify::request_notify_permission(s);
     // Carry the persona worn in THIS channel so attribution is decided at
     // send time (race-proof) rather than depending on a separately-written
     // per-channel row having committed.
     let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
-        match api::post_message(&ch.id, &body, attachments, persona).await {
+        match api::post_message(&ch.id, &body, attachments, persona, reply_to_id).await {
             Ok(_) => {
                 let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
@@ -98,66 +105,207 @@ pub fn send_message(s: Shell) {
 /// attachment (its media id is sent with the next message). The browser's
 /// reported MIME (`file.type_()`) is kept locally so the pending thumbnail
 /// renders image-vs-video correctly before the message round-trips.
+///
+/// F-8: the slot is inserted immediately in `Uploading` state and its progress
+/// bar is driven from `upload_media_with_progress`; on success it flips to
+/// `Ready` (real media id), on failure to `Failed` with a retry button.
 #[cfg(feature = "hydrate")]
 pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
     s.composer.status.set(String::new());
+    let key = next_stage_key();
     let mime = file.type_();
-    spawn_local(async move {
-        match api::upload_media(&file).await {
-            Ok(id) => s
-                .composer
-                .compose_attachments
-                .update(|v| v.push(crate::protocol::Attachment { id, mime })),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
+    stash_retry_file(key, file.clone());
+    s.composer.compose_attachments.update(|v| {
+        v.push(super::super::state::StagedAttachment {
+            key,
+            att: crate::protocol::Attachment {
+                id: format!("pending-{key}"),
+                mime,
+            },
+            status: super::super::state::UploadStatus::Uploading(Some(0.0)),
+        });
     });
+    spawn_local(async move { upload_staged(s, key, file).await });
 }
 
-/// Upload a batch of picked files concurrently and stage them **in pick
-/// order**. `join_all` resolves to results in the input order, so a
-/// faster-uploading later file can't jump ahead of an earlier one — fixes the
-/// reversed/scrambled batch order (feedback mnjs2ljw…) that `add_compose_attachment`
-/// caused by pushing on each upload's completion. Mirrors the wardrobe's
-/// concurrent-upload pattern (`shell/wardrobe.rs`).
+/// Upload a batch of picked files and stage them **in pick order**. The slots
+/// are inserted up front in `files` order so the row layout is stable; each
+/// upload then drives its own slot's progress independently (F-8). Concurrency
+/// is left to the browser's connection pool. Replaces the prior `join_all`
+/// reorder fix (feedback mnjs2ljw…) — order is now guaranteed by inserting the
+/// slots before any upload completes, not by awaiting in order.
 #[cfg(feature = "hydrate")]
 pub fn add_compose_attachments(s: Shell, files: Vec<web_sys::File>) {
     if files.is_empty() {
         return;
     }
     s.composer.status.set(String::new());
-    spawn_local(async move {
-        // Pair each file's MIME (read synchronously) with its upload, then run
-        // them all at once; the result Vec stays in `files` order.
-        let uploads = files.iter().map(|f| {
+    // Insert all slots first (pick order), then kick off the uploads.
+    let staged: Vec<(u64, web_sys::File)> = files
+        .into_iter()
+        .map(|f| {
+            let key = next_stage_key();
             let mime = f.type_();
-            async move {
-                api::upload_media(f)
-                    .await
-                    .map(|id| crate::protocol::Attachment { id, mime })
-            }
-        });
-        let results = futures_util::future::join_all(uploads).await;
-        let mut last_err = None;
-        s.composer.compose_attachments.update(|v| {
-            for r in results {
-                match r {
-                    Ok(att) => v.push(att),
-                    Err(e) => last_err = Some(e),
+            stash_retry_file(key, f.clone());
+            s.composer.compose_attachments.update(|v| {
+                v.push(super::super::state::StagedAttachment {
+                    key,
+                    att: crate::protocol::Attachment {
+                        id: format!("pending-{key}"),
+                        mime,
+                    },
+                    status: super::super::state::UploadStatus::Uploading(Some(0.0)),
+                });
+            });
+            (key, f)
+        })
+        .collect();
+    for (key, f) in staged {
+        spawn_local(async move { upload_staged(s, key, f).await });
+    }
+}
+
+/// Run one staged attachment's upload, writing progress into its slot and
+/// flipping it to `Ready`/`Failed` on completion (F-8). Shared by the single,
+/// batch, and retry entry points.
+#[cfg(feature = "hydrate")]
+async fn upload_staged(s: Shell, key: u64, file: web_sys::File) {
+    let result = api::upload_media_with_progress(&file, move |frac| {
+        set_stage_status(
+            s,
+            key,
+            super::super::state::UploadStatus::Uploading(Some(frac)),
+        );
+    })
+    .await;
+    match result {
+        Ok(id) => {
+            forget_retry_file(key);
+            s.composer.compose_attachments.update(|v| {
+                if let Some(it) = v.iter_mut().find(|it| it.key == key) {
+                    it.att.id = id;
+                    it.status = super::super::state::UploadStatus::Ready;
                 }
-            }
-        });
-        if let Some(e) = last_err {
-            s.composer.status.set(api::humanize(&e));
+            });
+        }
+        Err(e) => set_stage_status(
+            s,
+            key,
+            super::super::state::UploadStatus::Failed(api::humanize(&e)),
+        ),
+    }
+}
+
+/// Re-attempt a failed staged upload using the file stashed at stage time
+/// (F-8). No-op if the slot or file is gone (already removed).
+#[cfg(feature = "hydrate")]
+pub fn retry_compose_attachment(s: Shell, key: u64) {
+    let Some(file) = peek_retry_file(key) else {
+        return;
+    };
+    set_stage_status(
+        s,
+        key,
+        super::super::state::UploadStatus::Uploading(Some(0.0)),
+    );
+    spawn_local(async move { upload_staged(s, key, file).await });
+}
+
+/// Write a staged attachment's status by key, if it still exists.
+#[cfg(feature = "hydrate")]
+fn set_stage_status(s: Shell, key: u64, status: super::super::state::UploadStatus) {
+    s.composer.compose_attachments.update(|v| {
+        if let Some(it) = v.iter_mut().find(|it| it.key == key) {
+            it.status = status;
         }
     });
 }
 
-/// Drop one staged attachment before sending.
+/// Drop one staged attachment before sending, addressed by its stage key
+/// (stable across the upload lifecycle, unlike the late-arriving media id).
 #[cfg(feature = "hydrate")]
-pub fn remove_compose_attachment(s: Shell, id: String) {
+pub fn remove_compose_attachment(s: Shell, key: u64) {
+    forget_retry_file(key);
     s.composer
         .compose_attachments
-        .update(|v| v.retain(|a| a.id != id));
+        .update(|v| v.retain(|a| a.key != key));
+}
+
+// ---- staged-upload bookkeeping (hydrate-only, F-8) ----
+
+#[cfg(feature = "hydrate")]
+thread_local! {
+    /// Monotonic counter minting unique stage keys per staged attachment.
+    static STAGE_KEY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Files held for retry, keyed by stage key. `web_sys::File` is `!Send` and
+    /// hydrate-only, so it lives here rather than in the shared `Composer`
+    /// state. Entries are dropped on success or removal.
+    static RETRY_FILES: std::cell::RefCell<std::collections::HashMap<u64, web_sys::File>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+#[cfg(feature = "hydrate")]
+fn next_stage_key() -> u64 {
+    STAGE_KEY.with(|c| {
+        let k = c.get().wrapping_add(1);
+        c.set(k);
+        k
+    })
+}
+
+#[cfg(feature = "hydrate")]
+fn stash_retry_file(key: u64, file: web_sys::File) {
+    RETRY_FILES.with(|m| {
+        m.borrow_mut().insert(key, file);
+    });
+}
+
+#[cfg(feature = "hydrate")]
+fn peek_retry_file(key: u64) -> Option<web_sys::File> {
+    RETRY_FILES.with(|m| m.borrow().get(&key).cloned())
+}
+
+#[cfg(feature = "hydrate")]
+fn forget_retry_file(key: u64) {
+    RETRY_FILES.with(|m| {
+        m.borrow_mut().remove(&key);
+    });
+}
+
+/// Begin replying to message `m` (L-3): stash a [`ReplyPreview`] built from the
+/// row so the composer banner shows the parent author + snippet, and so the
+/// next send carries `reply_to_id`. Single-level — replying to a reply quotes
+/// THAT message, never its own parent. Focuses the composer for a fast reply.
+#[cfg(feature = "hydrate")]
+pub fn start_reply(s: Shell, m: MessageEnvelope) {
+    let who = m
+        .persona_name
+        .clone()
+        .unwrap_or_else(|| m.author_display.clone());
+    let snippet: String = m.body.chars().take(100).collect();
+    s.composer
+        .replying_to
+        .set(Some(crate::protocol::ReplyPreview {
+            id: m.id,
+            author_display: who,
+            body_snippet: snippet,
+        }));
+    if let Some(el) = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.query_selector(".composer textarea").ok().flatten())
+    {
+        use wasm_bindgen::JsCast;
+        if let Ok(input) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+            let _ = input.focus();
+        }
+    }
+}
+
+/// Clear the active reply target (the banner's ✕), reverting the next send to a
+/// normal non-reply message.
+#[cfg(feature = "hydrate")]
+pub fn cancel_reply(s: Shell) {
+    s.composer.replying_to.set(None);
 }
 
 /// Copy a message body to the clipboard as raw markup, **stripping color
@@ -333,9 +481,12 @@ pub fn show_friends(s: Shell) {
     reload_friends(s);
 }
 
+/// Open the wardrobe as a dismissible modal popup (F-2) and refresh the
+/// persona list. The wardrobe is no longer a full pane — it overlays the
+/// current view via `wardrobe_open` and closes on backdrop click / Esc / X.
 #[cfg(feature = "hydrate")]
 pub fn show_wardrobe(s: Shell) {
-    s.sync.pane.set(Pane::Wardrobe);
+    s.sync.wardrobe_open.set(true);
     spawn_local(async move {
         if let Ok(r) = api::list_personas().await {
             s.social.personas.set(r.personas);
@@ -559,6 +710,8 @@ pub fn load_muted(s: Shell) {
 const KEY_LAST_SEEN: &str = "authlyn.last_seen";
 
 /// Load last-seen marks from localStorage into the reactive map (on mount).
+/// This is the OFFLINE fallback; [`hydrate_last_seen`] overlays the
+/// server-synced cursors on top when the network fetch succeeds.
 #[cfg(feature = "hydrate")]
 pub fn load_last_seen(s: Shell) {
     s.notify
@@ -566,14 +719,67 @@ pub fn load_last_seen(s: Shell) {
         .set(LocalStorage::get(KEY_LAST_SEEN).unwrap_or_default());
 }
 
-/// Record `cur = (sent_at, id)` as the last message seen in `cid`, and
-/// persist the whole map. Idempotent. Public to siblings.
+/// Hydrate `notify.last_seen` from the SERVER's stored per-channel read cursors
+/// (L-1 cross-device sync), so a second device knows what was already read.
+/// Runs on shell mount AFTER [`load_last_seen`]: a server cursor wins over the
+/// localStorage one only when it is strictly NEWER (the same MAX-cursor rule the
+/// server enforces on write), so a stale server row can't rewind a fresher local
+/// mark and vice-versa. On fetch failure we keep the localStorage values as the
+/// offline fallback. The merged map is written back to localStorage.
+#[cfg(feature = "hydrate")]
+pub fn hydrate_last_seen(s: Shell) {
+    spawn_local(async move {
+        let Ok(r) = api::read_state().await else {
+            return; // offline — keep the localStorage fallback already loaded.
+        };
+        let mut changed = false;
+        s.notify.last_seen.update(|m| {
+            for c in r.cursors {
+                let incoming = (c.sent_at, c.id);
+                let newer = match m.get(&c.channel_id) {
+                    // Composite (sent_at, id) compare — String tuple ordering
+                    // matches the cursor's strict tie-break (sent_at is the
+                    // fixed-9-digit lex-monotonic shape, so this is correct).
+                    Some(local) => incoming > *local,
+                    None => true,
+                };
+                if newer {
+                    m.insert(c.channel_id, incoming);
+                    changed = true;
+                }
+            }
+        });
+        if changed {
+            let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+        }
+    });
+}
+
+/// Record `cur = (sent_at, id)` as the last message seen in `cid`, persist the
+/// whole map to localStorage, AND push the mark to the server so read state
+/// syncs across devices (L-1) — but ONLY when the cursor actually advanced for
+/// this channel, so an idle re-mark (the poll re-asserting the open channel each
+/// tick) doesn't spam the endpoint. The server itself also keeps the MAX cursor,
+/// so a racing older POST is harmless. Idempotent. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
+    let advanced = s
+        .notify
+        .last_seen
+        .with_untracked(|m| m.get(cid).map(|prev| cur > *prev).unwrap_or(true));
     s.notify.last_seen.update(|m| {
-        m.insert(cid.to_string(), cur);
+        m.insert(cid.to_string(), cur.clone());
     });
     let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+    if advanced {
+        let cid = cid.to_string();
+        let (sent_at, id) = cur;
+        spawn_local(async move {
+            // Fire-and-forget: localStorage is the offline source of truth, the
+            // server POST is best-effort cross-device sync.
+            let _ = api::mark_read(&cid, &sent_at, &id).await;
+        });
+    }
 }
 
 /// Recompute the unread set across EVERY guild the caller belongs to (#23).
@@ -592,8 +798,16 @@ fn refresh_unread(s: Shell) {
         if let Some(cur) = s.msg.cursor.get_untracked() {
             set_last_seen(s, oc, cur);
         }
+        // The open channel is always considered seen: clear its unread glow,
+        // ping glow, and count at once (L-4).
         s.notify.unread.update(|u| {
             u.remove(oc);
+        });
+        s.notify.pinged.update(|p| {
+            p.remove(oc);
+        });
+        s.notify.unread_count.update(|c| {
+            c.remove(oc);
         });
     }
     // Flatten the per-guild channel cache into a single list (cross-guild).
@@ -625,7 +839,12 @@ fn refresh_unread(s: Shell) {
                     let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
                         continue;
                     };
-                    let has_new = !l.messages.is_empty();
+                    let count = l.messages.len();
+                    let has_new = count > 0;
+                    // A ping = any unread message in this channel that mentions me
+                    // (L-4). `is_pinged` is per-reader (the server evaluated it for
+                    // THIS caller), so a true here is genuinely a ping for me.
+                    let has_ping = l.messages.iter().any(|m| m.is_pinged);
                     let marked = s.notify.unread.with_untracked(|u| u.contains(&ch.id));
                     if has_new != marked {
                         s.notify.unread.update(|u| {
@@ -633,6 +852,29 @@ fn refresh_unread(s: Shell) {
                                 u.insert(ch.id.clone());
                             } else {
                                 u.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let pinged_now = s.notify.pinged.with_untracked(|p| p.contains(&ch.id));
+                    if has_ping != pinged_now {
+                        s.notify.pinged.update(|p| {
+                            if has_ping {
+                                p.insert(ch.id.clone());
+                            } else {
+                                p.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let count_now = s
+                        .notify
+                        .unread_count
+                        .with_untracked(|c| c.get(&ch.id).copied().unwrap_or(0));
+                    if count != count_now {
+                        s.notify.unread_count.update(|c| {
+                            if has_new {
+                                c.insert(ch.id.clone(), count);
+                            } else {
+                                c.remove(&ch.id);
                             }
                         });
                     }
@@ -680,7 +922,7 @@ pub fn toggle_mute(s: Shell, cid: String) {
         .muted
         .with_untracked(|m| m.iter().cloned().collect());
     let _ = LocalStorage::set(KEY_MUTED, &ids);
-    super::notify::request_notify_permission();
+    super::notify::request_notify_permission(s);
 }
 
 // ---- background sync loop + page reconciler ----
@@ -869,6 +1111,7 @@ pub(super) fn start_poll(s: Shell) {
                     s.msg.typing.set(l.typing);
                     sync_messages(s, l.messages);
                     super::notify::notify_messages(s, &ch, &fresh);
+                    super::notify::dismiss_open_channel_notifs(&ch, &fresh);
                 }
                 Ok(_) => {
                     // Long history: page 1 isn't the whole channel, so only
@@ -885,6 +1128,7 @@ pub(super) fn start_poll(s: Shell) {
                         s.msg.typing.set(l.typing);
                         ingest(s, l.messages);
                         super::notify::notify_messages(s, &ch, &fresh);
+                        super::notify::dismiss_open_channel_notifs(&ch, &fresh);
                     }
                 }
                 Err(_) => {}
@@ -913,7 +1157,13 @@ pub fn send_message(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn add_compose_attachment(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
-pub fn remove_compose_attachment(_s: Shell, _id: String) {}
+pub fn remove_compose_attachment(_s: Shell, _key: u64) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn retry_compose_attachment(_s: Shell, _key: u64) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn start_reply(_s: Shell, _m: crate::protocol::MessageEnvelope) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn cancel_reply(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
 #[cfg(not(feature = "hydrate"))]
@@ -978,6 +1228,8 @@ pub fn delete_lore(_s: Shell, _cid: String, _eid: String) {}
 pub fn load_muted(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn load_last_seen(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn hydrate_last_seen(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn toggle_mute(_s: Shell, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]
