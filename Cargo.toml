@@ -6,7 +6,7 @@ edition = "2021"
 
 [package.metadata.release]
 # Suggested codename for this build. Pick a fresh two-word name manually and set it here.
-codename = "indigo-harbor"
+codename = "saffron-tide"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
