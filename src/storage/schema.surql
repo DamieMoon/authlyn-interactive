@@ -177,21 +177,23 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- the snapshot columns existed, so a later persona delete doesn't scramble
 -- their name/avatar. Idempotent: only touches persona'd rows still missing the
 -- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
--- Backfill the non-option array fields (`attachments`, `pinged_users`) to []
--- on every legacy row FIRST, in a SINGLE statement. SCHEMAFULL re-validates the
--- WHOLE row on ANY UPDATE write, so these two non-option arrays MUST be
--- materialised together: fixing one field in isolation (e.g. `SET attachments`)
--- still re-validates the row and trips over the OTHER still-NONE array
--- (`pinged_users`), aborting schema apply and crash-looping the service. Setting
--- both in one UPDATE makes the post-image valid in a single write. (`reply_to`
--- is `option<>`, so NONE is already a valid value — it needs no backfill and is
--- left alone here.) Idempotent via the WHERE. This MUST precede the persona
--- snapshot UPDATE below, which also re-validates every field.
--- (Regression: adding `pinged_users` (L-4) as a second non-option array exposed
--- that separate per-field backfills crash when >1 such field is NONE at once;
--- a populated dev/prod DB tripped this on boot though fresh-namespace tests did
--- not. Keep all non-option array materialisation in this one statement.)
-UPDATE message SET attachments = [], pinged_users = []
+-- Backfill the non-option array fields (`attachments`, `pinged_users`) on every
+-- legacy row FIRST, in a SINGLE statement. SCHEMAFULL re-validates the WHOLE row
+-- on ANY UPDATE write, so both non-option arrays MUST be materialised together:
+-- fixing one in isolation (e.g. `SET attachments`) still re-validates the row
+-- and trips over the OTHER still-NONE array (`pinged_users`), aborting schema
+-- apply and crash-looping the service. (`reply_to` is `option<>`, so NONE is a
+-- valid value — no backfill, left alone.) This MUST precede the persona snapshot
+-- UPDATE below, which also re-validates every field.
+--
+-- DATA-SAFETY (critical): each field is COALESCED (`field ?? []`), NEVER a bare
+-- `= []`. A bare literal WIPES an existing array on any matched row — and since
+-- every legacy row has `pinged_users = NONE`, the WHERE matches ALL of them, so
+-- `attachments = []` destroyed every message's attachments on the first apply
+-- over a populated DB (prod gallery images vanished, 2026-06-01). `field ?? []`
+-- preserves a populated array and only materialises a NONE to []. Idempotent.
+UPDATE message
+    SET attachments = attachments ?? [], pinged_users = pinged_users ?? []
     WHERE attachments = NONE OR pinged_users = NONE;
 
 UPDATE message SET

@@ -251,11 +251,15 @@ pub async fn download_media(
 
     // Thumbnail fast path: `?w=N` on an image blob serves a cached/just-built
     // JPEG downscaled to ≤N px wide. The cache file lives next to the original
-    // (`{id}.w{N}.jpg`), keyed on the clamped width, so each size is built once.
+    // (`{id}.w{N}.v2.jpg`), keyed on the clamped width, so each size is built once.
+    // The `v2` tag is a cache-buster: it bumps when the thumbnail PIPELINE changes
+    // (v2 = Lanczos3 + JPEG q85) so existing soft thumbnails regenerate sharp
+    // without a manual cache wipe. Old `{id}.w{N}.jpg` files are left orphaned
+    // (harmless small JPEGs; a future sweep can remove the un-versioned ones).
     if let Some(w) = q.w {
         let w = w.clamp(THUMB_MIN_W, THUMB_MAX_W);
         if row.mime.starts_with("image/") {
-            let thumb_path = state.media_dir.join(format!("{id}.w{w}.jpg"));
+            let thumb_path = state.media_dir.join(format!("{id}.w{w}.v2.jpg"));
             if let Ok(cached) = fs::read(&thumb_path).await {
                 return jpeg_response(cached);
             }
@@ -332,18 +336,24 @@ fn jpeg_response(bytes: Vec<u8>) -> Response {
 /// upscaling), and re-encode as JPEG. CPU-bound — call inside spawn_blocking.
 /// Alpha is flattened to RGB: the only consumers are circle-masked avatars and
 /// cards where corners are clipped anyway.
+///
+/// Uses Lanczos3 resampling (not bilinear `Triangle`) + JPEG quality 85: avatars
+/// and cards looked soft/low-res with the default bilinear filter + default
+/// quality (~75), especially on hi-DPR displays. Thumbnails are cached on disk
+/// (`{id}.w{N}.jpg`, built once per width), so the sharper filter costs nothing
+/// after the first build.
 fn make_thumb(bytes: &[u8], max_w: u32) -> Result<Vec<u8>, image::ImageError> {
     use std::io::Cursor;
     let img = image::load_from_memory(bytes)?;
     let resized = if img.width() > max_w {
         let nh = ((u64::from(img.height()) * u64::from(max_w)) / u64::from(img.width())).max(1);
-        img.resize_exact(max_w, nh as u32, image::imageops::FilterType::Triangle)
+        img.resize_exact(max_w, nh as u32, image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
     let mut out = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(resized.to_rgb8())
-        .write_to(&mut out, image::ImageFormat::Jpeg)?;
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
+    image::DynamicImage::ImageRgb8(resized.to_rgb8()).write_with_encoder(encoder)?;
     Ok(out.into_inner())
 }
 

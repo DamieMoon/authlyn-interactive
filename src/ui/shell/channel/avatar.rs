@@ -40,10 +40,16 @@ use crate::ui::avatar::monogram;
 pub(super) fn chat_avatar(avatar_id: &Option<String>, name: &str, fill: bool) -> impl IntoView {
     match avatar_id {
         Some(id) => {
-            // Request a downscaled JPEG thumbnail instead of the full upload so
-            // avatars load fast: the small row circle needs ~128px, the popup ~256.
-            let tw = if fill { 256 } else { 128 };
-            let src = format!("/media/{id}?w={tw}");
+            // The small row circle uses a downscaled JPEG thumbnail so avatars
+            // load fast (~128px is ample for a ~40px circle, even at 2x DPR). The
+            // `fill` portrait in the persona-info popup is shown large, so serve
+            // the FULL-RES original — a fixed-width thumbnail looked blurry scaled
+            // up on hi-DPR displays.
+            let src = if fill {
+                format!("/media/{id}")
+            } else {
+                format!("/media/{id}?w=128")
+            };
             view! {
                 <span class="chat-avatar" class:fill=fill>
                     <img src=src alt=""/>
