@@ -282,6 +282,11 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         guild_key: String,
         sender_name: String,
         body: String,
+        // The message author's persona avatar media id (snapshot ?? live
+        // fallback, same null-safe pattern as `reading.rs` MSG_PROJECTION); the
+        // SW maps it to `/media/{id}` as the notification's large image. `None`
+        // when the persona has no avatar — the SW then omits the image.
+        sender_avatar_id: Option<String>,
     }
     let mut resp = state
         .db
@@ -291,6 +296,9 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
                 channel.name             AS channel_name,
                 meta::id(channel.guild)  AS guild_key,
                 (persona_name ?? (author.display_name ?: author.username)) AS sender_name,
+                (IF persona_avatar != NONE THEN meta::id(persona_avatar)
+                 ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
+                    AS sender_avatar_id,
                 body
              FROM type::record('message', $mid);",
         )
@@ -335,16 +343,22 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // less spammy. `channel`/`guild`/`message` carry the ids the click handler
     // deep-links to (open that channel, jump to that message). The title
     // already names the sender + channel, the body is a content preview.
-    let payload = serde_json::json!({
+    let mut payload_obj = serde_json::json!({
         "title": format!("{} in #{}", info.sender_name, info.channel_name),
         "body": notification_body(&info.body),
         "channel": info.channel_key.clone(),
         "guild": info.guild_key,
         "message": mid,
         "tag": info.channel_key,
-    })
-    .to_string()
-    .into_bytes();
+    });
+    // Persona avatar → the SW's large `image` (`/media/{id}`). Include the media
+    // id ONLY when present so a personaless / avatarless message omits the image
+    // (no white-square placeholder) and the payload stays well under the 4 KiB
+    // push cap.
+    if let Some(avatar_id) = &info.sender_avatar_id {
+        payload_obj["image"] = serde_json::Value::String(avatar_id.clone());
+    }
+    let payload = payload_obj.to_string().into_bytes();
 
     let mut dead: Vec<String> = Vec::new();
     for sub in &subs {
