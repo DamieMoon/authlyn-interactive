@@ -624,6 +624,85 @@ async fn attachment_cap_boundary_is_100() {
     );
 }
 
+/// Upload `data` as `mime` via multipart `POST /media`, asserting 201 and
+/// returning the new media id. Used to stage a real non-image attachment.
+#[cfg(feature = "ssr")]
+async fn upload_media(router: &axum::Router, cookie: &str, mime: &str, data: &[u8]) -> String {
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request};
+    use tower::ServiceExt;
+
+    let boundary = "Xbnd";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"f\"\r\n\
+         Content-Type: {mime}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/media")
+        .header(header::COOKIE, cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    assert_eq!(res.status(), StatusCode::CREATED, "media upload should 201");
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    v["id"].as_str().unwrap().to_string()
+}
+
+/// A message carrying a PDF attachment sends (201) and reads back cleanly: the
+/// attachment surfaces in the list with its stored MIME, proving arbitrary
+/// (non-image) files flow through the send/read path unchanged.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn message_with_pdf_attachment_sends_and_reads() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    let pdf_id = upload_media(&a.router, &owner, "application/pdf", b"%PDF-1.4\nbody\n").await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "see attached", "attachment_ids": [pdf_id.clone()] })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "pdf-attached message: {body:?}"
+    );
+
+    let (status, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msg = &list["messages"][0];
+    assert_eq!(msg["body"], "see attached");
+    let atts = msg["attachments"].as_array().expect("attachments array");
+    assert_eq!(atts.len(), 1, "exactly one attachment");
+    assert_eq!(atts[0]["id"], pdf_id, "attachment id round-trips");
+    assert_eq!(
+        atts[0]["mime"], "application/pdf",
+        "stored MIME round-trips on read"
+    );
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn typing_indicator_lists_other_typists_and_excludes_caller() {

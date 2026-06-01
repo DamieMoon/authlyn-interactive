@@ -18,6 +18,7 @@ mod attachments;
 mod avatar;
 mod emoji_suggest;
 mod meta;
+mod skeleton;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};
@@ -27,6 +28,7 @@ use emoji_suggest::{
     custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
 };
 use meta::message_meta;
+use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
 
@@ -42,6 +44,21 @@ use crate::ui::inline_rename::InlineRename;
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
+
+/// Lightbox gallery state: the clicked message's IMAGE attachments plus the
+/// index currently on screen. Arrow keys / pointer-swipe step `idx` within
+/// `images`, clamped at the boundaries (no wrap). A one-image message yields a
+/// single-entry list, so nav is a no-op. Cloned cheaply (a handful of small
+/// `Attachment`s per message).
+///
+/// Videos are excluded from the gallery (they keep their own inline controls);
+/// clicking a video opens a single-entry gallery holding just that video, so
+/// the arrow/swipe handlers find nothing to navigate to.
+#[derive(Clone, Debug, PartialEq)]
+struct LightboxState {
+    images: Vec<Attachment>,
+    idx: usize,
+}
 
 /// The display name to render for a message — the worn persona's name when
 /// present, otherwise the message author's display name (Discord-style). Used
@@ -159,6 +176,17 @@ pub(super) fn apply_markup(
     });
 }
 
+/// Apply a color swatch: record it into the quick-swap history (move-to-front,
+/// dedup, cap-3) + persist, then wrap the selection in `[name]…[/name]` via
+/// [`apply_markup`] (unchanged). Shared by the inline quick swatches and the
+/// full popover.
+fn apply_color(s: Shell, ta_ref: NodeRef<leptos::html::Textarea>, name: &str) {
+    let next = act::record_color(&s.composer.last_used_colors.get_untracked(), name);
+    act::save_color_history(&next);
+    s.composer.last_used_colors.set(next);
+    apply_markup(s, ta_ref, &format!("[{name}]"), &format!("[/{name}]"));
+}
+
 /// Feature-detect `field-sizing: content` via the CSS Support API. When
 /// supported, the composer textarea grows + shrinks natively (see SCSS) and
 /// the JS auto-grow Effect can short-circuit — avoiding the per-keystroke
@@ -208,6 +236,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     // (start_utf16, end_utf16, query); `ac_index` is the highlighted suggestion.
     let emoji_open = RwSignal::new(false);
     let emoji_query = RwSignal::new(String::new());
+    // Composer color picker: the full 8-swatch popover toggle (the 3 quick
+    // swatches render inline). Mirrors the emoji popover's open/backdrop pattern.
+    let color_open = RwSignal::new(false);
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
@@ -256,8 +287,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
-    // Lightbox: media id of the attachment opened near-fullscreen, if any.
-    let lightbox = RwSignal::new(None::<Attachment>);
+    // Lightbox: the clicked message's IMAGE attachments + the index currently
+    // shown, or None when closed. Arrow/swipe step the index within this list
+    // (images only — videos keep their own inline controls and never enter the
+    // gallery); see `LightboxState`. The grid click seeds `idx` to the clicked
+    // image; `lb_zoom` is the CSS transform scale (1.0 = fit), reset to 1 on
+    // every open. Both live as component-level signals so stepping `idx` /
+    // changing zoom re-renders only the <img>, never the focusable container
+    // (which would steal focus and break the arrow-key handler).
+    let lightbox = RwSignal::new(None::<LightboxState>);
+    let lb_zoom = RwSignal::new(1.0_f64);
 
     // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
     // the user's last scroll (i.e. pre-append). On a new message: your own →
@@ -401,6 +440,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     #[cfg(not(feature = "hydrate"))]
                     let _ = (&last_dist, &_ev);
                 }>
+                // Ephemeral loading skeletons (F-7): shown only while the
+                // first page is in flight AND no real rows exist yet. Leptos
+                // diffing drops them the instant `messages` becomes non-empty.
+                // Sentinel `skeleton-N` ids only — never enter seen/cursor.
+                {move || should_show_skeletons(
+                    s.msg.loading_initial.get(),
+                    s.msg.messages.with(Vec::len),
+                ).then(skeleton_rows)}
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel.sel_channel.get().map(|c| c.id);
@@ -583,14 +630,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 <div class="toolbar">
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.
-                    <label class="fmt attach" title="attach image or video">
+                    <label class="fmt attach" title="attach a file">
                         "📎"
                         // NO `accept`: on Android a media `accept` hint makes Chrome
                         // launch the system photo picker (Google Photos on this
                         // device), which the user doesn't want; omitting it gives the
                         // generic Files chooser instead. A PWA can't target a specific
                         // gallery app, so this is the better of the two reachable
-                        // options. We filter to image/video client-side below.
+                        // options. Any file type the server allowlist accepts can be
+                        // attached; the server (`is_allowed_attachment_mime`) is the
+                        // authority and rejects script-capable types.
                         <input type="file" multiple style="display:none"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
@@ -607,24 +656,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                             // (`MAX_ATTACHMENTS` in src/server/messages/mod.rs).
                                             let mut current =
                                                 s.composer.compose_attachments.get_untracked().len();
-                                            let mut skipped = false;
                                             let mut overflowed = false;
-                                            // Collect the accepted files first, then upload the
+                                            // Collect the picked files first, then upload the
                                             // whole pick at once so the staged order matches the
                                             // selection order (mnjs2ljw…), not upload-completion
-                                            // order.
+                                            // order. Any file type is queued client-side; the
+                                            // server allowlist (`is_allowed_attachment_mime`) is
+                                            // the authority and rejects script-capable types.
                                             let mut picked: Vec<web_sys::File> = Vec::new();
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
-                                                    // Generic picker can return any file;
-                                                    // only images and videos are valid.
-                                                    let t = file.type_();
-                                                    if !(t.starts_with("image/")
-                                                        || t.starts_with("video/"))
-                                                    {
-                                                        skipped = true;
-                                                        continue;
-                                                    }
                                                     if current >= COMPOSER_MAX_ATTACHMENTS {
                                                         overflowed = true;
                                                         break;
@@ -638,11 +679,6 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                                 s.composer.status.set(format!(
                                                     "Attachment limit ({COMPOSER_MAX_ATTACHMENTS}) reached"
                                                 ));
-                                            } else if skipped {
-                                                s.composer.status.set(
-                                                    "Only images or videos can be attached."
-                                                        .to_string(),
-                                                );
                                             }
                                         }
                                         // Clear so re-picking the same file re-fires.
@@ -684,15 +720,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         on:click=move |_| apply_markup(s, composer_ref, "```\n", "\n```")>
                         <code>"{}"</code>
                     </button>
-                    {Color::ALL.into_iter().map(|col| {
-                        let name = col.name();
-                        view! {
-                            <button class=format!("swatch mk-bg-{name}") title=name
-                                on:click=move |_|
-                                    apply_markup(s, composer_ref, &format!("[{name}]"), &format!("[/{name}]"))>
-                            </button>
-                        }
-                    }).collect_view()}
+                    // Quick-swap color swatches: only the 3 last-used colors
+                    // render inline (compressed when history < 3); the ▼ toggle
+                    // opens a popover with the full palette (feedback
+                    // rli3tsora4ho7lsi9q31).
+                    {move || {
+                        s.composer.last_used_colors.get().into_iter()
+                            .filter(|n| Color::from_name(n).is_some())
+                            .take(3)
+                            .map(|name| view! {
+                                <button class=format!("swatch mk-bg-{name}") title=name.clone()
+                                    on:click=move |_| apply_color(s, composer_ref, &name)>
+                                </button>
+                            })
+                            .collect_view()
+                    }}
+                    <button class="fmt color-more" title="more colors"
+                        on:click=move |_| color_open.update(|o| *o = !*o)>
+                        "▼"
+                    </button>
                     // Emoji picker toggle + live-preview toggle. The preview
                     // toggle persists per-user (localStorage) like the other
                     // composer prefs.
@@ -709,6 +755,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         "👁"
                     </button>
                 </div>
+                // Color palette popover: all 8 swatches in a small grid; a
+                // full-viewport backdrop closes it on an outside click (mirrors
+                // the emoji popover). Click-to-apply only for v1.
+                {move || color_open.get().then(|| view! {
+                    <div class="emoji-backdrop" on:click=move |_| color_open.set(false)></div>
+                    <div class="color-picker">
+                        {Color::ALL.into_iter().map(|col| {
+                            let name = col.name();
+                            view! {
+                                <button class=format!("swatch mk-bg-{name}") title=name
+                                    on:click=move |_| {
+                                        apply_color(s, composer_ref, name);
+                                        color_open.set(false);
+                                    }>
+                                </button>
+                            }
+                        }).collect_view()}
+                    </div>
+                })}
                 // Emoji picker popover: a search box over a categorised grid of
                 // the open guild's custom emoji plus the standard-unicode set.
                 // A full-viewport backdrop closes it on an outside click.
@@ -766,24 +831,33 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </div>
                     </div>
                 })}
-                // Pending attachments: thumbnails of staged uploads, each with a
-                // remove button. Sent (and cleared) on the next message.
+                // Pending attachments: thumbnails of staged uploads, each with
+                // a per-item upload-progress overlay (F-8) + a remove button,
+                // and a retry button when the upload failed. The `Ready` slots'
+                // media ids are sent (and cleared) on the next message.
                 {move || {
+                    use super::state::UploadStatus;
                     let atts = s.composer.compose_attachments.get();
                     (!atts.is_empty()).then(|| view! {
                         <div class="compose-attachments">
-                            {atts.into_iter().map(|att| {
-                                let rid = att.id.clone();
-                                let id = att.id.clone();
-                                let is_video = att.mime.starts_with("video/");
-                                let thumb = if is_video {
+                            {atts.into_iter().map(|st| {
+                                let key = st.key;
+                                let id = st.att.id.clone();
+                                let is_video = st.att.mime.starts_with("video/");
+                                let ready = st.status == UploadStatus::Ready;
+                                // Thumbnail only resolves once the media id is real
+                                // (`Ready`); while uploading/failed the slot shows a
+                                // neutral placeholder behind the progress overlay.
+                                let thumb = if !ready {
+                                    view! { <div class="pending-att-placeholder"></div> }.into_any()
+                                } else if is_video {
                                     view! {
                                         <video src=format!("/media/{id}") muted preload="metadata"></video>
                                     }.into_any()
                                 } else {
                                     // GIFs raw so the preview animates; the ?w= thumb
                                     // would flatten them to a static JPEG frame.
-                                    let src = if att.mime == "image/gif" {
+                                    let src = if st.att.mime == "image/gif" {
                                         format!("/media/{id}")
                                     } else {
                                         format!("/media/{id}?w=256")
@@ -792,11 +866,41 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         <img src=src alt="pending attachment"/>
                                     }.into_any()
                                 };
+                                let overlay = match &st.status {
+                                    UploadStatus::Uploading(frac) => {
+                                        let pct = (frac.unwrap_or(0.0) * 100.0).round() as i32;
+                                        let indeterminate = frac.is_none();
+                                        view! {
+                                            <div class="att-progress"
+                                                class:indeterminate=indeterminate
+                                                role="progressbar"
+                                                aria-label="uploading">
+                                                <div class="att-progress-bar"
+                                                    style=format!("width:{pct}%")></div>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    UploadStatus::Failed(msg) => {
+                                        let msg = msg.clone();
+                                        view! {
+                                            <div class="att-failed" title=msg>
+                                                <button class="att-retry" type="button" title="retry"
+                                                    on:click=move |_| act::retry_compose_attachment(s, key)>
+                                                    "↻"
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    UploadStatus::Ready => ().into_any(),
+                                };
                                 view! {
-                                    <div class="pending-att">
+                                    <div class="pending-att"
+                                        class:uploading=matches!(st.status, UploadStatus::Uploading(_))
+                                        class:failed=matches!(st.status, UploadStatus::Failed(_))>
                                         {thumb}
+                                        {overlay}
                                         <button class="att-remove" type="button" title="remove"
-                                            on:click=move |_| act::remove_compose_attachment(s, rid.clone())>
+                                            on:click=move |_| act::remove_compose_attachment(s, key)>
                                             "✕"
                                         </button>
                                     </div>
@@ -1018,30 +1122,216 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             })}
 
             // Attachment lightbox — the clicked image near-fullscreen; click
-            // anywhere (or the ✕) to close. Loads the full original, not the
-            // grid thumbnail.
-            {move || lightbox.get().map(|att| {
+            // the backdrop (or the ✕) to close. Loads the full original, not the
+            // grid thumbnail. Within a multi-image message: ◀/▶ buttons, Left/
+            // Right arrow keys, and pointer-swipe step the gallery (clamped, no
+            // wrap); +/-/0 (and the on-screen buttons) zoom via CSS transform.
+            {lightbox_view(lightbox, lb_zoom)}
+        </div>
+    }
+}
+
+/// Render the lightbox overlay when open. Split out of `ChannelPane` so the
+/// hydrate-only navigation/zoom/swipe handlers stay one tidy block; the ssr
+/// build gets a minimal no-interaction version (the page hydrates into the
+/// hydrate variant on the client).
+///
+/// `zoom` is the CSS `scale()` factor (1.0 = fit-to-screen); it is reset to 1
+/// whenever the gallery opens. The outer view reacts only to open/closed via an
+/// `is_open` memo, so stepping the index or zooming re-renders the inner media
+/// only — the focusable container keeps focus, which is what scopes the arrow
+/// keys to the lightbox.
+#[cfg(feature = "hydrate")]
+fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, zoom: RwSignal<f64>) -> impl IntoView {
+    use leptos::ev::{KeyboardEvent, PointerEvent};
+
+    // Largest allowed zoom; 1.0 is fit-to-screen. No drag-to-pan in v1, so this
+    // just magnifies about the image centre.
+    const ZOOM_MAX: f64 = 4.0;
+    const ZOOM_MIN: f64 = 1.0;
+    const ZOOM_STEP: f64 = 0.5;
+    // Horizontal travel (px) past which a pointer release counts as a swipe.
+    const SWIPE_PX: f64 = 50.0;
+
+    // Pointer-swipe bookkeeping: the X where the press started, or None while no
+    // press is active. StoredValue (plumbing, not UI) so it never re-renders.
+    let swipe_start = StoredValue::new(None::<f64>);
+
+    // Clamp helper: step the gallery index, stopping at the boundaries (no
+    // wrap), and reset zoom for the freshly-shown image.
+    let step = move |delta: i32| {
+        lightbox.update(|opt| {
+            if let Some(state) = opt {
+                let last = state.images.len().saturating_sub(1);
+                let next = (state.idx as i32 + delta).clamp(0, last as i32) as usize;
+                state.idx = next;
+            }
+        });
+        zoom.set(1.0);
+    };
+
+    let on_keydown = move |ev: KeyboardEvent| match ev.key().as_str() {
+        "ArrowLeft" => {
+            ev.prevent_default();
+            step(-1);
+        }
+        "ArrowRight" => {
+            ev.prevent_default();
+            step(1);
+        }
+        "Escape" => {
+            ev.prevent_default();
+            lightbox.set(None);
+        }
+        "+" | "=" => {
+            ev.prevent_default();
+            zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX));
+        }
+        "-" | "_" => {
+            ev.prevent_default();
+            zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN));
+        }
+        "0" => {
+            ev.prevent_default();
+            zoom.set(1.0);
+        }
+        _ => {}
+    };
+
+    // Container ref so we can autofocus the overlay on open (the arrow keys ride
+    // the container's on:keydown, which only receives events while it has focus
+    // — that is what keeps the handler off the global/textarea key path).
+    let lb_ref = NodeRef::<leptos::html::Div>::new();
+    Effect::new(move |_| {
+        if lightbox.with(|o| o.is_some()) {
+            if let Some(el) = lb_ref.get() {
+                let _ = (*el).focus();
+            }
+        }
+    });
+
+    // Re-render the overlay only on open/close, not on idx/zoom changes.
+    let is_open = Memo::new(move |_| lightbox.with(|o| o.is_some()));
+
+    move || {
+        {
+        is_open.get().then(|| {
+            // Current gallery entry (reactive over idx). Falls back to a no-op
+            // when the list is somehow empty (never expected).
+            let current = move || {
+                lightbox.with(|o| {
+                    o.as_ref()
+                        .and_then(|s| s.images.get(s.idx).cloned())
+                })
+            };
+            // Whether to show the nav arrows / whether each edge is reachable.
+            let multi = move || lightbox.with(|o| o.as_ref().is_some_and(|s| s.images.len() > 1));
+            let at_start = move || lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx == 0));
+            let at_end = move || {
+                lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx + 1 >= s.images.len()))
+            };
+
+            // Pointer-swipe: record press X, and on release decide left/right.
+            // preventDefault keeps the browser's back-swipe / scroll from firing
+            // (paired with `touch-action: none` on the container in SCSS).
+            let on_pointerdown = move |ev: PointerEvent| {
+                ev.prevent_default();
+                swipe_start.set_value(Some(ev.client_x() as f64));
+            };
+            let on_pointerup = move |ev: PointerEvent| {
+                ev.prevent_default();
+                if let Some(start) = swipe_start.get_value() {
+                    let dx = ev.client_x() as f64 - start;
+                    if dx <= -SWIPE_PX {
+                        step(1);
+                    } else if dx >= SWIPE_PX {
+                        step(-1);
+                    }
+                }
+                swipe_start.set_value(None);
+            };
+
+            let media = move || {
+                current().map(|att| {
+                    let id = att.id.clone();
+                    if att.mime.starts_with("video/") {
+                        // Video keeps its own controls; no zoom transform.
+                        view! {
+                            <video class="lightbox-img" controls autoplay
+                                src=format!("/media/{id}")></video>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"
+                                style=move || format!("transform: scale({})", zoom.get())/>
+                        }.into_any()
+                    }
+                })
+            };
+
+            view! {
+                <div class="lightbox" node_ref=lb_ref tabindex="-1"
+                    on:click=move |_| lightbox.set(None)
+                    on:keydown=on_keydown
+                    on:pointerdown=on_pointerdown
+                    on:pointerup=on_pointerup>
+                    <button class="lightbox-close" title="close"
+                        on:click=move |ev| { ev.stop_propagation(); lightbox.set(None); }>"✕"</button>
+                    {move || multi().then(|| view! {
+                        <button class="lightbox-nav lightbox-prev" title="previous"
+                            prop:disabled=at_start
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(-1); }>"‹"</button>
+                        <button class="lightbox-nav lightbox-next" title="next"
+                            prop:disabled=at_end
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(1); }>"›"</button>
+                    })}
+                    <div class="lightbox-zoom" on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                        <button title="zoom out"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN)); }>"−"</button>
+                        <button title="reset zoom"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.set(1.0); }>"⤢"</button>
+                        <button title="zoom in"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX)); }>"+"</button>
+                    </div>
+                    {media}
+                </div>
+            }
+        })
+    }
+    .into_any()
+    }
+}
+
+/// SSR build: minimal non-interactive lightbox (no nav/zoom/swipe wiring). The
+/// client hydrates into the hydrate variant above. `zoom` is accepted for a
+/// matching signature but unused.
+#[cfg(not(feature = "hydrate"))]
+fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, _zoom: RwSignal<f64>) -> impl IntoView {
+    move || {
+        lightbox.get().map(|state| {
+            let att = state.images.get(state.idx).cloned();
+            att.map(|att| {
                 let id = att.id.clone();
                 let is_video = att.mime.starts_with("video/");
-                // Full original (no `?w=512`); video gets autoplay+controls.
                 let media = if is_video {
                     view! {
-                        <video class="lightbox-img" controls autoplay
+                        <video class="lightbox-img" controls
                             src=format!("/media/{id}")></video>
-                    }.into_any()
+                    }
+                    .into_any()
                 } else {
                     view! {
                         <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
-                    }.into_any()
+                    }
+                    .into_any()
                 };
                 view! {
-                    <div class="lightbox" on:click=move |_| lightbox.set(None)>
-                        <button class="lightbox-close" title="close"
-                            on:click=move |_| lightbox.set(None)>"✕"</button>
+                    <div class="lightbox">
+                        <button class="lightbox-close" title="close">"✕"</button>
                         {media}
                     </div>
                 }
-            })}
-        </div>
+            })
+        })
     }
 }

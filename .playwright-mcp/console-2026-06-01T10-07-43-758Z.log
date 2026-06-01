@@ -1,0 +1,5 @@
+[      28ms] [LOG] [HOT RELOADING] Connected to server. @ http://127.0.0.1:3000/:0
+[     132ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3000/auth/me:0
+[     165ms] [LOG] [HOT RELOADING] Connected to server. @ http://127.0.0.1:3000/:0
+[     207ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:3000/auth/me:0
+[     311ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:3000/login:0

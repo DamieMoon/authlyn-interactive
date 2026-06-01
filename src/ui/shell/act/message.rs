@@ -51,13 +51,16 @@ pub fn send_message(s: Shell) {
         return;
     };
     let body = s.composer.compose.get_untracked();
-    // The wire SEND request is ids-only; map the staged attachments down.
+    // The wire SEND request is ids-only; map the staged attachments down,
+    // keeping only the ones whose upload has finished (`Ready`) — in-flight or
+    // failed slots carry a placeholder id, not a real media id (F-8).
     let attachments: Vec<String> = s
         .composer
         .compose_attachments
         .get_untracked()
         .into_iter()
-        .map(|a| a.id)
+        .filter(|a| a.status == super::super::state::UploadStatus::Ready)
+        .map(|a| a.att.id)
         .collect();
     // A message needs text OR at least one attachment.
     if body.trim().is_empty() && attachments.is_empty() {
@@ -98,66 +101,171 @@ pub fn send_message(s: Shell) {
 /// attachment (its media id is sent with the next message). The browser's
 /// reported MIME (`file.type_()`) is kept locally so the pending thumbnail
 /// renders image-vs-video correctly before the message round-trips.
+///
+/// F-8: the slot is inserted immediately in `Uploading` state and its progress
+/// bar is driven from `upload_media_with_progress`; on success it flips to
+/// `Ready` (real media id), on failure to `Failed` with a retry button.
 #[cfg(feature = "hydrate")]
 pub fn add_compose_attachment(s: Shell, file: web_sys::File) {
     s.composer.status.set(String::new());
+    let key = next_stage_key();
     let mime = file.type_();
-    spawn_local(async move {
-        match api::upload_media(&file).await {
-            Ok(id) => s
-                .composer
-                .compose_attachments
-                .update(|v| v.push(crate::protocol::Attachment { id, mime })),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
+    stash_retry_file(key, file.clone());
+    s.composer.compose_attachments.update(|v| {
+        v.push(super::super::state::StagedAttachment {
+            key,
+            att: crate::protocol::Attachment {
+                id: format!("pending-{key}"),
+                mime,
+            },
+            status: super::super::state::UploadStatus::Uploading(Some(0.0)),
+        });
     });
+    spawn_local(async move { upload_staged(s, key, file).await });
 }
 
-/// Upload a batch of picked files concurrently and stage them **in pick
-/// order**. `join_all` resolves to results in the input order, so a
-/// faster-uploading later file can't jump ahead of an earlier one — fixes the
-/// reversed/scrambled batch order (feedback mnjs2ljw…) that `add_compose_attachment`
-/// caused by pushing on each upload's completion. Mirrors the wardrobe's
-/// concurrent-upload pattern (`shell/wardrobe.rs`).
+/// Upload a batch of picked files and stage them **in pick order**. The slots
+/// are inserted up front in `files` order so the row layout is stable; each
+/// upload then drives its own slot's progress independently (F-8). Concurrency
+/// is left to the browser's connection pool. Replaces the prior `join_all`
+/// reorder fix (feedback mnjs2ljw…) — order is now guaranteed by inserting the
+/// slots before any upload completes, not by awaiting in order.
 #[cfg(feature = "hydrate")]
 pub fn add_compose_attachments(s: Shell, files: Vec<web_sys::File>) {
     if files.is_empty() {
         return;
     }
     s.composer.status.set(String::new());
-    spawn_local(async move {
-        // Pair each file's MIME (read synchronously) with its upload, then run
-        // them all at once; the result Vec stays in `files` order.
-        let uploads = files.iter().map(|f| {
+    // Insert all slots first (pick order), then kick off the uploads.
+    let staged: Vec<(u64, web_sys::File)> = files
+        .into_iter()
+        .map(|f| {
+            let key = next_stage_key();
             let mime = f.type_();
-            async move {
-                api::upload_media(f)
-                    .await
-                    .map(|id| crate::protocol::Attachment { id, mime })
-            }
-        });
-        let results = futures_util::future::join_all(uploads).await;
-        let mut last_err = None;
-        s.composer.compose_attachments.update(|v| {
-            for r in results {
-                match r {
-                    Ok(att) => v.push(att),
-                    Err(e) => last_err = Some(e),
+            stash_retry_file(key, f.clone());
+            s.composer.compose_attachments.update(|v| {
+                v.push(super::super::state::StagedAttachment {
+                    key,
+                    att: crate::protocol::Attachment {
+                        id: format!("pending-{key}"),
+                        mime,
+                    },
+                    status: super::super::state::UploadStatus::Uploading(Some(0.0)),
+                });
+            });
+            (key, f)
+        })
+        .collect();
+    for (key, f) in staged {
+        spawn_local(async move { upload_staged(s, key, f).await });
+    }
+}
+
+/// Run one staged attachment's upload, writing progress into its slot and
+/// flipping it to `Ready`/`Failed` on completion (F-8). Shared by the single,
+/// batch, and retry entry points.
+#[cfg(feature = "hydrate")]
+async fn upload_staged(s: Shell, key: u64, file: web_sys::File) {
+    let result = api::upload_media_with_progress(&file, move |frac| {
+        set_stage_status(
+            s,
+            key,
+            super::super::state::UploadStatus::Uploading(Some(frac)),
+        );
+    })
+    .await;
+    match result {
+        Ok(id) => {
+            forget_retry_file(key);
+            s.composer.compose_attachments.update(|v| {
+                if let Some(it) = v.iter_mut().find(|it| it.key == key) {
+                    it.att.id = id;
+                    it.status = super::super::state::UploadStatus::Ready;
                 }
-            }
-        });
-        if let Some(e) = last_err {
-            s.composer.status.set(api::humanize(&e));
+            });
+        }
+        Err(e) => set_stage_status(
+            s,
+            key,
+            super::super::state::UploadStatus::Failed(api::humanize(&e)),
+        ),
+    }
+}
+
+/// Re-attempt a failed staged upload using the file stashed at stage time
+/// (F-8). No-op if the slot or file is gone (already removed).
+#[cfg(feature = "hydrate")]
+pub fn retry_compose_attachment(s: Shell, key: u64) {
+    let Some(file) = peek_retry_file(key) else {
+        return;
+    };
+    set_stage_status(
+        s,
+        key,
+        super::super::state::UploadStatus::Uploading(Some(0.0)),
+    );
+    spawn_local(async move { upload_staged(s, key, file).await });
+}
+
+/// Write a staged attachment's status by key, if it still exists.
+#[cfg(feature = "hydrate")]
+fn set_stage_status(s: Shell, key: u64, status: super::super::state::UploadStatus) {
+    s.composer.compose_attachments.update(|v| {
+        if let Some(it) = v.iter_mut().find(|it| it.key == key) {
+            it.status = status;
         }
     });
 }
 
-/// Drop one staged attachment before sending.
+/// Drop one staged attachment before sending, addressed by its stage key
+/// (stable across the upload lifecycle, unlike the late-arriving media id).
 #[cfg(feature = "hydrate")]
-pub fn remove_compose_attachment(s: Shell, id: String) {
+pub fn remove_compose_attachment(s: Shell, key: u64) {
+    forget_retry_file(key);
     s.composer
         .compose_attachments
-        .update(|v| v.retain(|a| a.id != id));
+        .update(|v| v.retain(|a| a.key != key));
+}
+
+// ---- staged-upload bookkeeping (hydrate-only, F-8) ----
+
+#[cfg(feature = "hydrate")]
+thread_local! {
+    /// Monotonic counter minting unique stage keys per staged attachment.
+    static STAGE_KEY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Files held for retry, keyed by stage key. `web_sys::File` is `!Send` and
+    /// hydrate-only, so it lives here rather than in the shared `Composer`
+    /// state. Entries are dropped on success or removal.
+    static RETRY_FILES: std::cell::RefCell<std::collections::HashMap<u64, web_sys::File>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+#[cfg(feature = "hydrate")]
+fn next_stage_key() -> u64 {
+    STAGE_KEY.with(|c| {
+        let k = c.get().wrapping_add(1);
+        c.set(k);
+        k
+    })
+}
+
+#[cfg(feature = "hydrate")]
+fn stash_retry_file(key: u64, file: web_sys::File) {
+    RETRY_FILES.with(|m| {
+        m.borrow_mut().insert(key, file);
+    });
+}
+
+#[cfg(feature = "hydrate")]
+fn peek_retry_file(key: u64) -> Option<web_sys::File> {
+    RETRY_FILES.with(|m| m.borrow().get(&key).cloned())
+}
+
+#[cfg(feature = "hydrate")]
+fn forget_retry_file(key: u64) {
+    RETRY_FILES.with(|m| {
+        m.borrow_mut().remove(&key);
+    });
 }
 
 /// Copy a message body to the clipboard as raw markup, **stripping color
@@ -333,9 +441,12 @@ pub fn show_friends(s: Shell) {
     reload_friends(s);
 }
 
+/// Open the wardrobe as a dismissible modal popup (F-2) and refresh the
+/// persona list. The wardrobe is no longer a full pane — it overlays the
+/// current view via `wardrobe_open` and closes on backdrop click / Esc / X.
 #[cfg(feature = "hydrate")]
 pub fn show_wardrobe(s: Shell) {
-    s.sync.pane.set(Pane::Wardrobe);
+    s.sync.wardrobe_open.set(true);
     spawn_local(async move {
         if let Ok(r) = api::list_personas().await {
             s.social.personas.set(r.personas);
@@ -915,7 +1026,9 @@ pub fn send_message(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn add_compose_attachment(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
-pub fn remove_compose_attachment(_s: Shell, _id: String) {}
+pub fn remove_compose_attachment(_s: Shell, _key: u64) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn retry_compose_attachment(_s: Shell, _key: u64) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
 #[cfg(not(feature = "hydrate"))]
