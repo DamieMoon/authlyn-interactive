@@ -45,6 +45,21 @@ use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
+/// Lightbox gallery state: the clicked message's IMAGE attachments plus the
+/// index currently on screen. Arrow keys / pointer-swipe step `idx` within
+/// `images`, clamped at the boundaries (no wrap). A one-image message yields a
+/// single-entry list, so nav is a no-op. Cloned cheaply (a handful of small
+/// `Attachment`s per message).
+///
+/// Videos are excluded from the gallery (they keep their own inline controls);
+/// clicking a video opens a single-entry gallery holding just that video, so
+/// the arrow/swipe handlers find nothing to navigate to.
+#[derive(Clone, Debug, PartialEq)]
+struct LightboxState {
+    images: Vec<Attachment>,
+    idx: usize,
+}
+
 /// The display name to render for a message — the worn persona's name when
 /// present, otherwise the message author's display name (Discord-style). Used
 /// in 3 places: the live row, the deleted-message trash row, and the persona-
@@ -272,8 +287,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
-    // Lightbox: media id of the attachment opened near-fullscreen, if any.
-    let lightbox = RwSignal::new(None::<Attachment>);
+    // Lightbox: the clicked message's IMAGE attachments + the index currently
+    // shown, or None when closed. Arrow/swipe step the index within this list
+    // (images only — videos keep their own inline controls and never enter the
+    // gallery); see `LightboxState`. The grid click seeds `idx` to the clicked
+    // image; `lb_zoom` is the CSS transform scale (1.0 = fit), reset to 1 on
+    // every open. Both live as component-level signals so stepping `idx` /
+    // changing zoom re-renders only the <img>, never the focusable container
+    // (which would steal focus and break the arrow-key handler).
+    let lightbox = RwSignal::new(None::<LightboxState>);
+    let lb_zoom = RwSignal::new(1.0_f64);
 
     // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
     // the user's last scroll (i.e. pre-append). On a new message: your own →
@@ -1099,30 +1122,216 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             })}
 
             // Attachment lightbox — the clicked image near-fullscreen; click
-            // anywhere (or the ✕) to close. Loads the full original, not the
-            // grid thumbnail.
-            {move || lightbox.get().map(|att| {
+            // the backdrop (or the ✕) to close. Loads the full original, not the
+            // grid thumbnail. Within a multi-image message: ◀/▶ buttons, Left/
+            // Right arrow keys, and pointer-swipe step the gallery (clamped, no
+            // wrap); +/-/0 (and the on-screen buttons) zoom via CSS transform.
+            {lightbox_view(lightbox, lb_zoom)}
+        </div>
+    }
+}
+
+/// Render the lightbox overlay when open. Split out of `ChannelPane` so the
+/// hydrate-only navigation/zoom/swipe handlers stay one tidy block; the ssr
+/// build gets a minimal no-interaction version (the page hydrates into the
+/// hydrate variant on the client).
+///
+/// `zoom` is the CSS `scale()` factor (1.0 = fit-to-screen); it is reset to 1
+/// whenever the gallery opens. The outer view reacts only to open/closed via an
+/// `is_open` memo, so stepping the index or zooming re-renders the inner media
+/// only — the focusable container keeps focus, which is what scopes the arrow
+/// keys to the lightbox.
+#[cfg(feature = "hydrate")]
+fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, zoom: RwSignal<f64>) -> impl IntoView {
+    use leptos::ev::{KeyboardEvent, PointerEvent};
+
+    // Largest allowed zoom; 1.0 is fit-to-screen. No drag-to-pan in v1, so this
+    // just magnifies about the image centre.
+    const ZOOM_MAX: f64 = 4.0;
+    const ZOOM_MIN: f64 = 1.0;
+    const ZOOM_STEP: f64 = 0.5;
+    // Horizontal travel (px) past which a pointer release counts as a swipe.
+    const SWIPE_PX: f64 = 50.0;
+
+    // Pointer-swipe bookkeeping: the X where the press started, or None while no
+    // press is active. StoredValue (plumbing, not UI) so it never re-renders.
+    let swipe_start = StoredValue::new(None::<f64>);
+
+    // Clamp helper: step the gallery index, stopping at the boundaries (no
+    // wrap), and reset zoom for the freshly-shown image.
+    let step = move |delta: i32| {
+        lightbox.update(|opt| {
+            if let Some(state) = opt {
+                let last = state.images.len().saturating_sub(1);
+                let next = (state.idx as i32 + delta).clamp(0, last as i32) as usize;
+                state.idx = next;
+            }
+        });
+        zoom.set(1.0);
+    };
+
+    let on_keydown = move |ev: KeyboardEvent| match ev.key().as_str() {
+        "ArrowLeft" => {
+            ev.prevent_default();
+            step(-1);
+        }
+        "ArrowRight" => {
+            ev.prevent_default();
+            step(1);
+        }
+        "Escape" => {
+            ev.prevent_default();
+            lightbox.set(None);
+        }
+        "+" | "=" => {
+            ev.prevent_default();
+            zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX));
+        }
+        "-" | "_" => {
+            ev.prevent_default();
+            zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN));
+        }
+        "0" => {
+            ev.prevent_default();
+            zoom.set(1.0);
+        }
+        _ => {}
+    };
+
+    // Container ref so we can autofocus the overlay on open (the arrow keys ride
+    // the container's on:keydown, which only receives events while it has focus
+    // — that is what keeps the handler off the global/textarea key path).
+    let lb_ref = NodeRef::<leptos::html::Div>::new();
+    Effect::new(move |_| {
+        if lightbox.with(|o| o.is_some()) {
+            if let Some(el) = lb_ref.get() {
+                let _ = (*el).focus();
+            }
+        }
+    });
+
+    // Re-render the overlay only on open/close, not on idx/zoom changes.
+    let is_open = Memo::new(move |_| lightbox.with(|o| o.is_some()));
+
+    move || {
+        {
+        is_open.get().then(|| {
+            // Current gallery entry (reactive over idx). Falls back to a no-op
+            // when the list is somehow empty (never expected).
+            let current = move || {
+                lightbox.with(|o| {
+                    o.as_ref()
+                        .and_then(|s| s.images.get(s.idx).cloned())
+                })
+            };
+            // Whether to show the nav arrows / whether each edge is reachable.
+            let multi = move || lightbox.with(|o| o.as_ref().is_some_and(|s| s.images.len() > 1));
+            let at_start = move || lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx == 0));
+            let at_end = move || {
+                lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx + 1 >= s.images.len()))
+            };
+
+            // Pointer-swipe: record press X, and on release decide left/right.
+            // preventDefault keeps the browser's back-swipe / scroll from firing
+            // (paired with `touch-action: none` on the container in SCSS).
+            let on_pointerdown = move |ev: PointerEvent| {
+                ev.prevent_default();
+                swipe_start.set_value(Some(ev.client_x() as f64));
+            };
+            let on_pointerup = move |ev: PointerEvent| {
+                ev.prevent_default();
+                if let Some(start) = swipe_start.get_value() {
+                    let dx = ev.client_x() as f64 - start;
+                    if dx <= -SWIPE_PX {
+                        step(1);
+                    } else if dx >= SWIPE_PX {
+                        step(-1);
+                    }
+                }
+                swipe_start.set_value(None);
+            };
+
+            let media = move || {
+                current().map(|att| {
+                    let id = att.id.clone();
+                    if att.mime.starts_with("video/") {
+                        // Video keeps its own controls; no zoom transform.
+                        view! {
+                            <video class="lightbox-img" controls autoplay
+                                src=format!("/media/{id}")></video>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"
+                                style=move || format!("transform: scale({})", zoom.get())/>
+                        }.into_any()
+                    }
+                })
+            };
+
+            view! {
+                <div class="lightbox" node_ref=lb_ref tabindex="-1"
+                    on:click=move |_| lightbox.set(None)
+                    on:keydown=on_keydown
+                    on:pointerdown=on_pointerdown
+                    on:pointerup=on_pointerup>
+                    <button class="lightbox-close" title="close"
+                        on:click=move |ev| { ev.stop_propagation(); lightbox.set(None); }>"✕"</button>
+                    {move || multi().then(|| view! {
+                        <button class="lightbox-nav lightbox-prev" title="previous"
+                            prop:disabled=at_start
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(-1); }>"‹"</button>
+                        <button class="lightbox-nav lightbox-next" title="next"
+                            prop:disabled=at_end
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(1); }>"›"</button>
+                    })}
+                    <div class="lightbox-zoom" on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                        <button title="zoom out"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN)); }>"−"</button>
+                        <button title="reset zoom"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.set(1.0); }>"⤢"</button>
+                        <button title="zoom in"
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX)); }>"+"</button>
+                    </div>
+                    {media}
+                </div>
+            }
+        })
+    }
+    .into_any()
+    }
+}
+
+/// SSR build: minimal non-interactive lightbox (no nav/zoom/swipe wiring). The
+/// client hydrates into the hydrate variant above. `zoom` is accepted for a
+/// matching signature but unused.
+#[cfg(not(feature = "hydrate"))]
+fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, _zoom: RwSignal<f64>) -> impl IntoView {
+    move || {
+        lightbox.get().map(|state| {
+            let att = state.images.get(state.idx).cloned();
+            att.map(|att| {
                 let id = att.id.clone();
                 let is_video = att.mime.starts_with("video/");
-                // Full original (no `?w=512`); video gets autoplay+controls.
                 let media = if is_video {
                     view! {
-                        <video class="lightbox-img" controls autoplay
+                        <video class="lightbox-img" controls
                             src=format!("/media/{id}")></video>
-                    }.into_any()
+                    }
+                    .into_any()
                 } else {
                     view! {
                         <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
-                    }.into_any()
+                    }
+                    .into_any()
                 };
                 view! {
-                    <div class="lightbox" on:click=move |_| lightbox.set(None)>
-                        <button class="lightbox-close" title="close"
-                            on:click=move |_| lightbox.set(None)>"✕"</button>
+                    <div class="lightbox">
+                        <button class="lightbox-close" title="close">"✕"</button>
                         {media}
                     </div>
                 }
-            })}
-        </div>
+            })
+        })
     }
 }

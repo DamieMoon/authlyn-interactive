@@ -4,7 +4,18 @@
 
 use leptos::prelude::*;
 
+use super::LightboxState;
 use crate::protocol::Attachment;
+
+/// True for an attachment that opens as a gallery image (everything except
+/// video, which keeps its own inline controls). The lightbox gallery navigates
+/// images only, so this is the filter used to build the gallery list and to map
+/// a clicked thumbnail to its index within that list. Hydrate-only: the ssr
+/// grid has no lightbox interaction.
+#[cfg(feature = "hydrate")]
+fn is_image(att: &Attachment) -> bool {
+    !att.mime.starts_with("video/")
+}
 
 /// Per-message row cap for the chunked grid: each row holds at most 3 cells,
 /// so a 5-image message lays out as [3, 2] and the trailing row stretches to
@@ -78,19 +89,23 @@ fn row_layout(n: usize) -> Vec<usize> {
 #[cfg(feature = "hydrate")]
 pub(super) fn attachment_grid(
     atts: Vec<Attachment>,
-    lightbox: RwSignal<Option<Attachment>>,
+    lightbox: RwSignal<Option<LightboxState>>,
 ) -> impl IntoView {
     let wrapper_class = wrapper_class(atts.len());
     let rows = row_layout(atts.len());
+    // The gallery the lightbox navigates: this message's images only. A clicked
+    // image opens at its index within `gallery`; a clicked video opens a
+    // single-entry gallery holding just that video (so arrow/swipe no-op).
+    let gallery: Vec<Attachment> = atts.iter().filter(|a| is_image(a)).cloned().collect();
     let mut iter = atts.into_iter();
     view! {
         <div class=wrapper_class>
             {rows.into_iter().map(|n| {
                 let row: Vec<Attachment> = iter.by_ref().take(n).collect();
+                let gallery = gallery.clone();
                 view! {
                     <div class=format!("att-row cols-{n}")>
                         {row.into_iter().map(|att| {
-                            let open = att.clone();
                             let is_video = att.mime.starts_with("video/");
                             let id = att.id.clone();
                             if !is_media_tile(&att.mime) {
@@ -107,11 +122,15 @@ pub(super) fn attachment_grid(
                                 }.into_any()
                             } else if is_video {
                                 // Videos use the raw blob (the `?w=512` thumbnail path is
-                                // image-only); play inline and open the lightbox on click.
+                                // image-only); play inline and open a lone-video lightbox.
+                                let open = att.clone();
                                 view! {
                                     <video class="att-thumb" controls preload="metadata"
                                         src=format!("/media/{id}")
-                                        on:click=move |_| lightbox.set(Some(open.clone()))></video>
+                                        on:click=move |_| lightbox.set(Some(LightboxState {
+                                            images: vec![open.clone()],
+                                            idx: 0,
+                                        }))></video>
                                 }.into_any()
                             } else {
                                 // GIFs must use the raw blob: the `?w=512` thumbnail re-encodes
@@ -131,12 +150,20 @@ pub(super) fn attachment_grid(
                                 } else {
                                     "att-thumb att-loading"
                                 };
+                                // Index of this image within the gallery (image-only)
+                                // list (F-4): a click opens the lightbox at this image
+                                // so arrow/swipe navigate the message's other images.
+                                let idx = gallery.iter().position(|g| g.id == att.id).unwrap_or(0);
+                                let gallery = gallery.clone();
                                 view! {
                                     <img class=cell_class loading="lazy" alt="attachment"
                                         src=src
                                         on:load=move |_| loaded.set(true)
                                         on:error=move |_| loaded.set(true)
-                                        on:click=move |_| lightbox.set(Some(open.clone()))/>
+                                        on:click=move |_| lightbox.set(Some(LightboxState {
+                                            images: gallery.clone(),
+                                            idx,
+                                        }))/>
                                 }.into_any()
                             }
                         }).collect_view()}
@@ -152,7 +179,7 @@ pub(super) fn attachment_grid(
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn attachment_grid(
     atts: Vec<Attachment>,
-    _lightbox: RwSignal<Option<Attachment>>,
+    _lightbox: RwSignal<Option<LightboxState>>,
 ) -> impl IntoView {
     let wrapper_class = wrapper_class(atts.len());
     let rows = row_layout(atts.len());
