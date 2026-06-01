@@ -97,6 +97,10 @@ pub(crate) struct Composer {
     /// channel switch so each channel keeps its own draft (feedback fvffwu /
     /// fkqdtp). Client-only: never persisted or sent to the server.
     pub(crate) drafts: RwSignal<HashMap<String, String>>,
+    /// Quick-swap color-swatch history (tag names, most-recent-first, capped at
+    /// 3) shown inline in the composer toolbar (feedback rli3tsora4ho7lsi9q31).
+    /// Persisted to localStorage; client-only, never sent to the server.
+    pub(crate) last_used_colors: RwSignal<Vec<String>>,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the

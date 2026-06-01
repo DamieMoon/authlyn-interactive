@@ -159,6 +159,17 @@ pub(super) fn apply_markup(
     });
 }
 
+/// Apply a color swatch: record it into the quick-swap history (move-to-front,
+/// dedup, cap-3) + persist, then wrap the selection in `[name]…[/name]` via
+/// [`apply_markup`] (unchanged). Shared by the inline quick swatches and the
+/// full popover.
+fn apply_color(s: Shell, ta_ref: NodeRef<leptos::html::Textarea>, name: &str) {
+    let next = act::record_color(&s.composer.last_used_colors.get_untracked(), name);
+    act::save_color_history(&next);
+    s.composer.last_used_colors.set(next);
+    apply_markup(s, ta_ref, &format!("[{name}]"), &format!("[/{name}]"));
+}
+
 /// Feature-detect `field-sizing: content` via the CSS Support API. When
 /// supported, the composer textarea grows + shrinks natively (see SCSS) and
 /// the JS auto-grow Effect can short-circuit — avoiding the per-keystroke
@@ -208,6 +219,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     // (start_utf16, end_utf16, query); `ac_index` is the highlighted suggestion.
     let emoji_open = RwSignal::new(false);
     let emoji_query = RwSignal::new(String::new());
+    // Composer color picker: the full 8-swatch popover toggle (the 3 quick
+    // swatches render inline). Mirrors the emoji popover's open/backdrop pattern.
+    let color_open = RwSignal::new(false);
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
@@ -684,15 +698,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         on:click=move |_| apply_markup(s, composer_ref, "```\n", "\n```")>
                         <code>"{}"</code>
                     </button>
-                    {Color::ALL.into_iter().map(|col| {
-                        let name = col.name();
-                        view! {
-                            <button class=format!("swatch mk-bg-{name}") title=name
-                                on:click=move |_|
-                                    apply_markup(s, composer_ref, &format!("[{name}]"), &format!("[/{name}]"))>
-                            </button>
-                        }
-                    }).collect_view()}
+                    // Quick-swap color swatches: only the 3 last-used colors
+                    // render inline (compressed when history < 3); the ▼ toggle
+                    // opens a popover with the full palette (feedback
+                    // rli3tsora4ho7lsi9q31).
+                    {move || {
+                        s.composer.last_used_colors.get().into_iter()
+                            .filter(|n| Color::from_name(n).is_some())
+                            .take(3)
+                            .map(|name| view! {
+                                <button class=format!("swatch mk-bg-{name}") title=name.clone()
+                                    on:click=move |_| apply_color(s, composer_ref, &name)>
+                                </button>
+                            })
+                            .collect_view()
+                    }}
+                    <button class="fmt color-more" title="more colors"
+                        on:click=move |_| color_open.update(|o| *o = !*o)>
+                        "▼"
+                    </button>
                     // Emoji picker toggle + live-preview toggle. The preview
                     // toggle persists per-user (localStorage) like the other
                     // composer prefs.
@@ -709,6 +733,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         "👁"
                     </button>
                 </div>
+                // Color palette popover: all 8 swatches in a small grid; a
+                // full-viewport backdrop closes it on an outside click (mirrors
+                // the emoji popover). Click-to-apply only for v1.
+                {move || color_open.get().then(|| view! {
+                    <div class="emoji-backdrop" on:click=move |_| color_open.set(false)></div>
+                    <div class="color-picker">
+                        {Color::ALL.into_iter().map(|col| {
+                            let name = col.name();
+                            view! {
+                                <button class=format!("swatch mk-bg-{name}") title=name
+                                    on:click=move |_| {
+                                        apply_color(s, composer_ref, name);
+                                        color_open.set(false);
+                                    }>
+                                </button>
+                            }
+                        }).collect_view()}
+                    </div>
+                })}
                 // Emoji picker popover: a search box over a categorised grid of
                 // the open guild's custom emoji plus the standard-unicode set.
                 // A full-viewport backdrop closes it on an outside click.

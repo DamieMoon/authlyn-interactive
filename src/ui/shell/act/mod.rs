@@ -9,6 +9,8 @@
 //! - [`guild`] — guild rail: refresh, swap, open, create/rename/delete/restore.
 //! - [`channel`] — channel sidebar: open (incl. deep link + session restore),
 //!   create/rename/delete/swap/restore.
+//! - [`compose_colors`] — composer quick-swap color-swatch history
+//!   (move-to-front/dedup/cap + localStorage load/save).
 //! - [`message`] — message read/write: send/edit/delete, the 3-cursor pagination
 //!   loop, sync/ingest/unseen, the background poll, mute/last-seen, lore +
 //!   friends + member ops + the destructive-action confirm dispatcher.
@@ -20,6 +22,7 @@
 
 pub mod account;
 pub mod channel;
+pub mod compose_colors;
 pub mod emoji;
 pub mod feedback;
 pub mod guild;
@@ -34,6 +37,7 @@ pub use channel::{
     create_channel, open_channel, open_deep_link, rename_channel, restore_channel, restore_session,
     swap_channel,
 };
+pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
 pub use emoji::{create_guild_emoji, delete_guild_emoji, upload_emoji_image};
 pub use feedback::{archive_feedback, build_feedback_context, submit_feedback};
 pub use guild::{
