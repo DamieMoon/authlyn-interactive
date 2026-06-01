@@ -569,19 +569,120 @@ pub async fn set_persona_avatar(pid: &str, media_id: &str) -> Result<(), ApiErro
 
 /// POST /media — upload a browser `File`/`Blob` as multipart/form-data (field
 /// `file`); returns the new media id from the `{ "id": "..." }` body.
+///
+/// Thin wrapper over [`upload_media_with_progress`] with a no-op progress sink,
+/// for callers (e.g. the wardrobe) that don't render an upload bar.
 pub async fn upload_media(file: &web_sys::File) -> Result<String, ApiError> {
+    upload_media_with_progress(file, |_| {}).await
+}
+
+/// POST /media with upload-progress callbacks (F-8). `on_progress` is invoked
+/// with a fraction `0.0..=1.0` as the body bytes go up; if the browser can't
+/// compute a total it's never called (the caller shows an indeterminate bar).
+///
+/// gloo-net's Fetch transport exposes no upload-progress event, so this drives
+/// a raw `XMLHttpRequest` and subscribes to `xhr.upload.onprogress`. The async
+/// completion is bridged through a `oneshot` resolved by the `load`/`error`/
+/// `abort` handlers. Same multipart shape + same `{ "id": ".." }` envelope as
+/// the Fetch path, so the server is none the wiser.
+pub async fn upload_media_with_progress<F>(
+    file: &web_sys::File,
+    on_progress: F,
+) -> Result<String, ApiError>
+where
+    F: Fn(f32) + 'static,
+{
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
+
     let form = web_sys::FormData::new()
         .map_err(|e| ApiError::Codec(format!("FormData unavailable: {e:?}")))?;
     form.append_with_blob("file", file)
         .map_err(|e| ApiError::Codec(format!("FormData append failed: {e:?}")))?;
-    let resp = Request::post("/media")
-        .body(form)
-        .map_err(codec)?
-        .send()
-        .await
-        .map_err(net)?;
-    let body: MediaUploadResponse = decode(resp).await?;
-    Ok(body.id)
+
+    let xhr = web_sys::XmlHttpRequest::new()
+        .map_err(|e| ApiError::Codec(format!("XMLHttpRequest unavailable: {e:?}")))?;
+    xhr.open_with_async("POST", "/media", true)
+        .map_err(|e| ApiError::Network(format!("open failed: {e:?}")))?;
+
+    // Upload-progress: write the fraction into the caller's sink. `length_computable`
+    // is false for chunked/unknown-length bodies → leave the bar indeterminate.
+    let upload = xhr
+        .upload()
+        .map_err(|e| ApiError::Network(format!("upload stream unavailable: {e:?}")))?;
+    let on_progress_cb =
+        Closure::<dyn FnMut(web_sys::ProgressEvent)>::new(move |ev: web_sys::ProgressEvent| {
+            if ev.length_computable() && ev.total() > 0.0 {
+                let frac = (ev.loaded() / ev.total()) as f32;
+                on_progress(frac.clamp(0.0, 1.0));
+            }
+        });
+    upload.set_onprogress(Some(on_progress_cb.as_ref().unchecked_ref()));
+
+    // Bridge XHR's event-driven completion to async/await via a `Promise` (the
+    // `futures` oneshot crate isn't in the hydrate dep graph). The promise
+    // executor hands us its `resolve` fn; the load handler resolves with the
+    // status code, error/abort reject. Each handler fires at most once.
+    use wasm_bindgen::JsValue;
+    let resolve_cell: std::rc::Rc<std::cell::RefCell<Option<js_sys::Function>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let reject_cell: std::rc::Rc<std::cell::RefCell<Option<js_sys::Function>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let promise = {
+        let resolve_cell = resolve_cell.clone();
+        let reject_cell = reject_cell.clone();
+        js_sys::Promise::new(&mut move |resolve, reject| {
+            *resolve_cell.borrow_mut() = Some(resolve);
+            *reject_cell.borrow_mut() = Some(reject);
+        })
+    };
+
+    let on_load = {
+        let resolve_cell = resolve_cell.clone();
+        Closure::<dyn FnMut()>::new(move || {
+            if let Some(resolve) = resolve_cell.borrow_mut().take() {
+                let _ = resolve.call1(&JsValue::NULL, &JsValue::NULL);
+            }
+        })
+    };
+    let on_fail = {
+        let reject_cell = reject_cell.clone();
+        Closure::<dyn FnMut()>::new(move || {
+            if let Some(reject) = reject_cell.borrow_mut().take() {
+                let _ = reject.call1(&JsValue::NULL, &JsValue::NULL);
+            }
+        })
+    };
+    xhr.set_onload(Some(on_load.as_ref().unchecked_ref()));
+    xhr.set_onerror(Some(on_fail.as_ref().unchecked_ref()));
+    xhr.set_onabort(Some(on_fail.as_ref().unchecked_ref()));
+
+    xhr.send_with_opt_form_data(Some(&form))
+        .map_err(|e| ApiError::Network(format!("send failed: {e:?}")))?;
+
+    // Await completion; keep the closures alive until the request settles.
+    let settled = wasm_bindgen_futures::JsFuture::from(promise).await;
+    drop(on_progress_cb);
+    drop(on_load);
+    drop(on_fail);
+    if settled.is_err() {
+        return Err(ApiError::Network("upload failed".to_string()));
+    }
+
+    // 2xx → parse the `{ "id": ".." }` envelope; otherwise lift the server's
+    // `{ "error": ".." }` body into a Status error, mirroring `decode`.
+    let status = xhr.status().unwrap_or(0);
+    let text = xhr.response_text().ok().flatten().unwrap_or_default();
+    if (200..300).contains(&status) {
+        serde_json::from_str::<MediaUploadResponse>(&text)
+            .map(|b| b.id)
+            .map_err(|e| ApiError::Codec(e.to_string()))
+    } else {
+        let msg = serde_json::from_str::<ErrorBody>(&text)
+            .map(|b| b.error)
+            .unwrap_or_else(|_| "request failed".to_string());
+        Err(ApiError::Status(status, msg))
+    }
 }
 
 #[derive(serde::Deserialize)]

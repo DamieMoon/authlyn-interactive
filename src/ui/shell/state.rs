@@ -89,14 +89,44 @@ pub(crate) struct MessageView {
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) const COMPOSER_MAX_ATTACHMENTS: usize = 100;
 
+/// Lifecycle of one staged compose attachment's upload (F-8). Client-only
+/// transient state — never serialized; the wire SEND request carries only the
+/// media id once `Ready`.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) enum UploadStatus {
+    /// Bytes are going up; `f32` is the fraction `0.0..=1.0`, or `None` when the
+    /// browser can't compute a total (render an indeterminate bar).
+    Uploading(Option<f32>),
+    /// Upload finished; `att.id` is a real media id ready to send.
+    Ready,
+    /// Upload failed; the slot shows a retry button. Holds a short message.
+    Failed(String),
+}
+
+/// A composer attachment plus its transient upload lifecycle (F-8). Wraps the
+/// wire [`Attachment`] DTO rather than mutating it, so the serialized shape the
+/// server emits is untouched. While `Uploading`/`Failed` the inner
+/// `att.id` is a client-only placeholder (the file's object key index, not a
+/// media id); it becomes a real media id only on `Ready`.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct StagedAttachment {
+    /// Stable per-stage key so the view can address a slot for progress
+    /// updates / removal / retry independent of the (late-arriving) media id.
+    pub(crate) key: u64,
+    pub(crate) att: Attachment,
+    pub(crate) status: UploadStatus,
+}
+
 /// Compose box (draft text + staged attachments + last status line).
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct Composer {
     pub(crate) compose: RwSignal<String>,
-    /// Media ids already uploaded and staged to send with the next message
-    /// (the composer's pending image attachments, in pick order).
-    pub(crate) compose_attachments: RwSignal<Vec<Attachment>>,
+    /// Staged attachments with per-item upload progress/status (F-8), in pick
+    /// order. Only `Ready` items' media ids are sent with the next message.
+    pub(crate) compose_attachments: RwSignal<Vec<StagedAttachment>>,
     pub(crate) status: RwSignal<String>,
     /// Per-channel saved drafts (channel id -> in-progress text), stashed on
     /// channel switch so each channel keeps its own draft (feedback fvffwu /
