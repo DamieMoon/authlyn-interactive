@@ -8,6 +8,16 @@ use leptos::prelude::*;
 use super::{act, Shell};
 use crate::ui::modal::Modal;
 
+// Global JS helper defined in `public/register-sw.js`: forces a service-worker
+// update check and reports a human-readable status (and triggers a reload via
+// the controllerchange listener when a waiting worker activates). Hydrate-only.
+#[cfg(feature = "hydrate")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = authlynCheckForUpdate)]
+    fn authlyn_check_for_update() -> js_sys::Promise;
+}
+
 /// The account-management window. Renders a `.modal-backdrop`/`.modal`
 /// (classes shared with the persona-info popup) over the shell. `open` is the
 /// caller's visibility signal; the ✕ and the backdrop both flip it to `false`.
@@ -104,6 +114,21 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         fb_body.set(String::new());
     };
 
+    // Force a service-worker update check via the global JS helper, then surface
+    // its status. On hydrate only; the ssr build (which never runs in a browser)
+    // gets a no-op so the view compiles ungated.
+    let check_for_update = move |_| {
+        #[cfg(feature = "hydrate")]
+        leptos::task::spawn_local(async move {
+            let res = wasm_bindgen_futures::JsFuture::from(authlyn_check_for_update()).await;
+            let msg = res
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| "Update check failed.".into());
+            s.composer.status.set(msg);
+        });
+    };
+
     view! {
         // Backdrop click closes; the Modal wrapper handles stop_propagation
         // on the inner panel so inner clicks don't bubble up and close it.
@@ -167,6 +192,15 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Style roleplay dialogue"</span>
                     </label>
+                    <button class="account-save" on:click=check_for_update>
+                        "Check for updates"
+                    </button>
+                    <p class="muted">{format!(
+                        "Version {} \"{}\" · {}",
+                        env!("CARGO_PKG_VERSION"),
+                        option_env!("APP_CODENAME").unwrap_or("dev"),
+                        env!("BUILD_REV"),
+                    )}</p>
                 </section>
 
                 // ---- Feedback / bug report ----
