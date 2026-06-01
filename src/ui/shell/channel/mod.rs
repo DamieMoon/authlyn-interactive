@@ -18,6 +18,7 @@ mod attachments;
 mod avatar;
 mod emoji_suggest;
 mod meta;
+mod skeleton;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};
@@ -27,6 +28,7 @@ use emoji_suggest::{
     custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
 };
 use meta::message_meta;
+use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
 
@@ -415,6 +417,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     #[cfg(not(feature = "hydrate"))]
                     let _ = (&last_dist, &_ev);
                 }>
+                // Ephemeral loading skeletons (F-7): shown only while the
+                // first page is in flight AND no real rows exist yet. Leptos
+                // diffing drops them the instant `messages` becomes non-empty.
+                // Sentinel `skeleton-N` ids only — never enter seen/cursor.
+                {move || should_show_skeletons(
+                    s.msg.loading_initial.get(),
+                    s.msg.messages.with(Vec::len),
+                ).then(skeleton_rows)}
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel.sel_channel.get().map(|c| c.id);

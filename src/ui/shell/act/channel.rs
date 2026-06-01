@@ -95,6 +95,9 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.msg.more_history.set(true);
         s.msg.anchor_to.set(None);
         s.msg.seen.update(|h| h.clear());
+        // First page is now in flight: show loading skeletons until it lands
+        // (the spawned task below clears this on every exit path) (F-7).
+        s.msg.loading_initial.set(true);
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
         s.msg.typing.set(Vec::new());
@@ -114,9 +117,14 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 // Stale-guard: if the user switched channels while this initial
                 // page was in flight, drop it so we don't paint the previous
                 // channel's messages under the new header (feedback gwiif7xy).
+                // The newer switch owns `loading_initial` now, so leave it.
                 if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(cid.clone()) {
                     return;
                 }
+                // First page landed: drop the loading skeletons (F-7). Cleared
+                // before `ingest` so the skeleton predicate and the real rows
+                // never both render for a frame.
+                s.msg.loading_initial.set(false);
                 // The initial page is the NEWEST messages (ASC); remember the
                 // oldest of it as the scroll-up cursor, and whether a full page
                 // came back (i.e. older history may exist).
@@ -142,6 +150,11 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 if let Some(cur) = s.msg.cursor.get_untracked() {
                     super::message::set_last_seen(s, &seen_cid, cur);
                 }
+            } else if s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone()) {
+                // First-page fetch failed and we're still on this channel: drop
+                // the skeletons so the pane doesn't shimmer forever (F-7). A
+                // newer switch already owns the flag, so only clear it for ours.
+                s.msg.loading_initial.set(false);
             }
         });
     }

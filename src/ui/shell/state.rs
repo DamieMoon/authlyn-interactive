@@ -67,6 +67,11 @@ pub(crate) struct MessageView {
     pub(crate) loading_older: RwSignal<bool>,
     /// `false` once a backfill returns a short page (start of history reached).
     pub(crate) more_history: RwSignal<bool>,
+    /// True while the channel's FIRST page is in flight (set on switch, cleared
+    /// when the initial `list_messages` lands or fails). Drives the loading
+    /// skeleton: skeleton rows show only while this is set AND `messages` is
+    /// still empty (F-7). Transient client-only flag — never persisted/sent.
+    pub(crate) loading_initial: RwSignal<bool>,
     /// After an older-history prepend, the message id to re-anchor to the top
     /// so the viewport doesn't jump; the channel pane scrolls it into view.
     pub(crate) anchor_to: RwSignal<Option<String>>,

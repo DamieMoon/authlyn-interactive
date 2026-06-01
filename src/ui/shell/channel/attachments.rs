@@ -88,9 +88,21 @@ pub(super) fn attachment_grid(
                                 } else {
                                     format!("/media/{id}?w=512")
                                 };
+                                // Shimmer placeholder (F-7): the cell carries
+                                // `.att-loading` until the thumb's first
+                                // `load`/`error`, when it's removed so the
+                                // shimmer stops and the image shows through.
+                                let loaded = RwSignal::new(false);
+                                let cell_class = move || if loaded.get() {
+                                    "att-thumb"
+                                } else {
+                                    "att-thumb att-loading"
+                                };
                                 view! {
-                                    <img class="att-thumb" loading="lazy" alt="attachment"
+                                    <img class=cell_class loading="lazy" alt="attachment"
                                         src=src
+                                        on:load=move |_| loaded.set(true)
+                                        on:error=move |_| loaded.set(true)
                                         on:click=move |_| lightbox.set(Some(open.clone()))/>
                                 }.into_any()
                             }
