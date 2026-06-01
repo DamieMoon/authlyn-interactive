@@ -148,6 +148,7 @@ fn AppShell() -> impl IntoView {
         compose_attachments: RwSignal::new(Vec::new()),
         status: RwSignal::new(String::new()),
         drafts: RwSignal::new(crate::ui::shell::act::channel::load_drafts()),
+        last_used_colors: RwSignal::new(act::load_color_history()),
     };
     provide_context(composer);
 
