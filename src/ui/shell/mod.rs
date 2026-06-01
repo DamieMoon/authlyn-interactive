@@ -41,7 +41,7 @@ pub(crate) use state::{
 };
 
 use account::AccountModal;
-use channel::ChannelPane;
+use channel::{ChannelManagerModal, ChannelPane};
 use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
@@ -245,6 +245,15 @@ fn AppShell() -> impl IntoView {
     let guild_trash_open = RwSignal::new(false);
     // Deleted-channel list open/closed in the sidebar (owner-only).
     let chan_trash_open = RwSignal::new(false);
+    // L-5: the unified channel-management window (create/rename/delete/reorder),
+    // opened from the owner-gated "⚙ Manage" button in the server header.
+    let channel_manager_open = RwSignal::new(false);
+    // L-5: index of the rail guild currently being dragged (HTML5 DnD), or None
+    // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
+    let rail_drag_from = RwSignal::new(None::<usize>);
+    // L-5: same, for the sidebar channel rows (shared across rows so the drop
+    // target row can read which row started the drag).
+    let chan_drag_from = RwSignal::new(None::<usize>);
     // Inline-rename edit state (owner only): the server title and per-channel rows.
     // The edit buffers live INSIDE `<InlineRename>` now (W6/C7); these signals
     // just gate whether the input is rendered at all.
@@ -337,15 +346,33 @@ fn AppShell() -> impl IntoView {
                         let gid_active = gid.clone();
                         let gid_unread = gid.clone();
                         view! {
-                            <div class="rail-guild-wrap">
+                            // Drag-to-reorder (HTML5): the wrap is draggable;
+                            // dragstart records this index, dragover allows the
+                            // drop, drop moves the dragged guild here (L-5).
+                            <div class="rail-guild-wrap" draggable="true"
+                                on:dragstart=move |_ev| rail_drag_from.set(Some(idx))
+                                on:dragover=move |_ev| {
+                                    #[cfg(feature = "hydrate")] _ev.prevent_default();
+                                }
+                                on:drop=move |_ev| {
+                                    #[cfg(feature = "hydrate")] {
+                                        _ev.prevent_default();
+                                        if let Some(from) = rail_drag_from.get_untracked() {
+                                            act::move_guild(s, from, idx);
+                                        }
+                                        rail_drag_from.set(None);
+                                    }
+                                }
+                                on:dragend=move |_ev| rail_drag_from.set(None)>
                                 <button class="rail-guild" title=g.name
                                     class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
                                     class:unread=move || act::guild_has_unread(s, &gid_unread)
                                     on:click=move |_| act::open_server(s, gid.clone())>
                                     {initial}
                                 </button>
-                                // Personal rail reorder ↑/↓ (#17/FB2). ↑ disabled
-                                // on the first guild, ↓ on the last.
+                                // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
+                                // a neighbour, ⤒/⤓ bring to top/bottom. ↑/⤒
+                                // disabled on the first guild, ↓/⤓ on the last.
                                 <div class="rail-reorder">
                                     <button class="rail-reorder-btn" title="Move up"
                                         disabled=move || idx == 0
@@ -353,6 +380,12 @@ fn AppShell() -> impl IntoView {
                                     <button class="rail-reorder-btn" title="Move down"
                                         disabled=move || idx == len.saturating_sub(1)
                                         on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
+                                    <button class="rail-reorder-btn" title="Bring to top"
+                                        disabled=move || idx == 0
+                                        on:click=move |_| act::move_guild_to_bounds(s, idx, true)>"⤒"</button>
+                                    <button class="rail-reorder-btn" title="Bring to bottom"
+                                        disabled=move || idx == len.saturating_sub(1)
+                                        on:click=move |_| act::move_guild_to_bounds(s, idx, false)>"⤓"</button>
                                 </div>
                             </div>
                         }
@@ -439,6 +472,10 @@ fn AppShell() -> impl IntoView {
                             view! {
                                 <span class="server-title">{server_name()}</span>
                                 <Show when=is_owner fallback=|| ()>
+                                    // L-5: open the unified channel-management
+                                    // window (create/rename/delete/reorder).
+                                    <button class="row-edit" title="Manage channels"
+                                        on:click=move |_| channel_manager_open.set(true)>"⚙"</button>
                                     <button class="row-edit" title="rename server"
                                         on:click=move |_| editing_server.set(true)>"✎"</button>
                                     <button class="row-edit danger" title="delete server"
@@ -476,7 +513,7 @@ fn AppShell() -> impl IntoView {
                             let chans = s.sel.channels.get();
                             let len = chans.len();
                             chans.into_iter().enumerate().map(|(idx, c)| {
-                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel/> }
+                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel drag_from=chan_drag_from/> }
                             }).collect_view()
                         }}
                     </ul>
@@ -531,6 +568,12 @@ fn AppShell() -> impl IntoView {
                                 }>"Create"</button>
                             </div>
                         </Modal>
+                    })}
+                    // L-5: the unified channel-management window. Owner-gated
+                    // open (the server re-checks require_manager on every
+                    // mutate, so the gate is defence-in-depth, not the boundary).
+                    {move || (channel_manager_open.get() && is_owner()).then(|| view! {
+                        <ChannelManagerModal s=s open=channel_manager_open/>
                     })}
                     // Deleted-channels panel (owner only).
                     <Show when=is_owner fallback=|| ()>
@@ -692,21 +735,41 @@ fn ChannelRow(
     idx: usize,
     len: usize,
     editing: RwSignal<Option<String>>,
+    // L-5: the shared drag-source index for HTML5 drag-to-reorder (owned by
+    // `AppShell`). `None` between drags.
+    drag_from: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
         me.is_some() && me == s.sel.sel_owner.get()
     };
-    // `idx`/`len` feed the reorder buttons' `disabled` closures, which the
-    // `view!` macro strips on ssr — silence the ssr-side unused warning the same
-    // way wardrobe.rs does for the persona reorder controls.
-    let _ = (idx, len);
+    // `idx`/`len`/`drag_from` feed the reorder buttons' `disabled` closures and
+    // the drag handlers, which the `view!` macro strips on ssr — silence the
+    // ssr-side unused warning the same way wardrobe.rs does.
+    let _ = (idx, len, drag_from);
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
     let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
     view! {
-        <li>
+        // Drag-to-reorder (owner only in practice; the server re-checks).
+        // dragstart records this row, dragover allows the drop, drop moves the
+        // dragged channel to this index (L-5).
+        <li draggable="true"
+            on:dragstart=move |_ev| drag_from.set(Some(idx))
+            on:dragover=move |_ev| {
+                #[cfg(feature = "hydrate")] _ev.prevent_default();
+            }
+            on:drop=move |_ev| {
+                #[cfg(feature = "hydrate")] {
+                    _ev.prevent_default();
+                    if let Some(from) = drag_from.get_untracked() {
+                        act::move_channel(s, from, idx);
+                    }
+                    drag_from.set(None);
+                }
+            }
+            on:dragend=move |_ev| drag_from.set(None)>
             {move || {
                 let cid = cid.clone();
                 let name0 = name0.clone();
@@ -738,14 +801,21 @@ fn ChannelRow(
                             {sigil}{name0.clone()}
                         </button>
                         <Show when=is_owner fallback=|| ()>
-                            // Reorder ↑/↓ — mirrors the persona/lorebook pattern.
-                            // ↑ disabled on the first channel, ↓ on the last.
+                            // Reorder (L-5): ↑/↓ swap a neighbour, ⤒/⤓ bring to
+                            // top/bottom. ↑/⤒ disabled on the first channel,
+                            // ↓/⤓ on the last.
                             <button class="channel-reorder" title="Move up"
                                 disabled=move || idx == 0
                                 on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
                             <button class="channel-reorder" title="Move down"
                                 disabled=move || idx == len.saturating_sub(1)
                                 on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
+                            <button class="channel-reorder" title="Bring to top"
+                                disabled=move || idx == 0
+                                on:click=move |_| act::move_channel_to_bounds(s, idx, true)>"⤒"</button>
+                            <button class="channel-reorder" title="Bring to bottom"
+                                disabled=move || idx == len.saturating_sub(1)
+                                on:click=move |_| act::move_channel_to_bounds(s, idx, false)>"⤓"</button>
                             <button class="row-edit" title="rename channel" on:click={
                                 let start_cid = start_cid.clone();
                                 move |_| editing.set(Some(start_cid.clone()))

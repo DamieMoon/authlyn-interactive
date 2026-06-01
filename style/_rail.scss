@@ -50,9 +50,22 @@
 		align-items: center;
 		gap: 0.15rem;
 
+		// L-5: each guild is draggable to reorder the rail; hint the grab.
+		&[draggable="true"] {
+			cursor: grab;
+		}
+
+		&[draggable="true"]:active {
+			cursor: grabbing;
+		}
+
 		.rail-reorder {
 			display: none;
 			gap: 0.1rem;
+			// Four controls (↑ ↓ ⤒ ⤓) wrap into two rows in the narrow rail.
+			flex-wrap: wrap;
+			justify-content: center;
+			max-width: 3rem;
 		}
 
 		&:hover .rail-reorder {

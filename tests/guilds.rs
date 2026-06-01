@@ -437,3 +437,219 @@ async fn owner_role_cannot_be_changed() {
     .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
 }
+
+/// L-5: a channel-`position` PATCH persists and reorders the sidebar list.
+/// This is the same endpoint the manager's reorder (swap / move-to-bounds)
+/// drives — renumbering each moved channel to a fresh index. We create three
+/// channels, PATCH their positions into reverse order, and assert the
+/// `GET /guilds/{id}` list (ORDER BY position) reflects the new order.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn channel_reorder_persists() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Guild").await;
+
+    // The default "general" channel is position 0; add two more.
+    let mut cids = vec![channel_id_at(&a.router, &owner, &gid, 0).await];
+    for name in ["beta", "gamma"] {
+        let (st, _, body) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/guilds/{gid}/channels"),
+            Some(&owner),
+            Some(&json!({ "name": name, "kind": "text" })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CREATED);
+        cids.push(body["id"].as_str().unwrap().to_string());
+    }
+
+    // Reverse the order via position PATCHes (index = new slot).
+    for (slot, cid) in cids.iter().rev().enumerate() {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::PATCH,
+            &format!("/guilds/{gid}/channels/{cid}"),
+            Some(&owner),
+            Some(&json!({ "position": slot as i64 })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    let (_, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let listed: Vec<String> = body["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect();
+    let mut expected = cids.clone();
+    expected.reverse();
+    assert_eq!(listed, expected, "channels are listed in the patched order");
+}
+
+/// L-5: the manager's "bring to top" / "bring to bottom" path renumbers the
+/// full list so the moved channel lands at index 0 or the last index. We
+/// emulate the helper by computing the new full order client-side, PATCHing
+/// each changed slot, and asserting the persisted list.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn move_channel_to_top_and_bottom() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Guild").await;
+
+    let mut cids = vec![channel_id_at(&a.router, &owner, &gid, 0).await];
+    for name in ["beta", "gamma"] {
+        let (st, _, body) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/guilds/{gid}/channels"),
+            Some(&owner),
+            Some(&json!({ "name": name, "kind": "text" })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CREATED);
+        cids.push(body["id"].as_str().unwrap().to_string());
+    }
+    // cids == [general, beta, gamma] at positions 0,1,2.
+
+    // Bring the last (gamma) to the top → [gamma, general, beta].
+    let mut order = cids.clone();
+    let moved = order.remove(2);
+    order.insert(0, moved);
+    persist_channel_order(&a.router, &owner, &gid, &order).await;
+    assert_eq!(channel_order(&a.router, &owner, &gid).await, order);
+
+    // Bring the first (gamma) to the bottom → [general, beta, gamma].
+    let moved = order.remove(0);
+    order.push(moved);
+    persist_channel_order(&a.router, &owner, &gid, &order).await;
+    assert_eq!(channel_order(&a.router, &owner, &gid).await, order);
+    assert_eq!(
+        order,
+        vec![cids[0].clone(), cids[1].clone(), cids[2].clone()]
+    );
+}
+
+/// L-5: `PUT /rail/order` persists the caller's personal guild-rail order —
+/// the path the manager's server-reorder (drag / move-to-bounds) drives.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn rail_order_persists() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let g1 = create_guild(&a.router, &owner, "One").await;
+    let g2 = create_guild(&a.router, &owner, "Two").await;
+    let g3 = create_guild(&a.router, &owner, "Three").await;
+
+    // Put the rail in a deliberate, non-creation order.
+    let desired = vec![g3.clone(), g1.clone(), g2.clone()];
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        "/rail/order",
+        Some(&owner),
+        Some(&json!({ "guild_ids": desired })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (_, _, body) = common::send(&a.router, Method::GET, "/guilds", Some(&owner), None).await;
+    let listed: Vec<String> = body["guilds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(listed, desired, "the rail is listed in the persisted order");
+}
+
+/// L-5 / review F-D1b-3: a soft-deleted guild must reject channel creation —
+/// `require_manager` calls `ensure_guild_live`, so a trashed guild collapses
+/// to a privacy-404 even for its owner. Guards the soft-delete-immutability
+/// invariant for the channel-create path the manager exposes.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn create_channel_in_soft_deleted_guild_is_rejected() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Doomed").await;
+
+    // Soft-delete the guild (owner-gated).
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // Creating a channel in a trashed guild is a privacy-404.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "ghost", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "channel create on a soft-deleted guild must 404"
+    );
+}
+
+/// The channel id at `pos` in the guild's position-sorted list.
+#[cfg(feature = "ssr")]
+async fn channel_id_at(router: &axum::Router, cookie: &str, gid: &str, pos: usize) -> String {
+    channel_order(router, cookie, gid).await[pos].clone()
+}
+
+/// The guild's channel ids in server-listed (position) order.
+#[cfg(feature = "ssr")]
+async fn channel_order(router: &axum::Router, cookie: &str, gid: &str) -> Vec<String> {
+    let (_, _, body) = common::send(
+        router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(cookie),
+        None,
+    )
+    .await;
+    body["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// PATCH every channel whose desired slot differs from its current index —
+/// the move-to-bounds / drag renumber the manager performs client-side.
+#[cfg(feature = "ssr")]
+async fn persist_channel_order(router: &axum::Router, cookie: &str, gid: &str, order: &[String]) {
+    for (slot, cid) in order.iter().enumerate() {
+        let (st, _, _) = common::send(
+            router,
+            Method::PATCH,
+            &format!("/guilds/{gid}/channels/{cid}"),
+            Some(cookie),
+            Some(&json!({ "position": slot as i64 })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+}

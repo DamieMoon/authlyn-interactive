@@ -17,7 +17,10 @@
 mod attachments;
 mod avatar;
 mod emoji_suggest;
+mod manager;
 mod meta;
+
+pub(crate) use manager::ChannelManagerModal;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};

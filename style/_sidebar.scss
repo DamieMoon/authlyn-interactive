@@ -38,6 +38,15 @@
 			display: flex;
 			align-items: center;
 			gap: 0.15rem;
+
+			// L-5: rows are draggable to reorder; hint the grab affordance.
+			&[draggable="true"] {
+				cursor: grab;
+			}
+
+			&[draggable="true"]:active {
+				cursor: grabbing;
+			}
 		}
 
 		.channel {
