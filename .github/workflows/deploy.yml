@@ -7,6 +7,9 @@ name: Deploy to novahome
 on:
   push:
     branches: [main]
+    paths-ignore:        # docs-only pushes shouldn't rebuild/restart prod
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
 
 # Serialize deploys; never interrupt one that is mid-swap.

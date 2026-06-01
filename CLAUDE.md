@@ -18,6 +18,7 @@ First run on a fresh clone (in order — `cargo`/`cargo-leptos` are not vendored
 3. `cp .env.example .env && cargo leptos watch` — SSR + WASM + SCSS, live reload at http://127.0.0.1:3000. cargo-leptos loads `.env`; the compiled binary does NOT (no dotenv dep), so a raw `cargo run`/`nova-mcp` needs env exported.
 
 - **Build:** `cargo leptos build --release`.
+- **Deploy:** push to `main` auto-deploys to production (novahome) via a self-hosted GitHub Actions runner (`.github/workflows/deploy.yml`): hard-resets `/home/damien/authlyn-interactive` to the pushed commit → release build → gzip backup of prod DB to `/data/prod_backups/` → `sudo /opt/authlyn/deploy.sh` (swap + health-check + auto-rollback). Docs-only pushes (`**/*.md`, `docs/**`) are excluded. Manual deploy of an arbitrary working tree is the `deploy` skill. NOTE: the runner shares that repo dir and hard-resets it every deploy — never leave uncommitted work in `/home/damien/authlyn-interactive`.
 - **Test:** `cargo test --features ssr` — needs the `ssr` feature (harness is `#![cfg(feature="ssr")]`) AND a live SurrealDB on 127.0.0.1:8000 (root/root); each worker isolates a unique namespace.
 - **Format / Lint:** `cargo fmt --all`; `cargo clippy --features ssr` (server graph) AND `cargo clippy --features hydrate --target wasm32-unknown-unknown` (browser graph — disjoint deps, not covered by the ssr lint).
 - **nova-mcp:** build `cargo build --release --bin nova-mcp --features nova`; run `NOVA_PASSWORD=... NOVA_AUTHLYN_URL=http://127.0.0.1:3000 ./target/release/nova-mcp` (nova defaults to :8081, but the dev server is on :3000).
@@ -48,7 +49,7 @@ First run on a fresh clone (in order — `cargo`/`cargo-leptos` are not vendored
 
 ## Conventions
 - **Commits:** Conventional Commits `type(scope): subject` (incl. non-standard `a11y`). Review fixes append `(review F-Dxx-x)` (ids in `docs/CODE-REVIEW-2026-05-29.md`); phased work uses `(Wn/Cn)`. Bodies explain the invariant/finding + fix, end with a `Tests:` line naming new test fns, then trailer `Co-Authored-By: Claude Opus 4.x (1M context)`.
-- **Versioning:** CalVer `YYYY.M.D` in `[package].version`; human codename in `[package.metadata.release].codename` (currently `giggly-crescent`). Codename bumping is MANUAL — pick a fresh two-word name.
+- **Versioning:** CalVer `YYYY.M.D` in `[package].version`; human codename in `[package.metadata.release].codename` (currently `saffron-tide`). Codename bumping is MANUAL — pick a fresh two-word name.
 - **Formatting:** default rustfmt — there is NO `rustfmt.toml`; do not invent project rules.
 - **Tests:** integration suites in `tests/*.rs` (14 files), `#[tokio::test]` async fns with long snake_case full-sentence names; shared harness `tests/common/mod.rs` (kept as a subdir `mod.rs` so Cargo does not treat it as its own test binary).
 - **Doc-comment density (match this):** every Cargo.toml dependency carries a `#` comment stating purpose + features + ssr-vs-hydrate build-graph constraint; every module has a `//!` header stating scope + feature-gating; public REST fns lead with `/// VERB /path — intent.`.
