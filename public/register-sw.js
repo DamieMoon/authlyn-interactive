@@ -101,3 +101,24 @@
       });
   });
 })();
+
+// Manual update check, invoked by the account modal's "Check for updates"
+// button. Mirrors the banner's Refresh flow: force a registration update, and
+// if that turns up a WAITING worker, tell it to skip waiting. The
+// controllerchange listener above then reloads the page exactly once. Returns
+// a human-readable status string for the caller to surface.
+window.authlynCheckForUpdate = async function () {
+  if (!("serviceWorker" in navigator)) return "Updates not supported here.";
+  var reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return "App not installed as a PWA yet.";
+  try {
+    await reg.update();
+  } catch (e) {
+    return "Update check failed.";
+  }
+  if (reg.waiting) {
+    reg.waiting.postMessage({ type: "SKIP_WAITING" }); // controllerchange listener reloads
+    return "Updating to the latest version…";
+  }
+  return "You're on the latest version.";
+};
