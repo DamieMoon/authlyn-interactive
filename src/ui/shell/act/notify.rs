@@ -334,6 +334,26 @@ pub fn clear_notifs_for_channel(cid: &str) {
     })();
 }
 
+/// Auto-dismiss tray notifications for the channel the user is ACTIVELY
+/// reading: when fresh messages just landed in the currently-open channel
+/// AND the tab is foregrounded, clear that channel's tagged notifications so
+/// a push that arrived moments before doesn't linger until the channel is
+/// reopened. Feedback row 7ty2eyaoboca2q5lyw37.
+///
+/// Strictly scoped to `ch` (the open channel passed by the poll loop), so it
+/// never touches notifications for other/background channels. No-op when no
+/// new messages landed this tick or when the tab is hidden (in which case the
+/// user genuinely missed them and should keep the notification). The caller
+/// already drops the tick on a stale channel switch, so `ch` is the live open
+/// channel here.
+#[cfg(feature = "hydrate")]
+pub(super) fn dismiss_open_channel_notifs(ch: &ChannelSummary, fresh: &[MessageEnvelope]) {
+    if fresh.is_empty() || tab_hidden() {
+        return;
+    }
+    clear_notifs_for_channel(&ch.id);
+}
+
 /// Add a `focus` listener to `window` that asks the SW to close any tray
 /// notifications tagged with the currently-open channel. Runs once at
 /// AppShell mount. The closure stays alive for the page lifetime via
