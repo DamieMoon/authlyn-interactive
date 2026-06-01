@@ -50,7 +50,7 @@ fn notifications_available() -> bool {
 /// (never throws) where the API is missing — e.g. iOS Safari outside an
 /// installed PWA.
 #[cfg(feature = "hydrate")]
-pub(super) fn request_notify_permission() {
+pub(super) fn request_notify_permission(s: Shell) {
     use leptos::web_sys::{Notification, NotificationPermission};
     if !notifications_available() {
         return;
@@ -62,7 +62,7 @@ pub(super) fn request_notify_permission() {
                 spawn_local(async move {
                     if let Ok(v) = wasm_bindgen_futures::JsFuture::from(promise).await {
                         if v.as_string().as_deref() == Some("granted") {
-                            ensure_push_subscription().await;
+                            ensure_push_subscription(s).await;
                         }
                     }
                 });
@@ -74,7 +74,7 @@ pub(super) fn request_notify_permission() {
             // getSubscription() short-circuits if we already have one. Runs
             // from this gesture, so iOS is satisfied.
             spawn_local(async move {
-                ensure_push_subscription().await;
+                ensure_push_subscription(s).await;
             });
         }
         _ => {}
@@ -89,11 +89,11 @@ pub(super) fn request_notify_permission() {
 /// outside an installed PWA) just makes it a silent no-op. Call only after
 /// Notification permission is granted.
 #[cfg(feature = "hydrate")]
-async fn ensure_push_subscription() {
+async fn ensure_push_subscription(s: Shell) {
     use wasm_bindgen::{JsCast, JsValue};
     use wasm_bindgen_futures::JsFuture;
 
-    let _ = async {
+    let ok = async {
         let win = leptos::web_sys::window()?;
         let nav = js_sys::Reflect::get(&win, &JsValue::from_str("navigator")).ok()?;
         let sw = js_sys::Reflect::get(&nav, &JsValue::from_str("serviceWorker")).ok()?;
@@ -178,6 +178,12 @@ async fn ensure_push_subscription() {
         Some(())
     }
     .await;
+    // Mark push live so the poll loop suppresses its duplicate client
+    // Notification (server web-push now delivers to backgrounded tabs). Only
+    // on a confirmed subscribe — a no-op/failure leaves the poll fallback on.
+    if ok.is_some() {
+        s.notify.web_push_enabled.set(true);
+    }
 }
 
 /// Decode a base64url-unpadded string (the VAPID public key) to bytes.
@@ -366,6 +372,15 @@ pub(super) fn notify_messages(s: Shell, ch: &ChannelSummary, fresh: &[MessageEnv
         return;
     }
     if s.notify.muted.with_untracked(|m| m.contains(&ch.id)) {
+        return;
+    }
+    // Duplicate-suppression (feedback vkz5t1esl71p8cuxbfjm): when a Web Push
+    // subscription is live, the server already delivers a notification to this
+    // backgrounded tab — firing the poll-loop `Notification` too would show the
+    // message TWICE. Fire the client notification only as a FALLBACK when push
+    // is unavailable/unsubscribed (flag false). The flag flips true only after
+    // a confirmed `ensure_push_subscription`.
+    if s.notify.web_push_enabled.get_untracked() {
         return;
     }
     // Feature-detect before reading permission: on iOS Safari outside an

@@ -181,6 +181,7 @@ fn AppShell() -> impl IntoView {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
+        web_push_enabled: RwSignal::new(false),
     };
     provide_context(notify);
 

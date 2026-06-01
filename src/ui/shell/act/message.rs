@@ -70,7 +70,7 @@ pub fn send_message(s: Shell) {
     s.composer.status.set(String::new());
     // Sending is a user gesture — a reliable point to request notification
     // permission so background channels can notify later.
-    super::notify::request_notify_permission();
+    super::notify::request_notify_permission(s);
     // Carry the persona worn in THIS channel so attribution is decided at
     // send time (race-proof) rather than depending on a separately-written
     // per-channel row having committed.
@@ -680,7 +680,7 @@ pub fn toggle_mute(s: Shell, cid: String) {
         .muted
         .with_untracked(|m| m.iter().cloned().collect());
     let _ = LocalStorage::set(KEY_MUTED, &ids);
-    super::notify::request_notify_permission();
+    super::notify::request_notify_permission(s);
 }
 
 // ---- background sync loop + page reconciler ----
