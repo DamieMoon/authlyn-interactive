@@ -25,7 +25,7 @@ use leptos::prelude::RwSignal;
 
 use crate::protocol::{
     Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
-    MessageEnvelope, PersonaSummary,
+    MessageEnvelope, PersonaSummary, ReplyPreview,
 };
 
 use super::{Pane, PendingDelete};
@@ -136,6 +136,12 @@ pub(crate) struct Composer {
     /// 3) shown inline in the composer toolbar (feedback rli3tsora4ho7lsi9q31).
     /// Persisted to localStorage; client-only, never sent to the server.
     pub(crate) last_used_colors: RwSignal<Vec<String>>,
+    /// The message this compose is replying to (L-3), or `None` for a normal
+    /// send. Drives the "replying to X" composer banner and rides as
+    /// `reply_to_id` on the next send. Reuses the wire [`ReplyPreview`] shape so
+    /// the banner shows the parent author + snippet without a lookup. Cleared on
+    /// send and on channel switch.
+    pub(crate) replying_to: RwSignal<Option<ReplyPreview>>,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the
@@ -185,9 +191,20 @@ pub(crate) struct Notify {
     /// Channel ids the user has muted (no new-message notifications). Mirrored
     /// to localStorage so it survives reloads.
     pub(crate) muted: RwSignal<HashSet<String>>,
-    /// Channel ids with unread messages — drives the sidebar glow (#23).
+    /// Channel ids with unread messages — drives the sidebar's white glow (#23).
     /// Recomputed by the background poll against `last_seen`.
     pub(crate) unread: RwSignal<HashSet<String>>,
+    /// Channel ids whose unread messages include at least one that `@`-mentions
+    /// the signed-in user (L-4) — drives the sidebar's ORANGE ping glow, which
+    /// wins over the plain white unread glow. A subset of `unread` in practice
+    /// (a ping is always also unread). Recomputed alongside `unread` by the
+    /// poll; cleared for a channel when it's opened.
+    pub(crate) pinged: RwSignal<HashSet<String>>,
+    /// Per-channel count of unread messages (channel id → number past
+    /// `last_seen`), capped at the page size — drives the sidebar count badge
+    /// (L-4). Absent / 0 ⇒ no badge. Recomputed alongside `unread` by the poll;
+    /// cleared for a channel when it's opened.
+    pub(crate) unread_count: RwSignal<HashMap<String, usize>>,
     /// Per-channel high-water mark this client has seen: channel id →
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.

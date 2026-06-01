@@ -1343,3 +1343,78 @@ async fn concurrent_channel_wear_converges_to_one_row() {
     let rows: Vec<String> = resp.take(0).expect("take");
     assert_eq!(rows.len(), 1, "exactly one wear row survives the race");
 }
+
+/// L-5: the wardrobe's "bring to top" / "bring to bottom" path renumbers the
+/// full persona list via `PATCH /personas/{pid} { position }` (owner/editor
+/// re-checked per patch). We emulate the helper by computing the new full
+/// order client-side, PATCHing each slot, and asserting the listed order
+/// (`GET /personas`, ORDER BY position).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn move_persona_to_bounds() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let mut pids = Vec::new();
+    for name in ["alpha", "beta", "gamma"] {
+        pids.push(create_persona(&a.router, &owner, name).await);
+    }
+    // pids == [alpha, beta, gamma]; positions are NONE until first PATCH, so
+    // creation order is the displayed order.
+    assert_eq!(persona_order(&a.router, &owner).await, pids);
+
+    // Bring the last (gamma) to the top → [gamma, alpha, beta].
+    let mut order = pids.clone();
+    let moved = order.remove(2);
+    order.insert(0, moved);
+    persist_persona_order(&a.router, &owner, &order).await;
+    assert_eq!(persona_order(&a.router, &owner).await, order);
+
+    // Bring the first (gamma) to the bottom → [alpha, beta, gamma].
+    let moved = order.remove(0);
+    order.push(moved);
+    persist_persona_order(&a.router, &owner, &order).await;
+    assert_eq!(persona_order(&a.router, &owner).await, order);
+    assert_eq!(order, pids);
+
+    // A negative position is rejected (BAD_REQUEST) — the reorder helper never
+    // emits one, but the endpoint must stay defensive.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{}", pids[0]),
+        Some(&owner),
+        Some(&json!({ "position": -1 })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
+
+/// The caller's persona ids in server-listed (position) order.
+#[cfg(feature = "ssr")]
+async fn persona_order(router: &axum::Router, cookie: &str) -> Vec<String> {
+    let (_, _, list) = common::send(router, Method::GET, "/personas", Some(cookie), None).await;
+    list["personas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// PATCH every persona's position to its desired slot — the move-to-bounds /
+/// drag renumber the wardrobe performs client-side.
+#[cfg(feature = "ssr")]
+async fn persist_persona_order(router: &axum::Router, cookie: &str, order: &[String]) {
+    for (slot, pid) in order.iter().enumerate() {
+        let (st, _, _) = common::send(
+            router,
+            Method::PATCH,
+            &format!("/personas/{pid}"),
+            Some(cookie),
+            Some(&json!({ "position": slot as i64 })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+}

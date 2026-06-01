@@ -122,10 +122,47 @@ pub fn swap_persona(s: Shell, idx: usize, up: bool) {
         idx + 1
     };
     list.swap(idx, other);
-    // Optimistic local reorder so the grid updates immediately; the server
-    // reload after the PATCHes confirms it.
+    // Optimistic local reorder + renumber-and-persist shared with the drag /
+    // move-to-bounds helpers.
+    persist_persona_order(s, list);
+}
+
+/// Move a persona to an absolute `target` index in the wardrobe grid (drag-and-
+/// drop drop target). Removes the dragged card from `idx` and re-inserts it at
+/// `target`, then renumbers + PATCHes exactly like [`swap_persona`]. No-op when
+/// `idx == target` or either is out of range. The server re-checks
+/// `can_edit_persona` per PATCH.
+#[cfg(feature = "hydrate")]
+pub fn move_persona(s: Shell, idx: usize, target: usize) {
+    let mut list = s.social.personas.get_untracked();
+    if idx >= list.len() || target >= list.len() || idx == target {
+        return;
+    }
+    let item = list.remove(idx);
+    list.insert(target, item);
+    persist_persona_order(s, list);
+}
+
+/// Bring a persona to the very top (`top = true`) or bottom of the grid — the
+/// mobile / keyboard fallback for drag. Defers to [`move_persona`].
+#[cfg(feature = "hydrate")]
+pub fn move_persona_to_bounds(s: Shell, idx: usize, top: bool) {
+    let len = s.social.personas.get_untracked().len();
+    if len == 0 {
+        return;
+    }
+    let target = if top { 0 } else { len - 1 };
+    move_persona(s, idx, target);
+}
+
+/// Shared tail of the persona reorders: optimistically set the new local order,
+/// PATCH every card whose stored position no longer matches its index, then
+/// reload the grid to confirm. Factored out of [`swap_persona`]'s body so the
+/// drag / bounds helpers reuse the exact same flow (renumber to array index,
+/// robust against NONE positions on legacy rows).
+#[cfg(feature = "hydrate")]
+fn persist_persona_order(s: Shell, list: Vec<crate::protocol::PersonaSummary>) {
     s.social.personas.set(list.clone());
-    // Persist each card whose stored position no longer matches its index.
     let patches: Vec<(String, i64)> = list
         .iter()
         .enumerate()
@@ -264,6 +301,11 @@ pub fn remove_persona(_s: Shell, _pid: String) {}
 pub fn leave_shared_persona(_s: Shell, _pid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn swap_persona(_s: Shell, _idx: usize, _up: bool) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn move_persona(_s: Shell, _idx: usize, _target: usize) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn move_persona_to_bounds(_s: Shell, _idx: usize, _top: bool) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn load_persona_sharing(
     _s: Shell,

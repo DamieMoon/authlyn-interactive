@@ -150,6 +150,24 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
+-- Reply-to (L-3): the message this one is replying to (Discord-style quote),
+-- or NONE for a non-reply. A live record link — the reply preview is resolved
+-- by a null-safe join at read time (MSG_PROJECTION), NOT snapshotted, and a
+-- soft-deleted / since-deleted parent simply joins to NONE. option<> ⇒ NONE is
+-- a valid value on old rows, but a field added to a populated table still trips
+-- the SCHEMAFULL NONE-coercion crash on the next message UPDATE unless an
+-- idempotent backfill materialises it FIRST (see the backfill block below).
+DEFINE FIELD IF NOT EXISTS reply_to ON message TYPE option<record<message>>;
+-- Ping-mentions (L-4): the set of guild-member accounts `@`-mentioned in `body`,
+-- resolved server-side at send time (only members of the channel's guild
+-- qualify; case-insensitive). Empty when the message pings nobody. An
+-- `array<>` DEFAULT [] field added to a POPULATED table: old rows hold NONE,
+-- which the persona-snapshot UPDATE below would re-validate and crash on —
+-- exactly the `attachments`/`reply_to` hazard — so an idempotent backfill
+-- materialises it FIRST (see the backfill block below). A `record<account>`
+-- link is a type annotation only (not referentially enforced); a since-deleted
+-- pinged account simply dangles, and the read-path `is_pinged` check tolerates it.
+DEFINE FIELD IF NOT EXISTS pinged_users ON message TYPE array<record<account>> DEFAULT [];
 -- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -159,12 +177,22 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- the snapshot columns existed, so a later persona delete doesn't scramble
 -- their name/avatar. Idempotent: only touches persona'd rows still missing the
 -- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
--- Backfill `attachments` to [] on every pre-attachment row FIRST. SCHEMAFULL
--- arrays behave like the string fields: old rows hold NONE, and ANY message
--- UPDATE re-validates ALL fields — so this must run before the persona backfill
--- below, or that UPDATE trips over the still-NONE `attachments` and aborts
--- schema apply (crash-loops the service). Idempotent via the WHERE.
-UPDATE message SET attachments = [] WHERE attachments = NONE;
+-- Backfill the non-option array fields (`attachments`, `pinged_users`) to []
+-- on every legacy row FIRST, in a SINGLE statement. SCHEMAFULL re-validates the
+-- WHOLE row on ANY UPDATE write, so these two non-option arrays MUST be
+-- materialised together: fixing one field in isolation (e.g. `SET attachments`)
+-- still re-validates the row and trips over the OTHER still-NONE array
+-- (`pinged_users`), aborting schema apply and crash-looping the service. Setting
+-- both in one UPDATE makes the post-image valid in a single write. (`reply_to`
+-- is `option<>`, so NONE is already a valid value — it needs no backfill and is
+-- left alone here.) Idempotent via the WHERE. This MUST precede the persona
+-- snapshot UPDATE below, which also re-validates every field.
+-- (Regression: adding `pinged_users` (L-4) as a second non-option array exposed
+-- that separate per-field backfills crash when >1 such field is NONE at once;
+-- a populated dev/prod DB tripped this on boot though fresh-namespace tests did
+-- not. Keep all non-option array materialisation in this one statement.)
+UPDATE message SET attachments = [], pinged_users = []
+    WHERE attachments = NONE OR pinged_users = NONE;
 
 UPDATE message SET
     persona_name = persona.name,
@@ -239,6 +267,24 @@ DEFINE FIELD IF NOT EXISTS creator    ON custom_emoji TYPE record<account>;
 DEFINE FIELD IF NOT EXISTS created_at ON custom_emoji TYPE datetime DEFAULT time::now();
 -- Per-guild uniqueness: one shortcode per guild (same name OK in different guilds).
 DEFINE INDEX IF NOT EXISTS custom_emoji_guild_name ON custom_emoji FIELDS guild, name UNIQUE;
+
+-- Cross-device read state (L-1) --------------------------------------------
+-- Persists each account's per-channel "last seen" high-water mark server-side
+-- so a second device knows what was already read (today it's client-only
+-- localStorage). One row per (account, channel); the POST /channels/{cid}/mark-read
+-- handler UPSERTs it, keeping the MAX cursor (an older POST never regresses a
+-- newer mark). `last_seen_at` is the message's `sent_at` and `last_seen_id` its
+-- id — the same (sent_at, id) composite the client cursor uses. Brand-new table
+-- → no NONE-coercion backfill hazard (the trap only hits fields added to tables
+-- with pre-existing rows). The (account, channel) UNIQUE index makes the UPSERT
+-- idempotent; a racy double-mark resolves via with_write_conflict_retry.
+DEFINE TABLE IF NOT EXISTS channel_read_state SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS account      ON channel_read_state TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS channel      ON channel_read_state TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS last_seen_at ON channel_read_state TYPE datetime;
+DEFINE FIELD IF NOT EXISTS last_seen_id ON channel_read_state TYPE string;
+DEFINE FIELD IF NOT EXISTS updated_at   ON channel_read_state TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS channel_read_state_pair ON channel_read_state FIELDS account, channel UNIQUE;
 
 -- Per-user guild rail order (#17/FB2) --------------------------------------
 -- Each row records one account's chosen display position for one guild in

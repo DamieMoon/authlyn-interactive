@@ -233,6 +233,12 @@ pub struct SendMessageRequest {
     /// per-channel persona (`channel_active_persona`), else speaks as the account.
     #[serde(default)]
     pub persona_id: Option<String>,
+    /// Id of the message this one replies to (Discord-style quote), `None` for a
+    /// non-reply (L-3). The server VALIDATES the referenced message exists, is in
+    /// the SAME channel, and is not soft-deleted, else 400. Single-level only:
+    /// replying to a reply quotes that reply, not its own parent.
+    #[serde(default)]
+    pub reply_to_id: Option<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
@@ -299,6 +305,34 @@ pub struct MessageEnvelope {
     /// AI-visibility tier. Always `"default"` in phase 1.
     pub tier: String,
     pub sent_at: String,
+    /// Lightweight preview of the message this one replies to (L-3), resolved by
+    /// a LIVE null-safe join at read time (not a send-time snapshot). `None` when
+    /// this isn't a reply OR the parent was soft-deleted / hard-deleted (the join
+    /// degrades gracefully to `None`). `#[serde(default)]` for the same post-ship
+    /// wire-compat reason as the persona/attachment siblings above.
+    #[serde(default)]
+    pub reply_to: Option<ReplyPreview>,
+    /// Whether the READING caller is `@`-mentioned (pinged) by this message
+    /// (L-4). Per-reader: the server evaluates `caller IN pinged_users` in the
+    /// projection, so the same message has `is_pinged = true` for a mentioned
+    /// reader and `false` for everyone else. Drives the message highlight and
+    /// the sidebar's orange ping glow. `#[serde(default)]` for the same
+    /// post-ship wire-compat reason as the siblings above (defaults to `false`).
+    #[serde(default)]
+    pub is_pinged: bool,
+}
+
+/// A lightweight preview of a replied-to (parent) message, rendered as a
+/// clickable quote above the reply body (L-3). Carries just enough to show the
+/// quote and scroll to the parent: its `id` (the scroll-to-message anchor), the
+/// parent author's display name, and a short body snippet. Resolved live at read
+/// time, so it reflects the parent's CURRENT body/author and is `None` once the
+/// parent is deleted.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReplyPreview {
+    pub id: String,
+    pub author_display: String,
+    pub body_snippet: String,
 }
 
 /// One inline attachment on a message: the media id plus its stored MIME type
@@ -328,6 +362,41 @@ pub struct ListMessagesResponse {
     /// clients / the trash response wire-compatible.
     #[serde(default)]
     pub active_persona: Option<String>,
+}
+
+/// Body of `POST /channels/{cid}/mark-read` (L-1) — record the caller's
+/// per-channel last-seen high-water mark server-side, so the read/unread state
+/// syncs across devices instead of living only in each browser's localStorage.
+/// `sent_at`/`id` are the `(sent_at, id)` composite cursor of the latest message
+/// the caller has seen in this channel (the same pair the client tracks). The
+/// server UPSERTs the `(account, channel)` row keeping the MAX cursor — an older
+/// POST never regresses a newer mark.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MarkReadRequest {
+    /// `sent_at` of the latest seen message (fixed-9-digit RFC 3339, as carried
+    /// on [`MessageEnvelope::sent_at`]). Bound server-side via `type::datetime`.
+    pub sent_at: String,
+    /// Opaque id of the latest seen message — the tie-break half of the cursor.
+    pub id: String,
+}
+
+/// One channel's persisted read cursor (L-1), as returned by
+/// `GET /channels/read-state`. `(sent_at, id)` mirrors the client's per-channel
+/// last-seen tuple, so the client can hydrate `notify.last_seen` directly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelReadCursor {
+    pub channel_id: String,
+    pub sent_at: String,
+    pub id: String,
+}
+
+/// Response from `GET /channels/read-state` (L-1) — every channel the caller
+/// has a stored read cursor for. The client maps these into its per-channel
+/// `last_seen` table on shell mount, falling back to localStorage if the fetch
+/// fails (offline).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ReadStateResponse {
+    pub cursors: Vec<ChannelReadCursor>,
 }
 
 /// A flat list of channels — used by the soft-delete trash view

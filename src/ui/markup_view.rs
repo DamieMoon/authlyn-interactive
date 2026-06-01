@@ -53,6 +53,24 @@ fn render_node(node: Node) -> AnyView {
         Node::Image(alt, url) => {
             view! { <img class="mk-image" src=url alt=alt loading="lazy" /> }.into_any()
         }
+        // The tokenizer guarantees `url` is http/https (or scheme-relative);
+        // Leptos escapes both the href attribute and the link text. `rel` hardens
+        // the new tab against `window.opener` tampering and referrer leakage.
+        Node::Link(text, url) => view! {
+            <a
+                class="mk-link"
+                href=url
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+            >
+                {text}
+            </a>
+        }
+        .into_any(),
+        // Mention `@username` (L-4): a styled, non-interactive pill. Not a
+        // profile link in v1; the `@` is re-emitted so the text reads naturally.
+        // Leptos escapes `name`.
+        Node::Mention(name) => view! { <span class="mk-mention">{"@"}{name}</span> }.into_any(),
         // Hidden until clicked: a per-node signal flips a `revealed` class. No
         // web_sys needed, so it compiles for ssr too (inert until hydrated).
         Node::Spoiler(children) => {

@@ -34,23 +34,31 @@ pub mod prefs;
 // Re-exports so the view code keeps calling `act::xxx` unchanged.
 pub use account::{admin_reset_password, change_password, logout, set_security_question};
 pub use channel::{
-    create_channel, open_channel, open_deep_link, rename_channel, restore_channel, restore_session,
-    swap_channel,
+    create_channel, move_channel_to_bounds, open_channel, open_deep_link, rename_channel,
+    restore_channel, restore_session, swap_channel,
 };
 pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
+// `move_channel` (drag drop target) is only reached from a hydrate-gated drag
+// handler; re-exporting it on ssr fires dead-code since nothing calls it there.
+#[cfg(feature = "hydrate")]
+pub use channel::move_channel;
 pub use emoji::{create_guild_emoji, delete_guild_emoji, upload_emoji_image};
 pub use feedback::{archive_feedback, build_feedback_context, submit_feedback};
 pub use guild::{
-    create_server, load_deleted_guilds, open_server, refresh_guilds, rename_server,
-    restore_deleted_guild, swap_guild,
+    create_server, load_deleted_guilds, move_guild_to_bounds, open_server, refresh_guilds,
+    rename_server, restore_deleted_guild, swap_guild,
 };
+// `move_guild` (drag drop target) is hydrate-only — see `move_channel` above.
+#[cfg(feature = "hydrate")]
+pub use guild::move_guild;
 pub use message::{
-    accept_friend, add_compose_attachment, add_friend, ask_delete, cancel_delete, confirm_delete,
-    copy_message_body, create_lore, delete_lore, delete_message, edit_message, guild_has_unread,
-    invite_member, load_deleted_channels, load_deleted_messages, load_last_seen, load_muted,
-    patch_lore, remove_compose_attachment, remove_friend, restore_deleted_message,
-    retry_compose_attachment, send_message, show_emoji_manager, show_friends, show_members,
-    show_wardrobe, start_sync, swap_lore, toggle_mute,
+    accept_friend, add_compose_attachment, add_friend, ask_delete, cancel_delete, cancel_reply,
+    confirm_delete, copy_message_body, create_lore, delete_lore, delete_message, edit_message,
+    guild_has_unread, hydrate_last_seen, invite_member, load_deleted_channels,
+    load_deleted_messages, load_last_seen, load_muted, patch_lore, remove_compose_attachment,
+    remove_friend, restore_deleted_message, retry_compose_attachment, send_message,
+    show_emoji_manager, show_friends, show_members, show_wardrobe, start_reply, start_sync,
+    swap_lore, toggle_mute,
 };
 // `load_older` is only reachable through a hydrate-gated branch in `channel`;
 // re-exporting it on ssr fires "unused import" because nothing calls it there.
@@ -71,9 +79,12 @@ pub use notify::wire_focus_clears_notifs;
 #[cfg(feature = "hydrate")]
 pub use notify::wire_notification_click;
 pub use persona::{
-    create_persona, leave_shared_persona, load_persona_sharing, set_persona_avatar,
-    set_persona_share, swap_persona, unwear, update_persona, wear_persona,
+    create_persona, leave_shared_persona, load_persona_sharing, move_persona_to_bounds,
+    set_persona_avatar, set_persona_share, swap_persona, unwear, update_persona, wear_persona,
 };
+// `move_persona` (drag drop target) is hydrate-only — see `move_channel` above.
+#[cfg(feature = "hydrate")]
+pub use persona::move_persona;
 pub use prefs::{
     compose_preview_enabled, confirm_delete_message_enabled, rp_dialogue_style_enabled,
     set_compose_preview, set_confirm_delete_message, set_rp_dialogue_style,

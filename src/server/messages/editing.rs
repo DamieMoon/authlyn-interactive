@@ -155,7 +155,7 @@ pub async fn list_deleted_messages(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
-    match load_deleted_messages(&state, &cid).await {
+    match load_deleted_messages(&state, &cid, &account.0).await {
         Ok(messages) => (
             StatusCode::OK,
             Json(ListMessagesResponse {
@@ -175,6 +175,7 @@ pub async fn list_deleted_messages(
 async fn load_deleted_messages(
     state: &AppState,
     cid: &str,
+    caller: &str,
 ) -> surrealdb::Result<Vec<MessageEnvelope>> {
     let sql = format!(
         "SELECT {MSG_PROJECTION} FROM message
@@ -185,7 +186,9 @@ async fn load_deleted_messages(
     let mut resp = state
         .db
         .query(sql)
+        // `$caller` feeds MSG_PROJECTION's `is_pinged` arm (L-4).
         .bind(("cid", cid.to_string()))
+        .bind(("caller", caller.to_string()))
         .bind(("page_limit", MESSAGES_PAGE_LIMIT))
         .await?
         .check()?;

@@ -66,6 +66,10 @@ pub fn send_message(s: Shell) {
     if body.trim().is_empty() && attachments.is_empty() {
         return;
     }
+    // Capture + clear the reply target (L-3): the parent id rides as
+    // `reply_to_id`, and the banner clears the moment we send.
+    let reply_to_id = s.composer.replying_to.get_untracked().map(|r| r.id);
+    s.composer.replying_to.set(None);
     s.composer.compose.set(String::new());
     // Drop the now-sent channel's persisted draft (removes the key + persists).
     super::channel::save_draft(s, "");
@@ -79,7 +83,7 @@ pub fn send_message(s: Shell) {
     // per-channel row having committed.
     let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
-        match api::post_message(&ch.id, &body, attachments, persona).await {
+        match api::post_message(&ch.id, &body, attachments, persona, reply_to_id).await {
             Ok(_) => {
                 let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
@@ -266,6 +270,42 @@ fn forget_retry_file(key: u64) {
     RETRY_FILES.with(|m| {
         m.borrow_mut().remove(&key);
     });
+}
+
+/// Begin replying to message `m` (L-3): stash a [`ReplyPreview`] built from the
+/// row so the composer banner shows the parent author + snippet, and so the
+/// next send carries `reply_to_id`. Single-level — replying to a reply quotes
+/// THAT message, never its own parent. Focuses the composer for a fast reply.
+#[cfg(feature = "hydrate")]
+pub fn start_reply(s: Shell, m: MessageEnvelope) {
+    let who = m
+        .persona_name
+        .clone()
+        .unwrap_or_else(|| m.author_display.clone());
+    let snippet: String = m.body.chars().take(100).collect();
+    s.composer
+        .replying_to
+        .set(Some(crate::protocol::ReplyPreview {
+            id: m.id,
+            author_display: who,
+            body_snippet: snippet,
+        }));
+    if let Some(el) = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.query_selector(".composer textarea").ok().flatten())
+    {
+        use wasm_bindgen::JsCast;
+        if let Ok(input) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+            let _ = input.focus();
+        }
+    }
+}
+
+/// Clear the active reply target (the banner's ✕), reverting the next send to a
+/// normal non-reply message.
+#[cfg(feature = "hydrate")]
+pub fn cancel_reply(s: Shell) {
+    s.composer.replying_to.set(None);
 }
 
 /// Copy a message body to the clipboard as raw markup, **stripping color
@@ -670,6 +710,8 @@ pub fn load_muted(s: Shell) {
 const KEY_LAST_SEEN: &str = "authlyn.last_seen";
 
 /// Load last-seen marks from localStorage into the reactive map (on mount).
+/// This is the OFFLINE fallback; [`hydrate_last_seen`] overlays the
+/// server-synced cursors on top when the network fetch succeeds.
 #[cfg(feature = "hydrate")]
 pub fn load_last_seen(s: Shell) {
     s.notify
@@ -677,14 +719,67 @@ pub fn load_last_seen(s: Shell) {
         .set(LocalStorage::get(KEY_LAST_SEEN).unwrap_or_default());
 }
 
-/// Record `cur = (sent_at, id)` as the last message seen in `cid`, and
-/// persist the whole map. Idempotent. Public to siblings.
+/// Hydrate `notify.last_seen` from the SERVER's stored per-channel read cursors
+/// (L-1 cross-device sync), so a second device knows what was already read.
+/// Runs on shell mount AFTER [`load_last_seen`]: a server cursor wins over the
+/// localStorage one only when it is strictly NEWER (the same MAX-cursor rule the
+/// server enforces on write), so a stale server row can't rewind a fresher local
+/// mark and vice-versa. On fetch failure we keep the localStorage values as the
+/// offline fallback. The merged map is written back to localStorage.
+#[cfg(feature = "hydrate")]
+pub fn hydrate_last_seen(s: Shell) {
+    spawn_local(async move {
+        let Ok(r) = api::read_state().await else {
+            return; // offline — keep the localStorage fallback already loaded.
+        };
+        let mut changed = false;
+        s.notify.last_seen.update(|m| {
+            for c in r.cursors {
+                let incoming = (c.sent_at, c.id);
+                let newer = match m.get(&c.channel_id) {
+                    // Composite (sent_at, id) compare — String tuple ordering
+                    // matches the cursor's strict tie-break (sent_at is the
+                    // fixed-9-digit lex-monotonic shape, so this is correct).
+                    Some(local) => incoming > *local,
+                    None => true,
+                };
+                if newer {
+                    m.insert(c.channel_id, incoming);
+                    changed = true;
+                }
+            }
+        });
+        if changed {
+            let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+        }
+    });
+}
+
+/// Record `cur = (sent_at, id)` as the last message seen in `cid`, persist the
+/// whole map to localStorage, AND push the mark to the server so read state
+/// syncs across devices (L-1) — but ONLY when the cursor actually advanced for
+/// this channel, so an idle re-mark (the poll re-asserting the open channel each
+/// tick) doesn't spam the endpoint. The server itself also keeps the MAX cursor,
+/// so a racing older POST is harmless. Idempotent. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
+    let advanced = s
+        .notify
+        .last_seen
+        .with_untracked(|m| m.get(cid).map(|prev| cur > *prev).unwrap_or(true));
     s.notify.last_seen.update(|m| {
-        m.insert(cid.to_string(), cur);
+        m.insert(cid.to_string(), cur.clone());
     });
     let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
+    if advanced {
+        let cid = cid.to_string();
+        let (sent_at, id) = cur;
+        spawn_local(async move {
+            // Fire-and-forget: localStorage is the offline source of truth, the
+            // server POST is best-effort cross-device sync.
+            let _ = api::mark_read(&cid, &sent_at, &id).await;
+        });
+    }
 }
 
 /// Recompute the unread set across EVERY guild the caller belongs to (#23).
@@ -703,8 +798,16 @@ fn refresh_unread(s: Shell) {
         if let Some(cur) = s.msg.cursor.get_untracked() {
             set_last_seen(s, oc, cur);
         }
+        // The open channel is always considered seen: clear its unread glow,
+        // ping glow, and count at once (L-4).
         s.notify.unread.update(|u| {
             u.remove(oc);
+        });
+        s.notify.pinged.update(|p| {
+            p.remove(oc);
+        });
+        s.notify.unread_count.update(|c| {
+            c.remove(oc);
         });
     }
     // Flatten the per-guild channel cache into a single list (cross-guild).
@@ -736,7 +839,12 @@ fn refresh_unread(s: Shell) {
                     let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
                         continue;
                     };
-                    let has_new = !l.messages.is_empty();
+                    let count = l.messages.len();
+                    let has_new = count > 0;
+                    // A ping = any unread message in this channel that mentions me
+                    // (L-4). `is_pinged` is per-reader (the server evaluated it for
+                    // THIS caller), so a true here is genuinely a ping for me.
+                    let has_ping = l.messages.iter().any(|m| m.is_pinged);
                     let marked = s.notify.unread.with_untracked(|u| u.contains(&ch.id));
                     if has_new != marked {
                         s.notify.unread.update(|u| {
@@ -744,6 +852,29 @@ fn refresh_unread(s: Shell) {
                                 u.insert(ch.id.clone());
                             } else {
                                 u.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let pinged_now = s.notify.pinged.with_untracked(|p| p.contains(&ch.id));
+                    if has_ping != pinged_now {
+                        s.notify.pinged.update(|p| {
+                            if has_ping {
+                                p.insert(ch.id.clone());
+                            } else {
+                                p.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let count_now = s
+                        .notify
+                        .unread_count
+                        .with_untracked(|c| c.get(&ch.id).copied().unwrap_or(0));
+                    if count != count_now {
+                        s.notify.unread_count.update(|c| {
+                            if has_new {
+                                c.insert(ch.id.clone(), count);
+                            } else {
+                                c.remove(&ch.id);
                             }
                         });
                     }
@@ -1030,6 +1161,10 @@ pub fn remove_compose_attachment(_s: Shell, _key: u64) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn retry_compose_attachment(_s: Shell, _key: u64) {}
 #[cfg(not(feature = "hydrate"))]
+pub fn start_reply(_s: Shell, _m: crate::protocol::MessageEnvelope) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn cancel_reply(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
 pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_message(_s: Shell, _cid: String, _mid: String) {}
@@ -1093,6 +1228,8 @@ pub fn delete_lore(_s: Shell, _cid: String, _eid: String) {}
 pub fn load_muted(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn load_last_seen(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn hydrate_last_seen(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn toggle_mute(_s: Shell, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]

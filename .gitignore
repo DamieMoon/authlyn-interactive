@@ -38,3 +38,6 @@ CLAUDE.local.md
 /.claude/*
 !/.claude/settings.json
 !/.claude/commands/
+
+# Playwright MCP scratch (snapshots, fixtures, screenshots) — never commit
+.playwright-mcp/

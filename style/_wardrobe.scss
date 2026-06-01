@@ -117,6 +117,15 @@
 		box-shadow: 0 0 0 1px var(--gold) inset;
 	}
 
+	// L-5: cards are draggable to reorder (only when not filtering); hint grab.
+	&[draggable="true"] {
+		cursor: grab;
+	}
+
+	&[draggable="true"]:active {
+		cursor: grabbing;
+	}
+
 	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
 	.card-portrait {
 		display: flex;
