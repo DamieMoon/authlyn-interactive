@@ -108,6 +108,19 @@
 			background: var(--attachment-bg);
 		}
 
+		// A staged non-image/video file (e.g. PDF): a centered glyph on the same
+		// neutral slot, instead of a broken <img> from the image-only ?w= thumb.
+		.pending-att-file {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 100%;
+			height: 100%;
+			border-radius: 8px;
+			background: var(--attachment-bg);
+			font-size: 1.6rem;
+		}
+
 		// F-8: a bottom-anchored upload-progress bar overlaid on the slot.
 		.att-progress {
 			position: absolute;

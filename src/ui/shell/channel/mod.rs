@@ -789,7 +789,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     view! {
                                         <video src=format!("/media/{id}") muted preload="metadata"></video>
                                     }.into_any()
-                                } else {
+                                } else if st.att.mime.starts_with("image/") {
                                     // GIFs raw so the preview animates; the ?w= thumb
                                     // would flatten them to a static JPEG frame.
                                     let src = if st.att.mime == "image/gif" {
@@ -799,6 +799,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     };
                                     view! {
                                         <img src=src alt="pending attachment"/>
+                                    }.into_any()
+                                } else {
+                                    // A non-image, non-video file (e.g. a PDF/zip — possible
+                                    // once arbitrary-file uploads are enabled): the `?w=`
+                                    // thumbnail endpoint only renders images, so show a generic
+                                    // file glyph instead of a broken <img>.
+                                    view! {
+                                        <div class="pending-att-file"><span>"📄"</span></div>
                                     }.into_any()
                                 };
                                 let overlay = match &st.status {
