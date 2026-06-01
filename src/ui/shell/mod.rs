@@ -112,6 +112,98 @@ pub(crate) struct Shell {
     pub(crate) prefs: Prefs,
 }
 
+/// Touch/pointer edge-swipe gesture for the mobile nav drawer (feedback row
+/// 1k0avo909pw47mmfn1zt). Attaches `pointerdown`/`pointermove`/`pointerup`
+/// listeners to `window` for the page lifetime (via `forget()`, mirroring
+/// [`act::wire_focus_clears_notifs`]).
+///
+/// Rules (discrete toggle — CSS animates the existing `transform` transition):
+/// - A drag that STARTS in the left ~20% of the viewport and moves right by
+///   more than 40px (with the horizontal travel dominating any vertical, so
+///   normal vertical scrolling isn't hijacked) opens the drawer.
+/// - A leftward drag of more than 40px while the drawer is open closes it.
+///
+/// The handlers only `.set()` the existing `nav_open` signal, which remains
+/// the single source of truth (scrim-click and channel/guild selection still
+/// drive it too). Event coordinates and `window.innerWidth` are read by
+/// reflection so no extra `web-sys` interface features are needed (same
+/// pattern as `act/notify.rs`).
+#[cfg(feature = "hydrate")]
+fn wire_swipe_drawer(s: Shell) {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    const EDGE_FRACTION: f64 = 0.20;
+    const THRESHOLD_PX: f64 = 40.0;
+
+    let Some(win) = leptos::web_sys::window() else {
+        return;
+    };
+
+    // Read `event.clientX` / `clientY` reflectively (no MouseEvent feature).
+    fn coord(ev: &JsValue, key: &str) -> Option<f64> {
+        js_sys::Reflect::get(ev, &JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.as_f64())
+    }
+    // Viewport width via reflection on `window.innerWidth`.
+    fn viewport_width(win: &leptos::web_sys::Window) -> f64 {
+        js_sys::Reflect::get(win, &JsValue::from_str("innerWidth"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    }
+
+    // (start_x, start_y, started_in_edge) — None while no drag is in flight.
+    let start: Rc<Cell<Option<(f64, f64, bool)>>> = Rc::new(Cell::new(None));
+
+    let down = {
+        let start = start.clone();
+        let win = win.clone();
+        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
+                start.set(None);
+                return;
+            };
+            let vw = viewport_width(&win);
+            let in_edge = vw > 0.0 && x <= vw * EDGE_FRACTION;
+            start.set(Some((x, y, in_edge)));
+        })
+    };
+
+    let up = {
+        let start = start.clone();
+        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+            let Some((sx, sy, in_edge)) = start.replace(None) else {
+                return;
+            };
+            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
+                return;
+            };
+            let dx = x - sx;
+            let dy = y - sy;
+            // Require horizontal travel to dominate so vertical scrolls
+            // don't toggle the drawer.
+            if dy.abs() >= dx.abs() {
+                return;
+            }
+            let open = s.sync.nav_open.get_untracked();
+            if !open && in_edge && dx > THRESHOLD_PX {
+                s.sync.nav_open.set(true);
+            } else if open && dx < -THRESHOLD_PX {
+                s.sync.nav_open.set(false);
+            }
+        })
+    };
+
+    let _ = win.add_event_listener_with_callback("pointerdown", down.as_ref().unchecked_ref());
+    let _ = win.add_event_listener_with_callback("pointerup", up.as_ref().unchecked_ref());
+    down.forget();
+    up.forget();
+}
+
 #[component]
 fn AppShell() -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
@@ -325,6 +417,12 @@ fn AppShell() -> impl IntoView {
         // app instead of being silently dropped (feedback br3ebxgjj1lh3qfbz3n8).
         #[cfg(feature = "hydrate")]
         act::wire_notification_click(s);
+        // Mobile edge-swipe: a rightward drag starting in the left edge zone
+        // opens the nav drawer; a leftward drag while open closes it. The
+        // handlers only `.set()` the existing `nav_open` signal, so it stays
+        // the single source of truth (scrim-click / channel-open still win).
+        #[cfg(feature = "hydrate")]
+        wire_swipe_drawer(s);
     });
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
