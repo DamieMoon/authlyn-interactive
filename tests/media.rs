@@ -397,18 +397,19 @@ async fn thumbnail_width_is_clamped_low_and_high() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn upload_rejects_non_image_mimes() {
-    // The store is image-only. Non-image — and script-capable image/svg+xml —
-    // uploads are refused (415) so attacker-controlled active content can never
-    // be stored and later served from our origin.
+async fn upload_rejects_script_capable_mimes() {
+    // The allowlist accepts images + a curated set of download types, but
+    // SCRIPT-CAPABLE types must still be refused (415) so attacker-controlled
+    // active content can never be stored and later served from our origin.
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
 
     for mime in [
         "text/html",
-        "application/pdf",
         "image/svg+xml",
-        "application/octet-stream",
+        "application/javascript",
+        "application/xhtml+xml",
+        "application/x-msdownload",
     ] {
         let status = try_upload_status(&a.router, &owner, mime, b"<script>alert(1)</script>").await;
         assert_eq!(
@@ -421,6 +422,102 @@ async fn upload_rejects_non_image_mimes() {
     // A real raster image is still accepted.
     let status = try_upload_status(&a.router, &owner, "image/png", TINY_PNG).await;
     assert_eq!(status, StatusCode::CREATED, "image/png is allowed");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn upload_accepts_allowed_download_mimes() {
+    // The broadened allowlist accepts non-image files (PDF, audio, zip, plain
+    // text, video). Each is stored (201) but neutralized on serve — see the
+    // pdf/binary download tests below.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    for mime in [
+        "application/pdf",
+        "application/zip",
+        "audio/mpeg",
+        "audio/wav",
+        "video/mp4",
+        "text/plain",
+    ] {
+        let status = try_upload_status(&a.router, &owner, mime, b"arbitrary file bytes").await;
+        assert_eq!(
+            status,
+            StatusCode::CREATED,
+            "{mime} upload must be accepted"
+        );
+    }
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn pdf_upload_is_served_as_nosniff_attachment() {
+    // A PDF uploads (201) and is served back as an octet-stream attachment with
+    // nosniff — never inline, so it can never be rendered as active content.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let pdf = b"%PDF-1.4\n%fake pdf body\n";
+    let id = upload_image(&a.router, &owner, "application/pdf", pdf).await;
+
+    let (status, headers, bytes) = get_media_full(&a.router, &owner, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/octet-stream"),
+        "pdf must NOT be served as its stored type"
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok()),
+        Some("attachment"),
+        "pdf must be a download, never inline"
+    );
+    assert_eq!(
+        headers
+            .get(header::X_CONTENT_TYPE_OPTIONS)
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff"),
+        "pdf must carry X-Content-Type-Options: nosniff"
+    );
+    assert_eq!(bytes, pdf, "exact bytes round-trip (as a download)");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn generic_binary_upload_is_served_as_nosniff_attachment() {
+    // A generic binary (application/zip) uploads and serves as a safe download.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let blob = b"PK\x03\x04 zip bytes";
+    let id = upload_image(&a.router, &owner, "application/zip", blob).await;
+
+    let (status, headers, bytes) = get_media_full(&a.router, &owner, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/octet-stream"),
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok()),
+        Some("attachment"),
+    );
+    assert_eq!(
+        headers
+            .get(header::X_CONTENT_TYPE_OPTIONS)
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff"),
+    );
+    assert_eq!(bytes, blob, "exact bytes round-trip (as a download)");
 }
 
 #[cfg(feature = "ssr")]

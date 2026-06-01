@@ -607,14 +607,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 <div class="toolbar">
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.
-                    <label class="fmt attach" title="attach image or video">
+                    <label class="fmt attach" title="attach a file">
                         "📎"
                         // NO `accept`: on Android a media `accept` hint makes Chrome
                         // launch the system photo picker (Google Photos on this
                         // device), which the user doesn't want; omitting it gives the
                         // generic Files chooser instead. A PWA can't target a specific
                         // gallery app, so this is the better of the two reachable
-                        // options. We filter to image/video client-side below.
+                        // options. Any file type the server allowlist accepts can be
+                        // attached; the server (`is_allowed_attachment_mime`) is the
+                        // authority and rejects script-capable types.
                         <input type="file" multiple style="display:none"
                             on:change=move |_ev| {
                                 #[cfg(feature = "hydrate")]
@@ -631,24 +633,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                             // (`MAX_ATTACHMENTS` in src/server/messages/mod.rs).
                                             let mut current =
                                                 s.composer.compose_attachments.get_untracked().len();
-                                            let mut skipped = false;
                                             let mut overflowed = false;
-                                            // Collect the accepted files first, then upload the
+                                            // Collect the picked files first, then upload the
                                             // whole pick at once so the staged order matches the
                                             // selection order (mnjs2ljw…), not upload-completion
-                                            // order.
+                                            // order. Any file type is queued client-side; the
+                                            // server allowlist (`is_allowed_attachment_mime`) is
+                                            // the authority and rejects script-capable types.
                                             let mut picked: Vec<web_sys::File> = Vec::new();
                                             for i in 0..files.length() {
                                                 if let Some(file) = files.get(i) {
-                                                    // Generic picker can return any file;
-                                                    // only images and videos are valid.
-                                                    let t = file.type_();
-                                                    if !(t.starts_with("image/")
-                                                        || t.starts_with("video/"))
-                                                    {
-                                                        skipped = true;
-                                                        continue;
-                                                    }
                                                     if current >= COMPOSER_MAX_ATTACHMENTS {
                                                         overflowed = true;
                                                         break;
@@ -662,11 +656,6 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                                 s.composer.status.set(format!(
                                                     "Attachment limit ({COMPOSER_MAX_ATTACHMENTS}) reached"
                                                 ));
-                                            } else if skipped {
-                                                s.composer.status.set(
-                                                    "Only images or videos can be attached."
-                                                        .to_string(),
-                                                );
                                             }
                                         }
                                         // Clear so re-picking the same file re-fires.

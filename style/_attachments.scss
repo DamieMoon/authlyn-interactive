@@ -44,6 +44,40 @@
 		object-fit: contain;
 	}
 
+	// Non-image/video attachments (PDF, audio, zip, plain text) render as a
+	// file-icon download tile inside the same grid cell as a media thumbnail,
+	// so mixed messages lay out uniformly.
+	.att-file {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.2rem;
+		aspect-ratio: 1 / 1;
+		border-radius: 8px;
+		background: var(--attachment-bg);
+		color: var(--ink);
+		text-decoration: none;
+		cursor: pointer;
+
+		.att-file-icon {
+			font-size: 1.6rem;
+			line-height: 1;
+		}
+
+		.att-file-label {
+			font-size: 0.7rem;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			opacity: 0.85;
+		}
+	}
+
+	// A lone file tile shouldn't blow up to the full lone-image height.
+	&.lone .att-file {
+		max-width: 8rem;
+	}
+
 	// A lone image (the message's only attachment) isn't forced square — show
 	// it at its natural ratio, capped. A trailing solo image in a multi-row
 	// layout (`cols-1` row, not `.lone`) keeps the square crop so it stays
