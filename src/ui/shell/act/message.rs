@@ -869,6 +869,7 @@ pub(super) fn start_poll(s: Shell) {
                     s.msg.typing.set(l.typing);
                     sync_messages(s, l.messages);
                     super::notify::notify_messages(s, &ch, &fresh);
+                    super::notify::dismiss_open_channel_notifs(&ch, &fresh);
                 }
                 Ok(_) => {
                     // Long history: page 1 isn't the whole channel, so only
@@ -885,6 +886,7 @@ pub(super) fn start_poll(s: Shell) {
                         s.msg.typing.set(l.typing);
                         ingest(s, l.messages);
                         super::notify::notify_messages(s, &ch, &fresh);
+                        super::notify::dismiss_open_channel_notifs(&ch, &fresh);
                     }
                 }
                 Err(_) => {}
