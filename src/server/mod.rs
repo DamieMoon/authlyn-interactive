@@ -126,6 +126,12 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/active-persona",
             put(personas::set_channel_active_persona),
         )
+        // Cross-device read state (L-1): the caller's per-channel read cursors.
+        // Static `/channels/read-state` is declared before the `/channels/{cid}/…`
+        // family; axum's router prefers a static segment over a `{cid}` capture
+        // regardless of order, so there's no shadowing either way.
+        .route("/channels/read-state", get(messages::read_state))
+        .route("/channels/{cid}/mark-read", post(messages::mark_read))
         .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
@@ -295,6 +301,8 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
             -- Guild 30d purge: cascade channels + their children + guild children.
             LET $g = (SELECT VALUE id FROM guild
@@ -302,6 +310,7 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
             DELETE message WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE lorebook_entry WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel WHERE guild IN $g;
             DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);

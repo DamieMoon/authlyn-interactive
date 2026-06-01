@@ -309,7 +309,11 @@ fn AppShell() -> impl IntoView {
         // Keep the rail/sidebar/friends + open channel live (idempotent).
         act::start_sync(s);
         act::load_muted(s);
+        // Load the offline localStorage marks first, then overlay the
+        // server-synced read cursors on top (L-1 cross-device sync): a newer
+        // server cursor wins, a failed fetch falls back to localStorage.
         act::load_last_seen(s);
+        act::hydrate_last_seen(s);
         // Window-focus listener: when the user returns to the tab with a
         // channel already open, clear any tray notifications that arrived
         // for that channel while we were backgrounded (feedback row
