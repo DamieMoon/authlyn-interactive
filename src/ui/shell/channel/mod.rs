@@ -766,24 +766,33 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </div>
                     </div>
                 })}
-                // Pending attachments: thumbnails of staged uploads, each with a
-                // remove button. Sent (and cleared) on the next message.
+                // Pending attachments: thumbnails of staged uploads, each with
+                // a per-item upload-progress overlay (F-8) + a remove button,
+                // and a retry button when the upload failed. The `Ready` slots'
+                // media ids are sent (and cleared) on the next message.
                 {move || {
+                    use super::state::UploadStatus;
                     let atts = s.composer.compose_attachments.get();
                     (!atts.is_empty()).then(|| view! {
                         <div class="compose-attachments">
-                            {atts.into_iter().map(|att| {
-                                let rid = att.id.clone();
-                                let id = att.id.clone();
-                                let is_video = att.mime.starts_with("video/");
-                                let thumb = if is_video {
+                            {atts.into_iter().map(|st| {
+                                let key = st.key;
+                                let id = st.att.id.clone();
+                                let is_video = st.att.mime.starts_with("video/");
+                                let ready = st.status == UploadStatus::Ready;
+                                // Thumbnail only resolves once the media id is real
+                                // (`Ready`); while uploading/failed the slot shows a
+                                // neutral placeholder behind the progress overlay.
+                                let thumb = if !ready {
+                                    view! { <div class="pending-att-placeholder"></div> }.into_any()
+                                } else if is_video {
                                     view! {
                                         <video src=format!("/media/{id}") muted preload="metadata"></video>
                                     }.into_any()
                                 } else {
                                     // GIFs raw so the preview animates; the ?w= thumb
                                     // would flatten them to a static JPEG frame.
-                                    let src = if att.mime == "image/gif" {
+                                    let src = if st.att.mime == "image/gif" {
                                         format!("/media/{id}")
                                     } else {
                                         format!("/media/{id}?w=256")
@@ -792,11 +801,41 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         <img src=src alt="pending attachment"/>
                                     }.into_any()
                                 };
+                                let overlay = match &st.status {
+                                    UploadStatus::Uploading(frac) => {
+                                        let pct = (frac.unwrap_or(0.0) * 100.0).round() as i32;
+                                        let indeterminate = frac.is_none();
+                                        view! {
+                                            <div class="att-progress"
+                                                class:indeterminate=indeterminate
+                                                role="progressbar"
+                                                aria-label="uploading">
+                                                <div class="att-progress-bar"
+                                                    style=format!("width:{pct}%")></div>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    UploadStatus::Failed(msg) => {
+                                        let msg = msg.clone();
+                                        view! {
+                                            <div class="att-failed" title=msg>
+                                                <button class="att-retry" type="button" title="retry"
+                                                    on:click=move |_| act::retry_compose_attachment(s, key)>
+                                                    "↻"
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                    UploadStatus::Ready => ().into_any(),
+                                };
                                 view! {
-                                    <div class="pending-att">
+                                    <div class="pending-att"
+                                        class:uploading=matches!(st.status, UploadStatus::Uploading(_))
+                                        class:failed=matches!(st.status, UploadStatus::Failed(_))>
                                         {thumb}
+                                        {overlay}
                                         <button class="att-remove" type="button" title="remove"
-                                            on:click=move |_| act::remove_compose_attachment(s, rid.clone())>
+                                            on:click=move |_| act::remove_compose_attachment(s, key)>
                                             "✕"
                                         </button>
                                     </div>
