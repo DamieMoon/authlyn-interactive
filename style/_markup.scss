@@ -113,6 +113,16 @@
 	color: var(--ink-muted);
 }
 
+.mk-link {
+	color: var(--gold);
+	text-decoration: underline;
+	overflow-wrap: anywhere;
+
+	&:hover {
+		color: var(--gold-warm);
+	}
+}
+
 .mk-code {
 	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 	font-size: 0.88em;

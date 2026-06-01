@@ -99,6 +99,65 @@ async fn post_and_list_preserves_markup_verbatim() {
     assert!(msgs[0]["persona_name"].is_null());
 }
 
+/// L-2: a message body carrying hyperlinks round-trips through the store
+/// verbatim, and re-parsing the stored body yields `Node::Link` nodes (both an
+/// explicit `[text](url)` and a bare autolink), while a `javascript:` pseudo-URL
+/// is NOT linkified — proving the http/https whitelist holds end-to-end.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn hyperlinks_round_trip_and_reject_unsafe_schemes() {
+    use authlyn_interactive::markup::{parse, Node};
+
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    let raw = "see [docs](https://example.com) and http://bare.test [x](javascript:alert(1))";
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": raw })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(body["id"].is_string());
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = body["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    let stored = msgs[0]["body"].as_str().unwrap();
+    assert_eq!(stored, raw, "link markup is stored and returned verbatim");
+
+    // Re-parsing the stored body proves the link grammar + scheme whitelist.
+    let ast = parse(stored);
+    assert!(
+        ast.iter()
+            .any(|n| matches!(n, Node::Link(t, u) if t == "docs" && u == "https://example.com")),
+        "explicit markdown link parses to a Link node: {ast:?}"
+    );
+    assert!(
+        ast.iter().any(
+            |n| matches!(n, Node::Link(t, u) if t == "http://bare.test" && u == "http://bare.test")
+        ),
+        "bare http URL autolinks: {ast:?}"
+    );
+    // The javascript: pseudo-link must NOT linkify — it stays literal text.
+    assert!(
+        !ast.iter()
+            .any(|n| matches!(n, Node::Link(_, u) if u.contains("javascript"))),
+        "javascript: is never emitted as a Link: {ast:?}"
+    );
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn empty_body_is_400() {

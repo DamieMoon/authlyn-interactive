@@ -19,6 +19,10 @@
 //! - emoji: `:shortcode:` (a custom per-guild emoji or a standard unicode
 //!   glyph; an unknown/ill-formed shortcode stays literal — see [`Node::Emoji`])
 //! - image: `![alt](url)` (embedded inline image — see [`Node::Image`])
+//! - link: `[text](url)` (a hyperlink — see [`Node::Link`]); bare `http://` /
+//!   `https://` runs also autolink. `url` is whitelisted to http/https (or a
+//!   scheme-relative reference) — `javascript:`/`data:`/`file:`/`vbscript:`
+//!   never linkify and stay literal text.
 //! - spoiler: `||text||` (hidden until clicked — see [`Node::Spoiler`])
 //!
 //! Block / line-leading (Discord-style, marker must start a line + be followed
@@ -129,6 +133,11 @@ pub enum Node {
     Emoji(String),
     /// Embedded image `![alt](url)`.
     Image(String, String),
+    /// Hyperlink (`text`, `url`). Either an explicit `[text](url)` Markdown link
+    /// or a bare-URL autolink (then `text == url`). `url` is guaranteed http/
+    /// https or a scheme-relative reference by the tokenizer; the renderer emits
+    /// an `<a href>` and Leptos escapes both fields.
+    Link(String, String),
     /// Spoiler `||…||`: hidden until clicked. Children parsed inline (nests).
     Spoiler(Vec<Node>),
 }
@@ -466,7 +475,9 @@ mod tests {
         // Times, smileys and URLs must survive untouched.
         assert_eq!(parse("12:30"), vec![text("12:30")]);
         assert_eq!(parse(":)"), vec![text(":)")]);
-        assert_eq!(parse("see https://x"), vec![text("see https://x")]);
+        // A non-http(s) scheme keeps its `:` literal and is NOT autolinked
+        // (only http/https bare URLs linkify — see the L-2 link tests below).
+        assert_eq!(parse("see ftp://x"), vec![text("see ftp://x")]);
         assert_eq!(parse("a :: b"), vec![text("a :: b")]);
         assert_eq!(
             parse(":Caps:"),
@@ -512,6 +523,154 @@ mod tests {
                 text("a "),
                 Node::Bold(vec![text("secret")]),
             ])]
+        );
+    }
+
+    // --- L-2 hyperlinks: explicit `[text](url)` + bare-URL autolink ---------
+
+    fn link(t: &str, u: &str) -> Node {
+        Node::Link(t.to_string(), u.to_string())
+    }
+
+    #[test]
+    fn explicit_markdown_link_becomes_a_link_node() {
+        assert_eq!(parse("[text](http://x)"), vec![link("text", "http://x")]);
+        assert_eq!(
+            parse("see [the docs](https://example.com/a) now"),
+            vec![
+                text("see "),
+                link("the docs", "https://example.com/a"),
+                text(" now"),
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_link_brackets_or_parens_stay_literal() {
+        assert_eq!(parse("[text]("), vec![text("[text](")], "no closing paren");
+        // Unterminated link (no closing `)`): the `[text](` prefix stays literal.
+        // A relative target is used so no bare-URL autolink fires on the tail.
+        assert_eq!(
+            parse("[text](/path"),
+            vec![text("[text](/path")],
+            "unterminated url"
+        );
+        assert_eq!(
+            parse("[text]"),
+            vec![text("[text]")],
+            "no paren group at all"
+        );
+        assert_eq!(parse("[not a tag]"), vec![text("[not a tag]")]);
+    }
+
+    #[test]
+    fn bare_http_and_https_urls_autolink() {
+        assert_eq!(
+            parse("http://example.com"),
+            vec![link("http://example.com", "http://example.com")]
+        );
+        assert_eq!(
+            parse("go to https://example.com/path now"),
+            vec![
+                text("go to "),
+                link("https://example.com/path", "https://example.com/path"),
+                text(" now"),
+            ]
+        );
+    }
+
+    #[test]
+    fn autolink_trims_trailing_sentence_punctuation_and_parens() {
+        // Trailing prose punctuation is kept literal, not absorbed into the URL.
+        assert_eq!(
+            parse("visit https://x.com."),
+            vec![
+                text("visit "),
+                link("https://x.com", "https://x.com"),
+                text(".")
+            ]
+        );
+        assert_eq!(
+            parse("(see https://x.com)"),
+            vec![
+                text("(see "),
+                link("https://x.com", "https://x.com"),
+                text(")")
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_bare_scheme_is_literal() {
+        // A single slash, or a scheme with no host, must not linkify.
+        assert_eq!(parse("https:/x"), vec![text("https:/x")]);
+        assert_eq!(parse("see https:// here"), vec![text("see https:// here")]);
+        // A non-http(s) bare scheme is never autolinked.
+        assert_eq!(parse("ftp://host/f"), vec![text("ftp://host/f")]);
+    }
+
+    #[test]
+    fn javascript_and_other_unsafe_schemes_never_linkify() {
+        // The explicit-link path rejects any non-http(s) scheme: the whole
+        // `[...](...)` stays literal text, never an `<a href>`.
+        assert_eq!(
+            parse("[click](javascript:alert(1))"),
+            vec![text("[click](javascript:alert(1))")],
+            "javascript: is not a link"
+        );
+        assert_eq!(
+            parse("[x](JavaScript:alert(1))"),
+            vec![text("[x](JavaScript:alert(1))")],
+            "scheme check is case-insensitive"
+        );
+        assert_eq!(
+            parse("[x](data:text/html,foo)"),
+            vec![text("[x](data:text/html,foo)")],
+            "data: is not a link"
+        );
+        assert_eq!(parse("[x](file:///etc)"), vec![text("[x](file:///etc)")]);
+        assert_eq!(
+            parse("[x](vbscript:msgbox)"),
+            vec![text("[x](vbscript:msgbox)")]
+        );
+    }
+
+    #[test]
+    fn relative_link_target_is_allowed() {
+        // A scheme-relative path has no dangerous scheme → it links.
+        assert_eq!(parse("[home](/guilds/1)"), vec![link("home", "/guilds/1")]);
+    }
+
+    #[test]
+    fn link_nested_inside_bold_and_color_parses() {
+        assert_eq!(
+            parse("**[t](http://x)**"),
+            vec![Node::Bold(vec![link("t", "http://x")])]
+        );
+        assert_eq!(
+            parse("[blue]see [t](https://x)[/blue]"),
+            vec![Node::Color(
+                Color::Blue,
+                vec![text("see "), link("t", "https://x")]
+            )]
+        );
+    }
+
+    #[test]
+    fn url_inside_inline_code_stays_literal() {
+        // Code spans are verbatim — no autolinking inside.
+        assert_eq!(
+            parse("`http://x`"),
+            vec![Node::Code("http://x".to_string())]
+        );
+    }
+
+    #[test]
+    fn image_still_parses_and_is_not_a_link() {
+        // The `![alt](url)` image path is unaffected by the new link path.
+        assert_eq!(
+            parse("![a cat](/media/abc)"),
+            vec![Node::Image("a cat".to_string(), "/media/abc".to_string())]
         );
     }
 
