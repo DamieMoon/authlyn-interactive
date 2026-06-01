@@ -27,6 +27,10 @@ pub(super) enum Tok {
     Link(String, String),
     /// A fully-formed `:name:` emoji shortcode (the bare name).
     Emoji(String),
+    /// A fully-formed `@username` mention (the bare username, no `@`). Resolution
+    /// to a real guild member happens server-side; the parser only recognises the
+    /// syntactic shape. See [`parse_mention`].
+    Mention(String),
 }
 
 pub(super) fn tokenize(s: &str) -> Vec<Tok> {
@@ -105,6 +109,27 @@ pub(super) fn tokenize(s: &str) -> Vec<Tok> {
             } else {
                 buf.push(':');
                 i += 1;
+            }
+        } else if rest.starts_with('@') {
+            // A `@username` mention, but only when the `@` is NOT mid-word:
+            // `parse@there` / `a@b` keep their `@` literal. The preceding char
+            // (the last byte already in `buf`, since `@` is ASCII and word chars
+            // are ASCII) decides — a word char (`[A-Za-z0-9_]`) before it means
+            // mid-word, so fall through to literal.
+            let after_word_char = buf
+                .as_bytes()
+                .last()
+                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
+            match (after_word_char, parse_mention(rest)) {
+                (false, Some((name, len))) => {
+                    flush!();
+                    tokens.push(Tok::Mention(name));
+                    i += len;
+                }
+                _ => {
+                    buf.push('@');
+                    i += 1;
+                }
             }
         } else if let Some(len) = autolink_len(rest) {
             // Bare http(s):// URL — emit as a link whose text is the URL itself.
@@ -269,4 +294,28 @@ fn parse_emoji(rest: &str) -> Option<(String, usize)> {
     } else {
         None
     }
+}
+
+/// If `rest` (starting with `@`) opens a well-formed `@username` mention, return
+/// the bare username and the byte length consumed (the `@` plus the run of
+/// username chars). A mention is `@` then a leading ASCII letter or `_`,
+/// followed by a run of ASCII `[A-Za-z0-9_]`. Requiring a non-digit first char
+/// keeps `@123` literal (a bare number is far more likely "@ 123" prose than a
+/// handle) while `@user123` works. An empty or digit-led run (`@`, `@@`, `@-`,
+/// `@123`, `@ `) returns `None`, so the leading `@` falls through to literal
+/// text. Case is preserved as typed; the server matches case-insensitively.
+/// Operates on bytes (all recognised chars are ASCII), so `len` always lands on
+/// a UTF-8 boundary.
+fn parse_mention(rest: &str) -> Option<(String, usize)> {
+    let after = &rest.as_bytes()[1..];
+    // First char must be a letter or underscore (not a digit, not punctuation).
+    match after.first() {
+        Some(b) if b.is_ascii_alphabetic() || *b == b'_' => {}
+        _ => return None,
+    }
+    let len = after
+        .iter()
+        .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
+        .count();
+    Some((rest[1..1 + len].to_string(), 1 + len))
 }

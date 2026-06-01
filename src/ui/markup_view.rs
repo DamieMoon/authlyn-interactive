@@ -67,6 +67,10 @@ fn render_node(node: Node) -> AnyView {
             </a>
         }
         .into_any(),
+        // Mention `@username` (L-4): a styled, non-interactive pill. Not a
+        // profile link in v1; the `@` is re-emitted so the text reads naturally.
+        // Leptos escapes `name`.
+        Node::Mention(name) => view! { <span class="mk-mention">{"@"}{name}</span> }.into_any(),
         // Hidden until clicked: a per-node signal flips a `revealed` class. No
         // web_sys needed, so it compiles for ssr too (inert until hydrated).
         Node::Spoiler(children) => {

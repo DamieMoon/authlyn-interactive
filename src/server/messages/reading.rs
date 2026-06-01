@@ -57,7 +57,7 @@ pub async fn list_messages(
         }
     };
 
-    let messages = match load_messages(&state, &cid, parsed_cursor).await {
+    let messages = match load_messages(&state, &cid, &account.0, parsed_cursor).await {
         Ok(m) => m,
         Err(e) => {
             tracing::error!(error = %e, "load_messages failed");
@@ -271,6 +271,9 @@ pub(super) struct MessageRow {
     pub tier: String,
     pub sent_at: Datetime,
     pub reply_to: Option<ReplyPreviewRow>,
+    /// Whether the READING caller is `@`-mentioned by this message (L-4) — the
+    /// projection evaluates `$caller IN pinged_users`, so it's per-reader.
+    pub is_pinged: bool,
 }
 
 impl MessageRow {
@@ -304,6 +307,7 @@ impl MessageRow {
                 author_display: r.author_display,
                 body_snippet: r.body_snippet,
             }),
+            is_pinged: self.is_pinged,
         }
     }
 }
@@ -333,11 +337,13 @@ pub(super) const MSG_PROJECTION: &str = "
             id: meta::id(reply_to),
             author_display: (reply_to.author.display_name ?: reply_to.author.username),
             body_snippet: string::slice(reply_to.body, 0, 100)
-         } ELSE NONE END) AS reply_to";
+         } ELSE NONE END) AS reply_to,
+        (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged";
 
 async fn load_messages(
     state: &AppState,
     cid: &str,
+    caller: &str,
     cursor: CursorState,
 ) -> surrealdb::Result<Vec<MessageEnvelope>> {
     // `bound` carries the named (datetime, id) params for the cursor arms.
@@ -385,6 +391,7 @@ async fn load_messages(
         .db
         .query(sql)
         .bind(("cid", cid.to_string()))
+        .bind(("caller", caller.to_string()))
         .bind(("page_limit", MESSAGES_PAGE_LIMIT));
     if let Some((k1, v1, k2, v2)) = bound {
         q = q.bind((k1, v1)).bind((k2, v2));

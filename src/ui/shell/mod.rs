@@ -181,6 +181,8 @@ fn AppShell() -> impl IntoView {
     let notify = Notify {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
+        pinged: RwSignal::new(HashSet::new()),
+        unread_count: RwSignal::new(HashMap::new()),
         last_seen: RwSignal::new(HashMap::new()),
     };
     provide_context(notify);
@@ -797,13 +799,39 @@ fn ChannelRow(
                     let active_cid = cid.clone();
                     let active = move || s.sel.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
                     let unread_cid = cid.clone();
+                    // White glow for plain unread; orange `pinged` glow WINS when
+                    // the channel has a ping for me (L-4). The CSS keys off both
+                    // classes — `.pinged` overrides `.unread` styling.
                     let unread = move || s.notify.unread.get().contains(&unread_cid);
+                    let pinged_cid = cid.clone();
+                    let pinged = move || s.notify.pinged.get().contains(&pinged_cid);
+                    // Per-channel unread count badge (L-4): a small pill showing
+                    // the number of unread messages, hidden (no badge) at 0. One
+                    // reactive closure owning a single cid clone renders either the
+                    // badge span or an empty view, so it stays `Fn` (a non-`Copy`
+                    // String can't be shared across a separate `when` + children).
+                    let badge_cid = cid.clone();
+                    let badge = move || {
+                        let n = s
+                            .notify
+                            .unread_count
+                            .get()
+                            .get(&badge_cid)
+                            .copied()
+                            .unwrap_or(0);
+                        if n == 0 {
+                            return ().into_any();
+                        }
+                        let label = if n > 99 { "99+".to_string() } else { n.to_string() };
+                        view! { <span class="channel-badge">{label}</span> }.into_any()
+                    };
                     let start_cid = cid.clone();
                     let start_name = name0.clone();
                     view! {
-                        <button class="channel" class:active=active class:unread=unread
+                        <button class="channel" class:active=active class:unread=unread class:pinged=pinged
                             on:click=move |_| { act::open_channel(s, ch.clone()); s.sync.nav_open.set(false); }>
                             {sigil}{name0.clone()}
+                            {badge}
                         </button>
                         <Show when=is_owner fallback=|| ()>
                             // Reorder (L-5): ↑/↓ swap a neighbour, ⤒/⤓ bring to

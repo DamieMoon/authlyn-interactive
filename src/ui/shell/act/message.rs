@@ -687,8 +687,16 @@ fn refresh_unread(s: Shell) {
         if let Some(cur) = s.msg.cursor.get_untracked() {
             set_last_seen(s, oc, cur);
         }
+        // The open channel is always considered seen: clear its unread glow,
+        // ping glow, and count at once (L-4).
         s.notify.unread.update(|u| {
             u.remove(oc);
+        });
+        s.notify.pinged.update(|p| {
+            p.remove(oc);
+        });
+        s.notify.unread_count.update(|c| {
+            c.remove(oc);
         });
     }
     // Flatten the per-guild channel cache into a single list (cross-guild).
@@ -720,7 +728,12 @@ fn refresh_unread(s: Shell) {
                     let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
                         continue;
                     };
-                    let has_new = !l.messages.is_empty();
+                    let count = l.messages.len();
+                    let has_new = count > 0;
+                    // A ping = any unread message in this channel that mentions me
+                    // (L-4). `is_pinged` is per-reader (the server evaluated it for
+                    // THIS caller), so a true here is genuinely a ping for me.
+                    let has_ping = l.messages.iter().any(|m| m.is_pinged);
                     let marked = s.notify.unread.with_untracked(|u| u.contains(&ch.id));
                     if has_new != marked {
                         s.notify.unread.update(|u| {
@@ -728,6 +741,29 @@ fn refresh_unread(s: Shell) {
                                 u.insert(ch.id.clone());
                             } else {
                                 u.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let pinged_now = s.notify.pinged.with_untracked(|p| p.contains(&ch.id));
+                    if has_ping != pinged_now {
+                        s.notify.pinged.update(|p| {
+                            if has_ping {
+                                p.insert(ch.id.clone());
+                            } else {
+                                p.remove(&ch.id);
+                            }
+                        });
+                    }
+                    let count_now = s
+                        .notify
+                        .unread_count
+                        .with_untracked(|c| c.get(&ch.id).copied().unwrap_or(0));
+                    if count != count_now {
+                        s.notify.unread_count.update(|c| {
+                            if has_new {
+                                c.insert(ch.id.clone(), count);
+                            } else {
+                                c.remove(&ch.id);
                             }
                         });
                     }

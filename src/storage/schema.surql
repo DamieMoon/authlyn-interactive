@@ -158,6 +158,16 @@ DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- 
 -- the SCHEMAFULL NONE-coercion crash on the next message UPDATE unless an
 -- idempotent backfill materialises it FIRST (see the backfill block below).
 DEFINE FIELD IF NOT EXISTS reply_to ON message TYPE option<record<message>>;
+-- Ping-mentions (L-4): the set of guild-member accounts `@`-mentioned in `body`,
+-- resolved server-side at send time (only members of the channel's guild
+-- qualify; case-insensitive). Empty when the message pings nobody. An
+-- `array<>` DEFAULT [] field added to a POPULATED table: old rows hold NONE,
+-- which the persona-snapshot UPDATE below would re-validate and crash on —
+-- exactly the `attachments`/`reply_to` hazard — so an idempotent backfill
+-- materialises it FIRST (see the backfill block below). A `record<account>`
+-- link is a type annotation only (not referentially enforced); a since-deleted
+-- pinged account simply dangles, and the read-path `is_pinged` check tolerates it.
+DEFINE FIELD IF NOT EXISTS pinged_users ON message TYPE array<record<account>> DEFAULT [];
 -- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -180,8 +190,16 @@ UPDATE message SET attachments = [] WHERE attachments = NONE;
 -- without materialising it first that UPDATE would trip the SCHEMAFULL coercion
 -- and crash-loop schema apply. Must stay between the `attachments` backfill and
 -- the persona backfill. Idempotent via the WHERE (a no-op once materialised).
--- (L-4 mentions backfill should slot in alongside this one, not nest inside it.)
 UPDATE message SET reply_to = NONE WHERE reply_to = NONE;
+
+-- Backfill `pinged_users` to [] on every pre-mention row (L-4). Same hazard as
+-- the `attachments`/`reply_to` backfills above: old rows hold NONE for an
+-- array field added after they existed, and the persona-snapshot UPDATE below
+-- re-validates EVERY field — so without materialising it first that UPDATE
+-- would trip the SCHEMAFULL coercion and crash-loop schema apply. Must stay
+-- between the `reply_to` backfill and the persona backfill. Idempotent via the
+-- WHERE (a no-op once materialised).
+UPDATE message SET pinged_users = [] WHERE pinged_users = NONE;
 
 UPDATE message SET
     persona_name = persona.name,

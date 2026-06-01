@@ -54,6 +54,7 @@ pub(super) fn build_tree(tokens: Vec<Tok>) -> Vec<Node> {
             Tok::Image(alt, url) => top(&mut stack).children.push(Node::Image(alt, url)),
             Tok::Link(text, url) => top(&mut stack).children.push(Node::Link(text, url)),
             Tok::Emoji(name) => top(&mut stack).children.push(Node::Emoji(name)),
+            Tok::Mention(name) => top(&mut stack).children.push(Node::Mention(name)),
         }
     }
 

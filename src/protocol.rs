@@ -312,6 +312,14 @@ pub struct MessageEnvelope {
     /// wire-compat reason as the persona/attachment siblings above.
     #[serde(default)]
     pub reply_to: Option<ReplyPreview>,
+    /// Whether the READING caller is `@`-mentioned (pinged) by this message
+    /// (L-4). Per-reader: the server evaluates `caller IN pinged_users` in the
+    /// projection, so the same message has `is_pinged = true` for a mentioned
+    /// reader and `false` for everyone else. Drives the message highlight and
+    /// the sidebar's orange ping glow. `#[serde(default)]` for the same
+    /// post-ship wire-compat reason as the siblings above (defaults to `false`).
+    #[serde(default)]
+    pub is_pinged: bool,
 }
 
 /// A lightweight preview of a replied-to (parent) message, rendered as a

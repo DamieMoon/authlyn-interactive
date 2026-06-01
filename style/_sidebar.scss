@@ -69,12 +69,39 @@
 				color: var(--ink);
 			}
 
-			// Unread (#23): brighten the name and add an orange glow so a
-			// channel with new messages stands out in the sidebar.
+			// Unread (#23): brighten the name and add a WHITE glow so a channel
+			// with new messages stands out (L-4: white = plain unread).
 			&.unread {
+				color: var(--ink);
+				font-weight: 600;
+				text-shadow: 0 0 6px rgba(245, 245, 245, 0.7);
+			}
+
+			// Ping (L-4): a message that @-mentions me. ORANGE glow, and it WINS
+			// over the plain white unread glow (the `.pinged` rule follows
+			// `.unread`, and both classes are applied, so this overrides it).
+			&.pinged {
 				color: var(--tint-orange);
 				font-weight: 600;
-				text-shadow: 0 0 6px rgba(238, 161, 96, 0.7);
+				text-shadow: 0 0 6px rgba(238, 161, 96, 0.8);
+			}
+
+			// Per-channel unread count badge (L-4): a small pill at the row's
+			// trailing edge. Orange-tinted to read as a notification count.
+			.channel-badge {
+				display: inline-block;
+				margin-left: 0.4rem;
+				min-width: 1.1rem;
+				padding: 0 0.3rem;
+				border-radius: 0.6rem;
+				background: var(--tint-orange);
+				color: var(--vellum);
+				font-size: 0.7rem;
+				font-weight: 700;
+				line-height: 1.1rem;
+				text-align: center;
+				text-shadow: none;
+				vertical-align: middle;
 			}
 		}
 

@@ -282,6 +282,10 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         guild_key: String,
         sender_name: String,
         body: String,
+        /// Account-id keys this message `@`-mentions (L-4) — used to set a
+        /// per-recipient `pinged` flag on the push payload so a future SW can
+        /// style a ping differently. Empty when the message pings nobody.
+        pinged_keys: Vec<String>,
     }
     let mut resp = state
         .db
@@ -291,7 +295,8 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
                 channel.name             AS channel_name,
                 meta::id(channel.guild)  AS guild_key,
                 (persona_name ?? (author.display_name ?: author.username)) AS sender_name,
-                body
+                body,
+                (pinged_users ?? []).map(|$u| meta::id($u)) AS pinged_keys
              FROM type::record('message', $mid);",
         )
         .bind(("mid", mid.to_string()))
@@ -310,11 +315,15 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         endpoint: String,
         p256dh: String,
         auth: String,
+        /// The subscription owner's account-id key — matched against the
+        /// message's `pinged_keys` to set the per-recipient `pinged` flag (L-4).
+        account_key: String,
     }
     let mut resp = state
         .db
         .query(
-            "SELECT endpoint, p256dh, `auth` FROM push_subscription
+            "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
+                FROM push_subscription
                 WHERE account != type::record('account', $author)
                   AND account IN (SELECT VALUE account FROM guild_member
                       WHERE guild = type::record('guild', $gid));",
@@ -328,26 +337,30 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         return Ok(());
     }
 
-    // Same payload for every recipient. Title = "<who> in #<channel>".
-    // Per-channel notification `tag`: the service worker forwards it to
-    // showNotification, so a burst of messages in the SAME channel collapses
-    // into ONE notification window (replaces + re-alerts) instead of stacking —
-    // less spammy. `channel`/`guild`/`message` carry the ids the click handler
-    // deep-links to (open that channel, jump to that message). The title
-    // already names the sender + channel, the body is a content preview.
-    let payload = serde_json::json!({
-        "title": format!("{} in #{}", info.sender_name, info.channel_name),
-        "body": notification_body(&info.body),
-        "channel": info.channel_key.clone(),
-        "guild": info.guild_key,
-        "message": mid,
-        "tag": info.channel_key,
-    })
-    .to_string()
-    .into_bytes();
+    // Title = "<who> in #<channel>". Per-channel notification `tag`: the service
+    // worker forwards it to showNotification, so a burst of messages in the SAME
+    // channel collapses into ONE notification window (replaces + re-alerts)
+    // instead of stacking — less spammy. `channel`/`guild`/`message` carry the
+    // ids the click handler deep-links to. `pinged` is PER-RECIPIENT (L-4): true
+    // only for a subscription whose owner this message @-mentions, so a future SW
+    // can style a ping differently — hence the payload is built per recipient.
+    let title = format!("{} in #{}", info.sender_name, info.channel_name);
+    let body = notification_body(&info.body);
 
     let mut dead: Vec<String> = Vec::new();
     for sub in &subs {
+        let pinged = info.pinged_keys.contains(&sub.account_key);
+        let payload = serde_json::json!({
+            "title": title,
+            "body": body,
+            "channel": info.channel_key,
+            "guild": info.guild_key,
+            "message": mid,
+            "tag": info.channel_key,
+            "pinged": pinged,
+        })
+        .to_string()
+        .into_bytes();
         match sender
             .send_one(&sub.endpoint, &sub.p256dh, &sub.auth, &payload)
             .await

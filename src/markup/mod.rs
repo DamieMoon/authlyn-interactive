@@ -24,6 +24,9 @@
 //!   scheme-relative reference) — `javascript:`/`data:`/`file:`/`vbscript:`
 //!   never linkify and stay literal text.
 //! - spoiler: `||text||` (hidden until clicked — see [`Node::Spoiler`])
+//! - mention: `@username` (L-4; alphanumeric/underscore, must not start
+//!   mid-word or with a digit — see [`Node::Mention`]); a malformed `@` stays
+//!   literal text
 //!
 //! Block / line-leading (Discord-style, marker must start a line + be followed
 //! by a space):
@@ -140,6 +143,13 @@ pub enum Node {
     Link(String, String),
     /// Spoiler `||…||`: hidden until clicked. Children parsed inline (nests).
     Spoiler(Vec<Node>),
+    /// Mention `@username` (L-4) — the bare username (no `@`). The parser only
+    /// recognises the syntactic shape; whether the name names a real guild
+    /// member is resolved server-side at send time (`pinged_users`). Rendered as
+    /// a styled `<span class="mk-mention">@name</span>` (not a link in v1). A
+    /// malformed `@` (`@`, `@@`, `@123`, mid-word `@`) never reaches here — it
+    /// stays literal text (see the tokenizer's `parse_mention`).
+    Mention(String),
 }
 
 /// Parse a message body into a markup tree. Never fails (see module docs).
@@ -149,6 +159,53 @@ pub enum Node {
 /// block with the inline tokenizer/tree-builder.
 pub fn parse(input: &str) -> Vec<Node> {
     blocks::parse_blocks(input)
+}
+
+/// Collect the lowercased, de-duplicated set of `@username` mentions in `input`,
+/// in first-appearance order (L-4). Walks the parsed AST so the same leniency
+/// the renderer obeys applies here too: a `@name` inside an inline code span or
+/// a fenced code block is verbatim text, NOT a mention, and a malformed `@`
+/// never produces one. Lowercased because the server matches member usernames
+/// case-insensitively. The returned names are syntactic only — resolution to a
+/// real guild member happens server-side (`posting.rs`).
+pub fn collect_mentions(input: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    collect_mentions_nodes(&parse(input), &mut out, &mut seen);
+    out
+}
+
+fn collect_mentions_nodes(
+    nodes: &[Node],
+    out: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    for node in nodes {
+        match node {
+            Node::Mention(name) => {
+                let lower = name.to_lowercase();
+                if seen.insert(lower.clone()) {
+                    out.push(lower);
+                }
+            }
+            // Recurse into every inline/block container so a mention nested in
+            // bold/italic/color/dialogue/spoiler/heading/subtext is still found.
+            Node::Bold(c)
+            | Node::Italic(c)
+            | Node::Color(_, c)
+            | Node::Heading(_, c)
+            | Node::Subtext(c)
+            | Node::Dialogue(c)
+            | Node::Spoiler(c) => collect_mentions_nodes(c, out, seen),
+            // Leaf nodes that never contain a mention (code is verbatim).
+            Node::Text(_)
+            | Node::Code(_)
+            | Node::CodeBlock(_)
+            | Node::Emoji(_)
+            | Node::Image(_, _)
+            | Node::Link(_, _) => {}
+        }
+    }
 }
 
 /// Drop `[name]`/`[/name]` color tags from a message body, leaving every other
@@ -672,6 +729,123 @@ mod tests {
             parse("![a cat](/media/abc)"),
             vec![Node::Image("a cat".to_string(), "/media/abc".to_string())]
         );
+    }
+
+    // --- L-4 mentions: `@username` -> Node::Mention, lenient on malformed ---
+
+    fn mention(name: &str) -> Node {
+        Node::Mention(name.to_string())
+    }
+
+    #[test]
+    fn bare_mention_becomes_a_node() {
+        assert_eq!(parse("@alice"), vec![mention("alice")]);
+        assert_eq!(
+            parse("hi @bob there"),
+            vec![text("hi "), mention("bob"), text(" there")]
+        );
+        // Underscores and digits (after a leading letter) are part of a handle.
+        assert_eq!(parse("@user_123"), vec![mention("user_123")]);
+        assert_eq!(parse("@_hidden"), vec![mention("_hidden")]);
+    }
+
+    #[test]
+    fn mention_preserves_case_in_node() {
+        // The node keeps the case as typed; the SERVER lowercases for matching
+        // (the parser stays purely syntactic).
+        assert_eq!(parse("@CAPS"), vec![mention("CAPS")]);
+        assert_eq!(parse("@MixedCase"), vec![mention("MixedCase")]);
+    }
+
+    #[test]
+    fn malformed_at_signs_stay_literal() {
+        assert_eq!(parse("@"), vec![text("@")], "lone @");
+        assert_eq!(parse("@@"), vec![text("@@")], "double @");
+        assert_eq!(
+            parse("@123"),
+            vec![text("@123")],
+            "digit-led is not a handle"
+        );
+        assert_eq!(parse("@-"), vec![text("@-")], "@ then punctuation");
+        assert_eq!(parse("@ space"), vec![text("@ space")], "@ then space");
+        assert_eq!(parse("trailing @"), vec![text("trailing @")], "trailing @");
+    }
+
+    #[test]
+    fn mid_word_at_stays_literal() {
+        // An `@` preceded by a word char is an email-ish / handle-tail, not a
+        // mention: keep it literal.
+        assert_eq!(parse("parse@there"), vec![text("parse@there")]);
+        assert_eq!(parse("a@b"), vec![text("a@b")]);
+        assert_eq!(
+            parse("email me at user@host.com"),
+            vec![text("email me at user@host.com")]
+        );
+        // But an `@` after a non-word char (punctuation/space) still mentions.
+        assert_eq!(
+            parse("(@nick)"),
+            vec![text("("), mention("nick"), text(")")]
+        );
+    }
+
+    #[test]
+    fn mention_nested_in_bold_and_color() {
+        assert_eq!(
+            parse("**@alice**"),
+            vec![Node::Bold(vec![mention("alice")])]
+        );
+        assert_eq!(
+            parse("[red]ping @bob[/red]"),
+            vec![Node::Color(Color::Red, vec![text("ping "), mention("bob")])]
+        );
+    }
+
+    #[test]
+    fn mention_inside_inline_code_stays_literal() {
+        // Code spans are verbatim — no mention scanning inside.
+        assert_eq!(parse("`@alice`"), vec![Node::Code("@alice".to_string())]);
+        assert_eq!(
+            parse("run `@cmd` now"),
+            vec![text("run "), Node::Code("@cmd".to_string()), text(" now")]
+        );
+    }
+
+    #[test]
+    fn mention_terminates_at_non_word_char() {
+        // The handle stops at the first non-`[A-Za-z0-9_]` char.
+        assert_eq!(
+            parse("@alice, hello"),
+            vec![mention("alice"), text(", hello")]
+        );
+        assert_eq!(parse("@bob's turn"), vec![mention("bob"), text("'s turn")]);
+    }
+
+    // --- L-4 collect_mentions: AST-walk extraction for the server send path ---
+
+    #[test]
+    fn collect_mentions_lowercases_and_dedupes_in_order() {
+        assert_eq!(
+            collect_mentions("hey @Alice and @bob and @ALICE again"),
+            vec!["alice".to_string(), "bob".to_string()],
+            "case-insensitive, de-duplicated, first-appearance order"
+        );
+    }
+
+    #[test]
+    fn collect_mentions_finds_nested_but_skips_code() {
+        assert_eq!(
+            collect_mentions("**@bold** [blue]@tint[/blue]"),
+            vec!["bold".to_string(), "tint".to_string()]
+        );
+        // A mention inside inline code or a fence is literal text, NOT a mention.
+        assert_eq!(collect_mentions("`@nope`"), Vec::<String>::new());
+        assert_eq!(collect_mentions("```\n@nope\n```"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn collect_mentions_empty_when_none() {
+        assert_eq!(collect_mentions("no pings here"), Vec::<String>::new());
+        assert_eq!(collect_mentions("@123 @ @@"), Vec::<String>::new());
     }
 
     // ---- strip_color_tokens (copy-as-markdown helper, ctx 019e6f23-fcfc) ----

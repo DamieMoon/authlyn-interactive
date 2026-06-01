@@ -99,15 +99,25 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
         s.msg.typing.set(Vec::new());
-        // Opening clears the unread glow at once; the high-water mark
-        // advances once messages load below.
+        // Opening clears the unread glow, the ping glow, and the count badge at
+        // once (L-4); the high-water mark advances once messages load below.
         s.notify.unread.update(|u| {
             u.remove(&cid);
+        });
+        s.notify.pinged.update(|p| {
+            p.remove(&cid);
+        });
+        s.notify.unread_count.update(|c| {
+            c.remove(&cid);
         });
         // Ask the SW to close any tray notifications for this channel so a
         // burst of stacked notifs disappears once the user lands on the
         // channel that produced them (feedback row kx24k2cwftdppidhmh0e).
         super::notify::clear_notifs_for_channel(&cid);
+        // Capture the prior last-seen mark BEFORE the page load advances it, so
+        // we can jump to the OLDEST unread message on open (L-4). An explicit
+        // `anchor` (a notification deep-link) always wins over the unread jump.
+        let prior_seen = s.notify.last_seen.with_untracked(|m| m.get(&cid).cloned());
         super::message::start_poll(s);
         let seen_cid = cid.clone();
         spawn_local(async move {
@@ -136,8 +146,20 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 s.msg.oldest.set(oldest);
                 s.msg.more_history.set(full_page);
                 // Deep-link: now the page is in the DOM, ask the scroll
-                // Effect to bring the notified message into view.
-                if let Some(mid) = anchor {
+                // Effect to bring the notified message into view. An explicit
+                // deep-link anchor wins; otherwise jump to the OLDEST unread
+                // message — the first one strictly past the prior last-seen
+                // composite cursor (L-4). String-tuple compare matches the
+                // cursor's strict (sent_at, id) tie-break, same as `hydrate_last_seen`.
+                let jump = anchor.or_else(|| {
+                    let prior = prior_seen.as_ref()?;
+                    s.msg.messages.with_untracked(|msgs| {
+                        msgs.iter()
+                            .find(|m| (m.sent_at.clone(), m.id.clone()) > *prior)
+                            .map(|m| m.id.clone())
+                    })
+                });
+                if let Some(mid) = jump {
                     s.msg.anchor_to.set(Some(mid));
                 }
                 if let Some(cur) = s.msg.cursor.get_untracked() {
