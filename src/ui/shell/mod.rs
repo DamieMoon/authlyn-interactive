@@ -137,6 +137,7 @@ fn AppShell() -> impl IntoView {
         oldest: RwSignal::new(None),
         loading_older: RwSignal::new(false),
         more_history: RwSignal::new(true),
+        loading_initial: RwSignal::new(false),
         anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         typing: RwSignal::new(Vec::new()),
