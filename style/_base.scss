@@ -8,6 +8,9 @@ html,
 body {
 	margin: 0;
 	height: 100%;
+	// Suppress the double-tap-to-zoom gesture delay and pinch-zoom ghosting in
+	// the standalone PWA while keeping normal scroll/pan intact.
+	touch-action: manipulation;
 }
 
 body {

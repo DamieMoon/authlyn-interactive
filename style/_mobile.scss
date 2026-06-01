@@ -37,6 +37,9 @@
 		inset: 0;
 		z-index: 20;
 		background: rgba(0, 0, 0, 0.5);
+		// Full-screen fixed overlay: swallow touch gestures so a pinch over the
+		// nav scrim can't trigger zoom/ghosting in the standalone PWA.
+		touch-action: none;
 	}
 
 	.content .topbar .nav-toggle {

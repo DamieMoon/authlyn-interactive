@@ -10,6 +10,9 @@
 	align-items: center;
 	justify-content: center;
 	cursor: zoom-out;
+	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
+	// lightbox can't trigger zoom/ghosting in the standalone PWA.
+	touch-action: none;
 
 	.lightbox-img {
 		max-width: 95vw;

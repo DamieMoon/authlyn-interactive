@@ -27,6 +27,9 @@
 	padding: 1rem;
 	background: rgba(0, 0, 0, 0.55);
 	animation: modal-backdrop-enter var(--dur-base) var(--ease-page);
+	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
+	// backdrop can't trigger zoom/ghosting in the standalone PWA.
+	touch-action: none;
 }
 
 .modal {
