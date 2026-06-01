@@ -297,10 +297,50 @@ pub fn swap_channel(s: Shell, idx: usize, up: bool) {
         idx + 1
     };
     list.swap(idx, other);
-    // Optimistic local reorder so the sidebar updates immediately; the
-    // server reload after the PATCHes confirms it.
+    // Optimistic local reorder + renumber-and-persist shared with the drag /
+    // move-to-bounds helpers.
+    persist_channel_order(s, gid, list);
+}
+
+/// Move a channel to an absolute `target` index in the open guild's sidebar
+/// list (drag-and-drop drop target). Removes the dragged channel from `idx` and
+/// re-inserts it at `target`, then renumbers + PATCHes exactly like
+/// [`swap_channel`]. No-op when `idx == target` or either is out of range.
+/// Owner-gated in the UI; the server re-checks `require_manager` per PATCH.
+#[cfg(feature = "hydrate")]
+pub fn move_channel(s: Shell, idx: usize, target: usize) {
+    let Some(gid) = s.sel.sel_server.get_untracked() else {
+        return;
+    };
+    let mut list = s.sel.channels.get_untracked();
+    if idx >= list.len() || target >= list.len() || idx == target {
+        return;
+    }
+    let item = list.remove(idx);
+    list.insert(target, item);
+    persist_channel_order(s, gid, list);
+}
+
+/// Bring a channel to the very top (`top = true`) or bottom of the sidebar
+/// list — the mobile / keyboard fallback for drag. Defers to [`move_channel`].
+#[cfg(feature = "hydrate")]
+pub fn move_channel_to_bounds(s: Shell, idx: usize, top: bool) {
+    let len = s.sel.channels.get_untracked().len();
+    if len == 0 {
+        return;
+    }
+    let target = if top { 0 } else { len - 1 };
+    move_channel(s, idx, target);
+}
+
+/// Shared tail of the channel reorders: optimistically set the new local order,
+/// PATCH every channel whose stored position no longer matches its index, then
+/// reload the server to confirm. Factored out of [`swap_channel`]'s body so the
+/// drag / bounds helpers reuse the exact same persist flow (invariant: renumber
+/// to array index, never swap raw position values).
+#[cfg(feature = "hydrate")]
+fn persist_channel_order(s: Shell, gid: String, list: Vec<ChannelSummary>) {
     s.sel.channels.set(list.clone());
-    // Persist each channel whose stored position no longer matches its index.
     let patches: Vec<(String, i64)> = list
         .iter()
         .enumerate()
@@ -367,5 +407,10 @@ pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
 pub fn delete_channel(_s: Shell, _gid: String, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn swap_channel(_s: Shell, _idx: usize, _up: bool) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn move_channel(_s: Shell, _idx: usize, _target: usize) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn move_channel_to_bounds(_s: Shell, _idx: usize, _top: bool) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn restore_channel(_s: Shell, _gid: String, _cid: String) {}
