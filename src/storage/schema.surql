@@ -177,29 +177,22 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- the snapshot columns existed, so a later persona delete doesn't scramble
 -- their name/avatar. Idempotent: only touches persona'd rows still missing the
 -- snapshot, and a dangling (already-deleted) persona simply leaves it NONE.
--- Backfill `attachments` to [] on every pre-attachment row FIRST. SCHEMAFULL
--- arrays behave like the string fields: old rows hold NONE, and ANY message
--- UPDATE re-validates ALL fields — so this must run before the persona backfill
--- below, or that UPDATE trips over the still-NONE `attachments` and aborts
--- schema apply (crash-loops the service). Idempotent via the WHERE.
-UPDATE message SET attachments = [] WHERE attachments = NONE;
-
--- Backfill `reply_to` to NONE on every pre-reply row (L-3). Same hazard as the
--- `attachments` backfill above: old rows hold NONE for a field added after they
--- existed, and the persona-snapshot UPDATE below re-validates EVERY field — so
--- without materialising it first that UPDATE would trip the SCHEMAFULL coercion
--- and crash-loop schema apply. Must stay between the `attachments` backfill and
--- the persona backfill. Idempotent via the WHERE (a no-op once materialised).
-UPDATE message SET reply_to = NONE WHERE reply_to = NONE;
-
--- Backfill `pinged_users` to [] on every pre-mention row (L-4). Same hazard as
--- the `attachments`/`reply_to` backfills above: old rows hold NONE for an
--- array field added after they existed, and the persona-snapshot UPDATE below
--- re-validates EVERY field — so without materialising it first that UPDATE
--- would trip the SCHEMAFULL coercion and crash-loop schema apply. Must stay
--- between the `reply_to` backfill and the persona backfill. Idempotent via the
--- WHERE (a no-op once materialised).
-UPDATE message SET pinged_users = [] WHERE pinged_users = NONE;
+-- Backfill the non-option array fields (`attachments`, `pinged_users`) to []
+-- on every legacy row FIRST, in a SINGLE statement. SCHEMAFULL re-validates the
+-- WHOLE row on ANY UPDATE write, so these two non-option arrays MUST be
+-- materialised together: fixing one field in isolation (e.g. `SET attachments`)
+-- still re-validates the row and trips over the OTHER still-NONE array
+-- (`pinged_users`), aborting schema apply and crash-looping the service. Setting
+-- both in one UPDATE makes the post-image valid in a single write. (`reply_to`
+-- is `option<>`, so NONE is already a valid value — it needs no backfill and is
+-- left alone here.) Idempotent via the WHERE. This MUST precede the persona
+-- snapshot UPDATE below, which also re-validates every field.
+-- (Regression: adding `pinged_users` (L-4) as a second non-option array exposed
+-- that separate per-field backfills crash when >1 such field is NONE at once;
+-- a populated dev/prod DB tripped this on boot though fresh-namespace tests did
+-- not. Keep all non-option array materialisation in this one statement.)
+UPDATE message SET attachments = [], pinged_users = []
+    WHERE attachments = NONE OR pinged_users = NONE;
 
 UPDATE message SET
     persona_name = persona.name,
