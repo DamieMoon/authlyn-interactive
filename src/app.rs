@@ -17,8 +17,10 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta charset="utf-8"/>
                 // Zoom-lock for the standalone PWA: two-finger pinch-zoom inside the
                 // installed app causes erratic ghosting/lag, so disable user scaling
-                // (paired with `touch-action` in the SCSS).
-                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"/>
+                // (paired with `touch-action` in the SCSS). `viewport-fit=cover` lets
+                // the layout extend under the notch/Dynamic Island/home indicator so
+                // the `env(safe-area-inset-*)` paddings in the SCSS can reserve space.
+                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"/>
                 // PWA: linked manifest + theme/icon hints. Assets live in
                 // `public/` (cargo-leptos `assets-dir`) and are copied to the
                 // site root, so they serve at these absolute URLs.

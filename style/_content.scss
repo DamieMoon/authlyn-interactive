@@ -23,8 +23,19 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.6rem 1rem;
+		// Reserve the status bar / notch / Dynamic Island height in the installed
+		// PWA (viewport-fit=cover). env() is 0 on non-notched devices/browsers.
+		padding-top: calc(0.6rem + env(safe-area-inset-top, 0px));
 		border-bottom: 1px solid var(--rule-line);
 		min-width: 0;
+
+		// Controls keep their size and never wrap their label (e.g. "Log out"
+		// breaking onto two lines on a ~390px phone); the username .muted span
+		// absorbs the squeeze via its ellipsis instead.
+		> button {
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
 
 		.nav-toggle {
 			display: none; // revealed at the mobile breakpoint
@@ -269,6 +280,9 @@
 		// so the toolbar row and the textarea row don't leave a dead band below
 		// the chat. .messages (flex:1) reclaims the freed vertical space.
 		padding: 0.35rem clamp(0.5rem, 2vw, 1rem);
+		// Lift the composer above the home indicator in the installed PWA
+		// (viewport-fit=cover). env() is 0 where there's no inset.
+		padding-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.25rem;

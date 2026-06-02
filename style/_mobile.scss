@@ -14,13 +14,15 @@
 	}
 
 	.rail {
-		left: 0;
+		// Off the left edge by the side-notch inset in landscape (fixed elements
+		// ignore the .app padding). env() is 0 in portrait / non-notched.
+		left: env(safe-area-inset-left, 0px);
 		width: 72px;
 		transform: translateX(-100%);
 	}
 
 	.sidebar {
-		left: 72px;
+		left: calc(72px + env(safe-area-inset-left, 0px));
 		width: min(240px, calc(85vw - 72px));
 		// Tuck fully off the left edge (own width + the rail's 72px).
 		transform: translateX(calc(-100% - 72px));
@@ -91,6 +93,19 @@
 	// are comfortable to scroll and type without fighting the soft keyboard.
 	.persona-detail .field textarea {
 		min-height: 42vh;
+	}
+
+	// Reorder ↑/↓/⤒/⤓ controls (channel list, persona cards, lorebook): grow the
+	// tappable HEIGHT for thumbs on touch. Width is left alone so the dense
+	// channel row (4 arrows in the ~240px drawer) doesn't overflow. Drag is the
+	// primary reorder method; these are the accessible fallback (17px was too
+	// small to hit reliably — WCAG 2.5.8).
+	.channel-reorder,
+	.persona-reorder,
+	.lore-reorder {
+		min-height: 32px;
+		padding-top: 0.3rem;
+		padding-bottom: 0.3rem;
 	}
 
 	// Color swatches: bigger tap targets on mobile.
