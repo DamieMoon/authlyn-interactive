@@ -115,29 +115,6 @@
 				}
 			}
 
-			// Inline edit: the textarea spans the card width with the save/cancel
-			// controls beside it, mirroring the channel-rename row.
-			.msg-edit {
-				display: flex;
-				align-items: flex-start;
-				gap: 0.3rem;
-
-				.rename-input {
-					flex: 1;
-					min-width: 0;
-					min-height: 2.4rem;
-					max-height: 12rem;
-					overflow-y: auto;
-					resize: none;
-					// Native auto-grow (bounded by min/max), mirroring the
-					// composer textarea; the JS height-dance shook per-keystroke
-					// on Android (feedback bzuypww…). Fixes tr5mwgzw…
-					// (edit box didn't scale with text).
-					field-sizing: content;
-					font: inherit;
-				}
-			}
-
 			.who {
 				font-weight: 600;
 				color: var(--ink-soft);
@@ -320,6 +297,43 @@
 			}
 
 			.reply-banner-cancel {
+				margin-left: auto;
+				flex: none;
+				background: transparent;
+				border: none;
+				color: var(--ink-muted);
+				cursor: pointer;
+				padding: 0 0.2rem;
+
+				&:hover {
+					color: var(--ink);
+				}
+			}
+		}
+
+		// "Editing message" banner: same strip as `.reply-banner` but with a
+		// neutral rail, shown while a message is loaded into the composer for
+		// editing (✎ → act::start_edit). The ✕ / Esc cancels.
+		.edit-banner {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			width: 100%;
+			padding: 0.25rem 0.5rem;
+			border-left: 2px solid var(--ink-soft);
+			background: var(--vellum-2);
+			border-radius: 0.3rem;
+			font-size: 0.8rem;
+			color: var(--ink-muted);
+
+			.edit-banner-text {
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.edit-banner-cancel {
 				margin-left: auto;
 				flex: none;
 				background: transparent;

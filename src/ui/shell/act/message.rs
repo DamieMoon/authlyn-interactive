@@ -47,6 +47,20 @@ pub(super) const MESSAGES_PAGE_LIMIT: usize = 100;
 
 #[cfg(feature = "hydrate")]
 pub fn send_message(s: Shell) {
+    // Edit-in-composer: when an edit is staged, Send/Enter saves the edit
+    // (PATCH) instead of posting a new message. Restore the stashed draft and
+    // leave edit mode, then dispatch — an empty body keeps edit mode (no-op),
+    // mirroring `edit_message`'s own empty guard.
+    if let Some(e) = s.composer.editing.get_untracked() {
+        let body = s.composer.compose.get_untracked();
+        if body.trim().is_empty() {
+            return;
+        }
+        s.composer.compose.set(e.stashed_draft);
+        s.composer.editing.set(None);
+        edit_message(s, e.cid, e.mid, body);
+        return;
+    }
     let Some(ch) = s.sel.sel_channel.get_untracked() else {
         return;
     };
@@ -306,6 +320,45 @@ pub fn start_reply(s: Shell, m: MessageEnvelope) {
 #[cfg(feature = "hydrate")]
 pub fn cancel_reply(s: Shell) {
     s.composer.replying_to.set(None);
+}
+
+/// Begin editing message `mid` (own message) in the main composer: stash the
+/// current draft, load the message body into the compose box, and enter edit
+/// mode so the Send button becomes "Save" and dispatches an edit. Focuses the
+/// composer. The stashed draft is restored on save or cancel. While editing,
+/// `save_draft` is a no-op so the edit text never clobbers the channel draft.
+#[cfg(feature = "hydrate")]
+pub fn start_edit(s: Shell, cid: String, mid: String, body: String) {
+    let stashed_draft = s.composer.compose.get_untracked();
+    s.composer
+        .editing
+        .set(Some(crate::ui::shell::state::EditingMessage {
+            cid,
+            mid,
+            stashed_draft,
+        }));
+    s.composer.compose.set(body);
+    s.composer.status.set(String::new());
+    // Reuse the reply affordance's focus path so the user can type immediately.
+    if let Some(el) = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.query_selector(".composer textarea").ok().flatten())
+    {
+        use wasm_bindgen::JsCast;
+        if let Ok(input) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+            let _ = input.focus();
+        }
+    }
+}
+
+/// Cancel an in-progress composer edit (the banner's ✕ or Esc): restore the
+/// stashed draft and leave edit mode without touching the message.
+#[cfg(feature = "hydrate")]
+pub fn cancel_edit(s: Shell) {
+    if let Some(e) = s.composer.editing.get_untracked() {
+        s.composer.compose.set(e.stashed_draft);
+        s.composer.editing.set(None);
+    }
 }
 
 /// Copy a message body to the clipboard as raw markup, **stripping color
@@ -1165,7 +1218,9 @@ pub fn start_reply(_s: Shell, _m: crate::protocol::MessageEnvelope) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn cancel_reply(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
-pub fn edit_message(_s: Shell, _cid: String, _mid: String, _body: String) {}
+pub fn start_edit(_s: Shell, _cid: String, _mid: String, _body: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn cancel_edit(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_message(_s: Shell, _cid: String, _mid: String) {}
 #[cfg(not(feature = "hydrate"))]

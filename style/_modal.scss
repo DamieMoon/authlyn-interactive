@@ -113,6 +113,12 @@
 	height: auto;
 	aspect-ratio: 1 / 1;
 	max-height: min(60vh, 420px);
+	// The modal is a column flex with `max-height: 85vh`; a long (un-clamped)
+	// description can push total content past that cap, and without this the
+	// portrait — which has `overflow: hidden`, so its flex auto-min-size is 0 —
+	// gets compressed to nothing while the text holds its size. Pin it so the
+	// portrait keeps its box and the body scrolls inside the modal instead.
+	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 0.5rem;
 	background: var(--vellum-2);

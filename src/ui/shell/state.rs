@@ -142,6 +142,23 @@ pub(crate) struct Composer {
     /// the banner shows the parent author + snippet without a lookup. Cleared on
     /// send and on channel switch.
     pub(crate) replying_to: RwSignal<Option<ReplyPreview>>,
+    /// When set, the composer is editing an existing message in place of
+    /// composing a new one: clicking ✎ loads the message body into the compose
+    /// box, the Send button becomes "Save", and Send/Enter dispatches an edit
+    /// instead of a post. Drives the "Editing message" banner; the ✕ / Esc
+    /// restores the stashed draft. Client-only; never sent or persisted.
+    pub(crate) editing: RwSignal<Option<EditingMessage>>,
+}
+
+/// An in-progress message edit driven through the main composer (see
+/// [`Composer::editing`]). `stashed_draft` holds whatever the user was typing
+/// when they hit ✎, so cancelling or saving restores it.
+#[derive(Clone)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct EditingMessage {
+    pub(crate) cid: String,
+    pub(crate) mid: String,
+    pub(crate) stashed_draft: String,
 }
 
 /// Background-sync, current pane selection, mobile drawer, and the

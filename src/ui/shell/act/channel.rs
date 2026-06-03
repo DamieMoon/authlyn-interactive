@@ -36,6 +36,12 @@ pub fn load_drafts() -> std::collections::HashMap<String, String> {
 /// open.
 #[cfg(feature = "hydrate")]
 pub fn save_draft(s: Shell, text: &str) {
+    // While editing an existing message in the composer, the compose box holds
+    // the edit text, not a draft — don't persist it over the channel's real
+    // draft (which is restored when the edit is saved or cancelled).
+    if s.composer.editing.get_untracked().is_some() {
+        return;
+    }
     let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) else {
         return;
     };
@@ -81,6 +87,11 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // channel); drop it when actually switching so a reply doesn't carry
         // over to a channel where its parent doesn't live (L-3).
         s.composer.replying_to.set(None);
+        // Abandon any in-progress message edit: it targets a message in the
+        // outgoing channel, and `compose` was just overwritten with the
+        // incoming channel's draft. The outgoing draft is untouched (edits
+        // never persist), so nothing is lost.
+        s.composer.editing.set(None);
     }
     // Opening a channel auto-dismisses the wardrobe popup (F-2): navigating to
     // a channel should leave nothing overlaying it.

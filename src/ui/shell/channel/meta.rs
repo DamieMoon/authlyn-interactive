@@ -20,14 +20,15 @@ use crate::protocol::MessageEnvelope;
 /// - `m` — message envelope (cloned where needed for popups)
 /// - `cid` — current channel id (None during pane-switch latency)
 /// - `mine` — true when the viewer authored the message (gates the actions)
-/// - `editing_msg` — which msg id is being edited; click ✎ stores `mid` here
 /// - `info` — opens the persona-info popup when the author name is clicked
+///
+/// Clicking ✎ loads the message into the main composer for editing (see
+/// `act::start_edit`); there is no inline edit widget.
 pub(super) fn message_meta(
     s: Shell,
     m: &MessageEnvelope,
     cid: &Option<String>,
     mine: bool,
-    editing_msg: RwSignal<Option<String>>,
     info: RwSignal<Option<MessageEnvelope>>,
 ) -> impl IntoView {
     let who = display_name(m);
@@ -46,6 +47,7 @@ pub(super) fn message_meta(
     let mid = m.id.clone();
     let cid = cid.clone();
     let copy_body = m.body.clone();
+    let edit_body = m.body.clone();
     // The whole envelope, captured for the reply affordance — `start_reply`
     // builds the banner preview from it (L-3).
     let reply_m = m.clone();
@@ -68,12 +70,20 @@ pub(super) fn message_meta(
                     on:click=move |_| act::copy_message_body(s, copy_body.clone())>"📋"</button>
                 {mine.then(|| {
                     let edit_mid = mid.clone();
+                    let edit_cid = cid.clone();
+                    let edit_body = edit_body.clone();
                     let del_mid = mid.clone();
                     let del_cid = cid.clone();
                     view! {
                         <>
                             <button class="row-edit" title="edit"
-                                on:click=move |_| editing_msg.set(Some(edit_mid.clone()))>"✎"</button>
+                                on:click=move |_| {
+                                    if let Some(cid) = edit_cid.clone() {
+                                        act::start_edit(
+                                            s, cid, edit_mid.clone(), edit_body.clone(),
+                                        );
+                                    }
+                                }>"✎"</button>
                             <button class="row-edit" title="delete"
                                 on:click=move |_| {
                                     if let Some(cid) = del_cid.clone() {

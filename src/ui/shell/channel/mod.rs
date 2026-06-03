@@ -43,7 +43,6 @@ use crate::client::api;
 use crate::markup::Color;
 use crate::protocol::{Attachment, MessageEnvelope};
 use crate::ui::emoji::data::{self, GROUPS};
-use crate::ui::inline_rename::InlineRename;
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
@@ -254,10 +253,6 @@ fn supports_field_sizing_content() -> bool {
 pub(crate) fn ChannelPane() -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
-    // Inline edit state, shared across message rows: which message id is
-    // being edited (if any). The draft buffer lives inside <InlineRename>
-    // (W6/C7).
-    let editing_msg = RwSignal::new(None::<String>);
 
     // Composer emoji picker + `:`-autocomplete + live preview state (all
     // component-local). `ac_token` holds the active `:query` token as
@@ -482,45 +477,19 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     s.msg.messages.get().into_iter().map(|m| {
                         let atts = m.attachments.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
-                        let mid = m.id.clone();
                         let body = m.body.clone();
                         let cid = cid.clone();
                         let dom_id = format!("msg-{}", m.id);
                         let reply_quote = m.reply_to.clone().map(reply_quote);
-                        let meta = message_meta(s, &m, &cid, mine, editing_msg, info);
+                        let meta = message_meta(s, &m, &cid, mine, info);
                         view! {
                             <li class="msg" id=dom_id>
                                 {meta}
                                 {reply_quote}
-                                {move || {
-                                    let mid = mid.clone();
-                                    let body = body.clone();
-                                    let cid = cid.clone();
-                                    if editing_msg.get().as_deref() == Some(mid.as_str()) {
-                                        let save_mid = mid.clone();
-                                        let save_cid = cid.clone();
-                                        view! {
-                                            <div class="msg-edit">
-                                                <InlineRename
-                                                    value=body.clone()
-                                                    multiline=true
-                                                    submit_on_enter=true
-                                                    on_save=move |v| {
-                                                        if let Some(cid) = save_cid.clone() {
-                                                            act::edit_message(s, cid, save_mid.clone(), v);
-                                                        }
-                                                        editing_msg.set(None);
-                                                    }
-                                                    on_cancel=move || editing_msg.set(None)
-                                                />
-                                            </div>
-                                        }.into_any()
-                                    } else {
-                                        view! {
-                                            <span class="text">{render_body(&body)}</span>
-                                        }.into_any()
-                                    }
-                                }}
+                                // Editing happens in the main composer (✎ →
+                                // act::start_edit), not inline, so the body is
+                                // always just rendered markup.
+                                <span class="text">{render_body(&body)}</span>
                                 {(!atts.is_empty()).then(|| attachment_grid(atts.clone(), lightbox))}
                             </li>
                         }
@@ -669,6 +638,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             </span>
                             <button class="reply-banner-cancel" type="button" title="cancel reply"
                                 on:click=move |_| act::cancel_reply(s)>"✕"</button>
+                        </div>
+                    }
+                })}
+                // "Editing message" banner: shown while a message is loaded into
+                // the composer for editing; the ✕ (or Esc) cancels and restores
+                // the stashed draft. The Send button reads "Save" meanwhile.
+                {move || s.composer.editing.get().map(|_| {
+                    view! {
+                        <div class="edit-banner">
+                            <span class="edit-banner-text">"Editing message"</span>
+                            <button class="edit-banner-cancel" type="button" title="cancel edit"
+                                on:click=move |_| act::cancel_edit(s)>"✕"</button>
                         </div>
                     }
                 })}
@@ -1078,6 +1059,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     _ => {}
                                 }
                             }
+                            // Esc cancels an in-progress message edit (restores
+                            // the stashed draft); only relevant in edit mode, so
+                            // a stray Esc otherwise does nothing here.
+                            if ev.key() == "Escape"
+                                && s.composer.editing.get_untracked().is_some()
+                            {
+                                ev.prevent_default();
+                                act::cancel_edit(s);
+                                return;
+                            }
                             // Send on plain Enter only on desktop. On touch
                             // devices (no Shift) and mid-IME-composition, Enter
                             // falls through to insert a newline; use the Send button.
@@ -1136,7 +1127,10 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // Send button is the only send path (Enter inserts a newline),
                     // so this is where a `:3`-style send must dismiss it.
                     ac_token.set(None);
-                }>"Send"</button>
+                }>
+                    // "Save" while editing a message, "Send" for a normal compose.
+                    {move || if s.composer.editing.get().is_some() { "Save" } else { "Send" }}
+                </button>
             </div>
 
             // Persona info popup — opened by clicking a message's author name.

@@ -242,6 +242,7 @@ fn AppShell() -> impl IntoView {
         drafts: RwSignal::new(crate::ui::shell::act::channel::load_drafts()),
         last_used_colors: RwSignal::new(act::load_color_history()),
         replying_to: RwSignal::new(None),
+        editing: RwSignal::new(None),
     };
     provide_context(composer);
 
