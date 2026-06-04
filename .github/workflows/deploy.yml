@@ -1,9 +1,9 @@
-name: Deploy to novahome
+name: Deploy to fenrir
 
 # Autodeploy on every push to main, plus a manual trigger. Runs on the
-# self-hosted runner that lives ON novahome, so it builds in the canonical
-# repo dir (warm target/ cache) and calls the existing root-owned deploy
-# bridge — no SSH keys or stored secrets are involved.
+# self-hosted runner that lives ON fenrir (the Raspberry Pi 4B), so it builds
+# in the canonical repo dir (warm target/ cache) and calls the existing
+# root-owned deploy bridge — no SSH keys or stored secrets are involved.
 on:
   push:
     branches: [main]
@@ -14,13 +14,13 @@ on:
 
 # Serialize deploys; never interrupt one that is mid-swap.
 concurrency:
-  group: deploy-novahome
+  group: deploy-fenrir
   cancel-in-progress: false
 
 jobs:
   deploy:
-    runs-on: [self-hosted, novahome]
-    timeout-minutes: 30
+    runs-on: [self-hosted, fenrir]
+    timeout-minutes: 120        # native Pi builds are slow on a cold target/
     steps:
       - name: Sync repo to the pushed commit
         run: |
