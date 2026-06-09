@@ -183,6 +183,30 @@
 				font-style: italic;
 			}
 		}
+
+		// System (Nova DOT) broadcast: an app-admin message. A solid gold rail +
+		// faint gold wash sets it apart from ordinary chat without shouting, and a
+		// small uppercase SYSTEM pill tags the sender. No actions / persona popup.
+		.msg.system {
+			border-left: 3px solid var(--gold);
+			background: color-mix(in srgb, var(--gold) 8%, var(--vellum-2));
+
+			.system-author {
+				color: var(--gold);
+				font-weight: 700;
+			}
+
+			.system-badge {
+				font-size: 0.6rem;
+				font-weight: 700;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--gold);
+				border: 1px solid var(--gold-soft);
+				border-radius: 0.25rem;
+				padding: 0 0.3rem;
+			}
+		}
 	}
 
 	// Floating round button that jumps the message list to the latest message.

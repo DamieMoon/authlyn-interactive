@@ -21,6 +21,7 @@
 //! - [`notify`] — Web Notifications + Web Push (the ~250-line reflection blob).
 
 pub mod account;
+pub mod admin;
 pub mod channel;
 pub mod compose_colors;
 pub mod emoji;
@@ -33,6 +34,7 @@ pub mod prefs;
 
 // Re-exports so the view code keeps calling `act::xxx` unchanged.
 pub use account::{admin_reset_password, change_password, logout, set_security_question};
+pub use admin::send_system_broadcast;
 pub use channel::{
     create_channel, move_channel_to_bounds, open_channel, open_deep_link, rename_channel,
     restore_channel, restore_session, swap_channel,

@@ -63,6 +63,31 @@ pub struct MeResponse {
     pub account_id: String,
     pub username: String,
     pub display_name: String,
+    /// Whether the caller is an app administrator (their username is in the
+    /// `AUTHLYN_ADMIN_USERNAMES` set, server-side). Gates admin-only UI such as
+    /// the Nova DOT system-broadcast composer. `#[serde(default)]` → `false` for
+    /// post-ship wire-compat (older/native clients deserialize cleanly).
+    #[serde(default)]
+    pub is_admin: bool,
+}
+
+/// Body of `POST /admin/system-message` (admin-only): broadcast `body` as a
+/// "Nova DOT" system message into every live guild's default channel.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SendSystemMessageRequest {
+    pub body: String,
+}
+
+/// Response from `POST /admin/system-message` — how the broadcast fanned out.
+/// `guilds_targeted == messages_sent + guilds_skipped`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SystemBroadcastResult {
+    /// Live guilds considered (soft-deleted guilds are excluded entirely).
+    pub guilds_targeted: usize,
+    /// Guilds that received a message (had a live text channel).
+    pub messages_sent: usize,
+    /// Guilds skipped for having no live text channel.
+    pub guilds_skipped: usize,
 }
 
 /// Body of `POST /auth/change-password` (auth-required). The server verifies
@@ -320,6 +345,19 @@ pub struct MessageEnvelope {
     /// post-ship wire-compat reason as the siblings above (defaults to `false`).
     #[serde(default)]
     pub is_pinged: bool,
+    /// Message kind: `"user"` (a normal send) or `"system"` (an app-admin "Nova
+    /// DOT" broadcast, authored by the reserved bot account). Drives distinct
+    /// rendering (system badge, no edit/reply/persona-popup). `#[serde(default)]`
+    /// → `"user"` for the same post-ship wire-compat reason as the siblings above
+    /// (and so older/native clients deserialize cleanly).
+    #[serde(default = "default_message_kind")]
+    pub kind: String,
+}
+
+/// serde default for [`MessageEnvelope::kind`]: a message with no `kind` on the
+/// wire is a normal user message.
+fn default_message_kind() -> String {
+    "user".to_string()
 }
 
 /// A lightweight preview of a replied-to (parent) message, rendered as a

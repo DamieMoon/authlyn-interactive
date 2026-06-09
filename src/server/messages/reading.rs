@@ -274,6 +274,9 @@ pub(super) struct MessageRow {
     /// Whether the READING caller is `@`-mentioned by this message (L-4) — the
     /// projection evaluates `$caller IN pinged_users`, so it's per-reader.
     pub is_pinged: bool,
+    /// `"user"` or `"system"` (Nova DOT admin broadcast). Coalesced to `"user"`
+    /// in the projection so legacy rows are safe.
+    pub kind: String,
 }
 
 impl MessageRow {
@@ -308,6 +311,7 @@ impl MessageRow {
                 body_snippet: r.body_snippet,
             }),
             is_pinged: self.is_pinged,
+            kind: self.kind,
         }
     }
 }
@@ -338,7 +342,8 @@ pub(super) const MSG_PROJECTION: &str = "
             author_display: (reply_to.author.display_name ?: reply_to.author.username),
             body_snippet: string::slice(reply_to.body, 0, 100)
          } ELSE NONE END) AS reply_to,
-        (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged";
+        (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged,
+        (kind ?? 'user') AS kind";
 
 async fn load_messages(
     state: &AppState,

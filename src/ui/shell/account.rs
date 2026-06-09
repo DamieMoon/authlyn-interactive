@@ -7,6 +7,7 @@ use leptos::prelude::*;
 
 use super::{act, Shell};
 use crate::ui::modal::Modal;
+use crate::ui::AuthCtx;
 
 // Global JS helper defined in `public/register-sw.js`: forces a service-worker
 // update check and reports a human-readable status (and triggers a reload via
@@ -44,6 +45,14 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // ---- admin: reset a user's password (only shown inside the admin gate) ----
     let ar_username = RwSignal::new(String::new());
     let ar_password = RwSignal::new(String::new());
+
+    // ---- admin: broadcast a Nova DOT system message to every server ----
+    // Gated on the caller's `is_admin` flag (from /auth/me); the server re-checks.
+    let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
+    let is_admin = move || auth.user.get().map(|u| u.is_admin).unwrap_or(false);
+    let broadcast_body = RwSignal::new(String::new());
+    // `Some`/`true` shows the irreversible-broadcast confirm dialog.
+    let pending_broadcast = RwSignal::new(false);
 
     // ---- feedback INBOX (admin only): None until loaded; stays None for
     // non-admins (the server 403s GET /feedback), so the section never renders.
@@ -277,6 +286,31 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     </section>
                 })}
 
+                // ---- Admin · broadcast a system message (Nova DOT) ----
+                // Gated on the caller's is_admin flag (from /auth/me). The fan-out
+                // posts into every server's default channel + pushes to members.
+                {move || is_admin().then(|| view! {
+                    <section class="account-section">
+                        <h3>"Admin · broadcast a system message"</h3>
+                        <p class="muted">
+                            "Posts as Nova DOT into every server's main channel and notifies all members. This cannot be undone."
+                        </p>
+                        <textarea class="feedback-body" rows="4"
+                            placeholder="Message from Nova DOT…"
+                            prop:value=move || broadcast_body.get()
+                            on:input=move |ev| broadcast_body.set(event_target_value(&ev))/>
+                        <button class="account-save" on:click=move |_| {
+                            if broadcast_body.get_untracked().trim().is_empty() {
+                                s.composer.status.set(
+                                    "message body must not be empty".to_string(),
+                                );
+                                return;
+                            }
+                            pending_broadcast.set(true);
+                        }>"Broadcast to all servers"</button>
+                    </section>
+                })}
+
                 // ---- Feedback inbox (admin only; renders only once GET /feedback
                 // succeeds, i.e. the caller is in AUTHLYN_ADMIN_USERNAMES) ----
                 {move || inbox.get().map(|items| {
@@ -341,6 +375,26 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             </div>
                         </Modal>
                     }
+                })}
+
+                // Broadcast confirm — the fan-out is one-shot + immutable, so the
+                // irreversible app-wide send is guarded by an explicit dialog.
+                {move || pending_broadcast.get().then(|| view! {
+                    <Modal class="confirm-modal"
+                        close=move || pending_broadcast.set(false)>
+                        <h3>"Broadcast to ALL servers?"</h3>
+                        <p class="muted">
+                            "This sends a Nova DOT system message to every server and cannot be undone."
+                        </p>
+                        <div class="confirm-actions">
+                            <button on:click=move |_| pending_broadcast.set(false)>"Cancel"</button>
+                            <button class="danger" on:click=move |_| {
+                                act::send_system_broadcast(s, broadcast_body.get_untracked());
+                                broadcast_body.set(String::new());
+                                pending_broadcast.set(false);
+                            }>"Broadcast"</button>
+                        </div>
+                    </Modal>
                 })}
         </Modal>
     }

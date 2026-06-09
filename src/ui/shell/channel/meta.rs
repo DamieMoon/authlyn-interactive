@@ -112,3 +112,25 @@ pub(super) fn message_meta(
         </div>
     }
 }
+
+/// Meta row for a `kind='system'` ("Nova DOT") message: avatar + name + a SYSTEM
+/// badge + time, with NO action row and NO persona-info popup — system messages
+/// are immutable, author-less in the persona sense, and not repliable/editable.
+/// Kept separate from [`message_meta`] for the same reason as `deleted_message_row`:
+/// folding the branches would tangle two unrelated shapes.
+pub(super) fn system_message_meta(m: &MessageEnvelope) -> impl IntoView {
+    // No persona on a system message, so `display_name` falls back to the bot's
+    // account display name ("Nova DOT"); the avatar falls back to its monogram.
+    let who = display_name(m);
+    let when = format_local_time(&m.sent_at);
+    let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
+
+    view! {
+        <div class="meta">
+            {avatar_el}
+            <span class="who system-author">{who}</span>
+            <span class="system-badge" title="System message">"SYSTEM"</span>
+            <time class="when">{when}</time>
+        </div>
+    }
+}

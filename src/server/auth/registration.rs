@@ -165,22 +165,33 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn me(State(state): State<AppState>, account: AuthAccount) -> Response {
-    match account_profile(&state, &account.0).await {
-        Ok(Some((username, display_name))) => (
-            StatusCode::OK,
-            Json(MeResponse {
-                account_id: account.0,
-                username,
-                display_name,
-            }),
-        )
-            .into_response(),
-        Ok(None) => error_response(StatusCode::UNAUTHORIZED, "authentication required"),
+    let (username, display_name) = match account_profile(&state, &account.0).await {
+        Ok(Some(profile)) => profile,
+        Ok(None) => return error_response(StatusCode::UNAUTHORIZED, "authentication required"),
         Err(e) => {
             tracing::error!(error = %e, "account_profile failed");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
-    }
+    };
+    // App-admin flag — gates the Nova DOT system-broadcast composer (and any
+    // other admin-only UI) client-side. Fail-closed like every other admin check.
+    let is_admin = match crate::server::permissions::is_admin(&state, &account.0).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "admin check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    (
+        StatusCode::OK,
+        Json(MeResponse {
+            account_id: account.0,
+            username,
+            display_name,
+            is_admin,
+        }),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

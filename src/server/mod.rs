@@ -19,6 +19,7 @@ pub mod personas;
 pub mod push;
 pub mod retry;
 pub mod state;
+pub mod system_messages;
 
 // Internal wire-format helper (raw SurrealDB `datetime` -> fixed RFC 3339).
 // Used by `messages::load_messages`; kept private to the server module.
@@ -202,6 +203,12 @@ fn small_body_routes() -> Router<AppState> {
             get(feedback::list_feedback).post(feedback::submit_feedback),
         )
         .route("/feedback/{id}", delete(feedback::delete_feedback))
+        // App-admin broadcast (#system): post a "Nova DOT" system message into
+        // every live guild's default channel. Admin-gated (is_admin → 403).
+        .route(
+            "/admin/system-message",
+            post(system_messages::send_system_message),
+        )
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
         // Dynamic JSON API responses must never be cached (by the service
         // worker or the browser HTTP cache); a cached message list flashed

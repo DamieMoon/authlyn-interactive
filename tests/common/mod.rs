@@ -77,6 +77,20 @@ fn test_media_dir() -> PathBuf {
 }
 
 pub async fn test_db() -> Surreal<Client> {
+    let db = raw_db().await;
+    db.query(storage::SCHEMA)
+        .await
+        .expect("apply schema")
+        .check()
+        .expect("apply schema check");
+    db
+}
+
+/// Like [`test_db`] but does NOT apply `storage::SCHEMA` — a connection on its
+/// own isolated namespace with no schema. For migration tests that apply a
+/// custom/"old" schema first, then re-apply the real `storage::SCHEMA` to
+/// exercise field additions + backfills over pre-existing rows.
+pub async fn raw_db() -> Surreal<Client> {
     let host = std::env::var("SURREAL_URL")
         .unwrap_or_else(|_| "127.0.0.1:8000".into())
         .trim_start_matches("ws://")
@@ -100,12 +114,6 @@ pub async fn test_db() -> Surreal<Client> {
     let ns = format!("test_{}_{}", pid, seq);
     let db_name = format!("test_{}_{}", pid, seq);
     db.use_ns(&ns).use_db(&db_name).await.expect("use ns/db");
-
-    db.query(storage::SCHEMA)
-        .await
-        .expect("apply schema")
-        .check()
-        .expect("apply schema check");
     db
 }
 

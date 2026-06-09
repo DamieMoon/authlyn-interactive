@@ -27,6 +27,19 @@ DEFINE INDEX IF NOT EXISTS account_username_ci ON account FIELDS username_ci UNI
 -- NONE there, which would 500 any account UPDATE (e.g. change-password).
 UPDATE account SET display_name = (display_name ?? '') WHERE display_name = NONE;
 
+-- Reserved Nova DOT system/bot account — the author of every `kind='system'`
+-- message (the app-admin broadcast feature). Seeded here (pure SurrealQL) so it
+-- exists on prod boot AND in every test arena. Login as it is IMPOSSIBLE: the
+-- `password_hash` is a non-PHC sentinel, so `verify_on_blocking_pool` parses it to
+-- a verify-failure (401, never 500), and the `account_username_ci` UNIQUE index
+-- reserves the 'nova-dot' handle from registration. Idempotent: UPSERT on the
+-- fixed record id; `created_at` gets its DEFAULT on first create, untouched after.
+UPSERT account:nova_dot SET
+    username = 'nova-dot',
+    username_ci = 'nova-dot',
+    display_name = 'Nova DOT',
+    password_hash = '!';
+
 -- Sessions (cookie carries a random token; we store only its SHA-256) ---
 DEFINE TABLE IF NOT EXISTS session SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS account    ON session TYPE record<account>;
@@ -150,6 +163,14 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
+-- System vs user message. A `kind='system'` message is authored by the reserved
+-- `account:nova_dot` bot (app-admin broadcast) and rendered distinctly (no persona,
+-- immutable to edits). DEFAULT 'user' keeps every normal send unchanged. This is a
+-- non-option field added to the POPULATED `message` table, so legacy rows hold NONE
+-- and would crash the row-revalidating backfills below — it is materialised in the
+-- SAME first backfill statement (see the DATA-SAFETY block), NOT a separate one.
+DEFINE FIELD IF NOT EXISTS kind    ON message TYPE string DEFAULT 'user'
+    ASSERT $value IN ['user', 'system'];
 -- Reply-to (L-3): the message this one is replying to (Discord-style quote),
 -- or NONE for a non-reply. A live record link — the reply preview is resolved
 -- by a null-safe join at read time (MSG_PROJECTION), NOT snapshotted, and a
@@ -186,15 +207,23 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- valid value — no backfill, left alone.) This MUST precede the persona snapshot
 -- UPDATE below, which also re-validates every field.
 --
--- DATA-SAFETY (critical): each field is COALESCED (`field ?? []`), NEVER a bare
--- `= []`. A bare literal WIPES an existing array on any matched row — and since
--- every legacy row has `pinged_users = NONE`, the WHERE matches ALL of them, so
--- `attachments = []` destroyed every message's attachments on the first apply
+-- DATA-SAFETY (critical): each field is COALESCED (`field ?? <default>`), NEVER a
+-- bare assignment. A bare `= []` WIPES an existing array on any matched row — and
+-- since every legacy row has `pinged_users = NONE`, the WHERE matches ALL of them,
+-- so `attachments = []` destroyed every message's attachments on the first apply
 -- over a populated DB (prod gallery images vanished, 2026-06-01). `field ?? []`
 -- preserves a populated array and only materialises a NONE to []. Idempotent.
+-- `kind` (added later, also non-option) is folded into THIS SAME statement on
+-- purpose: it must be materialised together with the arrays, because the first
+-- write to any legacy row revalidates the whole row and would trip over whichever
+-- of the three is still NONE. A separate preceding `kind` backfill can't work — it
+-- would hit the still-NONE arrays. `kind ?? 'user'` only fills a NONE (legacy) row
+-- and preserves an already-set 'user'/'system'.
 UPDATE message
-    SET attachments = attachments ?? [], pinged_users = pinged_users ?? []
-    WHERE attachments = NONE OR pinged_users = NONE;
+    SET attachments = attachments ?? [],
+        pinged_users = pinged_users ?? [],
+        kind = kind ?? 'user'
+    WHERE attachments = NONE OR pinged_users = NONE OR kind = NONE;
 
 UPDATE message SET
     persona_name = persona.name,

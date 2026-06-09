@@ -24,8 +24,9 @@ use crate::protocol::{
     LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
     PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
-    ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SetActivePersonaRequest,
-    SetMemberRoleRequest, SetSecurityQuestionRequest, SubmitFeedbackRequest, VapidKeyResponse,
+    ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SendSystemMessageRequest,
+    SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
+    SubmitFeedbackRequest, SystemBroadcastResult, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -851,6 +852,19 @@ pub async fn submit_feedback(req: &SubmitFeedbackRequest) -> Result<(), ApiError
 /// DELETE /feedback/{id} — soft-delete (archive) a feedback item (admin only).
 pub async fn delete_feedback(id: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/feedback/{id}")).await
+}
+
+// ---------------------------------------------------------------------------
+// App-admin system broadcast (Nova DOT)
+// ---------------------------------------------------------------------------
+
+/// POST /admin/system-message — broadcast a "Nova DOT" system message into every
+/// guild's default channel (admin only — the server gates on
+/// `AUTHLYN_ADMIN_USERNAMES`; non-admins get a 403).
+pub async fn broadcast_system_message(
+    req: &SendSystemMessageRequest,
+) -> Result<SystemBroadcastResult, ApiError> {
+    post_json("/admin/system-message", req).await
 }
 
 // ---------------------------------------------------------------------------

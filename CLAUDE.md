@@ -7,7 +7,7 @@ A Discord-style roleplay chat app: accounts/sessions, guilds, channels, messages
 
 ## Stack
 - Single Rust crate, **Leptos 0.8 full-stack**: axum 0.8 SSR server + WASM (`hydrate()`) browser bundle from one `src/` tree. `crate-type = ["cdylib","rlib"]`.
-- **SurrealDB 3.x** over WebSocket (Rust SDK pinned `=3.1.0-beta.3`, Cargo.toml:61); 17 SCHEMAFULL tables in `src/storage/schema.surql`, embedded via `include_str!`.
+- **SurrealDB 3.x** over WebSocket (Rust SDK pinned `=3.1.0-beta.3`, Cargo.toml:61); 18 SCHEMAFULL tables in `src/storage/schema.surql`, embedded via `include_str!`.
 - Built with **cargo-leptos** (config in `[package.metadata.leptos]`). Key crates: leptos_axum, tokio, argon2 (argon2id), image (thumbnails), web-push (VAPID), gloo-net/web-sys (client), rmcp/reqwest (nova), freya/rfd (native `authlyn-native` client).
 - Toolchain pinned in `rust-toolchain.toml`: stable + rustfmt + clippy + `wasm32-unknown-unknown`.
 
@@ -45,7 +45,8 @@ First run on a fresh clone (in order — `cargo`/`cargo-leptos` are not vendored
 - Persona identity (name/description/color/avatar) is SNAPSHOTTED onto the message row at send; never resolve it live (`posting.rs` persist_message).
 - Racy CREATE on a UNIQUE index → `with_write_conflict_retry`, then 409/idempotent, never 500 (`src/server/retry.rs`).
 - `is_admin` is fail-closed: empty admin set authorizes no one (`permissions.rs`). Purge cascades to children (`server/mod.rs` purge_soft_deleted).
-- SCHEMAFULL NONE-coercion: a field added to a populated table must be `option<>` or get an idempotent UPDATE backfill BEFORE any other UPDATE, or schema apply crash-loops boot.
+- SCHEMAFULL NONE-coercion: a field added to a populated table must be `option<>` or get an idempotent UPDATE backfill BEFORE any other UPDATE, or schema apply crash-loops boot. `message.kind` (the system-vs-user discriminator) is the worked example: it is materialised INSIDE the existing first `message` backfill (`schema.surql`, alongside `attachments`/`pinged_users`, coalesced `?? 'user'`), NOT a separate statement — a separate one would re-validate the row while the arrays are still NONE. Re-splitting it crash-loops apply; `tests/schema_apply.rs::applying_kind_over_populated_messages…` guards it.
+- App-admin system broadcast (Nova DOT): `POST /admin/system-message` (admin-gated, `server/system_messages.rs`) posts a `kind='system'` message into every live guild's first text channel, authored by the reserved seeded bot account `account:nova_dot` (login disabled via a non-PHC `password_hash` sentinel; reserves the `nova-dot` handle). The fan-out core is tested directly (the admin-allowed HTTP path races the `is_admin` env, per `tests/feedback.rs`'s convention). `MeResponse.is_admin` (on `/auth/me`) gates the composer UI in the account modal.
 - `record<...>` links are type annotations only — SurrealDB does NOT enforce referential existence; cleanup/cascade is the app's job.
 
 ## Conventions

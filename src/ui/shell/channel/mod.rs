@@ -30,7 +30,7 @@ use emoji_suggest::active_shortcode_token;
 use emoji_suggest::{
     custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
 };
-use meta::message_meta;
+use meta::{message_meta, system_message_meta};
 use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
@@ -481,9 +481,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         let cid = cid.clone();
                         let dom_id = format!("msg-{}", m.id);
                         let reply_quote = m.reply_to.clone().map(reply_quote);
-                        let meta = message_meta(s, &m, &cid, mine, info);
+                        // System (Nova DOT) messages get a distinct row + a stripped
+                        // meta line (no edit/reply/persona-popup); everything else is
+                        // a normal authored message.
+                        let is_system = m.kind == "system";
+                        let li_class = if is_system { "msg system" } else { "msg" };
+                        let meta = if is_system {
+                            system_message_meta(&m).into_any()
+                        } else {
+                            message_meta(s, &m, &cid, mine, info).into_any()
+                        };
                         view! {
-                            <li class="msg" id=dom_id>
+                            <li class=li_class id=dom_id>
                                 {meta}
                                 {reply_quote}
                                 // Editing happens in the main composer (✎ →
