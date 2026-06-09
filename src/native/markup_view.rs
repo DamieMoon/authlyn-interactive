@@ -115,6 +115,25 @@ fn push_spans(node: &Node, style: Style, out: &mut Vec<Span<'static>>) {
             children.iter().for_each(|c| push_spans(c, st, out));
         }
         Node::Emoji(name) => out.push(styled_span(format!(":{name}:"), style)),
+        // Hyperlink (L-2): render the link text in the accent color; click-through
+        // is deferred (Phase 2 fidelity, like spoiler reveal). For a bare-URL
+        // autolink `text == url`, so the URL shows as-is.
+        Node::Link(text, _url) => out.push(styled_span(
+            text.clone(),
+            Style {
+                color: Some(theme::GOLD),
+                ..style
+            },
+        )),
+        // Mention (L-4): re-emit `@name` tinted — the native analogue of the web's
+        // `.mk-mention` highlight. Ping resolution is server-side at send time.
+        Node::Mention(name) => out.push(styled_span(
+            format!("@{name}"),
+            Style {
+                color: Some(theme::GOLD),
+                ..style
+            },
+        )),
         // Block nodes shouldn't reach here, but degrade to their inline text.
         Node::Heading(_, children) | Node::Subtext(children) => {
             children.iter().for_each(|c| push_spans(c, style, out));

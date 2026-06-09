@@ -434,6 +434,8 @@ impl ApiClient {
                 body: body.to_string(),
                 attachment_ids,
                 persona_id,
+                // The native client has no reply UI yet (L-3); always a top-level send.
+                reply_to_id: None,
             },
         )
         .await
