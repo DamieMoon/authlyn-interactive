@@ -248,6 +248,53 @@ pub async fn register_account(router: &Router, username: &str, password: &str) -
     cookie.expect("register must set a session cookie")
 }
 
+/// Open an SSE response against the in-process router. Returns the status and
+/// the still-streaming body — read frames with [`next_sse_data`].
+pub async fn open_sse(router: &Router, path: &str, cookie: Option<&str>) -> (StatusCode, Body) {
+    let mut req = Request::builder()
+        .method(Method::GET)
+        .uri(path)
+        .header(header::ACCEPT, "text/event-stream");
+    if let Some(c) = cookie {
+        req = req.header(header::COOKIE, c);
+    }
+    let resp = router
+        .clone()
+        .oneshot(req.body(Body::empty()).expect("request"))
+        .await
+        .expect("sse oneshot");
+    (resp.status(), resp.into_body())
+}
+
+/// Read frames until one `data: <json>` line arrives (skipping keep-alive
+/// comments), or `within` elapses. Returns the parsed JSON, or None on timeout.
+pub async fn next_sse_data(body: &mut Body, within: std::time::Duration) -> Option<Value> {
+    use http_body_util::BodyExt;
+    let deadline = tokio::time::Instant::now() + within;
+    let mut buf = String::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        let frame = tokio::time::timeout(remaining, body.frame()).await.ok()??;
+        let frame = frame.ok()?;
+        if let Some(bytes) = frame.data_ref() {
+            buf.push_str(&String::from_utf8_lossy(bytes));
+            // SSE frames are newline-delimited; scan completed lines.
+            while let Some(pos) = buf.find('\n') {
+                let line: String = buf.drain(..=pos).collect();
+                let line = line.trim();
+                if let Some(json) = line.strip_prefix("data: ") {
+                    if let Ok(v) = serde_json::from_str(json) {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Hit the router with a GET. Returns (status, parsed body).
 pub async fn get_json(
     router: &Router,
