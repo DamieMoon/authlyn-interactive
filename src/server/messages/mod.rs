@@ -36,6 +36,7 @@ mod posting;
 mod read_state;
 mod reading;
 mod typing;
+mod unread;
 
 // Route-table handlers keep their `crate::server::messages::<fn>` paths via
 // these re-exports.
@@ -44,6 +45,7 @@ pub use self::posting::post_message;
 pub use self::read_state::{mark_read, read_state};
 pub use self::reading::{list_messages, ListMessagesQuery};
 pub use self::typing::typing_ping;
+pub use self::unread::unread;
 
 use surrealdb::types::SurrealValue;
 

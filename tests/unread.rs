@@ -1,0 +1,171 @@
+//! W1: batched GET /unread — cursor math (strict composite tie-break), ping
+//! flag, baseline fields, and privacy (only visible channels appear).
+#![cfg(feature = "ssr")]
+
+mod common;
+
+use axum::http::{Method, StatusCode};
+use serde_json::json;
+
+/// Register an owner, create a guild, and return
+/// `(owner_cookie, guild_id, default_text_channel_id)`.
+async fn setup(router: &axum::Router) -> (String, String, String) {
+    let owner = common::register_account(router, "UnreadOwner", "password123").await;
+    let (st, _, guild) = common::send(
+        router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "U" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (_, _, detail) = common::send(
+        router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+    (owner, gid, cid)
+}
+
+/// Invite `username` (already registered) into `gid` as a `member` — the same
+/// membership mechanism `tests/mentions.rs` uses.
+async fn invite(router: &axum::Router, owner: &str, gid: &str, username: &str) {
+    let (status, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(owner),
+        Some(&json!({ "username": username })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "invite({username}) should 201");
+}
+
+/// Post `body` to `cid` and return the full message envelope. POST returns
+/// only `{ id }`, so the envelope (with its server-formatted `sent_at` cursor
+/// key) is read back over GET — the `tests/read_state.rs` pattern.
+async fn post_msg(router: &axum::Router, cookie: &str, cid: &str, body: &str) -> serde_json::Value {
+    let (st, _, m) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(cookie),
+        Some(&json!({ "body": body })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let id = m["id"].as_str().unwrap().to_string();
+    let (st, _, page) = common::send(
+        router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(cookie),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    page["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == id.as_str())
+        .expect("posted message must appear in the page")
+        .clone()
+}
+
+#[tokio::test]
+async fn unread_counts_messages_past_the_cursor_and_baselines_unvisited() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+
+    let m1 = post_msg(&a.router, &owner, &cid, "one").await;
+    let _m2 = post_msg(&a.router, &owner, &cid, "two").await;
+    let m3 = post_msg(&a.router, &owner, &cid, "three").await;
+
+    // No cursor yet → unread 0, but latest_* exposes the baseline.
+    let (st, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let rows = body["channels"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r["channel_id"] == cid.as_str())
+        .unwrap();
+    assert_eq!(row["guild_id"], gid.as_str());
+    assert_eq!(row["unread"], 0);
+    assert_eq!(row["pinged"], false);
+    assert_eq!(row["latest_id"], m3["id"]);
+    assert_eq!(row["latest_sent_at"], m3["sent_at"]);
+
+    // Mark read at m1 → exactly 2 unread (strict tie-break: m1 itself excluded).
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/mark-read"),
+        Some(&owner),
+        Some(&json!({ "sent_at": m1["sent_at"], "id": m1["id"] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (_, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&owner), None).await;
+    let rows = body["channels"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r["channel_id"] == cid.as_str())
+        .unwrap();
+    assert_eq!(
+        row["unread"], 2,
+        "m2 and m3 are unread; m1 (the cursor) is not"
+    );
+}
+
+#[tokio::test]
+async fn unread_ping_flag_fires_only_on_unread_mentions() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+    let buddy = common::register_account(&a.router, "UnreadBuddy", "password123").await;
+    invite(&a.router, &owner, &gid, "UnreadBuddy").await;
+
+    let m1 = post_msg(&a.router, &owner, &cid, "hello").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/mark-read"),
+        Some(&buddy),
+        Some(&json!({ "sent_at": m1["sent_at"], "id": m1["id"] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    post_msg(&a.router, &owner, &cid, "@UnreadBuddy the watch begins").await;
+
+    let (_, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&buddy), None).await;
+    let rows = body["channels"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r["channel_id"] == cid.as_str())
+        .unwrap();
+    assert_eq!(row["unread"], 1);
+    assert_eq!(row["pinged"], true);
+}
+
+#[tokio::test]
+async fn unread_lists_only_channels_the_caller_can_see() {
+    let a = common::arena().await;
+    let (_owner, _gid, cid) = setup(&a.router).await;
+    let outsider = common::register_account(&a.router, "UnreadOutsider", "password123").await;
+
+    let (st, _, body) =
+        common::send(&a.router, Method::GET, "/unread", Some(&outsider), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let rows = body["channels"].as_array().unwrap();
+    assert!(
+        rows.iter().all(|r| r["channel_id"] != cid.as_str()),
+        "foreign channels must not appear in /unread"
+    );
+}

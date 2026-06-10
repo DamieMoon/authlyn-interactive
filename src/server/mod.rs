@@ -138,6 +138,9 @@ fn small_body_routes() -> Router<AppState> {
         // regardless of order, so there's no shadowing either way.
         .route("/channels/read-state", get(messages::read_state))
         .route("/channels/{cid}/mark-read", post(messages::mark_read))
+        // W1: batched unread/ping summary for every visible text channel —
+        // one request instead of a poll per channel.
+        .route("/unread", get(messages::unread))
         .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),

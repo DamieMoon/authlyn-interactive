@@ -827,6 +827,34 @@ impl SyncEvent {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Batched unread summary (W1 — GET /unread)
+// ---------------------------------------------------------------------------
+
+/// W1: one row per visible text channel in `GET /unread`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelUnread {
+    pub channel_id: String,
+    pub guild_id: String,
+    /// Messages newer than the caller's read cursor (capped at 100). 0 when
+    /// the channel has no cursor yet — the client baselines instead of glowing.
+    pub unread: usize,
+    /// True iff any unread message pings the caller.
+    pub pinged: bool,
+    /// Latest live message's cursor pair, for client-side baselining of
+    /// never-visited channels. None when the channel is empty.
+    #[serde(default)]
+    pub latest_sent_at: Option<String>,
+    #[serde(default)]
+    pub latest_id: Option<String>,
+}
+
+/// W1: response of `GET /unread`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnreadResponse {
+    pub channels: Vec<ChannelUnread>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
