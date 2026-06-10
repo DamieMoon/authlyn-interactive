@@ -7,10 +7,10 @@ use axum::http::{Method, StatusCode};
 use serde_json::json;
 use std::time::Duration;
 
-/// Register an owner, create a guild, and return
+/// Register an owner (under `username`), create a guild, and return
 /// `(owner_cookie, guild_id, default_text_channel_id)`.
-async fn owner_with_channel(router: &axum::Router) -> (String, String, String) {
-    let owner = common::register_account(router, "EventsOwner", "password123").await;
+async fn owner_with_channel(router: &axum::Router, username: &str) -> (String, String, String) {
+    let owner = common::register_account(router, username, "password123").await;
     let (st, _, guild) = common::send(
         router,
         Method::POST,
@@ -44,7 +44,7 @@ async fn events_requires_a_session() {
 #[tokio::test]
 async fn member_receives_message_created_over_sse() {
     let a = common::arena().await;
-    let (owner, _gid, cid) = owner_with_channel(&a.router).await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "EventsOwner").await;
 
     let (status, headers, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
     assert_eq!(status, StatusCode::OK);
@@ -69,7 +69,7 @@ async fn member_receives_message_created_over_sse() {
 
     let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
         common::SseRead::Data(v) => v,
-        other => panic!("expected an event within 3s, got {other:?}"),
+        other => panic!("expected an event within the window, got {other:?}"),
     };
     assert_eq!(ev["type"], "message_created");
     assert_eq!(ev["channel_id"], cid.as_str());
@@ -78,7 +78,7 @@ async fn member_receives_message_created_over_sse() {
 #[tokio::test]
 async fn outsider_never_receives_events_for_a_channel_they_cannot_see() {
     let a = common::arena().await;
-    let (owner, _gid, cid) = owner_with_channel(&a.router).await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "EventsOwner").await;
     let outsider = common::register_account(&a.router, "EventsOutsider", "password123").await;
 
     let (status, _h, mut out_body) = common::open_sse(&a.router, "/events", Some(&outsider)).await;
@@ -110,14 +110,12 @@ async fn outsider_never_receives_events_for_a_channel_they_cannot_see() {
     }
 }
 
-/// NOTE: typing does not emit on the bus yet — Task 6 arms it. This passes
-/// today for the trivial reason (nothing is broadcast at all) and must KEEP
-/// passing once typing emissions land, at which point the filter is what
-/// keeps the cross-guild window silent.
+/// Typing emits on the bus (Task 6) — this is load-bearing: the per-connection
+/// visibility filter is what keeps the cross-guild window silent.
 #[tokio::test]
 async fn typing_events_do_not_leak_across_guilds() {
     let a = common::arena().await;
-    let (owner, _gid, cid) = owner_with_channel(&a.router).await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "EventsOwner").await;
     // Unrelated account with their own guild, so their visible set is non-empty.
     let other = common::register_account(&a.router, "EventsOther", "password123").await;
     let (st, _, other_guild) = common::send(
@@ -177,4 +175,74 @@ async fn typing_events_do_not_leak_across_guilds() {
     };
     assert_eq!(ev["type"], "message_created");
     assert_eq!(ev["channel_id"], other_cid.as_str());
+}
+
+#[tokio::test]
+async fn edits_deletes_and_typing_reach_members_over_sse() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "EventsEditOwner").await;
+
+    // Seed a message BEFORE subscribing (so its create event isn't in the stream).
+    let (st, _, msg) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "v1" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let mid = msg["id"].as_str().unwrap().to_string();
+
+    let (_, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+
+    // Edit → message_edited
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        Some(&json!({ "body": "v2" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected message_edited, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "message_edited");
+    assert_eq!(ev["message_id"], mid.as_str());
+
+    // Typing → typing
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/typing"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected typing, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "typing");
+    assert_eq!(ev["channel_id"], cid.as_str());
+
+    // Delete → message_deleted
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected message_deleted, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "message_deleted");
 }

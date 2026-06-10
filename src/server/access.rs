@@ -7,7 +7,7 @@
 //! re-implemented the resolve + membership check with subtly different SQL.
 //! [`visible_channels`] answers the account-wide form of the same question
 //! (every live text channel the caller may see), shared by `GET /events`
-//! (filtering) and `GET /unread` (Task 8, aggregation).
+//! (filtering) and `GET /unread`.
 //!
 //! [`resolve_membership`] is the common core: resolve channel → (guild, kind),
 //! then check `guild_member`. Each caller layers its own specifics on top —
@@ -30,7 +30,7 @@ use crate::server::state::AppState;
 /// them (none currently do — every call site collapses both to a privacy-404 /
 /// `false`), mirroring the original `messages::AccessOutcome` split.
 pub(crate) enum Membership {
-    /// Caller is a member; the channel's guild key and `kind` are carried out.
+    /// Caller is a member; the channel's `kind` is carried out.
     Member { kind: String },
     /// No such (live, per `filter_deleted`) channel.
     ChannelNotFound,
