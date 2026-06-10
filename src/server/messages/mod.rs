@@ -23,8 +23,8 @@
 //!
 //! ## Layout
 //! - [`posting`] — POST + persist + attachment-existence check.
-//! - [`reading`] — GET + composite-cursor + MSG_PROJECTION + mime batch +
-//!   typing-name resolution.
+//! - [`reading`] — GET + composite-cursor + MSG_PROJECTION (attachment mimes
+//!   join the projection) + typing-name resolution.
 //! - [`editing`] — PATCH/DELETE/restore/trash + the own-message gate.
 //! - [`typing`] — POST /typing ping (in-memory).
 //! - this module: shared `channel_access` (the per-channel layer atop

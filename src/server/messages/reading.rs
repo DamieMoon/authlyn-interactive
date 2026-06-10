@@ -1,5 +1,6 @@
 //! `GET /channels/{cid}/messages` + the composite-cursor pagination + the
-//! shared MSG_PROJECTION / MessageRow / mime-batch / typing-name resolution.
+//! shared MSG_PROJECTION / MessageRow / typing-name resolution. Attachment
+//! MIMEs join the page projection itself (T10) — no second round-trip.
 //! Split from `server/messages.rs` in Wave 3; behavior preserved verbatim.
 
 use axum::extract::{Path, Query, State};
@@ -255,6 +256,14 @@ pub(super) struct ReplyPreviewRow {
     pub body_snippet: String,
 }
 
+/// One `{id, mime}` pair from MSG_PROJECTION's `attachment_mimes` subquery —
+/// the per-row `media_blob` join that replaced the post-page mime batch (T10).
+#[derive(SurrealValue)]
+pub(super) struct AttachmentMimeRow {
+    pub id: String,
+    pub mime: String,
+}
+
 #[derive(SurrealValue)]
 pub(super) struct MessageRow {
     pub id_key: String,
@@ -268,6 +277,9 @@ pub(super) struct MessageRow {
     pub persona_avatar_id: Option<String>,
     pub body: String,
     pub attachments: Vec<String>,
+    /// `{id, mime}` pairs for this row's attachments, joined from `media_blob`
+    /// inside MSG_PROJECTION. May omit since-vanished blobs; merge by id.
+    pub attachment_mimes: Vec<AttachmentMimeRow>,
     pub tier: String,
     pub sent_at: Datetime,
     pub reply_to: Option<ReplyPreviewRow>,
@@ -281,6 +293,16 @@ pub(super) struct MessageRow {
 
 impl MessageRow {
     pub(super) fn into_envelope(self) -> MessageEnvelope {
+        // Mimes ride the row itself via MSG_PROJECTION's `attachment_mimes`
+        // subquery; merge by id so attachment ORDER follows `attachments`
+        // (send order), not the join. A since-deleted blob keeps the empty
+        // mime (client falls back to image render) — same degradation the
+        // old post-page batch had.
+        let mimes: std::collections::HashMap<String, String> = self
+            .attachment_mimes
+            .into_iter()
+            .map(|r| (r.id, r.mime))
+            .collect();
         MessageEnvelope {
             id: self.id_key,
             author_id: self.author_key,
@@ -292,15 +314,12 @@ impl MessageRow {
             persona_color: self.persona_color,
             persona_avatar_id: self.persona_avatar_id,
             body: self.body,
-            // Mimes are resolved in a single batch query after the page is
-            // built (see `resolve_attachment_mimes`); placeholder empty mime
-            // until then (falls back to image render if a row is missing).
             attachments: self
                 .attachments
                 .into_iter()
-                .map(|id| Attachment {
-                    id,
-                    mime: String::new(),
+                .map(|id| {
+                    let mime = mimes.get(&id).cloned().unwrap_or_default();
+                    Attachment { id, mime }
                 })
                 .collect(),
             tier: self.tier,
@@ -335,6 +354,8 @@ pub(super) const MSG_PROJECTION: &str = "
             AS persona_avatar_id,
         body,
         (attachments ?? []) AS attachments,
+        (SELECT meta::id(id) AS id, mime FROM media_blob
+            WHERE meta::id(id) IN ($parent.attachments ?? [])) AS attachment_mimes,
         tier,
         sent_at,
         (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
@@ -407,60 +428,5 @@ async fn load_messages(
     if reverse {
         out.reverse();
     }
-    resolve_attachment_mimes(state, &mut out).await?;
     Ok(out)
-}
-
-/// Fill in each envelope's attachment `mime` from `media_blob` in ONE batch
-/// query across the whole page. The persisted message row only carries the
-/// media ids (`array<string>`); the MIME lives on the blob. Missing ids keep
-/// their placeholder empty mime (client falls back to image render). Order is
-/// preserved per envelope.
-///
-/// W5/H4: binds the deduped ids as `RecordId`s and reads them via
-/// `FROM $records` (Union of PK `RecordIdScan`s, gated by `id IS NOT NONE`)
-/// instead of `WHERE meta::id(id) IN $ids` — which `EXPLAIN` revealed plans
-/// as a full `TableScan` of `media_blob` on 3.1.0-beta.3.
-pub(super) async fn resolve_attachment_mimes(
-    state: &AppState,
-    envelopes: &mut [MessageEnvelope],
-) -> surrealdb::Result<()> {
-    let ids: Vec<String> = {
-        let mut v: Vec<String> = envelopes
-            .iter()
-            .flat_map(|e| e.attachments.iter().map(|a| a.id.clone()))
-            .collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    if ids.is_empty() {
-        return Ok(());
-    }
-    #[derive(SurrealValue)]
-    struct MimeRow {
-        id: String,
-        mime: String,
-    }
-    let records: Vec<surrealdb::types::RecordId> = ids
-        .iter()
-        .map(|id| surrealdb::types::RecordId::new("media_blob", id.as_str()))
-        .collect();
-    let mut resp = state
-        .db
-        .query("SELECT meta::id(id) AS id, mime FROM $records WHERE id IS NOT NONE;")
-        .bind(("records", records))
-        .await?
-        .check()?;
-    let rows: Vec<MimeRow> = resp.take(0)?;
-    let map: std::collections::HashMap<String, String> =
-        rows.into_iter().map(|r| (r.id, r.mime)).collect();
-    for env in envelopes.iter_mut() {
-        for att in env.attachments.iter_mut() {
-            if let Some(mime) = map.get(&att.id) {
-                att.mime = mime.clone();
-            }
-        }
-    }
-    Ok(())
 }

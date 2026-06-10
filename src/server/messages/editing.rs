@@ -15,7 +15,7 @@ use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
 
-use super::reading::{resolve_attachment_mimes, MessageRow, MESSAGES_PAGE_LIMIT, MSG_PROJECTION};
+use super::reading::{MessageRow, MESSAGES_PAGE_LIMIT, MSG_PROJECTION};
 use super::{channel_access, AccessOutcome, MAX_BODY_CHARS};
 
 // ---------------------------------------------------------------------------
@@ -211,9 +211,7 @@ async fn load_deleted_messages(
         .await?
         .check()?;
     let rows: Vec<MessageRow> = resp.take(0)?;
-    let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
-    resolve_attachment_mimes(state, &mut out).await?;
-    Ok(out)
+    Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
 }
 
 /// Gate for the per-message mutations (edit/delete): the caller must be a

@@ -1052,3 +1052,62 @@ async fn composite_cursor_unaffected_by_reply_to() {
     let expected: Vec<String> = (0..TOTAL).map(|i| format!("m{i}")).collect();
     assert_eq!(bodies, expected, "reply rows reassemble in send order");
 }
+
+/// T10 behavior pin for folding attachment-MIME resolution into the page
+/// projection: a single message carrying BOTH a PNG and a PDF lists back with
+/// each attachment bearing its OWN stored MIME — pinning the per-id merge
+/// semantics (not just "some mime appears"), which the implementation swap
+/// underneath must preserve. Strengthens the single-attachment assertion in
+/// `message_with_pdf_attachment_sends_and_reads`.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn list_messages_returns_attachment_mime_in_the_page_response() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    let png_id = upload_media(&a.router, &owner, "image/png", b"\x89PNG\r\n\x1a\nfake").await;
+    let pdf_id = upload_media(&a.router, &owner, "application/pdf", b"%PDF-1.4\nbody\n").await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({
+            "body": "mixed attachments",
+            "attachment_ids": [png_id.clone(), pdf_id.clone()]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "attached message: {body:?}");
+
+    let (status, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let atts = list["messages"][0]["attachments"]
+        .as_array()
+        .expect("attachments array");
+    assert_eq!(atts.len(), 2, "both attachments ride the page");
+    let mime_of = |id: &str| {
+        atts.iter()
+            .find(|a| a["id"] == id)
+            .unwrap_or_else(|| panic!("attachment {id} missing from page"))["mime"]
+            .clone()
+    };
+    assert_eq!(
+        mime_of(&png_id),
+        "image/png",
+        "PNG mime rides the page response"
+    );
+    assert_eq!(
+        mime_of(&pdf_id),
+        "application/pdf",
+        "each attachment id resolves to ITS OWN mime"
+    );
+}
