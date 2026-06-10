@@ -1,9 +1,10 @@
 //! `GET /events` — the W1 SSE bus (ssr-only). Auth via the session cookie
 //! ([`AuthAccount`]), exactly like every JSON route. Wire format: unnamed SSE
 //! `data:` frames each carrying one serialized [`SyncEvent`]. Filtering
-//! (privacy) is per-connection: see [`visible_channels`] below.
+//! (privacy) is per-connection: see [`visible_channels`] in `access`.
 
 use crate::protocol::SyncEvent;
+use crate::server::access::visible_channels;
 use crate::server::auth::AuthAccount;
 use crate::server::state::AppState;
 use axum::extract::State;
@@ -11,42 +12,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::Stream;
 use std::collections::HashSet;
 use std::convert::Infallible;
-use surrealdb::types::SurrealValue;
 use tokio::sync::broadcast;
-
-/// Load the channel ids the account may currently see (live text channels in
-/// guilds where they are a member). Two parameterized statements, one
-/// round-trip. Returns `(channel_id, guild_id)` pairs; this module's consumer
-/// only needs the channel ids but `/unread` (Task 8, same helper) wants the
-/// guild mapping too.
-pub(crate) async fn visible_channels(
-    state: &AppState,
-    account: &str,
-) -> surrealdb::Result<Vec<(String, String)>> {
-    #[derive(SurrealValue)]
-    struct Row {
-        channel_id: String,
-        guild_id: String,
-    }
-    let mut resp = state
-        .db
-        .query(
-            "LET $gids = (SELECT VALUE guild FROM guild_member
-                 WHERE account = type::record('account', $account));
-             SELECT meta::id(id) AS channel_id, meta::id(guild) AS guild_id FROM channel
-                 WHERE deleted_at = NONE AND kind = 'text'
-                   AND guild IN $gids AND guild.deleted_at = NONE;",
-        )
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    // Statement 0 is the LET (no materialized rows); the SELECT is take(1).
-    let rows: Vec<Row> = resp.take(1)?;
-    Ok(rows
-        .into_iter()
-        .map(|r| (r.channel_id, r.guild_id))
-        .collect())
-}
 
 /// Per-connection stream state for the unfold below.
 struct Conn {
@@ -57,9 +23,15 @@ struct Conn {
 }
 
 impl Conn {
+    /// Re-derive the visible-channel set from the DB.
+    ///
+    /// Amplification cost: one DB query per connection per lists_changed /
+    /// Lagged event — N connections × M list mutations. Fine at this
+    /// instance's scale (N≈10); if that ever changes, coalesce by draining
+    /// the receiver via `try_recv` before reloading.
     async fn reload_visible(&mut self) {
         match visible_channels(&self.state, &self.account).await {
-            Ok(rows) => self.visible = rows.into_iter().map(|(c, _g)| c).collect(),
+            Ok(rows) => self.visible = rows.into_iter().map(|r| r.channel_id).collect(),
             // On DB error: keep the stale set. Fail-closed enough (no new
             // grants leak in), and the next lists_changed retries.
             Err(e) => tracing::error!(error = %e, "visible_channels reload failed"),
@@ -68,7 +40,9 @@ impl Conn {
 }
 
 fn sse_frame(ev: &SyncEvent) -> Event {
-    // Serialization of a unit-tagged enum cannot fail.
+    // SyncEvent is internally tagged (`#[serde(tag = "type")]`) with only
+    // unit/struct variants, which cannot fail to serialize; a future NEWTYPE
+    // variant wrapping a non-map COULD fail under internal tagging.
     Event::default().data(serde_json::to_string(ev).expect("SyncEvent serializes"))
 }
 

@@ -1,10 +1,13 @@
-//! Shared channel-membership resolution.
+//! Shared channel-membership and visibility resolution.
 //!
 //! Three handlers gate on "is this caller a member of the guild that owns this
 //! channel, and what kind of channel is it?" — `messages` (needs the channel
 //! kind + the caller's per-channel active persona), `personas` (just a bool),
 //! and `lorebook` (also asserts `kind == "lorebook"`). They previously each
 //! re-implemented the resolve + membership check with subtly different SQL.
+//! [`visible_channels`] answers the account-wide form of the same question
+//! (every live text channel the caller may see), shared by `GET /events`
+//! (filtering) and `GET /unread` (Task 8, aggregation).
 //!
 //! [`resolve_membership`] is the common core: resolve channel → (guild, kind),
 //! then check `guild_member`. Each caller layers its own specifics on top —
@@ -93,4 +96,35 @@ pub(crate) async fn resolve_membership(
     }
 
     Ok(Membership::Member { kind: chan.kind })
+}
+
+/// One channel the account may currently see (live text channel in a guild
+/// where they are a member). Shared by GET /events (filtering) and GET /unread
+/// (Task 8, aggregation).
+#[derive(SurrealValue)]
+pub(crate) struct VisibleChannel {
+    pub(crate) channel_id: String,
+    pub(crate) guild_id: String,
+}
+
+/// Load every [`VisibleChannel`] for `account`. Two parameterized statements,
+/// one round-trip.
+pub(crate) async fn visible_channels(
+    state: &AppState,
+    account: &str,
+) -> surrealdb::Result<Vec<VisibleChannel>> {
+    let mut resp = state
+        .db
+        .query(
+            "LET $gids = (SELECT VALUE guild FROM guild_member
+                 WHERE account = type::record('account', $account));
+             SELECT meta::id(id) AS channel_id, meta::id(guild) AS guild_id FROM channel
+                 WHERE deleted_at = NONE AND kind = 'text'
+                   AND guild IN $gids AND guild.deleted_at = NONE;",
+        )
+        .bind(("account", account.to_string()))
+        .await?
+        .check()?;
+    // Statement 0 is the LET (no materialized rows); the SELECT is take(1).
+    resp.take(1)
 }
