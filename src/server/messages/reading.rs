@@ -340,6 +340,15 @@ impl MessageRow {
 // null-safe (the IF guard avoids meta::id(NONE)); name/description/color come
 // from the send-time snapshot with a `?? persona.*` fallback for legacy rows
 // whose persona still exists (deleted personas keep their frozen snapshot).
+//
+// W5/H4 plan evidence for the `attachment_mimes` arm: `WHERE meta::id(id) IN
+// $array` plans as a media_blob TableScan, correlated PER MESSAGE ROW —
+// O(page x |media_blob|) on the hot polled path. The record-pointer form
+// (FROM an array of type::record pointers) point-reads instead. `WHERE id IS
+// NOT NONE` drops since-vanished blobs (a dangling pointer yields a NONE row
+// that would crash meta::id). Verified via EXPLAIN FULL on the SurrealDB
+// 3.1.3 server binary (the dev binary): TableScan -> DynamicScan over
+// array::map(...).
 pub(super) const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
@@ -354,13 +363,7 @@ pub(super) const MSG_PROJECTION: &str = "
             AS persona_avatar_id,
         body,
         (attachments ?? []) AS attachments,
-        -- `WHERE meta::id(id) IN $array` plans as a media_blob TableScan,
-        -- correlated PER MESSAGE ROW — O(page x |media_blob|) on the hot
-        -- polled path (W5/H4); this record-pointer form (FROM an array of
-        -- type::record pointers) point-reads instead. `WHERE id IS NOT NONE`
-        -- drops since-vanished blobs (a dangling pointer yields a NONE row
-        -- that would crash meta::id). Verified via EXPLAIN FULL on SurrealDB
-        -- 3.1.3: TableScan -> DynamicScan over array::map(...).
+        /* record-pointer point-reads — see const doc above */
         (SELECT meta::id(id) AS id, mime
             FROM array::map(($parent.attachments ?? []), |$a| type::record('media_blob', $a))
             WHERE id IS NOT NONE) AS attachment_mimes,

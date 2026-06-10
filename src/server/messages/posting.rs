@@ -304,8 +304,9 @@ async fn resolve_mentions(
 /// W5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
 /// SurrealDB plans a per-record `RecordIdScan` (Union of PK lookups, gated
 /// by `id IS NOT NONE` to drop missing rows) instead of a full `TableScan`
-/// — which was the actual plan for `WHERE meta::id(id) IN $ids` on
-/// 3.1.0-beta.3 (verified via `EXPLAIN`).
+/// — which was the actual plan for `WHERE meta::id(id) IN $ids` (verified
+/// via `EXPLAIN` on the SurrealDB 3.1.3 server binary; same plan shape as
+/// the `MSG_PROJECTION` attachment_mimes arm in `reading.rs`).
 async fn all_media_exist(state: &AppState, ids: &[String]) -> surrealdb::Result<bool> {
     if ids.is_empty() {
         return Ok(true);
