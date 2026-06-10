@@ -1,0 +1,104 @@
+<h2>Helhetsdesignen: "Void Station"</h2>
+<p class="subtitle">Mobil (hybrid-nav, Duo-typografi, neon-glöd på aktiva element) och desktop (3-kolumn, samma designspråk). Detta är designen jag föreslår att vi bygger.</p>
+
+<style>
+  .stage { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .fr { font-family: -apple-system, 'Segoe UI', sans-serif; text-align: left; color: #dde6f2; }
+
+  .phone2 { width: 250px; height: 480px; background: #0b0e14; border: 2px solid #222b3c; border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; font-size: 10px; position: relative; box-shadow: 0 12px 40px #00000088; }
+  .phone2 .top { display: flex; align-items: center; gap: 7px; padding: 12px 13px 10px; background: #0e121af0; border-bottom: 1px solid #1c2330; backdrop-filter: blur(8px); }
+  .phone2 .top .srv { font-weight: 700; font-size: 11.5px; letter-spacing: 0.03em; }
+  .phone2 .top .sep { color: #3d4860; }
+  .phone2 .top .chev { color: #4d9fff; text-shadow: 0 0 8px #4d9fff; }
+  .phone2 .top .ava { margin-left: auto; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4d9fff, #8ee6c8); display: flex; align-items: center; justify-content: center; font-size: 9px; color: #0b0e14; font-weight: 700; }
+  .phone2 .msgs { flex: 1; padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .m2 { background: #10141d; border: 1px solid #1a2130; border-radius: 12px; padding: 8px 10px; }
+  .m2 .meta { display: flex; gap: 7px; align-items: baseline; margin-bottom: 3px; }
+  .m2 .who { font-weight: 700; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .m2 .w1 { color: #7fb6ff; } .m2 .w2 { color: #8ee6c8; } .m2 .w3 { color: #c4a8ff; }
+  .m2 .ts { font-size: 8px; color: #5d6b80; font-family: 'SF Mono', Menlo, monospace; }
+  .m2 .txt { font-family: Georgia, 'Iowan Old Style', serif; font-size: 12px; line-height: 1.55; color: #b9c4d6; }
+  .typing { display: flex; gap: 6px; align-items: center; font-size: 9px; color: #5d6b80; padding: 0 4px; }
+  .typing .dots { color: #4d9fff; text-shadow: 0 0 6px #4d9fff; letter-spacing: 2px; }
+  .phone2 .comp { display: flex; gap: 7px; padding: 9px 11px; border-top: 1px solid #1c2330; background: #0e121a; align-items: center; }
+  .phone2 .inp { flex: 1; background: #0a0d13; border: 1px solid #222b3c; border-radius: 17px; padding: 8px 11px; color: #8a98ad; font-size: 10px; }
+  .phone2 .plus { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #222b3c; color: #8a98ad; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .phone2 .snd { width: 28px; height: 28px; border-radius: 50%; background: #4d9fff; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 10px #4d9fff77; }
+  .phone2 .tabs { display: flex; border-top: 1px solid #1c2330; background: #0e121a; padding: 7px 0 12px; }
+  .phone2 .tab { flex: 1; text-align: center; color: #5d6b80; font-size: 7.5px; letter-spacing: 0.04em; position: relative; }
+  .phone2 .tab .ic { font-size: 15px; display: block; margin-bottom: 2px; }
+  .phone2 .tab.on { color: #4d9fff; text-shadow: 0 0 9px #4d9fff99; }
+  .phone2 .tab .bdg { position: absolute; top: -3px; right: 16px; background: #4d9fff; color: #fff; font-size: 7px; border-radius: 8px; padding: 1px 4px; box-shadow: 0 0 7px #4d9fff; }
+  .phone2 .homebar { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 70px; height: 3px; border-radius: 2px; background: #222b3c; }
+
+  .desk { width: 560px; height: 340px; background: #0b0e14; border: 2px solid #222b3c; border-radius: 12px; overflow: hidden; display: flex; font-size: 9px; box-shadow: 0 12px 40px #00000088; }
+  .desk .rail { width: 46px; background: #090c11; border-right: 1px solid #161c28; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0; }
+  .desk .g { width: 30px; height: 30px; border-radius: 10px; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #aab8cc; }
+  .desk .g.on { border-color: #4d9fff; box-shadow: 0 0 9px #4d9fff66; color: #dde6f2; }
+  .desk .g.unread::after { content: ''; position: absolute; margin-left: 26px; margin-top: -20px; width: 6px; height: 6px; border-radius: 50%; background: #4d9fff; box-shadow: 0 0 6px #4d9fff; }
+  .desk .side { width: 130px; background: #0d1118; border-right: 1px solid #161c28; padding: 10px 8px; }
+  .desk .side .hdr { font-weight: 700; font-size: 10px; letter-spacing: 0.06em; padding: 0 6px 8px; border-bottom: 1px solid #161c28; margin-bottom: 8px; }
+  .desk .ch { padding: 5px 8px; border-radius: 6px; color: #8a98ad; margin-bottom: 2px; }
+  .desk .ch.on { background: #131927; color: #dde6f2; border-left: 2px solid #4d9fff; }
+  .desk .ch .n { float: right; color: #4d9fff; text-shadow: 0 0 5px #4d9fff; }
+  .desk .main { flex: 1; display: flex; flex-direction: column; }
+  .desk .topb { padding: 8px 12px; background: #0e121a; border-bottom: 1px solid #1c2330; font-weight: 700; font-size: 10px; display: flex; gap: 8px; align-items: center; }
+  .desk .topb .stat { margin-left: auto; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; color: #5d6b80; }
+  .desk .topb .stat b { color: #8ee6c8; text-shadow: 0 0 5px #8ee6c8aa; font-weight: 400; }
+  .desk .dm { flex: 1; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; overflow: hidden; }
+  .desk .comp { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid #1c2330; background: #0e121a; align-items: center; }
+  .desk .inp { flex: 1; background: #0a0d13; border: 1px solid #222b3c; border-radius: 8px; padding: 6px 10px; color: #8a98ad; font-size: 9px; }
+
+  .cap2 { margin-top: 10px; font-size: 12px; line-height: 1.5; max-width: 250px; }
+  .cap2 b { color: #4d9fff; }
+</style>
+
+<div class="stage fr">
+  <div>
+    <div class="phone2">
+      <div class="top"><span class="srv">⌁ Nova</span><span class="sep">›</span><span># tavernan</span><span class="chev">▾</span><div class="ava">D</div></div>
+      <div class="msgs">
+        <div class="m2"><div class="meta"><span class="who w1">Seraphina</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig och lutar sig över det skrovliga ekbordet. Ljuset från härden fångar ärret över hennes kind. "Visa mig kartan igen. Den norra passagen — något stämmer inte."</div></div>
+        <div class="m2"><div class="meta"><span class="who w2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett, men vecklar ändå ut pergamentet mellan ölstopen.</div></div>
+        <div class="m2"><div class="meta"><span class="who w3">Vesper</span><span class="ts">23:17</span></div><div class="txt">Från sin plats vid fönstret: "Om ni två är klara — vi har sällskap på vägen norrut."</div></div>
+        <div class="typing"><span class="dots">●●●</span> Seraphina skriver…</div>
+      </div>
+      <div class="comp"><div class="plus">+</div><div class="inp">skriv som Thorne…</div><div class="snd">↑</div></div>
+      <div class="tabs">
+        <div class="tab on"><span class="ic">▣</span>CHATT</div>
+        <div class="tab"><span class="ic">◎</span>SERVRAR<span class="bdg">2</span></div>
+        <div class="tab"><span class="ic">◇</span>VÄNNER</div>
+        <div class="tab"><span class="ic">✦</span>PERSONAS</div>
+      </div>
+      <div class="homebar"></div>
+    </div>
+    <div class="cap2"><b>Mobil:</b> tabbrad + bottenark (▾), serif-prosa, versala persona-namn med tint, mono-tidsstämplar, glöd på olästa & aktiva element, safe-area-medveten.</div>
+  </div>
+
+  <div>
+    <div class="desk">
+      <div class="rail">
+        <div class="g on">N</div>
+        <div class="g unread">V</div>
+        <div class="g">E</div>
+        <div class="g" style="border-style:dashed;color:#4d9fff">+</div>
+      </div>
+      <div class="side">
+        <div class="hdr">⌁ NOVA</div>
+        <div class="ch on"># tavernan</div>
+        <div class="ch"># smedjan <span class="n">●2</span></div>
+        <div class="ch"># biblioteket</div>
+        <div class="ch"># stallet</div>
+      </div>
+      <div class="main">
+        <div class="topb"># tavernan <span class="stat"><b>● SYNK</b>&nbsp; SSE LIVE · 12ms</span></div>
+        <div class="dm">
+          <div class="m2"><div class="meta"><span class="who w1">Seraphina</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig och lutar sig över det skrovliga ekbordet. "Visa mig kartan igen."</div></div>
+          <div class="m2"><div class="meta"><span class="who w2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett, men vecklar ändå ut pergamentet mellan ölstopen.</div></div>
+        </div>
+        <div class="comp"><div class="inp">skriv som Thorne…</div></div>
+      </div>
+    </div>
+    <div class="cap2" style="max-width:560px"><b>Desktop:</b> behåller effektiva 3-kolumnslayouten men helt omklädd — mörkare rail, hårfina linjer, glödande aktiv-markörer, live-status i toppbaren (SSE ersätter pollandet under huven).</div>
+  </div>
+</div>

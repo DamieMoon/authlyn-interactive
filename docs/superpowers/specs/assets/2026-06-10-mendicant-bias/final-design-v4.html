@@ -1,0 +1,162 @@
+<h2>Standard (den godkända designen) vs Ögongodis</h2>
+<p class="subtitle">Vänster: standardläget — allt vi designat hittills behålls precis som det är (glas-krom, fjäder-inglidning, glöd, Nova DOT-orben). Höger: Ögongodis — ett frivilligt läge som lägger ÄNNU mer ovanpå: spekulärt ljussvep, roterande avatar-ringar, animerade kortkanter, flerlagrad aurora, gnistor, skimmer.</p>
+
+<style>
+  .stage { display: flex; gap: 26px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .fr { font-family: -apple-system, 'Segoe UI', sans-serif; text-align: left; color: #dde6f2; }
+
+  @keyframes typepulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+  @keyframes glowpulse { 0%,100% { box-shadow: 0 0 6px #4d9fff88; } 50% { box-shadow: 0 0 14px #4d9fffcc; } }
+  @keyframes orbspin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  @keyframes aurora { 0%,100% { opacity: 0.4; transform: translate(0,0) scale(1); } 50% { opacity: 0.95; transform: translate(8px,-10px) scale(1.15); } }
+  @keyframes aurora2 { 0%,100% { opacity: 0.5; transform: translate(0,0) scale(1.1); } 50% { opacity: 0.25; transform: translate(-10px,8px) scale(0.95); } }
+  @keyframes slidein { 0% { opacity: 0; transform: translateY(10px) scale(0.98); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes drift { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 0.7; } 100% { transform: translateY(-140px); opacity: 0; } }
+  @keyframes sweep { 0% { transform: translateX(-120%) skewX(-18deg); } 60%, 100% { transform: translateX(280%) skewX(-18deg); } }
+  @keyframes ringspin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  @keyframes borderflow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+  @keyframes shimmer { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+
+  .phone3 { width: 262px; height: 510px; border: 2px solid #232c3e; border-radius: 28px; overflow: hidden; display: flex; flex-direction: column; font-size: 10px; position: relative; box-shadow: 0 14px 44px #00000099; background: radial-gradient(ellipse 90% 50% at 80% -10%, #141d33 0%, transparent 60%), #0b0e14; }
+  .glass { background: rgba(20, 26, 40, 0.55); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); border: 1px solid rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.09); }
+  .phone3 .top { display: flex; align-items: center; gap: 7px; padding: 12px 13px 10px; font-weight: 700; font-size: 11.5px; z-index: 3; border-left: none; border-right: none; border-top: none; position: relative; overflow: hidden; }
+  .phone3 .top .chev { color: #4d9fff; text-shadow: 0 0 8px #4d9fff; }
+  .phone3 .top .me { margin-left: auto; width: 23px; height: 23px; border-radius: 50%; background: linear-gradient(135deg, #6b4dff, #4d9fff); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; border: 1px solid rgba(255,255,255,0.25); }
+  .phone3 .msgs { flex: 1; padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; z-index: 1; }
+
+  .row { display: flex; gap: 8px; max-width: 88%; animation: slidein 0.45s var(--d, 0s) cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+  .row.own { align-self: flex-end; flex-direction: row-reverse; }
+  .avwrap { position: relative; width: 26px; height: 26px; flex-shrink: 0; margin-top: 2px; }
+  .ava { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #0b0e14; border: 1px solid rgba(255,255,255,0.18); }
+  .a1 { background: linear-gradient(135deg, #7fb6ff, #4d6bff); }
+  .a2 { background: linear-gradient(135deg, #8ee6c8, #3fa98a); }
+  .a4 { background: linear-gradient(135deg, #ffb47f, #d9744d); }
+  .m3 { background: #10141dee; border: 1px solid #1a2130; border-radius: 4px 14px 14px 14px; padding: 8px 10px; }
+  .row.own .m3 { border-radius: 14px 4px 14px 14px; background: #121a2cee; border-color: #24365c; }
+  .m3 .meta { display: flex; gap: 7px; align-items: baseline; margin-bottom: 3px; }
+  .m3 .who { font-weight: 700; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .w1 { color: #7fb6ff; } .w2 { color: #8ee6c8; } .w4 { color: #ffb47f; }
+  .m3 .nick { font-size: 8px; color: #5d6b80; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .m3 .ts { font-size: 8px; color: #5d6b80; font-family: 'SF Mono', Menlo, monospace; margin-left: auto; }
+  .m3 .txt { font-family: Georgia, 'Iowan Old Style', serif; font-size: 12px; line-height: 1.55; color: #b9c4d6; }
+
+  .dot-orb { position: relative; width: 26px; height: 26px; flex-shrink: 0; margin-top: 2px; }
+  .dot-orb .core { position: absolute; inset: 6px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #aee9ff, #4d9fff 60%, #1a4a8a); box-shadow: 0 0 12px #4d9fffaa; }
+  .dot-orb .ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid #8ee6c8; border-left-color: transparent; border-bottom-color: transparent; animation: orbspin 3.5s linear infinite; }
+  .m-sys { background: rgba(77,159,255,0.07); border: 1px solid #4d9fff44; border-radius: 4px 14px 14px 14px; padding: 8px 10px; }
+  .m-sys .who { color: #8ee6c8; font-weight: 700; font-size: 9px; letter-spacing: 0.12em; }
+  .m-sys .badge { font-size: 7px; background: #4d9fff22; border: 1px solid #4d9fff55; color: #7fb6ff; border-radius: 4px; padding: 1px 4px; margin-left: 5px; font-family: 'SF Mono', Menlo, monospace; }
+  .m-sys .txt { font-size: 10.5px; color: #9fb4cc; margin-top: 3px; line-height: 1.5; }
+
+  .typing3 { display: flex; gap: 6px; align-items: center; font-size: 9px; color: #5d6b80; padding: 0 4px; }
+  .typing3 .d { width: 4px; height: 4px; border-radius: 50%; background: #4d9fff; animation: typepulse 1.2s infinite; }
+  .typing3 .d:nth-child(2) { animation-delay: 0.2s; } .typing3 .d:nth-child(3) { animation-delay: 0.4s; }
+
+  .phone3 .comp { display: flex; gap: 7px; padding: 9px 11px; align-items: center; z-index: 3; border-left: none; border-right: none; border-bottom: none; }
+  .phone3 .inp { flex: 1; background: rgba(8,11,17,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 17px; padding: 8px 11px; color: #8a98ad; }
+  .phone3 .snd { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #4d9fff, #6b4dff); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; animation: glowpulse 3s infinite; }
+  .phone3 .tabs { display: flex; padding: 7px 0 12px; z-index: 3; border-left: none; border-right: none; border-bottom: none; }
+  .phone3 .tab { flex: 1; text-align: center; color: #5d6b80; font-size: 7.5px; position: relative; }
+  .phone3 .tab .ic { font-size: 15px; display: block; margin-bottom: 2px; }
+  .phone3 .tab.on { color: #4d9fff; text-shadow: 0 0 9px #4d9fff99; }
+  .phone3 .tab .bdg { position: absolute; top: -3px; right: 16px; background: #4d9fff; color: #fff; font-size: 7px; border-radius: 8px; padding: 1px 4px; }
+
+  .mode-chip { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 5; font-size: 8px; letter-spacing: 0.1em; padding: 3px 10px; border-radius: 10px; font-family: 'SF Mono', Menlo, monospace; }
+  .chip-std { background: #10141d; border: 1px solid #222b3c; color: #8a98ad; }
+  .chip-max { background: rgba(77,159,255,0.12); border: 1px solid #4d9fff77; color: #7fb6ff; box-shadow: 0 0 12px #4d9fff44; }
+
+  /* ===== ÖGONGODIS ===== */
+  .candy { background: radial-gradient(ellipse 90% 50% at 80% -10%, #1a2a52 0%, transparent 60%), radial-gradient(ellipse 70% 40% at 10% 110%, #14384a 0%, transparent 55%), #0a0d16; }
+  .candy .blob1 { position: absolute; top: 12%; left: -40px; width: 170px; height: 170px; border-radius: 50%; background: radial-gradient(circle, #4d9fff33 0%, transparent 70%); animation: aurora 6s ease-in-out infinite; pointer-events: none; }
+  .candy .blob2 { position: absolute; bottom: 22%; right: -50px; width: 190px; height: 190px; border-radius: 50%; background: radial-gradient(circle, #8a5cff2e 0%, transparent 70%); animation: aurora2 8s ease-in-out infinite; pointer-events: none; }
+  .candy .blob3 { position: absolute; top: 55%; left: 30%; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, #8ee6c81f 0%, transparent 70%); animation: aurora 10s 2s ease-in-out infinite; pointer-events: none; }
+  .candy .spark { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #8ee6c8; animation: drift 7s linear infinite; pointer-events: none; }
+  .candy .top::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent); animation: sweep 5s 1s ease-in-out infinite; pointer-events: none; }
+  .candy .m3 { background: rgba(22, 30, 48, 0.5); backdrop-filter: blur(10px) saturate(1.3); -webkit-backdrop-filter: blur(10px) saturate(1.3); border: 1px solid rgba(255,255,255,0.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07); }
+  .candy .row.own .m3 { position: relative; background: rgba(40, 60, 110, 0.45); border: 1px solid transparent; background-clip: padding-box; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 0 16px rgba(77,159,255,0.12); }
+  .candy .row.own .m3::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; z-index: -1; background: linear-gradient(90deg, #24365c, #4d9fff, #8a5cff, #24365c); background-size: 200% 100%; animation: borderflow 4s linear infinite; }
+  .candy .avwrap::before { content: ''; position: absolute; inset: -3px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0%, #4d9fff 25%, transparent 50%, #8ee6c8 75%, transparent 100%); animation: ringspin 4s linear infinite; }
+  .candy .ava { position: absolute; inset: 0; box-shadow: 0 0 10px rgba(77,159,255,0.4); }
+  .candy .m-sys { background-image: linear-gradient(100deg, transparent 30%, rgba(142,230,200,0.10) 50%, transparent 70%), linear-gradient(rgba(77,159,255,0.07), rgba(77,159,255,0.07)); background-size: 200% 100%, 100% 100%; animation: shimmer 4.5s ease-in-out infinite; }
+  .candy .snd { animation: glowpulse 2s infinite; }
+  .candy .tab.on { text-shadow: 0 0 12px #4d9fff; }
+  .candy .tab .bdg { animation: glowpulse 2.5s infinite; }
+
+  .cap3 { margin-top: 10px; font-size: 12px; line-height: 1.5; max-width: 262px; }
+  .cap3 b { color: #4d9fff; }
+</style>
+
+<div class="stage fr">
+  <div>
+    <div class="phone3">
+      <div class="mode-chip chip-std">STANDARD — SOM GODKÄND</div>
+      <div class="top glass"><span>⌁ Nova</span><span style="color:#3d4860">›</span><span># tavernan</span><span class="chev">▾</span><div class="me">D</div></div>
+      <div class="msgs">
+        <div class="row" style="--d:0.05s;max-width:100%">
+          <div class="dot-orb"><div class="ring"></div><div class="core"></div></div>
+          <div class="m-sys" style="flex:1"><div class="meta"><span class="who">NOVA DOT</span><span class="badge">SYSTEM</span></div><div class="txt">Uppgradering slutförd. Välkomna ombord på Mendicant Bias.</div></div>
+        </div>
+        <div class="row" style="--d:0.15s">
+          <div class="avwrap"><div class="ava a1">S</div></div>
+          <div class="m3"><div class="meta"><span class="who w1">Seraphina</span><span class="nick">· Elin</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig. "Visa mig kartan igen."</div></div>
+        </div>
+        <div class="row own" style="--d:0.25s">
+          <div class="avwrap"><div class="ava a4">T</div></div>
+          <div class="m3"><div class="meta"><span class="who w4">Thorne</span><span class="nick">· du</span><span class="ts">23:15</span></div><div class="txt">"Hon har rätt. Skalan är fel — titta på flodpasset."</div></div>
+        </div>
+        <div class="row" style="--d:0.35s">
+          <div class="avwrap"><div class="ava a2">K</div></div>
+          <div class="m3"><div class="meta"><span class="who w2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Ni två är omöjliga." Han vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="typing3"><span class="d"></span><span class="d"></span><span class="d"></span>&nbsp;Seraphina skriver…</div>
+      </div>
+      <div class="comp glass"><div class="inp">skriv som Thorne…</div><div class="snd">↑</div></div>
+      <div class="tabs glass">
+        <div class="tab on"><span class="ic">▣</span>CHATT</div>
+        <div class="tab"><span class="ic">◎</span>SERVRAR<span class="bdg">2</span></div>
+        <div class="tab"><span class="ic">◇</span>VÄNNER</div>
+        <div class="tab"><span class="ic">✦</span>PERSONAS</div>
+      </div>
+    </div>
+    <div class="cap3"><b>Standard = den godkända designen, orörd:</b> glas-krom, fjäder-inglidning, riktningsbubblor, glödpulser, Nova DOT-orb. Det här är vad alla får från start.</div>
+  </div>
+
+  <div>
+    <div class="phone3 candy">
+      <div class="blob1"></div><div class="blob2"></div><div class="blob3"></div>
+      <div class="spark" style="left:20%;bottom:30%;animation-delay:0s"></div>
+      <div class="spark" style="left:70%;bottom:25%;animation-delay:2.2s"></div>
+      <div class="spark" style="left:45%;bottom:40%;animation-delay:4.5s"></div>
+      <div class="spark" style="left:85%;bottom:45%;animation-delay:5.8s"></div>
+      <div class="mode-chip chip-max">ÖGONGODIS ✦ ALLT + MER</div>
+      <div class="top glass"><span>⌁ Nova</span><span style="color:#3d4860">›</span><span># tavernan</span><span class="chev">▾</span><div class="me">D</div></div>
+      <div class="msgs">
+        <div class="row" style="--d:0.05s;max-width:100%">
+          <div class="dot-orb"><div class="ring"></div><div class="core"></div></div>
+          <div class="m-sys" style="flex:1"><div class="meta"><span class="who">NOVA DOT</span><span class="badge">SYSTEM</span></div><div class="txt">Uppgradering slutförd. Välkomna ombord på Mendicant Bias.</div></div>
+        </div>
+        <div class="row" style="--d:0.15s">
+          <div class="avwrap"><div class="ava a1">S</div></div>
+          <div class="m3"><div class="meta"><span class="who w1">Seraphina</span><span class="nick">· Elin</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig. "Visa mig kartan igen."</div></div>
+        </div>
+        <div class="row own" style="--d:0.25s">
+          <div class="avwrap"><div class="ava a4">T</div></div>
+          <div class="m3"><div class="meta"><span class="who w4">Thorne</span><span class="nick">· du</span><span class="ts">23:15</span></div><div class="txt">"Hon har rätt. Skalan är fel — titta på flodpasset."</div></div>
+        </div>
+        <div class="row" style="--d:0.35s">
+          <div class="avwrap"><div class="ava a2">K</div></div>
+          <div class="m3"><div class="meta"><span class="who w2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Ni två är omöjliga." Han vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="typing3"><span class="d"></span><span class="d"></span><span class="d"></span>&nbsp;Seraphina skriver…</div>
+      </div>
+      <div class="comp glass"><div class="inp">skriv som Thorne…</div><div class="snd">↑</div></div>
+      <div class="tabs glass">
+        <div class="tab on"><span class="ic">▣</span>CHATT</div>
+        <div class="tab"><span class="ic">◎</span>SERVRAR<span class="bdg">2</span></div>
+        <div class="tab"><span class="ic">◇</span>VÄNNER</div>
+        <div class="tab"><span class="ic">✦</span>PERSONAS</div>
+      </div>
+    </div>
+    <div class="cap3"><b>Ögongodis lägger till ovanpå:</b> spekulärt ljussvep över glaset, roterande conic-ringar runt avatarer, flytande gradientkant på dina bubblor, glas på meddelandekorten, trelagrad drivande aurora, stigande gnistor, skimmer på systemmeddelanden. En rotklass (<span style="font-family:monospace">.fx-max</span>) — väljs under Konto → Utseende.</div>
+  </div>
+</div>

@@ -1,0 +1,131 @@
+<h2>Vilken futuristisk riktning känns rätt?</h2>
+<p class="subtitle">Fyra designspråk applicerade på chattvyn (mobil). Klicka på den som känns rätt — vi kan också blanda element från flera.</p>
+
+<style>
+  .mini { border-radius: 14px; overflow: hidden; height: 300px; display: flex; flex-direction: column; font-size: 11px; text-align: left; }
+  .mini .bar { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; }
+  .mini .msgs { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .mini .m .who { font-weight: 700; font-size: 10px; letter-spacing: 0.04em; }
+  .mini .m .txt { margin-top: 2px; line-height: 1.45; }
+  .mini .comp { display: flex; gap: 6px; padding: 8px 10px; align-items: center; }
+  .mini .comp .inp { flex: 1; padding: 7px 10px; font-size: 10px; }
+  .mini .comp .snd { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 12px; flex-shrink: 0; }
+
+  /* A — Neon Pulse (cyberpunk) */
+  .dir-a { background: #07070d; color: #d8e8f5; font-family: 'SF Mono', Menlo, monospace; position: relative; }
+  .dir-a::after { content:''; position:absolute; inset:0; pointer-events:none; background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,240,255,0.025) 2px 4px); }
+  .dir-a .bar { background: #0b0b14; border-bottom: 1px solid #00f0ff55; color: #00f0ff; text-shadow: 0 0 8px #00f0ff88; }
+  .dir-a .who-1 { color: #ff2bd6; text-shadow: 0 0 6px #ff2bd688; }
+  .dir-a .who-2 { color: #00f0ff; text-shadow: 0 0 6px #00f0ff88; }
+  .dir-a .txt { color: #b8cfe0; }
+  .dir-a .comp { background: #0b0b14; border-top: 1px solid #ff2bd655; }
+  .dir-a .inp { background: #05050a; border: 1px solid #00f0ff44; border-radius: 4px; color: #6fdfef; box-shadow: inset 0 0 8px #00f0ff22; }
+  .dir-a .snd { background: #ff2bd6; color: #07070d; box-shadow: 0 0 12px #ff2bd688; }
+
+  /* B — Void Station (clean sci-fi minimal) */
+  .dir-b { background: #0b0e14; color: #dde6f2; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  .dir-b .bar { background: #0e121a; border-bottom: 1px solid #1c2330; color: #eef3fa; font-weight: 600; letter-spacing: 0.06em; }
+  .dir-b .bar .dot { width:7px; height:7px; border-radius:50%; background:#4d9fff; box-shadow: 0 0 6px #4d9fff; }
+  .dir-b .m { background: #10141d; border: 1px solid #1a2130; border-radius: 10px; padding: 7px 9px; }
+  .dir-b .who-1 { color: #7fb6ff; }
+  .dir-b .who-2 { color: #8ee6c8; }
+  .dir-b .txt { color: #aab8cc; }
+  .dir-b .comp { background: #0e121a; border-top: 1px solid #1c2330; }
+  .dir-b .inp { background: #0a0d13; border: 1px solid #222b3c; border-radius: 18px; color: #8headerba; color: #8a98ad; }
+  .dir-b .snd { background: #4d9fff; color: #fff; }
+
+  /* C — Tactical HUD */
+  .dir-c { background: #04080a; color: #c9e8d4; font-family: 'SF Mono', Menlo, monospace; position: relative; }
+  .dir-c::after { content:''; position:absolute; inset:0; pointer-events:none; background-image: linear-gradient(rgba(81,255,168,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(81,255,168,0.04) 1px, transparent 1px); background-size: 22px 22px; }
+  .dir-c .bar { background: #061008; border-bottom: 1px solid #51ffa866; color: #51ffa8; text-transform: uppercase; letter-spacing: 0.12em; font-size: 9px; }
+  .dir-c .m { border-left: 2px solid #51ffa855; padding-left: 8px; }
+  .dir-c .who-1 { color: #ffb454; }
+  .dir-c .who-1::before { content: '[ '; color: #51ffa866; } .dir-c .who-1::after { content: ' ]'; color: #51ffa866; }
+  .dir-c .who-2 { color: #51ffa8; }
+  .dir-c .who-2::before { content: '[ '; color: #51ffa866; } .dir-c .who-2::after { content: ' ]'; color: #51ffa866; }
+  .dir-c .txt { color: #9fc4ab; }
+  .dir-c .comp { background: #061008; border-top: 1px solid #51ffa866; }
+  .dir-c .inp { background: #04080a; border: 1px solid #51ffa844; color: #51ffa8; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+  .dir-c .snd { background: #51ffa8; color: #04080a; border-radius: 2px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px)); }
+
+  /* D — Aurora Glass */
+  .dir-d { background: radial-gradient(ellipse 80% 60% at 20% 0%, #2b1d5e 0%, transparent 55%), radial-gradient(ellipse 70% 50% at 90% 90%, #0d3b4f 0%, transparent 55%), #0a0a12; color: #e8e6f5; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  .dir-d .bar { background: rgba(255,255,255,0.06); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(255,255,255,0.1); color: #f0eefa; font-weight: 600; }
+  .dir-d .m { background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 7px 10px; backdrop-filter: blur(6px); }
+  .dir-d .who-1 { color: #c4a8ff; }
+  .dir-d .who-2 { color: #7fd9e8; }
+  .dir-d .txt { color: #c5c1da; }
+  .dir-d .comp { background: rgba(255,255,255,0.05); backdrop-filter: blur(8px); border-top: 1px solid rgba(255,255,255,0.1); }
+  .dir-d .inp { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; color: #b9b3d6; }
+  .dir-d .snd { background: linear-gradient(135deg, #8a5cff, #3fc1d9); color: #fff; box-shadow: 0 2px 10px rgba(138,92,255,0.4); }
+</style>
+
+<div class="cards">
+  <div class="card" data-choice="neon-pulse" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mini dir-a">
+        <div class="bar"><span>◈ #tavernan</span><span>⟁ 3</span></div>
+        <div class="msgs">
+          <div class="m"><span class="who who-1">SERAPHINA</span><div class="txt">Hon drar kåpan tätare och lutar sig över bordet. "Visa mig kartan igen."</div></div>
+          <div class="m"><span class="who who-2">KAEL</span><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett och vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="comp"><div class="inp">skriv något…</div><div class="snd">➤</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Neon Pulse</h3>
+      <p>Cyberpunk: nattsvart med cyan/magenta-glöd, scanlines, monospace. Maximal "high-tech" — men visuellt intensiv i längden.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="void-station" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mini dir-b">
+        <div class="bar"><span># tavernan</span><span class="dot"></span></div>
+        <div class="msgs">
+          <div class="m"><span class="who who-1">Seraphina</span><div class="txt">Hon drar kåpan tätare och lutar sig över bordet. "Visa mig kartan igen."</div></div>
+          <div class="m"><span class="who who-2">Kael</span><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett och vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="comp"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Void Station</h3>
+      <p>Rent sci-fi-minimalt: rymdmörkt grafitblått, hårfina linjer, en lugn elektrisk accent, kortbaserade meddelanden. Futuristiskt men vilsamt att läsa länge.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="tactical-hud" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mini dir-c">
+        <div class="bar"><span>▰ TAVERNAN</span><span>SYNC 100%</span></div>
+        <div class="msgs">
+          <div class="m"><span class="who who-1">SERAPHINA</span><div class="txt">Hon drar kåpan tätare och lutar sig över bordet. "Visa mig kartan igen."</div></div>
+          <div class="m"><span class="who who-2">KAEL</span><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett och vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="comp"><div class="inp">&gt; _</div><div class="snd">▶</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tactical HUD</h3>
+      <p>Militär/terminal-HUD: snittade hörn, hakparenteser, rutnät, ambra+grönt på svart. Karaktärsstarkt — men smalast läsbarhet för långa RP-texter.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="aurora-glass" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mini dir-d">
+        <div class="bar"><span># tavernan</span><span>✦</span></div>
+        <div class="msgs">
+          <div class="m"><span class="who who-1">Seraphina</span><div class="txt">Hon drar kåpan tätare och lutar sig över bordet. "Visa mig kartan igen."</div></div>
+          <div class="m"><span class="who who-2">Kael</span><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett och vecklar ut pergamentet.</div></div>
+        </div>
+        <div class="comp"><div class="inp">skriv något…</div><div class="snd">➤</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D — Aurora Glass</h3>
+      <p>Glasmorfism: frostade genomskinliga paneler över aurora-gradienter, mjuka glöd. Modernt futuristiskt, behåller lite av nuvarande appens värme.</p>
+    </div>
+  </div>
+</div>

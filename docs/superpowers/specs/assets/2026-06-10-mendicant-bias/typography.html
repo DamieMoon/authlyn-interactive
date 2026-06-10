@@ -1,0 +1,52 @@
+<h2>Typografi: vad ska prosan sättas i?</h2>
+<p class="subtitle">Samma meddelandeflöde, tre typografiska system. UI-kromen (toppbar, tabbar, knappar) blir teknisk sans i alla tre — frågan är själva rollspelstexten, det ni läser i timmar.</p>
+
+<style>
+  .typ { background: #0b0e14; border: 1px solid #222b3c; border-radius: 14px; padding: 14px; text-align: left; color: #dde6f2; }
+  .typ .chip { display: inline-block; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #4d9fff; border: 1px solid #4d9fff44; border-radius: 4px; padding: 2px 7px; margin-bottom: 10px; }
+  .typ .m { background: #10141d; border: 1px solid #1a2130; border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
+  .typ .meta { display: flex; gap: 7px; align-items: baseline; margin-bottom: 3px; }
+  .typ .who { font-weight: 700; font-size: 12px; color: #7fb6ff; }
+  .typ .who2 { color: #8ee6c8; }
+  .typ .ts { font-size: 9px; color: #5d6b80; font-family: 'SF Mono', Menlo, monospace; }
+  .typ .txt { font-size: 13.5px; line-height: 1.55; color: #b9c4d6; }
+
+  .t-sans .who { font-family: -apple-system, 'Segoe UI', sans-serif; letter-spacing: 0.02em; }
+  .t-sans .txt { font-family: -apple-system, 'Segoe UI', sans-serif; }
+
+  .t-duo .who { font-family: -apple-system, 'Segoe UI', sans-serif; letter-spacing: 0.05em; text-transform: uppercase; font-size: 10.5px; }
+  .t-duo .txt { font-family: Georgia, 'Iowan Old Style', serif; font-size: 14.5px; line-height: 1.6; }
+
+  .t-mono .who { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; letter-spacing: 0.04em; }
+  .t-mono .txt { font-family: -apple-system, 'Segoe UI', sans-serif; }
+  .t-mono .em { color: #8a98ad; font-style: italic; }
+</style>
+
+<div class="options">
+  <div class="option" data-choice="all-sans" onclick="toggleSelect(this)" style="display:block">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><div class="letter">A</div><div class="content"><h3>Helsans — ren teknik</h3><p>Allt i modern geometrisk sans. Stramast, mest "instrumentpanel". Prosan tappar lite litterär värme.</p></div></div>
+    <div class="typ t-sans">
+      <span class="chip">UI: sans · Prosa: sans · Meta: mono</span>
+      <div class="m"><div class="meta"><span class="who">Seraphina</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig och lutar sig över det skrovliga ekbordet. Ljuset från härden fångar ärret över hennes kind. "Visa mig kartan igen. Den norra passagen — något stämmer inte med avstånden."</div></div>
+      <div class="m"><div class="meta"><span class="who who2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett, men vecklar ändå ut pergamentet mellan ölstopen och slätar ut det med handflatan.</div></div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="duo" onclick="toggleSelect(this)" style="display:block">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><div class="letter">B</div><div class="content"><h3>Duo — teknisk ram, litterär kärna</h3><p>UI-krom och personanamn i sans/versaler (skeppets system); själva berättelsen i serif (boken ni skriver tillsammans). "Futuristiskt bibliotek" — behåller appens själ.</p></div></div>
+    <div class="typ t-duo">
+      <span class="chip">UI: sans · Prosa: serif · Meta: mono</span>
+      <div class="m"><div class="meta"><span class="who">Seraphina</span><span class="ts">23:14</span></div><div class="txt">Hon drar kåpan tätare omkring sig och lutar sig över det skrovliga ekbordet. Ljuset från härden fångar ärret över hennes kind. "Visa mig kartan igen. Den norra passagen — något stämmer inte med avstånden."</div></div>
+      <div class="m"><div class="meta"><span class="who who2">Kael</span><span class="ts">23:16</span></div><div class="txt">"Du litar fortfarande inte på mig?" Han ler snett, men vecklar ändå ut pergamentet mellan ölstopen och slätar ut det med handflatan.</div></div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="mono-accent" onclick="toggleSelect(this)" style="display:block">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><div class="letter">C</div><div class="content"><h3>Mono-accent — terminalkänsla</h3><p>Personanamn och metadata i monospace (loggbok/terminal), prosan i sans. Mest "hacker", risk att kännas kall för romantisk RP.</p></div></div>
+    <div class="typ t-mono">
+      <span class="chip">UI: sans · Prosa: sans · Namn+meta: mono</span>
+      <div class="m"><div class="meta"><span class="who">seraphina</span><span class="ts">23:14:07</span></div><div class="txt">Hon drar kåpan tätare omkring sig och lutar sig över det skrovliga ekbordet. <span class="em">Ljuset från härden fångar ärret över hennes kind.</span> "Visa mig kartan igen. Den norra passagen — något stämmer inte med avstånden."</div></div>
+      <div class="m"><div class="meta"><span class="who who2">kael</span><span class="ts">23:16:42</span></div><div class="txt">"Du litar fortfarande inte på mig?" <span class="em">Han ler snett, men vecklar ändå ut pergamentet mellan ölstopen.</span></div></div>
+    </div>
+  </div>
+</div>

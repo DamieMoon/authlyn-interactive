@@ -1,0 +1,113 @@
+<h2>Hur ska mobilnavigationen fungera?</h2>
+<p class="subtitle">Tre navigationsmönster i Void Station-stilen. Desktop behåller 3-kolumnslayouten (rail + sidofält + innehåll) oavsett — det här gäller telefonen.</p>
+
+<style>
+  .phones { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .phone { width: 230px; height: 420px; background: #0b0e14; border: 2px solid #222b3c; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 10px; color: #dde6f2; text-align: left; position: relative; flex-shrink: 0; }
+  .phone .top { display: flex; align-items: center; gap: 7px; padding: 10px 12px; background: #0e121a; border-bottom: 1px solid #1c2330; font-weight: 600; font-size: 11px; }
+  .phone .msgs { flex: 1; padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; overflow: hidden; }
+  .phone .m { background: #10141d; border: 1px solid #1a2130; border-radius: 10px; padding: 6px 8px; line-height: 1.4; }
+  .phone .m .who { font-weight: 700; font-size: 9px; }
+  .phone .m .w1 { color: #7fb6ff; } .phone .m .w2 { color: #8ee6c8; }
+  .phone .m .txt { color: #aab8cc; margin-top: 1px; }
+  .phone .comp { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #1c2330; background: #0e121a; align-items: center; }
+  .phone .inp { flex: 1; background: #0a0d13; border: 1px solid #222b3c; border-radius: 16px; padding: 6px 10px; color: #8a98ad; font-size: 9px; }
+  .phone .snd { width: 26px; height: 26px; border-radius: 50%; background: #4d9fff; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 8px #4d9fff66; }
+  .phone .tabs { display: flex; border-top: 1px solid #1c2330; background: #0e121a; padding: 6px 0 10px; }
+  .phone .tab { flex: 1; text-align: center; color: #5d6b80; font-size: 8px; }
+  .phone .tab .ic { font-size: 15px; display: block; margin-bottom: 2px; }
+  .phone .tab.on { color: #4d9fff; text-shadow: 0 0 8px #4d9fff88; }
+  .phone .badge { position: absolute; background: #4d9fff; color: #fff; font-size: 7px; border-radius: 8px; padding: 1px 4px; box-shadow: 0 0 6px #4d9fff; }
+  .drawer { position: absolute; top: 0; bottom: 0; left: 0; width: 64%; background: #0e121af2; border-right: 1px solid #2a3548; padding: 12px 10px; z-index: 2; backdrop-filter: blur(4px); }
+  .drawer .srv { display: flex; gap: 7px; margin-bottom: 10px; }
+  .drawer .g { width: 26px; height: 26px; border-radius: 9px; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .drawer .g.on { border-color: #4d9fff; box-shadow: 0 0 8px #4d9fff55; }
+  .drawer .ch { padding: 6px 8px; border-radius: 7px; color: #8a98ad; font-size: 10px; }
+  .drawer .ch.on { background: #131927; color: #dde6f2; border-left: 2px solid #4d9fff; }
+  .list-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #131927; }
+  .list-row .g { width: 28px; height: 28px; border-radius: 10px; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+  .list-row .nm { font-weight: 600; font-size: 10px; }
+  .list-row .sub { color: #5d6b80; font-size: 8.5px; }
+  .list-row .chev { margin-left: auto; color: #3d4860; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #0e121a; border-top: 1px solid #2a3548; border-radius: 14px 14px 0 0; padding: 8px 12px 14px; z-index: 2; box-shadow: 0 -8px 30px #00000088; }
+  .sheet .grab { width: 30px; height: 3px; border-radius: 2px; background: #2a3548; margin: 0 auto 8px; }
+  .sheet .ch { padding: 7px 8px; border-radius: 7px; color: #8a98ad; font-size: 10px; }
+  .sheet .ch.on { background: #131927; color: #dde6f2; border-left: 2px solid #4d9fff; }
+  .cap { margin-top: 10px; max-width: 230px; }
+  .cap h3 { margin: 0 0 4px; }
+  .cap p { font-size: 12px; line-height: 1.45; margin: 0; }
+  .navopt { display: flex; flex-direction: column; align-items: center; cursor: pointer; border: 2px solid transparent; border-radius: 16px; padding: 12px; }
+  .navopt.selected { border-color: #4d9fff; background: rgba(77,159,255,0.06); }
+</style>
+
+<div class="phones">
+
+  <div class="navopt" data-choice="bottom-tabs" onclick="toggleSelect(this)">
+    <div class="phone">
+      <div class="top">⌁ Nova <span style="color:#3d4860">›</span> # tavernan</div>
+      <div class="msgs">
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">"Visa mig kartan igen." Hon lutar sig fram över bordet.</div></div>
+        <div class="m"><span class="who w2">Kael</span><div class="txt">Han ler snett och vecklar ut pergamentet mellan ölstopen.</div></div>
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">Fingret stannar vid ruinen norr om floden. "Här."</div></div>
+      </div>
+      <div class="comp"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+      <div class="tabs">
+        <div class="tab on"><span class="ic">▣</span>Chatt<span class="badge" style="top:auto;margin-left:6px">3</span></div>
+        <div class="tab"><span class="ic">◎</span>Servrar</div>
+        <div class="tab"><span class="ic">◇</span>Vänner</div>
+        <div class="tab"><span class="ic">✦</span>Personas</div>
+      </div>
+    </div>
+    <div class="cap">
+      <h3>A — Bottom-tabs</h3>
+      <p>Native app-känsla: tumvänlig tabbrad längst ner (Chatt / Servrar / Vänner / Personas). Kanalbyte via toppraden eller Servrar-tabben. Störst strukturell förändring.</p>
+    </div>
+  </div>
+
+  <div class="navopt" data-choice="drawer-plus" onclick="toggleSelect(this)">
+    <div class="phone">
+      <div class="drawer">
+        <div class="srv"><div class="g on">N</div><div class="g">V</div><div class="g">+</div></div>
+        <div class="ch on"># tavernan</div>
+        <div class="ch"># smedjan</div>
+        <div class="ch"># biblioteket</div>
+        <div class="ch" style="margin-top:8px;color:#3d4860">◇ vänner · ✦ personas</div>
+      </div>
+      <div class="top" style="opacity:0.5">☰ # tavernan</div>
+      <div class="msgs" style="opacity:0.5">
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">"Visa mig kartan igen."</div></div>
+        <div class="m"><span class="who w2">Kael</span><div class="txt">Han vecklar ut pergamentet.</div></div>
+      </div>
+      <div class="comp" style="opacity:0.5"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+    </div>
+    <div class="cap">
+      <h3>B — Förbättrad svep-låda</h3>
+      <p>Behåller dagens mönster (svep från kanten / ☰) men gör lådan till EN enhet med servrar + kanaler + genvägar, större träffytor, frostat glas. Minst förändring.</p>
+    </div>
+  </div>
+
+  <div class="navopt" data-choice="channel-sheet" onclick="toggleSelect(this)">
+    <div class="phone">
+      <div class="top">⌁ Nova <span style="color:#4d9fff">▾</span> # tavernan</div>
+      <div class="msgs" style="opacity:0.45">
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">"Visa mig kartan igen."</div></div>
+      </div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div style="display:flex;gap:7px;margin-bottom:8px">
+          <div class="list-row" style="border:none;padding:0;gap:6px"><div class="g" style="border-color:#4d9fff;box-shadow:0 0 8px #4d9fff55">N</div><div class="g">V</div><div class="g">+</div></div>
+        </div>
+        <div class="ch on"># tavernan</div>
+        <div class="ch"># smedjan <span style="float:right;color:#4d9fff">●&nbsp;2</span></div>
+        <div class="ch"># biblioteket</div>
+        <div class="ch" style="color:#3d4860;margin-top:6px">◇ vänner · ✦ personas · ⚙ konto</div>
+      </div>
+      <div class="comp"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+    </div>
+    <div class="cap">
+      <h3>C — Bottom-sheet</h3>
+      <p>Chatten äger hela skärmen; tryck på kanalnamnet (eller svep upp) öppnar ett bottenark med servrar/kanaler/genvägar. Modernt mobilt mönster, en hand räcker.</p>
+    </div>
+  </div>
+
+</div>

@@ -1,0 +1,130 @@
+<h2>Hybriden: A + C tillsammans</h2>
+<p class="subtitle">Bottom-tabs är appens skelett (som A). Inne i Chatt-tabben byter du kanal blixtsnabbt via ett bottenark (som C) — du lämnar aldrig chatten för att hoppa mellan kanaler. Servrar-tabben finns kvar för att utforska/hantera servrar i lugn och ro.</p>
+
+<style>
+  .phones { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .phone { width: 230px; height: 420px; background: #0b0e14; border: 2px solid #222b3c; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; font-family: -apple-system, 'Segoe UI', sans-serif; font-size: 10px; color: #dde6f2; text-align: left; position: relative; flex-shrink: 0; }
+  .phone .top { display: flex; align-items: center; gap: 7px; padding: 10px 12px; background: #0e121a; border-bottom: 1px solid #1c2330; font-weight: 600; font-size: 11px; }
+  .phone .msgs { flex: 1; padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; overflow: hidden; }
+  .phone .m { background: #10141d; border: 1px solid #1a2130; border-radius: 10px; padding: 6px 8px; line-height: 1.4; }
+  .phone .m .who { font-weight: 700; font-size: 9px; }
+  .phone .m .w1 { color: #7fb6ff; } .phone .m .w2 { color: #8ee6c8; }
+  .phone .m .txt { color: #aab8cc; margin-top: 1px; }
+  .phone .comp { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #1c2330; background: #0e121a; align-items: center; }
+  .phone .inp { flex: 1; background: #0a0d13; border: 1px solid #222b3c; border-radius: 16px; padding: 6px 10px; color: #8a98ad; font-size: 9px; }
+  .phone .snd { width: 26px; height: 26px; border-radius: 50%; background: #4d9fff; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 0 8px #4d9fff66; }
+  .phone .tabs { display: flex; border-top: 1px solid #1c2330; background: #0e121a; padding: 6px 0 10px; }
+  .phone .tab { flex: 1; text-align: center; color: #5d6b80; font-size: 8px; position: relative; }
+  .phone .tab .ic { font-size: 15px; display: block; margin-bottom: 2px; }
+  .phone .tab.on { color: #4d9fff; text-shadow: 0 0 8px #4d9fff88; }
+  .phone .tab .bdg { position: absolute; top: -3px; right: 14px; background: #4d9fff; color: #fff; font-size: 7px; border-radius: 8px; padding: 1px 4px; box-shadow: 0 0 6px #4d9fff; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #0e121afa; border-top: 1px solid #2a3548; border-radius: 14px 14px 0 0; padding: 8px 12px 14px; z-index: 2; box-shadow: 0 -8px 30px #000000aa; backdrop-filter: blur(6px); }
+  .sheet .grab { width: 30px; height: 3px; border-radius: 2px; background: #2a3548; margin: 0 auto 8px; }
+  .sheet .srv { display: flex; gap: 7px; margin-bottom: 9px; }
+  .sheet .g { width: 26px; height: 26px; border-radius: 9px; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+  .sheet .g.on { border-color: #4d9fff; box-shadow: 0 0 8px #4d9fff55; }
+  .sheet .ch { padding: 7px 8px; border-radius: 7px; color: #8a98ad; font-size: 10px; }
+  .sheet .ch.on { background: #131927; color: #dde6f2; border-left: 2px solid #4d9fff; }
+  .srvlist { flex: 1; overflow: hidden; }
+  .list-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #131927; }
+  .list-row .g { width: 30px; height: 30px; border-radius: 10px; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .list-row .nm { font-weight: 600; font-size: 10px; }
+  .list-row .sub { color: #5d6b80; font-size: 8.5px; }
+  .list-row .chev { margin-left: auto; color: #3d4860; }
+  .cap { margin-top: 10px; max-width: 230px; }
+  .cap h3 { margin: 0 0 4px; font-size: 13px; }
+  .cap p { font-size: 11.5px; line-height: 1.45; margin: 0; color: inherit; }
+  .stepnum { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; background: #4d9fff22; border: 1px solid #4d9fff; color: #4d9fff; font-size: 9px; align-items: center; justify-content: center; margin-right: 5px; }
+</style>
+
+<div class="phones">
+
+  <div>
+    <div class="phone">
+      <div class="top">⌁ Nova <span style="color:#4d9fff">▾</span> # tavernan</div>
+      <div class="msgs">
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">"Visa mig kartan igen." Hon lutar sig fram över bordet.</div></div>
+        <div class="m"><span class="who w2">Kael</span><div class="txt">Han ler snett och vecklar ut pergamentet mellan ölstopen.</div></div>
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">Fingret stannar vid ruinen norr om floden. "Här."</div></div>
+        <div class="m"><span class="who w2">Kael</span><div class="txt">"Då rider vi i gryningen."</div></div>
+      </div>
+      <div class="comp"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+      <div class="tabs">
+        <div class="tab on"><span class="ic">▣</span>Chatt</div>
+        <div class="tab"><span class="ic">◎</span>Servrar<span class="bdg">2</span></div>
+        <div class="tab"><span class="ic">◇</span>Vänner</div>
+        <div class="tab"><span class="ic">✦</span>Personas</div>
+      </div>
+    </div>
+    <div class="cap">
+      <h3><span class="stepnum">1</span>Chatt-tabben</h3>
+      <p>Rollspelstexten äger skärmen. Tabbraden ger alltid tummen direktåtkomst till appens fyra världar. Olästa-räknare glöder på tabbarna.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="phone">
+      <div class="top" style="opacity:0.4">⌁ Nova <span style="color:#4d9fff">▾</span> # tavernan</div>
+      <div class="msgs" style="opacity:0.4">
+        <div class="m"><span class="who w1">Seraphina</span><div class="txt">"Visa mig kartan igen."</div></div>
+      </div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="srv"><div class="g on">N</div><div class="g">V</div><div class="g">E</div><div class="g">+</div></div>
+        <div class="ch on"># tavernan</div>
+        <div class="ch"># smedjan <span style="float:right;color:#4d9fff">● 2</span></div>
+        <div class="ch"># biblioteket</div>
+        <div class="ch"># stallet</div>
+      </div>
+      <div class="comp" style="opacity:0.4"><div class="inp">skriv något…</div><div class="snd">↑</div></div>
+      <div class="tabs" style="opacity:0.4">
+        <div class="tab on"><span class="ic">▣</span>Chatt</div>
+        <div class="tab"><span class="ic">◎</span>Servrar</div>
+        <div class="tab"><span class="ic">◇</span>Vänner</div>
+        <div class="tab"><span class="ic">✦</span>Personas</div>
+      </div>
+    </div>
+    <div class="cap">
+      <h3><span class="stepnum">2</span>Kanalbyte = bottenark</h3>
+      <p>Tryck på kanalnamnet uppe (eller svep upp på det) → arket glider upp med serverrad + kanallista. Byt kanal med ett tryck, arket stängs, du är kvar i chatten. Det här är C, inbäddat i A.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="phone">
+      <div class="top">◎ Servrar</div>
+      <div class="srvlist">
+        <div class="list-row"><div class="g" style="border-color:#4d9fff;box-shadow:0 0 8px #4d9fff44">N</div><div><div class="nm">Nova</div><div class="sub">4 kanaler · 2 olästa</div></div><div class="chev">›</div></div>
+        <div class="list-row"><div class="g">V</div><div><div class="nm">Vindarnas hall</div><div class="sub">3 kanaler</div></div><div class="chev">›</div></div>
+        <div class="list-row"><div class="g">E</div><div><div class="nm">Eldfästet</div><div class="sub">6 kanaler · 1 oläst</div></div><div class="chev">›</div></div>
+        <div class="list-row" style="color:#4d9fff"><div class="g" style="border-style:dashed">+</div><div><div class="nm" style="color:#4d9fff">Skapa server</div></div></div>
+      </div>
+      <div class="tabs">
+        <div class="tab"><span class="ic">▣</span>Chatt</div>
+        <div class="tab on"><span class="ic">◎</span>Servrar</div>
+        <div class="tab"><span class="ic">◇</span>Vänner</div>
+        <div class="tab"><span class="ic">✦</span>Personas</div>
+      </div>
+    </div>
+    <div class="cap">
+      <h3><span class="stepnum">3</span>Servrar-tabben</h3>
+      <p>Här bor det "långsamma": utforska servrar, skapa/byt namn/ordna om, hantera kanaler, papperskorg. Tunga hanteringsflöden slipper trängas i arket.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top: 24px">
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="letter">H</div>
+    <div class="content"><h3>Hybriden — tabs + ark (rekommenderas)</h3><p>A:s skelett, C:s hastighet. Mest jobb av de tre, men det är så moderna chattappar löser exakt din tvekan.</p></div>
+  </div>
+  <div class="option" data-choice="pure-a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>Ren A — bara bottom-tabs</h3><p>Kanalbyte sker via Servrar-tabben i stället för ark. Enklare att bygga, men kanalhopp kostar två tryck extra och du tappar chatt-kontexten.</p></div>
+  </div>
+  <div class="option" data-choice="pure-c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content"><h3>Ren C — bara bottenark</h3><p>Ingen tabbrad alls; allt nås via arket. Maximal yta åt chatten, men Vänner/Personas göms en nivå ner.</p></div>
+  </div>
+</div>

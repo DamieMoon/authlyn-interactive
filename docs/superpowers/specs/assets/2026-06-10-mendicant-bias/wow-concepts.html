@@ -1,0 +1,222 @@
+<h2>Wow-koncepten: nästa nivå</h2>
+<p class="subtitle">Nio koncept med levande demos. Klicka i alla du vill ha — jag har märkt var de hör hemma: <b style="color:#8a98ad">[STD]</b> = subtil version även i Standard, <b style="color:#7fb6ff">[ÖG]</b> = endast Ögongodis. Rör musen över koncept F!</p>
+
+<style>
+  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  .demo { height: 150px; border-radius: 12px; background: #0b0e14; border: 1px solid #1a2130; overflow: hidden; position: relative; margin-bottom: 10px; }
+  .tier { font-size: 9px; font-family: 'SF Mono', Menlo, monospace; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: 2px; }
+  .t-std { background: #1a2130; color: #8a98ad; }
+  .t-og { background: rgba(77,159,255,0.15); color: #7fb6ff; border: 1px solid #4d9fff44; }
+
+  /* A: Warp */
+  @keyframes warpstreak { 0% { transform: scaleX(0.05); opacity: 0; } 12% { opacity: 1; } 30% { transform: scaleX(1.6); opacity: 1; } 45% { transform: scaleX(3); opacity: 0; } 100% { transform: scaleX(3); opacity: 0; } }
+  @keyframes warpfade { 0%, 38% { opacity: 1; } 48%, 62% { opacity: 0; } 75%, 100% { opacity: 1; } }
+  .warp-stars { position: absolute; inset: 0; }
+  .warp-stars .st { position: absolute; height: 1.5px; border-radius: 1px; background: linear-gradient(90deg, transparent, #aee9ff, transparent); animation: warpstreak 3.2s var(--wd, 0s) ease-in infinite; transform-origin: left; }
+  .warp-ui { position: absolute; inset: 18px 24px; background: #10141dcc; border: 1px solid #1a2130; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #8a98ad; font-size: 11px; animation: warpfade 3.2s infinite; backdrop-filter: blur(4px); }
+
+  /* B: Scenljus */
+  @keyframes scene1 { 0%,100% { opacity: 0.7; } 50% { opacity: 0.2; } }
+  @keyframes scene2 { 0%,100% { opacity: 0.2; } 50% { opacity: 0.7; } }
+  .scene-l { position: absolute; top: -30px; left: -30px; width: 60%; height: 160%; background: radial-gradient(ellipse, #7fb6ff33, transparent 70%); animation: scene1 6s ease-in-out infinite; }
+  .scene-r { position: absolute; bottom: -30px; right: -30px; width: 60%; height: 160%; background: radial-gradient(ellipse, #ffb47f33, transparent 70%); animation: scene2 6s ease-in-out infinite; }
+  .scene-msg { position: absolute; left: 16px; right: 16px; background: #10141dee; border: 1px solid #1a2130; border-radius: 10px; padding: 7px 10px; font-size: 10px; color: #b9c4d6; }
+  .scene-msg b { font-size: 8.5px; letter-spacing: 0.08em; display: block; margin-bottom: 2px; }
+
+  /* C: Materialisering */
+  @keyframes matrev { 0% { clip-path: inset(0 0 100% 0); opacity: 0.3; } 35% { clip-path: inset(0 0 0 0); opacity: 1; } 80% { clip-path: inset(0 0 0 0); opacity: 1; } 100% { clip-path: inset(0 0 0 0); opacity: 0; } }
+  @keyframes matline { 0% { top: 0%; opacity: 1; } 35% { top: 100%; opacity: 1; } 40%,100% { opacity: 0; } }
+  @keyframes matdots { 0%, 20% { opacity: 0.9; } 40%, 100% { opacity: 0; } }
+  .mat-wrap { position: absolute; inset: 30px 20px; }
+  .mat-card { position: absolute; inset: 0; background: #10141dee; border: 1px solid #24365c; border-radius: 10px; padding: 8px 10px; font-size: 10px; color: #b9c4d6; animation: matrev 3.6s infinite; }
+  .mat-card b { color: #8ee6c8; font-size: 8.5px; letter-spacing: 0.08em; display: block; margin-bottom: 2px; }
+  .mat-scan { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #4d9fff, transparent); box-shadow: 0 0 12px #4d9fff; animation: matline 3.6s infinite; }
+  .mat-dot { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #7fb6ff; animation: matdots 3.6s infinite; }
+
+  /* D: Konstellation */
+  @keyframes orbit { 0% { transform: rotate(0deg) translateX(13px) rotate(0deg); } 100% { transform: rotate(360deg) translateX(13px) rotate(-360deg); } }
+  @keyframes starpulse { 0%,100% { opacity: 0.5; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+  .const-comp { position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; gap: 7px; align-items: center; }
+  .const-inp { flex: 1; background: rgba(8,11,17,0.7); border: 1px solid #222b3c; border-radius: 15px; padding: 8px 11px; color: #5d6b80; font-size: 10px; }
+  .const-stars { position: absolute; left: 30px; bottom: 52px; width: 26px; height: 26px; }
+  .const-stars .s { position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%; animation: orbit 3.5s linear infinite; }
+  .const-stars .s::after { content: ''; position: absolute; inset: 0; border-radius: 50%; animation: starpulse 1.4s ease-in-out infinite; box-shadow: 0 0 8px currentColor; background: currentColor; }
+  .const-lbl { position: absolute; left: 64px; bottom: 56px; font-size: 9px; color: #5d6b80; }
+
+  /* E: Laddande sänd */
+  @keyframes chargering { 0% { background: conic-gradient(#4d9fff 0deg, transparent 0deg); } 55% { background: conic-gradient(#4d9fff 360deg, transparent 360deg); } 60% { background: conic-gradient(#8ee6c8 360deg, transparent 360deg); } 100% { background: conic-gradient(#8ee6c8 360deg, transparent 360deg); } }
+  @keyframes sendpulse { 0%, 58% { transform: scale(0); opacity: 0.7; } 85% { transform: scale(5); opacity: 0; } 100% { transform: scale(5); opacity: 0; } }
+  @keyframes typetext { 0% { width: 0; } 50%, 100% { width: 75%; } }
+  .chg-comp { position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; }
+  .chg-inp { flex: 1; background: rgba(8,11,17,0.7); border: 1px solid #222b3c; border-radius: 15px; padding: 8px 11px; font-size: 10px; overflow: hidden; }
+  .chg-inp .t { display: block; white-space: nowrap; overflow: hidden; color: #b9c4d6; animation: typetext 4s steps(24) infinite; }
+  .chg-btn { position: relative; width: 32px; height: 32px; flex-shrink: 0; }
+  .chg-ring { position: absolute; inset: 0; border-radius: 50%; animation: chargering 4s infinite; -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%); mask: radial-gradient(circle, transparent 58%, #000 60%); }
+  .chg-core { position: absolute; inset: 3px; border-radius: 50%; background: linear-gradient(135deg, #4d9fff, #6b4dff); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .chg-wave { position: absolute; inset: 0; border-radius: 50%; border: 2px solid #8ee6c8; animation: sendpulse 4s infinite; }
+
+  /* F: Parallax */
+  .plx { perspective: 600px; }
+  .plx-card { position: absolute; inset: 22px 50px; border-radius: 14px; background: rgba(20,26,40,0.6); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 10px 30px #00000077; transition: transform 0.15s ease-out; transform-style: preserve-3d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .plx-card .deep { transform: translateZ(30px); font-size: 11px; color: #dde6f2; font-weight: 700; letter-spacing: 0.06em; }
+  .plx-card .deeper { transform: translateZ(50px); font-size: 9px; color: #7fb6ff; text-shadow: 0 0 8px #4d9fff; font-family: 'SF Mono', Menlo, monospace; }
+  .plx-spec { position: absolute; inset: 0; border-radius: 14px; background: radial-gradient(circle at var(--mx, 50%) var(--my, 30%), rgba(255,255,255,0.14), transparent 55%); pointer-events: none; }
+
+  /* G: Server-tint */
+  .tintbars { position: absolute; inset: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .tintbar { flex: 1; border-radius: 9px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 10px; font-weight: 700; border: 1px solid; backdrop-filter: blur(6px); }
+  .tintbar .gi { width: 20px; height: 20px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #fff; }
+  .tintbar .live { margin-left: auto; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; font-weight: 400; }
+
+  /* H: Nebulosa */
+  @keyframes nebdrift { 0% { transform: translate(0,0) scale(1) rotate(0deg); } 33% { transform: translate(12px,-8px) scale(1.15) rotate(2deg); } 66% { transform: translate(-10px,6px) scale(0.95) rotate(-2deg); } 100% { transform: translate(0,0) scale(1) rotate(0deg); } }
+  @keyframes nebhue { 0%,100% { filter: hue-rotate(0deg); } 50% { filter: hue-rotate(40deg); } }
+  .neb { position: absolute; inset: 0; animation: nebhue 14s ease-in-out infinite; }
+  .neb .n { position: absolute; border-radius: 50%; animation: nebdrift 11s ease-in-out infinite; }
+  .neb .n1 { top: -20%; left: 5%; width: 65%; height: 90%; background: radial-gradient(circle, #2b3d7a66, transparent 65%); }
+  .neb .n2 { bottom: -25%; right: 0%; width: 70%; height: 100%; background: radial-gradient(circle, #1a4a5a55, transparent 65%); animation-delay: -4s; }
+  .neb .n3 { top: 20%; left: 35%; width: 45%; height: 60%; background: radial-gradient(circle, #5a2b7a44, transparent 65%); animation-delay: -7s; }
+  .neb .star { position: absolute; width: 1.5px; height: 1.5px; border-radius: 50%; background: #cfe4ff; animation: starpulse 3s ease-in-out infinite; }
+  .neb-lbl { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 9px; color: #8a98ad; font-family: 'SF Mono', Menlo, monospace; }
+
+  /* I: Radialmeny */
+  @keyframes blossom { 0%, 15% { transform: scale(0) rotate(-20deg); opacity: 0; } 35% { transform: scale(1.08) rotate(0deg); opacity: 1; } 45%, 75% { transform: scale(1) rotate(0deg); opacity: 1; } 95%, 100% { transform: scale(0) rotate(10deg); opacity: 0; } }
+  @keyframes fingertap { 0%, 10% { transform: scale(0.6); opacity: 0; } 18% { transform: scale(1); opacity: 0.5; } 30%, 100% { opacity: 0; transform: scale(1.6); } }
+  .rad-msg { position: absolute; left: 20px; right: 20px; top: 26px; background: #10141dee; border: 1px solid #1a2130; border-radius: 10px; padding: 8px 10px; font-size: 10px; color: #b9c4d6; }
+  .rad-msg b { color: #7fb6ff; font-size: 8.5px; display: block; letter-spacing: 0.08em; margin-bottom: 2px; }
+  .rad-tap { position: absolute; top: 64px; left: 50%; width: 34px; height: 34px; margin-left: -17px; border-radius: 50%; border: 2px solid #8a98ad; animation: fingertap 4s infinite; }
+  .rad-item { position: absolute; top: 64px; left: 50%; width: 34px; height: 34px; margin: -17px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; background: rgba(25,33,52,0.85); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(8px); box-shadow: 0 4px 14px #00000088; animation: blossom 4s var(--bd, 0s) cubic-bezier(0.2, 0.9, 0.3, 1.3) infinite; }
+</style>
+
+<div class="options cgrid" data-multiselect>
+
+  <div class="option" data-choice="warp" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="warp-stars">
+        <div class="st" style="top:15%;left:-10%;width:70%;--wd:0s"></div>
+        <div class="st" style="top:35%;left:5%;width:55%;--wd:0.08s"></div>
+        <div class="st" style="top:55%;left:-5%;width:65%;--wd:0.04s"></div>
+        <div class="st" style="top:75%;left:10%;width:50%;--wd:0.12s"></div>
+        <div class="st" style="top:25%;left:30%;width:60%;--wd:0.06s"></div>
+        <div class="st" style="top:65%;left:25%;width:58%;--wd:0.1s"></div>
+      </div>
+      <div class="warp-ui"># tavernan → # smedjan</div>
+    </div>
+    <div class="content"><h3>A — Warp-hopp <span class="tier t-std">STD (lätt)</span><span class="tier t-og">ÖG (full)</span></h3><p>Kanal-/serverbyte blir ett FTL-hopp: ljusstrimmor sveper, nya kanalen "dockar in". I Standard en diskret 200ms-version, i Ögongodis hela varpfältet.</p></div>
+  </div>
+
+  <div class="option" data-choice="scene-light" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="scene-l"></div><div class="scene-r"></div>
+      <div class="scene-msg" style="top:18px"><b style="color:#7fb6ff">SERAPHINA</b>"Visa mig kartan igen."</div>
+      <div class="scene-msg" style="bottom:18px"><b style="color:#ffb47f">THORNE</b>"Skalan är fel — titta på flodpasset."</div>
+    </div>
+    <div class="content"><h3>B — Scenljus <span class="tier t-og">ÖG</span></h3><p>Kanalen ljussätts ambient av de aktiva talarnas persona-färger — som scenbelysning som andas och skiftar när nya karaktärer tar plats i samtalet. Berättelsens stämning blir rummets.</p></div>
+  </div>
+
+  <div class="option" data-choice="materialize" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="mat-wrap">
+        <div class="mat-card"><b>KAEL</b>"Ni två är omöjliga." Han vecklar ut pergamentet mellan ölstopen.</div>
+        <div class="mat-scan"></div>
+        <div class="mat-dot" style="top:20%;left:30%"></div>
+        <div class="mat-dot" style="top:60%;left:70%;animation-delay:0.1s"></div>
+        <div class="mat-dot" style="top:40%;left:85%;animation-delay:0.2s"></div>
+      </div>
+    </div>
+    <div class="content"><h3>C — Hologram-materialisering <span class="tier t-og">ÖG</span></h3><p>Inkommande meddelanden materialiseras med svepande skanningslinje + partiklar som koalescerar — som en Forerunner-projektion som tar form. (Standard behåller fjäder-inglidningen.)</p></div>
+  </div>
+
+  <div class="option" data-choice="constellation" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="const-stars">
+        <div class="s" style="color:#7fb6ff;animation-delay:0s"></div>
+        <div class="s" style="color:#8ee6c8;animation-delay:-1.2s"></div>
+        <div class="s" style="color:#c4a8ff;animation-delay:-2.3s"></div>
+      </div>
+      <div class="const-lbl">Seraphina, Kael & Vesper skriver…</div>
+      <div class="const-comp"><div class="const-inp">skriv som Thorne…</div></div>
+    </div>
+    <div class="content"><h3>D — Konstellations-närvaro <span class="tier t-std">STD</span></h3><p>Typing-indikatorn blir en liten konstellation: en omloppsstjärna per skrivande person, i deras persona-färg. Tre som skriver = tre stjärnor i bana. Informativt OCH vackert — ersätter prickarna helt.</p></div>
+  </div>
+
+  <div class="option" data-choice="charge-send" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="chg-comp">
+        <div class="chg-inp"><span class="t">Thorne skjuter sitt stop åt sidan…</span></div>
+        <div class="chg-btn"><div class="chg-ring"></div><div class="chg-core">↑</div><div class="chg-wave"></div></div>
+      </div>
+    </div>
+    <div class="content"><h3>E — Laddande sändknapp <span class="tier t-std">STD</span></h3><p>Ringen runt sändknappen fylls medan du skriver (längre text = mer laddning); vid sänd avfyras en pulsvåg som följer meddelandet upp i flödet. Subtil dopaminmaskin.</p></div>
+  </div>
+
+  <div class="option" data-choice="parallax" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo plx" id="plxdemo">
+      <div class="plx-card" id="plxcard">
+        <div class="plx-spec" id="plxspec"></div>
+        <div class="deep">RÖR MUSEN HÄR</div>
+        <div class="deeper">⌁ DJUP-LAGER AKTIVT</div>
+      </div>
+    </div>
+    <div class="content"><h3>F — Holografiskt djup <span class="tier t-og">ÖG</span></h3><p>Glaslagren får äkta djup: på mobil lutar de subtilt med gyroskopet, på desktop följer de musen. Spekulära highlights vandrar över glaset som om en ljuskälla fanns i rummet.</p></div>
+  </div>
+
+  <div class="option" data-choice="server-tint" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="tintbars">
+        <div class="tintbar" style="background:rgba(77,120,255,0.10);border-color:rgba(77,120,255,0.35);color:#9fb6ff"><div class="gi" style="background:linear-gradient(135deg,#2a4a8a,#4d9fff)">N</div>Nova<span class="live" style="color:#7fb6ff">ACCENT: ISBLÅ</span></div>
+        <div class="tintbar" style="background:rgba(217,138,77,0.10);border-color:rgba(217,138,77,0.35);color:#ffd0a8"><div class="gi" style="background:linear-gradient(135deg,#6a3a2a,#d98a4d)">E</div>Eldfästet<span class="live" style="color:#ffb47f">ACCENT: GLÖD</span></div>
+        <div class="tintbar" style="background:rgba(77,217,138,0.10);border-color:rgba(77,217,138,0.35);color:#a8ffd0"><div class="gi" style="background:linear-gradient(135deg,#2a6a4a,#4dd98a)">V</div>Viridian<span class="live" style="color:#8ee6c8">ACCENT: SKOG</span></div>
+      </div>
+    </div>
+    <div class="content"><h3>G — Servervärldars färgsjäl <span class="tier t-std">STD</span></h3><p>Varje servers accent härleds från dess ikons dominanta färg — kromen, glöden och markörerna tonas om per värld. Varje rollspelsvärld FÅR en egen atmosfär, automatiskt.</p></div>
+  </div>
+
+  <div class="option" data-choice="nebula" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="neb">
+        <div class="n n1"></div><div class="n n2"></div><div class="n n3"></div>
+        <div class="star" style="top:20%;left:15%"></div>
+        <div class="star" style="top:35%;left:75%;animation-delay:-1s"></div>
+        <div class="star" style="top:65%;left:40%;animation-delay:-2s"></div>
+        <div class="star" style="top:15%;left:55%;animation-delay:-0.5s"></div>
+        <div class="star" style="top:75%;left:80%;animation-delay:-1.5s"></div>
+      </div>
+      <div class="neb-lbl">LEVANDE NEBULOSA · WEBGL-SHADER · PAUSAS NÄR FLIKEN GÖMS</div>
+    </div>
+    <div class="content"><h3>H — Shader-nebulosa <span class="tier t-og">ÖG (tyngst)</span></h3><p>Den riktiga toppnivån: en liten WebGL-fragmentshader renderar en långsamt evolverande nebulosa/stjärnfält som levande bakgrund — äkta procedurell rymd, inte CSS-blobbar. Pausas automatiskt när fliken är dold. (Demon här är en CSS-approximation.)</p></div>
+  </div>
+
+  <div class="option" data-choice="radial-menu" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="rad-msg"><b>SERAPHINA · 23:14</b>Hon drar kåpan tätare omkring sig. "Visa mig kartan igen."</div>
+      <div class="rad-tap"></div>
+      <div class="rad-item" style="--bd:0.00s; transform-origin: 17px 17px; translate: -46px 26px;">↩</div>
+      <div class="rad-item" style="--bd:0.05s; translate: -16px 44px;">✎</div>
+      <div class="rad-item" style="--bd:0.10s; translate: 16px 44px;">⧉</div>
+      <div class="rad-item" style="--bd:0.15s; translate: 46px 26px;">🗑</div>
+    </div>
+    <div class="content"><h3>I — Radial långtrycksmeny <span class="tier t-std">STD</span></h3><p>Långtryck på ett meddelande → en radial glasmeny blommar ut runt fingret (svara/redigera/kopiera/radera). Byggd för tummen, ersätter hover-knappar på touch. Ren UX-vinst, inte bara godis.</p></div>
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    var demo = document.getElementById('plxdemo');
+    var card = document.getElementById('plxcard');
+    var spec = document.getElementById('plxspec');
+    if (!demo || !card) return;
+    demo.addEventListener('pointermove', function(e) {
+      var r = demo.getBoundingClientRect();
+      var x = (e.clientX - r.left) / r.width - 0.5;
+      var y = (e.clientY - r.top) / r.height - 0.5;
+      card.style.transform = 'rotateY(' + (x * 16) + 'deg) rotateX(' + (-y * 16) + 'deg)';
+      spec.style.setProperty('--mx', ((x + 0.5) * 100) + '%');
+      spec.style.setProperty('--my', ((y + 0.5) * 100) + '%');
+    });
+    demo.addEventListener('pointerleave', function() {
+      card.style.transform = 'rotateY(0deg) rotateX(0deg)';
+    });
+  })();
+</script>
