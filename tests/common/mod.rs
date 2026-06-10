@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::{to_bytes, Body};
-use axum::http::{header, Method, Request, StatusCode};
+use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::Router;
 use rand::RngCore;
 use serde_json::Value;
@@ -248,9 +248,14 @@ pub async fn register_account(router: &Router, username: &str, password: &str) -
     cookie.expect("register must set a session cookie")
 }
 
-/// Open an SSE response against the in-process router. Returns the status and
-/// the still-streaming body — read frames with [`next_sse_data`].
-pub async fn open_sse(router: &Router, path: &str, cookie: Option<&str>) -> (StatusCode, Body) {
+/// Open an SSE response against the in-process router. Returns the status,
+/// the response headers, and the still-streaming body — read frames with
+/// [`next_sse_data`].
+pub async fn open_sse(
+    router: &Router,
+    path: &str,
+    cookie: Option<&str>,
+) -> (StatusCode, HeaderMap, Body) {
     let mut req = Request::builder()
         .method(Method::GET)
         .uri(path)
@@ -263,22 +268,47 @@ pub async fn open_sse(router: &Router, path: &str, cookie: Option<&str>) -> (Sta
         .oneshot(req.body(Body::empty()).expect("request"))
         .await
         .expect("sse oneshot");
-    (resp.status(), resp.into_body())
+    let (parts, body) = resp.into_parts();
+    (parts.status, parts.headers, body)
+}
+
+/// Outcome of one `next_sse_data` read. Negative (privacy) tests must assert
+/// `Timeout` specifically — `Closed` would mean the server dropped the stream,
+/// which is NOT proof that an event was withheld.
+#[derive(Debug)]
+pub enum SseRead {
+    /// A `data:` line arrived and parsed as JSON.
+    Data(serde_json::Value),
+    /// The window elapsed with the stream still open and silent.
+    Timeout,
+    /// The body stream ended (server closed the connection).
+    Closed,
 }
 
 /// Read frames until one `data: <json>` line arrives (skipping keep-alive
-/// comments), or `within` elapses. Returns the parsed JSON, or None on timeout.
-pub async fn next_sse_data(body: &mut Body, within: std::time::Duration) -> Option<Value> {
+/// comments), `within` elapses, or the stream ends — see [`SseRead`].
+///
+/// Parser assumptions: this expects axum's SSE serializer output — one
+/// single-line `data: <json>` per event and `: ` keep-alive comment lines.
+/// Frames are decoded with per-frame lossy UTF-8, which is fine while
+/// `SyncEvent` payloads carry only ASCII ids; a multi-byte char split across
+/// frames would be mangled. A `data: ` line whose payload is not valid JSON
+/// panics rather than being silently skipped.
+pub async fn next_sse_data(body: &mut Body, within: std::time::Duration) -> SseRead {
     use http_body_util::BodyExt;
     let deadline = tokio::time::Instant::now() + within;
     let mut buf = String::new();
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            return None;
+            return SseRead::Timeout;
         }
-        let frame = tokio::time::timeout(remaining, body.frame()).await.ok()??;
-        let frame = frame.ok()?;
+        let frame = match tokio::time::timeout(remaining, body.frame()).await {
+            Err(_elapsed) => return SseRead::Timeout,
+            Ok(None) => return SseRead::Closed,
+            Ok(Some(Err(e))) => panic!("SSE body frame error: {e}"),
+            Ok(Some(Ok(frame))) => frame,
+        };
         if let Some(bytes) = frame.data_ref() {
             buf.push_str(&String::from_utf8_lossy(bytes));
             // SSE frames are newline-delimited; scan completed lines.
@@ -286,8 +316,9 @@ pub async fn next_sse_data(body: &mut Body, within: std::time::Duration) -> Opti
                 let line: String = buf.drain(..=pos).collect();
                 let line = line.trim();
                 if let Some(json) = line.strip_prefix("data: ") {
-                    if let Ok(v) = serde_json::from_str(json) {
-                        return Some(v);
+                    match serde_json::from_str(json) {
+                        Ok(v) => return SseRead::Data(v),
+                        Err(_) => panic!("unparseable SSE data line: {line}"),
                     }
                 }
             }

@@ -37,7 +37,7 @@ async fn owner_with_channel(router: &axum::Router) -> (String, String, String) {
 #[tokio::test]
 async fn events_requires_a_session() {
     let a = common::arena().await;
-    let (status, _body) = common::open_sse(&a.router, "/events", None).await;
+    let (status, _headers, _body) = common::open_sse(&a.router, "/events", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
@@ -46,8 +46,15 @@ async fn member_receives_message_created_over_sse() {
     let a = common::arena().await;
     let (owner, _gid, cid) = owner_with_channel(&a.router).await;
 
-    let (status, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    let (status, headers, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .map(|v| v.to_str().unwrap()),
+        Some("text/event-stream"),
+        "EventSource hard-fails on a wrong content type"
+    );
 
     // Post a message AFTER subscribing.
     let (st, _, _) = common::send(
@@ -60,9 +67,10 @@ async fn member_receives_message_created_over_sse() {
     .await;
     assert_eq!(st, StatusCode::CREATED);
 
-    let ev = common::next_sse_data(&mut body, Duration::from_secs(3))
-        .await
-        .expect("an event should arrive within 3s");
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected an event within 3s, got {other:?}"),
+    };
     assert_eq!(ev["type"], "message_created");
     assert_eq!(ev["channel_id"], cid.as_str());
 }
