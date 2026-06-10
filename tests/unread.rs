@@ -155,6 +155,87 @@ async fn unread_ping_flag_fires_only_on_unread_mentions() {
 }
 
 #[tokio::test]
+async fn unread_mixed_batch_keeps_statement_indices_aligned() {
+    let a = common::arena().await;
+    let (owner, gid, cid_general) = setup(&a.router).await;
+    // Two more channels → three visible channels in ONE batch:
+    // general (cursored, 2 unread + ping), annex (cursorless, baseline),
+    // archive (cursored, fully read → 0 unread).
+    let (st, _, annex) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "annex", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let cid_annex = annex["id"].as_str().unwrap().to_string();
+    let (st, _, archive) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "archive", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let cid_archive = archive["id"].as_str().unwrap().to_string();
+
+    // general: baseline at m1, then a plain message + a ping → 2 unread,
+    // pinged. Two unread vs the LIMIT-1 ping probe keeps the counts
+    // DIFFERENT, so a swapped Unread/Ping statement mapping cannot
+    // masquerade as correct (unread would read the probe and report 1).
+    let m1 = post_msg(&a.router, &owner, &cid_general, "before").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid_general}/mark-read"),
+        Some(&owner),
+        Some(&json!({ "sent_at": m1["sent_at"], "id": m1["id"] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    post_msg(&a.router, &owner, &cid_general, "filler").await;
+    post_msg(&a.router, &owner, &cid_general, "@UnreadOwner ping").await;
+
+    // annex: two messages, never visited → unread 0 + latest baseline.
+    post_msg(&a.router, &owner, &cid_annex, "a1").await;
+    let a2 = post_msg(&a.router, &owner, &cid_annex, "a2").await;
+
+    // archive: one message, fully read → cursored with 0 unread.
+    let r1 = post_msg(&a.router, &owner, &cid_archive, "r1").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid_archive}/mark-read"),
+        Some(&owner),
+        Some(&json!({ "sent_at": r1["sent_at"], "id": r1["id"] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (st, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let rows = body["channels"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "all three visible channels appear");
+    let find = |cid: &str| rows.iter().find(|r| r["channel_id"] == cid).unwrap();
+
+    let g = find(&cid_general);
+    assert_eq!(g["unread"], 2);
+    assert_eq!(g["pinged"], true);
+
+    let an = find(&cid_annex);
+    assert_eq!(an["unread"], 0);
+    assert_eq!(an["pinged"], false);
+    assert_eq!(an["latest_id"], a2["id"]);
+
+    let ar = find(&cid_archive);
+    assert_eq!(ar["unread"], 0);
+    assert_eq!(ar["pinged"], false);
+}
+
+#[tokio::test]
 async fn unread_lists_only_channels_the_caller_can_see() {
     let a = common::arena().await;
     let (_owner, _gid, cid) = setup(&a.router).await;

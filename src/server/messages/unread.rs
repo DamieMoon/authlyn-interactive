@@ -1,9 +1,10 @@
 //! `GET /unread` — W1 batched unread/ping summary for every visible text
 //! channel. ssr-only.
 //!
-//! Two DB round-trips total, independent of channel count: the caller's read
-//! cursors, then one multi-statement batch (unread ids `LIMIT 100` + ping
-//! probe `LIMIT 1` per cursored channel; latest row per cursorless channel).
+//! Three DB round-trips total (visible channels, read cursors, one
+//! multi-statement batch), independent of channel count. The batch issues
+//! unread ids `LIMIT 100` + a ping probe `LIMIT 1` per cursored channel and
+//! the latest row per cursorless channel.
 //! Bind names are loop-indexed (`$cid_0`, `$at_0`, …) — only the loop index
 //! enters the query text, never a user value (the sanctioned splice form, like
 //! `MSG_PROJECTION`). The unread predicate is the strict composite tie-break
