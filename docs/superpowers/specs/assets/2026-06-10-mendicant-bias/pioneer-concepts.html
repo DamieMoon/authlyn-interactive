@@ -1,0 +1,196 @@
+<h2>Pionjärpasset: bortom chattappen</h2>
+<p class="subtitle">Sju koncept som gör authlyn till något ingen annan har. Markera alla du vill ha (flerval). Ärlig storlek: S/M/L. Allt bygger på infrastruktur vi redan beslutat — SSE-bussen, media-pipelinen, markup-parsern, scenerna från Berättelseboken.</p>
+
+<style>
+  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; font-family: -apple-system, 'Segoe UI', sans-serif; }
+  .demo { height: 155px; border-radius: 12px; background: #0b0e14; border: 1px solid #1a2130; overflow: hidden; position: relative; margin-bottom: 10px; color: #dde6f2; }
+  .tag { font-size: 9px; font-family: 'SF Mono', Menlo, monospace; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: 2px; background: #1a2130; color: #8a98ad; }
+
+  /* A: Världsatlasen */
+  @keyframes mappan { 0%,100% { transform: translate(0,0) scale(1.05); } 50% { transform: translate(-14px,-8px) scale(1.05); } }
+  @keyframes pinpulse { 0%,100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.35); opacity: 1; } }
+  .atlas { position: absolute; inset: 0; }
+  .atlas .terrain { position: absolute; inset: -20px; background:
+    radial-gradient(ellipse 30% 40% at 25% 35%, #1d2b1f 0%, transparent 70%),
+    radial-gradient(ellipse 35% 30% at 70% 60%, #2b2418 0%, transparent 70%),
+    radial-gradient(ellipse 50% 35% at 50% 85%, #14202e 0%, transparent 60%),
+    linear-gradient(rgba(77,159,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(77,159,255,0.05) 1px, transparent 1px), #0d1117;
+    background-size: auto, auto, auto, 26px 26px, 26px 26px; animation: mappan 12s ease-in-out infinite; }
+  .atlas .pin { position: absolute; width: 9px; height: 9px; border-radius: 50%; animation: pinpulse 2.6s ease-in-out infinite; }
+  .atlas .p1 { top: 36%; left: 28%; background: #4d9fff; box-shadow: 0 0 12px #4d9fff; }
+  .atlas .p2 { top: 58%; left: 64%; background: #ffb47f; box-shadow: 0 0 12px #ffb47f; animation-delay: -0.9s; }
+  .atlas .p3 { top: 24%; left: 70%; background: #8ee6c8; box-shadow: 0 0 12px #8ee6c8; animation-delay: -1.7s; }
+  .atlas .pcard { position: absolute; top: 22%; left: 31%; background: rgba(22,30,48,0.85); backdrop-filter: blur(8px); border: 1px solid rgba(125,180,255,0.35); border-radius: 9px; padding: 5px 9px; font-size: 9px; }
+  .atlas .pcard b { display: block; font-size: 10px; }
+  .atlas .pcard span { color: #7fb6ff; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; }
+  .atlas .lbl { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-family: 'SF Mono', Menlo, monospace; font-size: 8px; color: #5d6b80; letter-spacing: 0.15em; }
+
+  /* B: Atmosfärer */
+  @keyframes moodcycle { 0%, 30% { opacity: 1; } 36%, 100% { opacity: 0; } }
+  @keyframes rainfall { 0% { transform: translateY(-20px); opacity: 0; } 20% { opacity: 0.7; } 100% { transform: translateY(160px); opacity: 0; } }
+  @keyframes emberrise { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 0.9; } 100% { transform: translateY(-140px); opacity: 0; } }
+  .atm { position: absolute; inset: 0; }
+  .atm .mood { position: absolute; inset: 0; }
+  .atm .m-rain { background: linear-gradient(180deg, rgba(40,70,120,0.25), rgba(20,30,50,0.35)); animation: moodcycle 9s infinite; }
+  .atm .m-rain .drop { position: absolute; width: 1px; height: 12px; background: linear-gradient(transparent, #7fb6ff); animation: rainfall 1.4s linear infinite; }
+  .atm .m-battle { background: linear-gradient(180deg, rgba(120,40,30,0.22), rgba(50,15,15,0.32)); animation: moodcycle 9s 3s infinite; }
+  .atm .m-battle .ember { position: absolute; bottom: 0; width: 2.5px; height: 2.5px; border-radius: 50%; background: #ffb47f; box-shadow: 0 0 6px #ff8a4d; animation: emberrise 2.4s linear infinite; }
+  .atm .m-night { background: radial-gradient(ellipse at 50% -20%, rgba(90,60,160,0.22), rgba(10,10,25,0.4)); animation: moodcycle 9s 6s infinite; }
+  .atm .m-night .star { position: absolute; width: 1.5px; height: 1.5px; border-radius: 50%; background: #cfe4ff; }
+  .atm .chat { position: absolute; left: 16px; right: 16px; bottom: 26px; background: #10141dee; border: 1px solid #1a2130; border-radius: 10px; padding: 7px 10px; font-family: Georgia, serif; font-size: 10px; color: #b9c4d6; }
+  .atm .moodlbl { position: absolute; top: 10px; left: 0; right: 0; text-align: center; font-family: 'SF Mono', Menlo, monospace; font-size: 8px; letter-spacing: 0.15em; }
+  .atm .moodlbl span { position: absolute; left: 0; right: 0; }
+  .atm .ml1 { color: #7fb6ff; animation: moodcycle 9s infinite; }
+  .atm .ml2 { color: #ffb47f; animation: moodcycle 9s 3s infinite; opacity: 0; }
+  .atm .ml3 { color: #c4a8ff; animation: moodcycle 9s 6s infinite; opacity: 0; }
+  .atm .snd { position: absolute; bottom: 7px; left: 0; right: 0; text-align: center; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; color: #5d6b80; }
+
+  /* C: Levande porträtt */
+  @keyframes facecycle { 0%, 28% { opacity: 1; } 33%, 95% { opacity: 0; } 100% { opacity: 1; } }
+  .port { position: absolute; inset: 16px 18px; display: flex; gap: 10px; align-items: flex-start; }
+  .port .pa { position: relative; width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #2a3550, #18202f); border: 1.5px solid #7fb6ff55; flex-shrink: 0; box-shadow: 0 0 12px #4d9fff33; }
+  .port .pa span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .port .f1 { animation: facecycle 7.5s infinite; }
+  .port .f2 { animation: facecycle 7.5s 2.5s infinite; opacity: 0; }
+  .port .f3 { animation: facecycle 7.5s 5s infinite; opacity: 0; }
+  .port .pm { flex: 1; background: #10141d; border: 1px solid #1a2130; border-radius: 10px; padding: 8px 10px; }
+  .port .pm .who { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: #7fb6ff; }
+  .port .pm .mood { position: relative; height: 11px; margin-top: 2px; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; color: #5d6b80; }
+  .port .pm .mood span { position: absolute; left: 0; }
+  .port .pm .txt { font-family: Georgia, serif; font-size: 10.5px; line-height: 1.5; color: #b9c4d6; margin-top: 3px; }
+
+  /* D: Regissörsläget */
+  @keyframes slatein { 0% { letter-spacing: 0.5em; opacity: 0; } 15%, 100% { letter-spacing: 0.25em; opacity: 1; } }
+  .dir { position: absolute; inset: 12px 16px; display: flex; flex-direction: column; gap: 7px; }
+  .dir .slate { background: #05070b; border-top: 1px solid #2a3a5c; border-bottom: 1px solid #2a3a5c; text-align: center; padding: 6px; font-family: 'SF Mono', Menlo, monospace; font-size: 9px; color: #dde6f2; letter-spacing: 0.25em; animation: slatein 8s infinite; }
+  .dir .narr { font-family: Georgia, serif; font-style: italic; font-size: 10px; color: #9fb0c8; text-align: center; line-height: 1.5; padding: 0 10px; }
+  .dir .secret { align-self: flex-start; display: flex; gap: 6px; align-items: center; background: rgba(196,168,255,0.08); border: 1px solid #c4a8ff44; border-radius: 9px; padding: 5px 9px; font-size: 8.5px; color: #c4a8ff; }
+  .dir .npcrow { display: flex; gap: 6px; align-items: center; margin-top: auto; }
+  .dir .npc { width: 22px; height: 22px; border-radius: 50%; background: #161c28; border: 1px solid #222b3c; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #8a98ad; }
+  .dir .npc.on { border-color: #ffb47f; box-shadow: 0 0 8px #ffb47f66; color: #ffb47f; }
+  .dir .npclbl { font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; color: #5d6b80; letter-spacing: 0.1em; }
+
+  /* E: Föreställningsläget */
+  @keyframes playhead { 0% { width: 4%; } 90%, 100% { width: 96%; } }
+  @keyframes perfmsg { 0% { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: translateY(0); } 92% { opacity: 1; } 100% { opacity: 0; } }
+  .perf { position: absolute; inset: 12px 16px; }
+  .perf .pm { background: #10141d; border: 1px solid #1a2130; border-radius: 9px; padding: 6px 9px; font-family: Georgia, serif; font-size: 9.5px; color: #b9c4d6; margin-bottom: 6px; animation: perfmsg 8s infinite; }
+  .perf .pm b { font-family: -apple-system, sans-serif; font-size: 8px; letter-spacing: 0.08em; }
+  .perf .pm2 { animation-delay: 1.6s; opacity: 0; }
+  .perf .pm3 { animation-delay: 3.2s; opacity: 0; }
+  .perf .bar { position: absolute; bottom: 24px; left: 4px; right: 4px; height: 4px; border-radius: 2px; background: #131927; }
+  .perf .ph { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #4d9fff, #8ee6c8); box-shadow: 0 0 8px #4d9fff88; animation: playhead 8s linear infinite; }
+  .perf .ctl { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 9px; color: #8a98ad; font-family: 'SF Mono', Menlo, monospace; letter-spacing: 0.12em; }
+
+  /* F: Kulisserna */
+  @keyframes sceneswap { 0%, 40% { opacity: 1; } 50%, 90% { opacity: 0; } 100% { opacity: 1; } }
+  .kuliss { position: absolute; inset: 0; }
+  .kuliss .bg1 { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 30% 70%, #3a2a14 0%, transparent 65%), radial-gradient(ellipse 50% 40% at 75% 30%, #2a1d10 0%, transparent 60%), #14100a; animation: sceneswap 10s infinite; }
+  .kuliss .bg2 { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 60% 30%, #14301c 0%, transparent 65%), radial-gradient(ellipse 50% 50% at 25% 75%, #0d2415 0%, transparent 60%), #0a140d; }
+  .kuliss .veil { position: absolute; inset: 0; background: rgba(11,14,20,0.45); }
+  .kuliss .km { position: absolute; left: 16px; right: 16px; bottom: 30px; background: #10141df0; border: 1px solid #1a2130; border-radius: 10px; padding: 7px 10px; font-family: Georgia, serif; font-size: 10px; color: #b9c4d6; }
+  .kuliss .klbl { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-family: 'SF Mono', Menlo, monospace; font-size: 7.5px; color: #8a7d63; letter-spacing: 0.15em; }
+
+  /* G: Tidskapseln */
+  @keyframes sealglow { 0%, 55% { box-shadow: 0 0 6px #c4a8ff44; } 70%, 85% { box-shadow: 0 0 22px #c4a8ffcc; } 100% { box-shadow: 0 0 6px #c4a8ff44; } }
+  @keyframes countdown { 0%, 60% { opacity: 1; } 68%, 92% { opacity: 0; } 100% { opacity: 1; } }
+  @keyframes revealtxt { 0%, 60% { opacity: 0; } 68%, 92% { opacity: 1; } 100% { opacity: 0; } }
+  .caps { position: absolute; inset: 18px 24px; background: rgba(22,26,40,0.7); border: 1px solid #c4a8ff33; border-radius: 14px; padding: 12px 14px; animation: sealglow 8s infinite; }
+  .caps .seal { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #d7c4ff, #8a5cff 65%, #4a2d8a); margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #1a1030; }
+  .caps .ct { text-align: center; font-family: 'SF Mono', Menlo, monospace; font-size: 9px; color: #c4a8ff; letter-spacing: 0.1em; animation: countdown 8s infinite; }
+  .caps .rv { position: absolute; left: 14px; right: 14px; bottom: 12px; text-align: center; font-family: Georgia, serif; font-style: italic; font-size: 10px; color: #b9c4d6; animation: revealtxt 8s infinite; opacity: 0; }
+  .caps .from { text-align: center; font-size: 8px; color: #5d6b80; margin-top: 3px; }
+</style>
+
+<div class="options cgrid" data-multiselect>
+
+  <div class="option" data-choice="world-atlas" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="atlas">
+        <div class="terrain"></div>
+        <div class="pin p1"></div><div class="pin p2"></div><div class="pin p3"></div>
+        <div class="pcard"><b># tavernan</b><span>● 2 olästa · 3 lore-poster</span></div>
+        <div class="lbl">VÄRLDSATLAS · NOVA</div>
+      </div>
+    </div>
+    <div class="content"><h3>A — Världsatlasen <span class="tag">L</span></h3><p>Ladda upp en världskarta per server och nåla fast kanaler, lore-poster och scener på platser. Servern slutar vara en kanallista — den blir en <b>värld man navigerar</b>: panorera, zooma, tryck på en glödande nål och hoppa in i platsens kanal. Kartan är hemskärmen för er värld.</p></div>
+  </div>
+
+  <div class="option" data-choice="atmospheres" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="atm">
+        <div class="mood m-night"><div class="star" style="top:18%;left:22%"></div><div class="star" style="top:30%;left:67%"></div><div class="star" style="top:12%;left:48%"></div></div>
+        <div class="mood m-rain"><div class="drop" style="left:15%;animation-delay:0s"></div><div class="drop" style="left:35%;animation-delay:0.4s"></div><div class="drop" style="left:55%;animation-delay:0.8s"></div><div class="drop" style="left:75%;animation-delay:0.2s"></div><div class="drop" style="left:90%;animation-delay:0.6s"></div></div>
+        <div class="mood m-battle"><div class="ember" style="left:20%;animation-delay:0s"></div><div class="ember" style="left:50%;animation-delay:0.9s"></div><div class="ember" style="left:80%;animation-delay:1.6s"></div></div>
+        <div class="moodlbl"><span class="ml1">☂ ATMOSFÄR: STORMEN</span><span class="ml2">⚔ ATMOSFÄR: STRIDEN</span><span class="ml3">☾ ATMOSFÄR: NATTEN</span></div>
+        <div class="chat">"Hör du? Det är något därute i regnet…"</div>
+        <div class="snd">♫ PROCEDURELLT REGN · WEBAUDIO · 32%</div>
+      </div>
+    </div>
+    <div class="content"><h3>B — Atmosfärer <span class="tag">M</span></h3><p>Spelledaren sätter kanalens stämning — storm, natt, strid, fest — och den slår igenom <b>live hos alla samtidigt</b> via SSE: scenljus, partiklar, bakgrund. Plus opt-in <b>procedurellt ljudlandskap</b> (WebAudio-syntetiserat regn/tavernsorl/vind — inga ljudfiler behövs). Delade filmiska ögonblick.</p></div>
+  </div>
+
+  <div class="option" data-choice="living-portraits" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="port">
+        <div class="pa"><span class="f1">🙂</span><span class="f2">😠</span><span class="f3">😢</span></div>
+        <div class="pm">
+          <div class="who">SERAPHINA</div>
+          <div class="mood"><span class="f1" style="animation:facecycle 7.5s infinite">auto: *ler* upptäckt</span><span class="f2" style="animation:facecycle 7.5s 2.5s infinite;opacity:0">auto: *morrar* upptäckt</span><span class="f3" style="animation:facecycle 7.5s 5s infinite;opacity:0">vald: sorgsen</span></div>
+          <div class="txt">Hon ler — men leendet når aldrig ögonen.</div>
+        </div>
+      </div>
+    </div>
+    <div class="content"><h3>C — Levande porträtt <span class="tag">M</span></h3><p>Personas får <b>humörvarianter av sin avatar</b> (neutral/glad/arg/sorgsen…) — välj manuellt per meddelande, eller låt markup-parsern auto-detektera (<i>*ler*</i>, <i>*morrar*</i>). Avataren visar känslan på just det meddelandet, snapshotat som allt annat. Visual novel-energi i chatten.</p></div>
+  </div>
+
+  <div class="option" data-choice="director-mode" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="dir">
+        <div class="slate">INT. TAVERNAN — NATT</div>
+        <div class="narr">Regnet piskar mot blyfönstren. Någon har just frågat efter er vid disken.</div>
+        <div class="secret">🔒 Viskat till: Seraphina, Kael</div>
+        <div class="npcrow"><span class="npclbl">NPC-VÄXLARE</span><div class="npc on">V</div><div class="npc">B</div><div class="npc">G</div><div class="npc">+</div></div>
+      </div>
+    </div>
+    <div class="content"><h3>D — Regissörsläget <span class="tag">L</span></h3><p>Spelledarens verktygslåda: <b>scenslates</b> ("INT. TAVERNAN — NATT") och berättarröst i full bredd, <b>hemliga viskningar till utvalda spelare</b> (syns bara för dem — privacy-404-mönstret återanvänds), och en <b>NPC-karusell</b> för blixtsnabba personabyten. Spelledare är era power users — ge dem en cockpit.</p></div>
+  </div>
+
+  <div class="option" data-choice="performance" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="perf">
+        <div class="pm"><b style="color:#7fb6ff">SERAPHINA</b> — Hon drog kåpan tätare omkring sig…</div>
+        <div class="pm pm2"><b style="color:#8ee6c8">KAEL</b> — "Du litar fortfarande inte på mig?"</div>
+        <div class="pm pm3"><b style="color:#ffb47f">THORNE</b> — "Omöjliga och vid liv. Det hänger ihop."</div>
+        <div class="bar"><div class="ph"></div></div>
+        <div class="ctl">⏮ ▶ ⏭ · SCEN VII · UPPFÖRD I TEMPO</div>
+      </div>
+    </div>
+    <div class="content"><h3>E — Föreställningsläget <span class="tag">M</span></h3><p>Spela upp en scen som <b>teater</b>: meddelandena anländer i skrivrytm med effekter, atmosfärer och scenljus — berättelsen som föreställning i stället för logg. Perfekt för att återuppleva höjdpunkter eller introducera en ny medlem till sagan. (Berättelsebokens scenmarkeringar driver den.)</p></div>
+  </div>
+
+  <div class="option" data-choice="backdrops" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="kuliss">
+        <div class="bg2"></div><div class="bg1"></div>
+        <div class="veil"></div>
+        <div class="km">"Skogen tystnar omkring oss. Till och med fåglarna vet."</div>
+        <div class="klbl">KULISS: TAVERNAN ⟶ DJUPSKOGEN</div>
+      </div>
+    </div>
+    <div class="content"><h3>F — Kulisserna <span class="tag">S/M</span></h3><p>Ladda upp scenkonst per kanal/scen — den ligger nedtonad <b>bakom</b> chatten (prosa-korten förblir opaka och läsbara) och korstonar vid scenbyten. Med warp-hoppet som övergång blir varje platsbyte filmiskt. Media-pipelinen finns redan; det här är dess vackraste användning.</p></div>
+  </div>
+
+  <div class="option" data-choice="time-capsule" onclick="toggleSelect(this)" style="display:block">
+    <div class="demo">
+      <div class="caps">
+        <div class="seal">✉</div>
+        <div class="ct">FÖRSEGLAT · ANLÄNDER OM 2D 14H 09M</div>
+        <div class="rv">"Om du läser detta har jag inte kommit tillbaka från Eldfästet. Det finns något ni måste veta…"</div>
+        <div class="from">från Thorne · till # tavernan</div>
+      </div>
+    </div>
+    <div class="content"><h3>G — Tidskapseln <span class="tag">S</span></h3><p>Skriv ett meddelande som <b>anländer i framtiden</b>: ett förseglat brev som dyker upp i kanalen vid vald tidpunkt (eller "om jag inte avbryter det" — en dödmansbrytare för dramatik). Berättarverktyg av rang: förebådanden, testamenten, brev från det förflutna.</p></div>
+  </div>
+
+</div>

@@ -1,0 +1,376 @@
+{
+  "summary": "Six parallel creative lenses generate pioneer-tier feature concepts for the Mendicant Bias release",
+  "agentCount": 6,
+  "logs": [
+    "Spawning six creative lenses in parallel…",
+    "Collected 48 concept candidates across 6 lenses"
+  ],
+  "result": [
+    {
+      "lens": "world",
+      "concepts": [
+        {
+          "name": "Tideräkningen",
+          "pitch": "Ge er värld en egen kalender: döp månaderna, sätt dagarnas antal, månfaser och årstider, och låt SL flytta fram världsdatumet när berättelsen kliver framåt. Varje scen och kapitel stämplas med världsdatum — bokläget renderar 'Den 3:e i Frostmånaden' i stället för 2026-06-10. Sessionskalenderns pass kan dessutom kopplas till världsdatum, så alla vet både när ni spelar och NÄR i berättelsen det sker.",
+          "size": "M",
+          "builds_on": "Story book-lägets scen/kapitelmarkörer + sessionskalendern; en liten SCHEMAFULL-tabell guild_calendar + datumstämpel på scener.",
+          "demo": "Ett glashjul av månadsnamn snurrar ett steg medan månfasen tonar om och datumraden fjädrar in 'Frostmånaden, dag 3'."
+        },
+        {
+          "name": "Väderleken",
+          "pitch": "Världen får väder som ingen behöver hitta på: en fröbaserad almanacka räknar deterministiskt fram samma väder för alla ur (guildfrö, region, världsdatum) — regn i Hamnkvarteren, snöglopp på Vidderna, och hela veckan går att slå upp i förväg. SL kan alltid trumfa med handvalt väder, och dagens väder föreslår automatiskt rätt atmosfär och WebAudio-ambiens i platsens kanaler.",
+          "size": "M",
+          "builds_on": "Atmosfär-/ambienssystemet + världsatlasens regioner + Tideräkningens världsdatum; ren deterministisk hashfunktion som klienten räknar själv — noll serverlast.",
+          "demo": "En veckoremsa med väderikoner glider förbi; CSS-regndroppar faller över dagens ruta medan kanalens aurorabakgrund mörknar i takt."
+        },
+        {
+          "name": "Markerna",
+          "pitch": "Måla ut riken, stadsdelar och vildmarker direkt på världskartan som mjuka polygoner. Varje mark bär sina kanaler, sin standardatmosfär, sitt väderfrö och sitt lorekort — kliver din persona in i Askdalen byter kanalen stämning och lorekortet glöder upp. Kartan slutar vara en bild och blir ytan där allt i er värld hänger ihop.",
+          "size": "L",
+          "builds_on": "Världsatlasen + personanärvaro-fröet + atmosfärer/lorebook-autolänkning; polygoner som JSON i atlas-tabellen, all rendering klientside i SVG.",
+          "demo": "Fingret sveper över kartan; Askdalen lyser upp med namn i serif-kapitäler, en väderikon och tre kanalchips som fjädrar in."
+        },
+        {
+          "name": "Färdvägen",
+          "pitch": "Flytta din persona mellan två platser och resan blir på riktigt: en streckad led ritar sig över kartan, restiden räknas i världsdagar ur kartavståndet, och ankomsten landar som en systemhändelse i målkanalen via SSE. Varje resa loggas i personans resedagbok — perfekta krokar för 'vad hände på vägen?'-scener.",
+          "size": "M",
+          "builds_on": "Personanärvaro-fröet på atlasen + nya SSE-bussen + systemmeddelande-pipelinen (kind='system', Nova DOT-mönstret).",
+          "demo": "En streckad linje kryper fram mellan två pins medan en liten persona-avatar glider längs leden och en '2 dagar kvar'-stämpel tickar ned."
+        },
+        {
+          "name": "Dimhöljet",
+          "pitch": "Världen börjar i dimma: SL avslöjar kartan bit för bit när berättelsen utforskar den, med en mjuk maskupplösning som hela gruppen ser samtidigt via SSE. Varje avslöjad plats hamnar i guildens Upptäcktslogg med världsdatum och vilka personor som var där — er karta blir ett levande bevis på allt ni gjort tillsammans.",
+          "size": "M",
+          "builds_on": "Världsatlasen + SSE-bussen; servern lagrar bara polygonlistan över avslöjade områden, masken renderas som klient-SVG.",
+          "demo": "Töcken löses upp i en mjuk radialmask över en ny dal; ett pin tänds med en glödruna och 'Upptäckt: Silverfallen' stämplas in."
+        },
+        {
+          "name": "Postgången",
+          "pitch": "Skicka brev i fiktionen: din persona förseglar ett brev till en annan persona, och leveranstiden räknas ur kartavståndet mellan dem. Dagar senare levereras det automatiskt som ett meddelande med vaxsigill — suddat tills mottagaren 'bryter sigillet', så ingen annan vid bordet smygläser.",
+          "size": "M",
+          "builds_on": "Tidskapsel-infrastrukturen (fördröjd leverans) + personanärvaro på kartan + whisper-effekten; ärver persona-snapshot-invarianten rakt av.",
+          "demo": "Ett vaxförseglat kuvert seglar längs en prickad rutt över kartan, viker sig ned i en brevlåde-pin och får stämpeln '3 dagar kvar'."
+        },
+        {
+          "name": "Platsminnen",
+          "pitch": "Varje plats minns: tryck på ett pin och en krönika rullas ut — scenerna som utspelats där, personorna som besökt platsen, föremålen som lämnats kvar, allt med världsdatum. Inget skrivs för hand; krönikan härleds ur det ni redan spelat, så världen känns bebodd även där ingen står just nu.",
+          "size": "S",
+          "builds_on": "Scen/kapitelmarkörerna + personanärvaro- och inventarie-fröna; en ren härledd SurrealDB-query per pin, ingen ny skrivväg.",
+          "demo": "Ett pin trycks ned och en pergamentrulle vecklar ut sig rad för rad: 'Här stred Yrsa & Malte — Frostmånaden, dag 3'."
+        },
+        {
+          "name": "Gömman",
+          "pitch": "Gräv ner ett föremål ur din personas inventarium på en exakt punkt på kartan — bara du och SL vet var. Den som flyttar sin persona dit (eller snappar upp en ledtråd i spel) kan gräva upp det: skattjakter, döda brevlådor och svärdet-i-stenen-ögonblick, helt människodrivna.",
+          "size": "S",
+          "builds_on": "Inventarie-fröet + personanärvaro på atlasen; privacy-404-invarianten döljer gömmor för alla obehöriga.",
+          "demo": "En kista sänks ned i ett pin under jordpartiklar; kvar ligger bara ett svagt glitter som pulserar för den som vet var den ska leta."
+        }
+      ]
+    },
+    {
+      "lens": "play",
+      "concepts": [
+        {
+          "name": "Arket",
+          "pitch": "Spelledaren bygger serverns eget rollformulär — attribut, resursmätare, taggar, fritextfält — och varje persona får sitt blad. Allt är ren, mänskligt styrd data: höj STY efter bergspasset, stryk ett ödespoäng när det bränns, och skriv /roll 1d20+STY så hämtar den servervaliderade tärningsmotorn värdet från bladet. Tryck på ett namn i flödet och arket glider ut som ett glaskort — funkar lika bra för Drakar och Demoner som för ert eget hemmabygge.",
+          "size": "L",
+          "builds_on": "Persona-systemet + snapshot-invarianten; tärningsmotorn (/roll) för statreferenser",
+          "demo": "Tryck på en avatar → glaskort flippar ut, statstaplar fjäder-fylls en i taget, en tagg-chip poppar in med spring-easing"
+        },
+        {
+          "name": "Initiativet",
+          "pitch": "Spelledaren öppnar en sammandrabbning och en initiativbricka fäster sig överst i kanalen — persona-porträtt i turordning, satt med tärningsslag eller spelledarens dragning. Den aktiva spelarens mynt glöder hos alla samtidigt via SSE, och när turen blir din kommer en push: 'Det är din tur i #bergspasset'. Inga fler 'vems tur är det?'-väggar i chatten.",
+          "size": "M",
+          "builds_on": "SSE-bussen + /roll-motorn + befintlig web push",
+          "demo": "Rad av avatarmynt; glödringen fjädrar vidare till nästa mynt och 'DIN TUR' pulserar mjukt i composern"
+        },
+        {
+          "name": "Uppdragstavlan",
+          "pitch": "Serverns anslagstavla för äventyr: spelledaren nålar upp uppdrag med titel, lore-länkad beskrivning och status — rykte, aktivt, slutfört, misslyckat. Varje statusbyte landar som ett systemmeddelande i kanalen ('Nytt uppdrag: Karavanen som försvann') och det aktiva målet kan fästas i kanalhuvudet. Äntligen ett svar på 'vänta, vad skulle vi göra nu igen?'",
+          "size": "M",
+          "builds_on": "Lorebook-autolänkningen + systemmeddelande-kind (Nova DOT-pipelinen)",
+          "demo": "Uppdragskort på en anslagstavla får ett vaxsigill 'SLUTFÖRT' stämplat med squash-and-stretch och en svag pappersrekyl"
+        },
+        {
+          "name": "Klenoden",
+          "pitch": "Föremål får själ: sällsynthetsnivåer med egen lyster (vanlig → legendarisk), lore-text som länkas in i lorebooken, och en proveniens — en tidslinje över vem som smidde, bar, skänkte och förlorade föremålet, skriven automatiskt av varje byte och gåva. Tryck på svärdet i någons inventarium och läs dess hela saga. Ert mest tummade föremål blir en relik med tre kapitel historia.",
+          "size": "M",
+          "builds_on": "Ägarfröet persona-inventarium + lorebooken + media-pipelinen (föremålsbilder)",
+          "demo": "Föremålskort med roterande guldkonisk sällsynthetsring; proveniens-tidslinjen ritar sig själv nedåt punkt för punkt"
+        },
+        {
+          "name": "Smedjan",
+          "pitch": "Spelarstyrt hantverk utan regelmotor: lägg komponenter på städet i ett smidesförslag, spelledaren godkänner med ett tryck, komponenterna förbrukas och det nya föremålet präglas — med proveniensraden 'smitt av Kael ur stjärnstål och drakfjäll'. Hela kanalen ser gnistregnet samtidigt via SSE. Människan är regelboken; appen är städet.",
+          "size": "M",
+          "builds_on": "Ägarfröet persona-inventarium + egna meddelande-kinds + SSE-bussen",
+          "demo": "Två komponent-chips glider ihop, CSS-gnistor sprutar, det smidda svärdkortet stiger ur glöden med blå aura"
+        },
+        {
+          "name": "Lägerelden",
+          "pitch": "Avsluta spelkvällen med en ceremoni: spelledaren tänder lägerelden i kanalen, delar ut erfarenhet och milstolpar till personas, och alla nominerar kvällens scen och kvällens replik direkt ur loggen. Utmärkelserna präglas som medaljonger på personans blad och höjdpunkterna länkas till Berättelsebokens scener. Progression som ritual, inte siffergnuggande.",
+          "size": "M",
+          "builds_on": "Sessionskalendern + Berättelsebokens scenmarkeringar + persona-systemet (synergi med Arket om det byggs)",
+          "demo": "CSS-lägereld flämtar i kanalbotten; en medaljong stämplas på ett karaktärskort med radiell chockvåg och gnistor"
+        },
+        {
+          "name": "Urtavlan",
+          "pitch": "Spänningsklockor à la Blades in the Dark: spelledaren skapar segmenterade urtavlor — 'Vakternas misstanke 3/6', 'Ritualen fullbordas 5/8' — och fyller en kil i taget när berättelsen kräver det. Klockor kan vara hemliga bakom spelledarskärmen och avtäckas med ett tryck, då de glider in i kanalhuvudet hos alla samtidigt. Tickande skräck i ren glas-UI.",
+          "size": "S",
+          "builds_on": "SSE-bussen + regissörslägets hemlighetsmönster (privacy-404-invarianten)",
+          "demo": "Segmenterad urtavla fyller en kil med ett tick-ryck; en hemlig klocka flippar från blurrad till avtäckt med glassvep"
+        },
+        {
+          "name": "Märkena",
+          "pitch": "Spelledaren märker en persona — förgiftad, välsignad, jagad, osynlig — och runan lyser bredvid namnet på varje meddelande personan skriver medan märket varar, snapshotat på raden precis som personan själv. Alla i kanalen ser direkt vem som blöder och vem som bär ett löfte. Statuseffekter som berättarverktyg, inte bokföring.",
+          "size": "M",
+          "builds_on": "Persona-snapshot-invarianten i sändvägen + SSE-bussen + regissörsläget",
+          "demo": "En giftgrön runa blommar ut bredvid avataren och pulserar sedan svagt på varje ny meddelanderad tills den släcks"
+        }
+      ]
+    },
+    {
+      "lens": "craft",
+      "concepts": [
+        {
+          "name": "Marginalen",
+          "pitch": "Markera en rad i en medskribents prosa och fäst en lapp i marginalen — OOC-beröm, en fråga, en liten uppladdad skiss — utan att bryta scenen. Anteckningarna lever i ett frostat glasskikt bredvid texten som kan tändas och släckas, som blyertskludd i en älskad bok. När kapitlet exporteras följer de med som äkta marginalia, eller filtreras bort för den rena romanen.",
+          "size": "M",
+          "builds_on": "Meddelandepipelinen + media-uploads + SSE-bussen; exportvägen i Berättelseboken (Story book mode).",
+          "demo": "En mening får ett glödande understreck och en frostad lapp glider ut ur marginalen, vippar till och visar en handskriven anteckning med en tumnagelskiss."
+        },
+        {
+          "name": "Stafettpennan",
+          "pitch": "Spelledaren tänder stafettläget och en glödande fjäderpenna visar exakt vems tur det är att skriva — aldrig mer 'vem står på tur?' i OOC. Pennan vandrar i vald ordning eller kastas fritt vidare, composern lyser upp hos den som håller den, och hela kön syns för alla. Hoppa över, byt ordning eller släpp pennan helt fri mitt i en kaosscen.",
+          "size": "S",
+          "builds_on": "SSE-bussen + befintlig in-memory typing/närvaro-state + regissörslägets GM-behörigheter (caller_role).",
+          "demo": "En fjäderpenna seglar i en gnistrande båge från en avatar till nästa, vars composer tänds i elektriskt blått medan de andras tonas ned."
+        },
+        {
+          "name": "Skrivstugan",
+          "pitch": "Boka en skrivstuga i sessionskalendern: när klockan slår går kanalen i fokusläge med gemensam nedräkning, ordmål, syntetiserat regn och allas spökpennor synliga. När timern dör smäller ett sessionskort upp — ord skrivna, scener avklarade, kvällens flitigaste penna. Sprintar tillsammans är hur romaner faktiskt blir färdiga.",
+          "size": "M",
+          "builds_on": "Sessionskalendern/RSVP + atmosfärer/WebAudio-ambience + Spökpennan + SSE; word_count snapshotas per meddelande vid sänd (billigt för Pi:n, och ett färdigt statistik-seam för nästa release).",
+          "demo": "En nedräkningsring krymper medan ordräknaren tickar uppåt och regnet tonar in; vid noll viker ett sessionskort ut sig med konfetti av bokstäver."
+        },
+        {
+          "name": "Guldkornen",
+          "pitch": "Långtryck på en replik som träffar mitt i hjärtat och spara den till gillets citatbok. Varje guldkorn typsätts som ett citatkort — serif, guldram, norrskensbakgrund — med personans porträtt och scenhänvisning, och ett tryck hoppar rakt in i ögonblicket. Bläddra i boken när ni behöver minnas varför ni älskar er berättelse.",
+          "size": "S",
+          "builds_on": "Radiala långtrycksmenyn + duo-typografin/glasdesignen + fulltextsökens hopp-till-meddelande; bara en liten referenstabell på servern.",
+          "demo": "En replik lyfter ur sin pratbubbla, roterar mjukt och landar i ett guldramat glaskort som glimmar till och sorterar in sig i en hylla av citat."
+        },
+        {
+          "name": "Krönikan",
+          "pitch": "Stämpla scener med berättelsens egen tid — 'År 312, tredje månen' — och se hela sagan sorterad i story-tid i stället för posttid, över alla kanaler. Parallella handlingslinjer flätas som spår längs en glödande tidslinje, och flashbacks och tidshopp hamnar äntligen där de hör hemma. Tryck på ett scenkort och landa mitt i scenen.",
+          "size": "M",
+          "builds_on": "Berättelsebokens scen/kapitel-markeringar får ett sorterbart in-world-datumfält + ett SurrealDB-index; läsvyn återanvänder atlasens pan/zoom-mönster.",
+          "demo": "Scenkort glider in längs en lodrät glödande tidslinje och två parallella spår flätas samman vid en gemensam scen som pulserar till."
+        },
+        {
+          "name": "Palimpsesten",
+          "pitch": "Varje redigering bevaras som ett skikt — dra med fingret och se den äldre texten skimra fram under den nya, som bläck under bläck. Vill du ändra etablerad kanon föreslår du en revision som medförfattarna godkänner innan den skrivs in, med en synlig söm där historien ändrades. Slut på retcon-bråken i OOC.",
+          "size": "L",
+          "builds_on": "Befintlig redigeringsväg + persona-snapshot-invarianten (revisioner snapshotas likadant) + behörighetsmodellen för godkännanden + SSE för förslagsnotiser.",
+          "demo": "Ett stycke skalas tillbaka skikt för skikt — den nya texten bleknar och den gamla skimrar fram som urblekt bläck, med en gyllene söm i kanten."
+        },
+        {
+          "name": "Följetongen",
+          "pitch": "Publicera färdiga kapitel som en följetong: typsatt läsvy med försättsblad, och en push — 'Nytt kapitel!' — till gillets alla prenumeranter. Vännerna som älskar att läsa men aldrig vågar skriva får äntligen en plats i er berättelse. En hemlig läslänk kan bjuda in en utvald läsare utanför gillet, utan konto.",
+          "size": "M",
+          "builds_on": "Berättelsebokens typsättningsrenderare + web push + capability-URL-mönstret från media-id:na (slumpat 16-byte-token, privacy-404 i övrigt).",
+          "demo": "Ett bokomslag slår upp sig, sidor bläddrar förbi i serif och en push-avisering 'Nytt kapitel!' pulserar in i hörnet."
+        },
+        {
+          "name": "Sedan sist",
+          "pitch": "Kom tillbaka efter en vecka och mötas av ett 'Sedan sist…'-kort exakt vid din oläst-markering: en recap skriven av kvällens berättare som täcker precis det du missade. Recap-plikten kan rotera som en ritual mellan skribenterna — och rutan är byggd som ett seam där hypebot kan fylla den i kanaler som hellre låter Nova DOT sammanfatta.",
+          "size": "M",
+          "builds_on": "Batchade oläst-endpointen (ankaret) + markup-renderaren + SSE; hypebot/nova-mcp som valbar ifyllare — själva funktionen är helt människodriven.",
+          "demo": "Vid oläst-linjen viker ett 'Sedan sist…'-kort ut sig och tre minnesrader tonar in en i taget, som eftertexter i repris."
+        }
+      ]
+    },
+    {
+      "lens": "social",
+      "concepts": [
+        {
+          "name": "Tröskeln",
+          "pitch": "Ny medlem i en pågående berättelse? Spelledaren markerar nyckelkapitel och lore, och nykomlingen läser ikapp i typsatt läsläge med en förloppsmätare — skrivandet är låst tills sista kapitlet är klart. Då låses pennan upp med en ceremoniell entréscen som hela gillet ser, och er värld har fått en invigd medborgare i stället för en vilsen turist.",
+          "size": "M",
+          "builds_on": "Story book mode scene/chapter marks + lorebook cards + guild_member roles (privacy-404 inheritable); a small read-progress table",
+          "demo": "A thread of light weaves through stacked chapter cards; the final card folds into a glowing door that slides open onto the composer."
+        },
+        {
+          "name": "Läktaren",
+          "pitch": "Bjud in vänner som tysta åskådare via en länk: de följer berättelsen live i typsatt läsvy men kan aldrig skriva. Aktiva läsare syns som glödande lyktor ovanför kanalen, och efter en scen kan de skicka applåder som sveper genom rummet i realtid. Era fyra författare får plötsligt känna att världen har publik.",
+          "size": "M",
+          "builds_on": "New SSE event bus + story book mode typeset rendering + guild_member role system with a read-only 'åskådare' role",
+          "demo": "Lanterns ignite one by one above the channel header, then flare in waves as applause particles ripple across the glass chrome."
+        },
+        {
+          "name": "Gästspel",
+          "pitch": "Låt en vän göra ett cameo i er värld: hen klär på sig en egen persona och får tillgång till exakt en kanal under exakt en scen, med ett gästband på varje meddelande. När scenen stängs försvinner åtkomsten — men replikerna står kvar för alltid tack vare persona-snapshotten. Crossover mellan era världar utan att öppna hela gillet.",
+          "size": "M",
+          "builds_on": "Friends graph + per-channel membership checks + the persona snapshot invariant (guest identity stays correct forever after access ends)",
+          "demo": "A guest persona avatar steps in from the screen edge under a spotlight sweep while a ribbon labelled 'Gäst' unfurls across the bubble."
+        },
+        {
+          "name": "Lagerkransen",
+          "pitch": "Tre lagrar i veckan per medlem — 'Kvällens replik', 'Veckans vändning' eller en egenhändigt döpt utmärkelse — fästs på ett meddelande eller en persona. Varje krans är ett procedurellt genererat SVG-emblem som landar i personans inventarium och på författarens profil. Knappheten gör varje krans till en riktig kram.",
+          "size": "S",
+          "builds_on": "Owner-seed persona inventory + message pipeline + SSE for the live award reveal; seeded SVG generation is pure client-side",
+          "demo": "A laurel wreath draws itself stroke by stroke around a quoted message, then shrinks with a shimmer down into the inventory satchel."
+        },
+        {
+          "name": "Vapenskölden",
+          "pitch": "Varje författare och persona får en heraldisk vapensköld, deterministiskt genererad ur namnet och berättarstatistiken: fler ord, scener och år ger nya fält, sköldedjur och prydnader. Skölden växer offentligt — på profilen, i medlemslistan, bredvid kapitelrubriker. Ingen AI, bara ren heraldisk algoritmik i SVG som gör ert skrivande synligt som ett adelskap.",
+          "size": "M",
+          "builds_on": "Account display names/avatars + cheap incremental SurrealDB counter tables; all crest rendering happens in the WASM client",
+          "demo": "A crest assembles piece by piece — field, charge, mantling, crown — while milestone numbers tick upward beside it."
+        },
+        {
+          "name": "Härden",
+          "pitch": "Gillets startsida blir en härd: elden matas av allas skrivande och slocknar aldrig så länge någon i sällskapet skriver — 'Elden har brunnit i 23 dagar'. Runt elden står stolar med medlemmarnas personas som visar vem som var här senast och vad som hände i natt. En kollektiv streak som ingen bär ensam: fyra vänner blir ett brödraskap.",
+          "size": "M",
+          "builds_on": "SSE presence + the batched unread endpoint + guild accent colors; flame size is one cheap per-guild activity counter",
+          "demo": "The hearth flame leaps when a message lands, settles to pulsing embers overnight, and the streak counter glows brighter each day."
+        },
+        {
+          "name": "Salongen",
+          "pitch": "Ett utställningsgalleri där varje persona får en museiplakett: garderobens porträtt, första framträdandet, relationskartan — och repliker som medlemmarna nominerat ur riktiga meddelanden. Att nominera någon annans replik till Salongen är den finaste komplimang ett gille kan ge, och nya medlemmar möter era karaktärer som legender innan de ens läst kapitel ett.",
+          "size": "M",
+          "builds_on": "Persona wardrobe galleries + relationship constellation + full-text search (for finding and pinning quote nominations)",
+          "demo": "The camera dollies along a gallery wall; one frame lights up and the plaque's nominated quote types itself out in serif."
+        },
+        {
+          "name": "Minnesdagen",
+          "pitch": "Nova DOT minns det ni glömt: på årsdagen av kapitel ett, en personas första entré eller gillets grundande dyker ett sepiafärgat minneskort upp i kanalen med länk rakt in i scenen. Gillen kan dessutom stifta egna märkesdagar som återkommer varje år med festlig atmosfär i kanalen. Traditioner uppstår av sig själva — och blir skäl att samlas igen.",
+          "size": "S",
+          "builds_on": "Nova DOT system-message infrastructure + session calendar + synced channel atmospheres; anniversaries are simple date-window queries",
+          "demo": "A sepia memory card unfolds from Nova DOT's orb amid drifting dust motes: 'Ett år sedan: Branden i Silverhamn'."
+        }
+      ]
+    },
+    {
+      "lens": "cinema",
+      "concepts": [
+        {
+          "name": "Eftertexterna",
+          "pitch": "När ett kapitel markeras som avslutat rullar eftertexterna: varje persona krediteras med porträtt och roll, GM:en står som regissör, och kapitlets mest älskade citat glider förbi mot stjärnhimlen. Allt genereras ur data ni redan skapat — ordantal, reaktioner, scenmarkeringar — och blir ett delbart bevis på att ni faktiskt skrev klart något tillsammans.",
+          "size": "M",
+          "builds_on": "Story book mode-kapitelmarkeringar + persona-snapshots på meddelanden + reaktionsdata; ren klientrendering, en liten aggregatfråga per kapitel.",
+          "demo": "Krediter rullar långsamt över en aurora-bakgrund; personaporträtt tonar in ett efter ett med serif-namn och en avslutande 'SLUT'-skylt som glöder till."
+        },
+        {
+          "name": "Reliken",
+          "pitch": "Föreviga ett ögonblick som ett holografiskt samlarkort: personans porträtt, ett citat och scenens namn präglas på folie som skimrar när du lutar telefonen — gyroskopet styr ljusreflexen. Korten samlas i gillets vitrinskåp, er gemensamma trofésamling över kampanjens största ögonblick.",
+          "size": "M",
+          "builds_on": "Persona-snapshots + mediagallerier + Ögongodis-effektnivån; en liten SCHEMAFULL `keepsake`-tabell som ärver privacy-404-mönstret.",
+          "demo": "Ett foliekort tiltas i CSS-perspective medan ett regnbågsskimmer sveper diagonalt över porträttet och kortets kant glöder elektriskt blå."
+        },
+        {
+          "name": "Ledmotivet",
+          "pitch": "Varje persona får ett eget signaturmotiv — en kort melodi som deterministiskt syntetiseras ur karaktärens namn, där ägaren väljer instrument, tempo och tonart. Motivet klingar mjukt för alla när personan kliver in i scenen eller får ett dramatiskt ögonblick — helt utan ljudfiler tack vare WebAudio-syntes.",
+          "size": "M",
+          "builds_on": "Den procedurella WebAudio-ambiensmotorn + persona-inställningar (ett option<>-fält) + SSE-händelser för personabyte.",
+          "demo": "Ett personakort vänds upp och fem glödande noter stiger ur det i takt, var och en med en liten partikelsvans."
+        },
+        {
+          "name": "Ljudpulten",
+          "pitch": "GM:en får en frostad glaspanel med syntetiserade ljudstötar — åskknall, dörrbultning, svärdsklang, kyrkklocka, hjärtslag — som triggas hos alla i kanalen samtidigt via SSE. Inga ljudfiler, bara WebAudio-recept: servern skickar en händelse på några byte medan allas telefoner gör dånet.",
+          "size": "M",
+          "builds_on": "Nya SSE-bussen + WebAudio-ambiensmotorn + director modes GM-behörigheter (caller_role-kontrollen återanvänds).",
+          "demo": "En glasknapp trycks ner, en vågring expanderar ur den och hela chattbakgrunden blixtrar till som vid ett åskslag."
+        },
+        {
+          "name": "Entrén",
+          "pitch": "Ge din persona en entré värdig en huvudroll: välj en flourish — rökslinga, gnistregn, frostkristaller, skuggsvep — som spelas upp för alla när karaktären kliver in i kanalen eller byts in mitt i scenen. Kombinera med ledmotivet och varje rollbyte känns som en fighting game-intro.",
+          "size": "S",
+          "builds_on": "channel_active_persona-bytet + SSE-realtid + Ögongodis-partikelsystemet; ett option<>-fält `entrance_style` på personan.",
+          "demo": "En avatar materialiseras ur partikelrök medan personanamnet skrivs fram i kalligrafi undertill."
+        },
+        {
+          "name": "Mellantexten",
+          "pitch": "Stumfilmens mellantexter möter er berättelse: GM:en släpper ett typsatt tidskort — 'Tre dagar senare…', 'Under tiden, i Norra tornet' — som tonar in över hela kanalen med irisbländare och kornig vinjett. Kortet blir en egen meddelandetyp i flödet, så bokläget och EPUB-exporten ärver klippen som kapitelbrytningar.",
+          "size": "S",
+          "builds_on": "`message.kind`-diskriminatorn (som system-meddelanden) + director mode + story book-exporten.",
+          "demo": "Letterbox-balkar glider in, ett irishål krymper till svart och tidskortet 'Tre dagar senare…' tonar fram i serif med filmkorn."
+        },
+        {
+          "name": "Pulsen",
+          "pitch": "Berättelsen i din handflata, bokstavligen: tärningar mullrar, viskningar tickar mjukt, en shout slår hårt och GM:ens spänningspuls får telefonen att slå som ett hjärta. Ett haptiskt språk byggt på Vibration API, med visuella pulsringar som fallback på iOS — och en strömbrytare per kanal för den som vill läsa i fred.",
+          "size": "S",
+          "builds_on": "Befintliga SSE-händelser för tärningar/effekter/atmosfärer; ren klientmappning, noll serverkod.",
+          "demo": "En telefonram skälver med koncentriska pulsringar synkade till ett tärningskast som landar på en kritisk tjugoetta."
+        },
+        {
+          "name": "Affischen",
+          "pitch": "Gör filmaffischen för ert pågående äventyr: komponera bakgrundskonst, personaporträtt, titeltypografi och en tagline ur ett citat — allt renderas i webbläsaren och exporteras som PNG rakt in i kanalen. Tre affischmallar (epos, noir, folksaga) med Void Station-lyster gör varje kampanj till en biopremiär.",
+          "size": "M",
+          "builds_on": "Scene backdrops + mediauppladdningspipelinen (PNG postas som vanlig bilagebild) + duo-typografin; ren klient-canvas, noll serverlast.",
+          "demo": "Affischens lager flyger ihop: bakgrunden tonar in, titeln glider upp med glow och porträtten poppar in ett i taget med fjädring."
+        }
+      ]
+    },
+    {
+      "lens": "mobile",
+      "concepts": [
+        {
+          "name": "Inkastet",
+          "pitch": "Dela en bild, en kartskiss eller en textbit från vilken app som helst rakt in i scenen — Authlyn dyker upp i mobilens delningsmeny precis som en inbyggd app. Ett frostat glasark låter dig välja kanal och persona, och bilden landar som ett handout i berättelsen utan omvägen via galleriet. Referensbilder, stämningsfoton och kartor hamnar där de hör hemma: mitt i spelet.",
+          "size": "M",
+          "builds_on": "PWA-manifestets share_target + service worker, ovanpå befintlig media-pipeline och DM/kanal-väljaren med cookie-session-auth.",
+          "demo": "En bild flyger ur delningsarket in i ett frostat kompositörsark där kanal- och personaväljaren fälls upp, och bilden fastnar i chatten med en fjäderstuds."
+        },
+        {
+          "name": "Plåten",
+          "pitch": "Öppna kameran direkt i kompositören och ta en plåt inifrån världen: klientside-filter (canvas) förvandlar köksbordet till en gulnad daguerreotyp, en repig ferrotyp eller en sliten polaroid, med din personas sigill bränt i hörnet. Bilden framkallas i chatten som ett fysiskt föremål de andra kan luta sig in i. Servern rör aldrig en pixel — allt renderas i din mobil innan uppladdning.",
+          "size": "M",
+          "builds_on": "Befintlig bilduppladdning + persona-snapshots; capture via input/getUserMedia och canvas-filter helt på klienten.",
+          "demo": "En sökare knäpper till, bilden framkallas ur svärta med sepia och filmkorn, och sätter sig snett i meddelandebubblan med en tejpbit i hörnet."
+        },
+        {
+          "name": "Lägerelden",
+          "pitch": "Ställ mobilen lutad mot en kopp under spelkvällen: Wake Lock håller skärmen vaken och förvandlar den till ett levande bordsbål — scenens atmosfär, tärningsresultat i jätteformat, och varje medförfattares porträtt som glödande kol som flammar upp när hen skriver. Ett andra-skärms-sällskap för er som sitter runt samma bord, eller för den som bara vill känna rummets puls medan middagen lagas.",
+          "size": "M",
+          "builds_on": "SSE-bussen + atmosfärer + ghost quill + tärningsmotorn; Wake Lock API och hela vyn är ren klient.",
+          "demo": "Skärmen tonar ner till glödläge, ett avatarkol flammar upp i takt med skrivpulser och ett tärningschip rullar in stort över elden."
+        },
+        {
+          "name": "Etern",
+          "pitch": "Scenens syntetiserade regn och tavernasorl blir ett riktigt mediaspår via Media Session API: låsskärmen visar scenens bakgrundskonst som skivomslag, kapitelnamnet som låttitel, och hörlursknapparna pausar stämningen. Lägg mobilen i fickan och låt världen fortsätta susa — när GM byter atmosfär byter låten sig själv. Rollspelet får en plats på låsskärmen, som musiken alltid haft.",
+          "size": "S",
+          "builds_on": "De godkända WebAudio-atmosfärerna + scenbakgrunder + SSE-moodbyten; Media Session API är hundra procent klientkod.",
+          "demo": "En mockad låsskärm där omslaget tonar från regnig gränd till lägereld medan titeln rullar över från 'Kapitel III' till 'Kapitel IV'."
+        },
+        {
+          "name": "Stafettpinnen",
+          "pitch": "GM sätter en skrivordning i kanalen, och när det blir din tur landar en push — 'Stafettpinnen är din i Kraghamn' — och appikonen får en glödande etta via Badging API. Ett tryck och du står i kompositören med din persona redan påklädd; alla andra ser pinnen vandra mellan porträtten i realtid. Slut på vems-tur-är-det-tjatet i sidochatten.",
+          "size": "M",
+          "builds_on": "Befintlig web push + nya SSE-bussen + kanal/persona-pipelinen; bara en liten turordningstabell på servern.",
+          "demo": "Ett lysande stafettchip glider längs en rad avatarer, stannar med en studs vid din, och appmärket i hörnet växlar till '1'."
+        },
+        {
+          "name": "Citatkortet",
+          "pitch": "Håll inne en replik du älskar och se den sättas om till ett typografiskt citatkort i frostat glas — serif-prosa, personans namnteckning och gillets emblem, renderat lokalt med canvas i din mobil. Dela via mobilens eget delningsark till vänner du vill locka in i berättelsen. Ert bästa skrivande blir affischer, och varje delning är en inbjudan.",
+          "size": "S",
+          "builds_on": "Long-press-radialmenyn + persona-snapshots på meddelanderaden + duo-typografin; canvas-till-PNG + Web Share API, noll serverarbete.",
+          "demo": "En bubbla lyfter ur flödet, veckas om till ett glaskort med ett ljusskimmer över signaturen, och delningsarket glider upp underifrån."
+        },
+        {
+          "name": "Härolden",
+          "pitch": "Notiser som kommer från karaktären, inte från appen: 'Yrsa Stormhand: \"Du borde inte ha kommit hit.\"' med hennes porträtt som ikon, buntade per scen med collapse-taggar så låsskärmen aldrig spammas. Ställ regler per persona — väck mig bara när min karaktär tilltalas — och tysta timmar per gille. Varje vibration känns som ett brev från världen.",
+          "size": "M",
+          "builds_on": "Befintliga web-push-pipelinen (VAPID) + persona-snapshots + den batchade unread-endpointen; bara payload-berikning och en liten regeltabell.",
+          "demo": "Tre notiskort staplas på en mock-låsskärm och kollapsar till ett enda scenkort där personaporträttet pulserar till med ett blått sken."
+        },
+        {
+          "name": "Ränseln",
+          "pitch": "Tryck 'packa ner' på ett kapitel så stuvar service workern ner hela den typsatta berättelsen, porträtt och miniatyrer i ränseln — läsbar i tunnelbanan, på fjället, i flygplansläge. Läspositionen sparas lokalt och synkas hem när du får täckning igen, och nya scener läggs ovanpå packningen nästa gång du är online. Era berättelser följer med dit nätet inte når.",
+          "size": "M",
+          "builds_on": "Story book-läget + service workern/Cache Storage + den godkända offline-kön; cachen återanvänder samma session-gated GET:ar (privacy-404 ärvs).",
+          "demo": "Ett kapitelomslag sugs ner i en ränselikon med en fyllnadsring runt om; flygplansläget slås på och boken slår ändå upp sina sidor."
+        }
+      ]
+    }
+  ]
+}
