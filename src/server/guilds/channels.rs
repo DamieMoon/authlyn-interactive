@@ -9,7 +9,7 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    ChannelListResponse, ChannelSummary, CreateChannelRequest, PatchChannelRequest,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, PatchChannelRequest, SyncEvent,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
@@ -50,7 +50,10 @@ pub async fn create_channel(
     }
 
     match insert_channel(&state, &gid, &name, &req.kind).await {
-        Ok(summary) => (StatusCode::CREATED, Json(summary)).into_response(),
+        Ok(summary) => {
+            state.emit(SyncEvent::ListsChanged);
+            (StatusCode::CREATED, Json(summary)).into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "insert_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -160,7 +163,10 @@ pub async fn patch_channel(
         q = q.bind(("position", position));
     }
     match q.await.and_then(|r| r.check()) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "patch_channel update failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -198,7 +204,10 @@ pub async fn delete_channel(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -284,7 +293,10 @@ pub async fn restore_channel(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

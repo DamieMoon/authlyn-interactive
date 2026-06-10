@@ -43,7 +43,7 @@ use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
     ChannelSummary, CreateGuildRequest, GuildDetail, GuildSummary, ListGuildsResponse,
-    PatchGuildRequest, RailOrderRequest,
+    PatchGuildRequest, RailOrderRequest, SyncEvent,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
@@ -154,7 +154,10 @@ pub async fn set_rail_order(
         .collect();
 
     match persist_rail_order(&state, &account.0, &ordered).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "persist_rail_order failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -241,6 +244,7 @@ pub async fn create_guild(
     match persist_create_guild(&state, &account.0, &name).await {
         Ok(id) => {
             tracing::Span::current().record("guild", tracing::field::display(&id));
+            state.emit(SyncEvent::ListsChanged);
             (StatusCode::CREATED, Json(GuildSummary { id, name })).into_response()
         }
         Err(e) => {
@@ -402,6 +406,8 @@ pub async fn patch_guild(
             tracing::error!(error = %e, "patch_guild update failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
+        // Inside the `if let`: a body without `name` mutates nothing → no emit.
+        state.emit(SyncEvent::ListsChanged);
     }
     StatusCode::NO_CONTENT.into_response()
 }

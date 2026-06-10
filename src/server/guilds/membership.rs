@@ -9,7 +9,7 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    InviteMemberRequest, ListMembersResponse, MemberSummary, SetMemberRoleRequest,
+    InviteMemberRequest, ListMembersResponse, MemberSummary, SetMemberRoleRequest, SyncEvent,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
@@ -150,7 +150,10 @@ pub async fn invite_member(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::CREATED.into_response(),
+        Ok(()) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::CREATED.into_response()
+        }
         Err(e) if is_unique_violation(&e) => {
             error_response(StatusCode::CONFLICT, "user is already a member")
         }
@@ -218,7 +221,10 @@ pub async fn remove_member(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "remove_member failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -275,7 +281,10 @@ pub async fn set_member_role(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "set_member_role failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

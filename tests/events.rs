@@ -247,3 +247,45 @@ async fn edits_deletes_and_typing_reach_members_over_sse() {
     assert_eq!(ev["type"], "message_deleted");
     assert_eq!(ev["message_id"], mid.as_str());
 }
+
+#[tokio::test]
+async fn channel_creation_emits_lists_changed_and_membership_set_refreshes() {
+    let a = common::arena().await;
+    let (owner, gid, _cid) = owner_with_channel(&a.router, "EventsListsOwner").await;
+    let (_, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+
+    // Create a new channel → lists_changed must arrive.
+    let (st, _, chan) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "annex", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let new_cid = chan["id"].as_str().unwrap().to_string();
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected lists_changed, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "lists_changed");
+
+    // …and the connection's visibility set must now include the NEW channel:
+    // a message there must reach this same (pre-existing) SSE connection.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{new_cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "born after subscribe" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let ev = match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected message_created in the new channel, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "message_created");
+    assert_eq!(ev["channel_id"], new_cid.as_str());
+}

@@ -39,7 +39,10 @@ pub async fn delete_guild(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            state.emit(crate::protocol::SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_guild failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -70,7 +73,10 @@ pub async fn restore_guild(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(crate::protocol::SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_guild failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
