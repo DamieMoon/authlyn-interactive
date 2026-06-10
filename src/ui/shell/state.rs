@@ -166,6 +166,11 @@ pub(crate) struct EditingMessage {
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct SyncState {
+    /// Latch: true while a background sync driver is running — either the SSE
+    /// EventSource (`act::sync::start_sync`) or the legacy poll loop
+    /// (`act::message::start_poll`). Both entry points are idempotent through
+    /// it; the SSE driver releases it when giving up so the poll fallback can
+    /// take over.
     pub(crate) polling: RwSignal<bool>,
     /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
     /// (e.g. the notification poll) can filter out the user's OWN messages
@@ -222,6 +227,12 @@ pub(crate) struct Notify {
     /// (L-4). Absent / 0 ⇒ no badge. Recomputed alongside `unread` by the poll;
     /// cleared for a channel when it's opened.
     pub(crate) unread_count: RwSignal<HashMap<String, usize>>,
+    /// Guild ids owning at least one unread (non-open) text channel — drives
+    /// the rail's per-guild unread dot. Rebuilt fresh on every
+    /// `refresh_unread` pass from `GET /unread`'s `guild_id` column (W1):
+    /// guild-channel loading is lazy now, so the rail can no longer derive
+    /// this mapping from the `guild_channels` cache for never-opened guilds.
+    pub(crate) unread_guilds: RwSignal<HashSet<String>>,
     /// Per-channel high-water mark this client has seen: channel id →
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.

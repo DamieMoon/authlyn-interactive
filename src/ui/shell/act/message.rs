@@ -4,9 +4,10 @@
 //!   [`remove_compose_attachment`].
 //! - Edits + deletes: [`edit_message`], [`delete_message`],
 //!   [`restore_deleted_message`], [`load_deleted_messages`].
-//! - Background sync: [`start_poll`] + [`start_sync`] (idempotent wrapper),
-//!   [`refresh_lists`], [`refresh_unread`], [`sync_messages`], [`ingest`],
-//!   [`unseen`].
+//! - Background sync primitives: [`start_poll`] (the SSE fallback loop),
+//!   [`refresh_open_channel`], [`refresh_lists`], [`refresh_unread`],
+//!   [`sync_messages`], [`ingest`], [`unseen`] — driven by [`super::sync`]
+//!   (the SSE driver that owns `start_sync`).
 //! - Three-cursor pagination: [`load_older`] using `cursor` / `oldest` /
 //!   `last_seen` with the `seen` HashSet dedupe across all paths.
 //! - Mute + last-seen marks: [`load_muted`], [`toggle_mute`],
@@ -837,15 +838,19 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
 
 /// Recompute the unread set across EVERY guild the caller belongs to (#23).
 /// The open channel is always considered seen (advance its mark to the live
-/// cursor); every other text channel is "unread" iff it has any message past
-/// its last-seen mark. A never-seen channel is baselined to its current
-/// latest (no retroactive glow on first sight). Runs on the ~6s list tick.
+/// cursor); every other text channel is "unread" iff the batched `GET /unread`
+/// summary (W1) says it has messages past the caller's read cursor. A channel
+/// this client has never seen is baselined to its current latest (no
+/// retroactive glow on first sight). One round-trip total — replaces the old
+/// per-channel `list_messages` probe loop.
 ///
-/// Iterating across all guilds (not only the open one) is what lets the rail
-/// glow a guild button whose unread is in a non-open guild — feedback row
-/// grt9ohmw8pj2fi4eqb6h.
+/// Covering all guilds (not only the open one) is what lets the rail glow a
+/// guild button whose unread is in a non-open guild — feedback row
+/// grt9ohmw8pj2fi4eqb6h; `notify.unread_guilds` is rebuilt fresh from each
+/// row's `guild_id` (the per-guild channel cache is lazy now, so it can no
+/// longer derive that mapping for never-opened guilds).
 #[cfg(feature = "hydrate")]
-fn refresh_unread(s: Shell) {
+pub(super) fn refresh_unread(s: Shell) {
     let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
     if let Some(ref oc) = open {
         if let Some(cur) = s.msg.cursor.get_untracked() {
@@ -863,102 +868,93 @@ fn refresh_unread(s: Shell) {
             c.remove(oc);
         });
     }
-    // Flatten the per-guild channel cache into a single list (cross-guild).
-    // Falls back to the open guild's `s.sel.channels` while the cache is
-    // still warming so the very-first poll tick post-mount still glows the
-    // open server's rows.
-    let channels: Vec<crate::protocol::ChannelSummary> = {
-        let cached: Vec<_> = s
-            .sel
-            .guild_channels
-            .with_untracked(|m| m.values().flat_map(|v| v.iter().cloned()).collect());
-        if cached.is_empty() {
-            s.sel.channels.get_untracked()
-        } else {
-            cached
-        }
-    };
     spawn_local(async move {
-        for ch in channels {
-            if ch.kind != "text" || Some(&ch.id) == open.as_ref() {
+        let Ok(r) = api::get_unread().await else {
+            return;
+        };
+        let mut unread_guilds: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for row in r.channels {
+            if Some(&row.channel_id) == open.as_ref() {
                 continue;
             }
-            match s
+            // First sight: this client has no last-seen mark for the channel —
+            // baseline it silently to the server-reported latest, don't glow.
+            let known = s
                 .notify
                 .last_seen
-                .with_untracked(|m| m.get(&ch.id).cloned())
-            {
-                Some(cur) => {
-                    let Ok(l) = api::list_messages(&ch.id, Some(&cur)).await else {
-                        continue;
-                    };
-                    let count = l.messages.len();
-                    let has_new = count > 0;
-                    // A ping = any unread message in this channel that mentions me
-                    // (L-4). `is_pinged` is per-reader (the server evaluated it for
-                    // THIS caller), so a true here is genuinely a ping for me.
-                    let has_ping = l.messages.iter().any(|m| m.is_pinged);
-                    let marked = s.notify.unread.with_untracked(|u| u.contains(&ch.id));
-                    if has_new != marked {
-                        s.notify.unread.update(|u| {
-                            if has_new {
-                                u.insert(ch.id.clone());
-                            } else {
-                                u.remove(&ch.id);
-                            }
-                        });
-                    }
-                    let pinged_now = s.notify.pinged.with_untracked(|p| p.contains(&ch.id));
-                    if has_ping != pinged_now {
-                        s.notify.pinged.update(|p| {
-                            if has_ping {
-                                p.insert(ch.id.clone());
-                            } else {
-                                p.remove(&ch.id);
-                            }
-                        });
-                    }
-                    let count_now = s
-                        .notify
-                        .unread_count
-                        .with_untracked(|c| c.get(&ch.id).copied().unwrap_or(0));
-                    if count != count_now {
-                        s.notify.unread_count.update(|c| {
-                            if has_new {
-                                c.insert(ch.id.clone(), count);
-                            } else {
-                                c.remove(&ch.id);
-                            }
-                        });
-                    }
+                .with_untracked(|m| m.contains_key(&row.channel_id));
+            if !known {
+                if let (Some(sent_at), Some(id)) = (row.latest_sent_at, row.latest_id) {
+                    set_last_seen(s, &row.channel_id, (sent_at, id));
                 }
-                // First sight: baseline to the current latest, don't glow.
-                None => {
-                    if let Ok(l) = api::list_messages(&ch.id, None).await {
-                        if let Some(last) = l.messages.last() {
-                            set_last_seen(s, &ch.id, (last.sent_at.clone(), last.id.clone()));
-                        }
-                    }
-                }
+                continue;
             }
+            let has_new = row.unread > 0;
+            // `row.pinged` is per-reader (the server evaluated the unread
+            // mentions for THIS caller), so a true here is genuinely a ping
+            // for me (L-4).
+            let has_ping = row.pinged;
+            if has_new {
+                unread_guilds.insert(row.guild_id.clone());
+            }
+            let marked = s
+                .notify
+                .unread
+                .with_untracked(|u| u.contains(&row.channel_id));
+            if has_new != marked {
+                s.notify.unread.update(|u| {
+                    if has_new {
+                        u.insert(row.channel_id.clone());
+                    } else {
+                        u.remove(&row.channel_id);
+                    }
+                });
+            }
+            let pinged_now = s
+                .notify
+                .pinged
+                .with_untracked(|p| p.contains(&row.channel_id));
+            if has_ping != pinged_now {
+                s.notify.pinged.update(|p| {
+                    if has_ping {
+                        p.insert(row.channel_id.clone());
+                    } else {
+                        p.remove(&row.channel_id);
+                    }
+                });
+            }
+            let count_now = s
+                .notify
+                .unread_count
+                .with_untracked(|c| c.get(&row.channel_id).copied().unwrap_or(0));
+            if row.unread != count_now {
+                s.notify.unread_count.update(|c| {
+                    if has_new {
+                        c.insert(row.channel_id.clone(), row.unread);
+                    } else {
+                        c.remove(&row.channel_id);
+                    }
+                });
+            }
+        }
+        // Rebuilt fresh each pass (never incrementally mutated), written only
+        // on change so an idle refresh doesn't re-render every rail badge.
+        if s.notify
+            .unread_guilds
+            .with_untracked(|g| *g != unread_guilds)
+        {
+            s.notify.unread_guilds.set(unread_guilds);
         }
     });
 }
 
-/// True iff any text channel in the given guild is in `notify.unread`. Pure
-/// projection over `guild_channels` + `notify.unread`; called per rail button
-/// from a reactive closure so the badge tracks both signals.
+/// True iff any text channel in the given guild has unread messages. Pure
+/// projection over `notify.unread_guilds` (rebuilt by [`refresh_unread`] from
+/// `GET /unread`'s `guild_id` column); called per rail button from a reactive
+/// closure so the badge tracks the signal.
 #[cfg(feature = "hydrate")]
 pub fn guild_has_unread(s: Shell, gid: &str) -> bool {
-    let channels = s.sel.guild_channels.with(|m| m.get(gid).cloned());
-    let Some(channels) = channels else {
-        return false;
-    };
-    s.notify.unread.with(|u| {
-        channels
-            .iter()
-            .any(|c| c.kind == "text" && u.contains(&c.id))
-    })
+    s.notify.unread_guilds.with(|g| g.contains(gid))
 }
 
 /// Toggle mute for a channel: flip the reactive set + persist. A click is a
@@ -1017,17 +1013,18 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
     s.msg.messages.set(fresh);
 }
 
-/// In-place refresh of the guild rail, every guild's channel list, and the
-/// friends list — each written only when it changed, so things created or
-/// removed elsewhere appear/disappear without a manual reload.
+/// In-place refresh of the guild rail, the friends list, and the SELECTED
+/// guild's channel list — each written only when it changed, so things
+/// created or removed elsewhere appear/disappear without a manual reload.
 ///
-/// Fetches every guild's channels in parallel (cross-guild unread badges in
-/// the rail need to know which channels live where — feedback row
-/// grt9ohmw8pj2fi4eqb6h). The open guild's channels mirror into `s.sel.channels`
-/// so the sidebar/channel-list selector keeps its single-source-of-truth.
-/// Vanished guilds (left/deleted) are pruned from the per-guild cache.
+/// Guild-channel loading is LAZY (W1): only the open guild's detail is
+/// fetched (the old cross-guild `join_all` over every guild is gone — rail
+/// unread dots now come from `GET /unread`'s `guild_id` via
+/// `notify.unread_guilds`, see [`refresh_unread`]). The open guild's channels
+/// mirror into `s.sel.channels` so the sidebar/channel-list selector keeps
+/// its single-source-of-truth.
 #[cfg(feature = "hydrate")]
-fn refresh_lists(s: Shell) {
+pub(super) fn refresh_lists(s: Shell) {
     let sel = s.sel.sel_server.get_untracked();
     spawn_local(async move {
         if let Ok(r) = api::list_guilds().await {
@@ -1040,36 +1037,27 @@ fn refresh_lists(s: Shell) {
                 s.social.friends.set(f);
             }
         }
-        // Cross-guild channel cache: pull every guild's channels in parallel.
-        // Cost is bounded by guild count (single-deployment, single-user) and
-        // amortizes against the existing 4-tick poll cadence (~6s).
-        let gids: Vec<String> = s
-            .sel
-            .guilds
-            .with_untracked(|g| g.iter().map(|g| g.id.clone()).collect());
-        let details = futures_util::future::join_all(
-            gids.iter()
-                .map(|gid| api::get_guild(gid))
-                .collect::<Vec<_>>(),
-        )
-        .await;
-        let mut next: std::collections::HashMap<String, Vec<crate::protocol::ChannelSummary>> =
-            std::collections::HashMap::with_capacity(gids.len());
-        for (gid, r) in gids.iter().zip(details) {
-            if let Ok(d) = r {
-                next.insert(gid.clone(), d.channels);
+        let Some(gid) = sel else {
+            return;
+        };
+        if let Ok(d) = api::get_guild(&gid).await {
+            // Stale-guard: drop this pass's channels if the user switched
+            // servers while the fetch was in flight.
+            if s.sel.sel_server.get_untracked().as_deref() != Some(gid.as_str()) {
+                return;
             }
-        }
-        // Only rewrite if something actually changed (avoid a needless
-        // re-render of every rail badge each tick).
-        if s.sel.guild_channels.with_untracked(|cur| *cur != next) {
-            s.sel.guild_channels.set(next.clone());
-        }
-        if let Some(gid) = sel {
-            if let Some(channels) = next.get(&gid) {
-                if s.sel.channels.with_untracked(|c| *c != *channels) {
-                    s.sel.channels.set(channels.clone());
-                }
+            // Keep the per-guild cache warm for the open guild; write both
+            // signals only on change to avoid needless re-renders.
+            if s.sel
+                .guild_channels
+                .with_untracked(|m| m.get(&gid) != Some(&d.channels))
+            {
+                s.sel.guild_channels.update(|m| {
+                    m.insert(gid.clone(), d.channels.clone());
+                });
+            }
+            if s.sel.channels.with_untracked(|c| *c != d.channels) {
+                s.sel.channels.set(d.channels);
             }
         }
     });
@@ -1128,10 +1116,60 @@ pub fn load_older(s: Shell) {
     });
 }
 
+/// One reconcile pass over the OPEN channel's messages + typing names: the
+/// short-channel branch reconciles the whole page (reflects edits/deletes),
+/// the long-history branch appends past the cursor. No-op off the Channel
+/// pane or with no channel selected. Extracted from the poll tick so the SSE
+/// driver ([`super::sync`]) can run it per event; the poll loop still runs it
+/// every 1.5s as the fallback cadence.
+#[cfg(feature = "hydrate")]
+pub(super) async fn refresh_open_channel(s: Shell) {
+    if s.sync.pane.get_untracked() != Pane::Channel {
+        return;
+    }
+    let Some(ch) = s.sel.sel_channel.get_untracked() else {
+        return;
+    };
+    match api::list_messages(&ch.id, None).await {
+        Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
+            // Stale-guard: drop this pass's data if the channel changed
+            // while the fetch was in flight (feedback gwiif7xy).
+            if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                return;
+            }
+            let fresh = unseen(s, &l.messages);
+            s.msg.typing.set(l.typing);
+            sync_messages(s, l.messages);
+            super::notify::notify_messages(s, &ch, &fresh);
+            super::notify::dismiss_open_channel_notifs(&ch, &fresh);
+        }
+        Ok(_) => {
+            // Long history: page 1 isn't the whole channel, so only
+            // append new messages past the cursor.
+            let cur = s.msg.cursor.get_untracked();
+            if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
+                // Stale-guard: drop this pass's data if the channel
+                // changed while the fetch was in flight (feedback
+                // gwiif7xy).
+                if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                    return;
+                }
+                let fresh = unseen(s, &l.messages);
+                s.msg.typing.set(l.typing);
+                ingest(s, l.messages);
+                super::notify::notify_messages(s, &ch, &fresh);
+                super::notify::dismiss_open_channel_notifs(&ch, &fresh);
+            }
+        }
+        Err(_) => {}
+    }
+}
+
 /// The background sync loop (single instance, guarded by `s.sync.polling`).
 /// Every tick it refreshes the open channel's messages; every ~6s it also
-/// refreshes the lists. Started on shell mount via [`start_sync`] so the
-/// lists stay live even on the Friends pane. SEAM: replace with SSE.
+/// refreshes the lists. The AUTOMATIC FALLBACK behind the SSE driver
+/// ([`super::sync::start_sync`]): it runs only when EventSource is missing or
+/// gave up for the session.
 #[cfg(feature = "hydrate")]
 pub(super) fn start_poll(s: Shell) {
     if s.sync.polling.get_untracked() {
@@ -1147,54 +1185,9 @@ pub(super) fn start_poll(s: Shell) {
                 refresh_lists(s);
                 refresh_unread(s);
             }
-            if s.sync.pane.get_untracked() != Pane::Channel {
-                continue;
-            }
-            let Some(ch) = s.sel.sel_channel.get_untracked() else {
-                continue;
-            };
-            match api::list_messages(&ch.id, None).await {
-                Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
-                    // Stale-guard: drop this tick's data if the channel changed
-                    // while the fetch was in flight (feedback gwiif7xy).
-                    if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
-                        continue;
-                    }
-                    let fresh = unseen(s, &l.messages);
-                    s.msg.typing.set(l.typing);
-                    sync_messages(s, l.messages);
-                    super::notify::notify_messages(s, &ch, &fresh);
-                    super::notify::dismiss_open_channel_notifs(&ch, &fresh);
-                }
-                Ok(_) => {
-                    // Long history: page 1 isn't the whole channel, so only
-                    // append new messages past the cursor.
-                    let cur = s.msg.cursor.get_untracked();
-                    if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
-                        // Stale-guard: drop this tick's data if the channel
-                        // changed while the fetch was in flight (feedback
-                        // gwiif7xy).
-                        if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
-                            continue;
-                        }
-                        let fresh = unseen(s, &l.messages);
-                        s.msg.typing.set(l.typing);
-                        ingest(s, l.messages);
-                        super::notify::notify_messages(s, &ch, &fresh);
-                        super::notify::dismiss_open_channel_notifs(&ch, &fresh);
-                    }
-                }
-                Err(_) => {}
-            }
+            refresh_open_channel(s).await;
         }
     });
-}
-
-/// Start the background sync loop (idempotent). Called on shell mount so the
-/// rail/sidebar/friends stay live before any channel is opened.
-#[cfg(feature = "hydrate")]
-pub fn start_sync(s: Shell) {
-    start_poll(s);
 }
 
 // ---- ssr stubs ----
@@ -1287,8 +1280,6 @@ pub fn load_last_seen(_s: Shell) {}
 pub fn hydrate_last_seen(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn toggle_mute(_s: Shell, _cid: String) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn start_sync(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_older(_s: Shell) {}

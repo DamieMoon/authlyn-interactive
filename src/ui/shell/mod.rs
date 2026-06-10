@@ -278,6 +278,7 @@ fn AppShell() -> impl IntoView {
         unread: RwSignal::new(HashSet::new()),
         pinged: RwSignal::new(HashSet::new()),
         unread_count: RwSignal::new(HashMap::new()),
+        unread_guilds: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
         web_push_enabled: RwSignal::new(false),
     };

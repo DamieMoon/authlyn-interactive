@@ -14,6 +14,9 @@
 //! - [`message`] — message read/write: send/edit/delete, the 3-cursor pagination
 //!   loop, sync/ingest/unseen, the background poll, mute/last-seen, lore +
 //!   friends + member ops + the destructive-action confirm dispatcher.
+//! - [`sync`] — the W1 sync driver (`start_sync`): EventSource on `/events`
+//!   dispatching `message`'s refresh primitives, with the poll loop as the
+//!   automatic fallback.
 //! - [`persona`] — wardrobe ops: create/update/remove/leave/swap/share/avatar +
 //!   wear/unwear.
 //! - [`emoji`] — guild custom-emoji refresh/create/delete + image upload.
@@ -31,6 +34,7 @@ pub mod message;
 pub mod notify;
 pub mod persona;
 pub mod prefs;
+pub mod sync;
 
 // Re-exports so the view code keeps calling `act::xxx` unchanged.
 pub use account::{admin_reset_password, change_password, logout, set_security_question};
@@ -60,8 +64,9 @@ pub use message::{
     load_deleted_messages, load_last_seen, load_muted, patch_lore, remove_compose_attachment,
     remove_friend, restore_deleted_message, retry_compose_attachment, send_message,
     show_emoji_manager, show_friends, show_members, show_wardrobe, start_edit, start_reply,
-    start_sync, swap_lore, toggle_mute,
+    swap_lore, toggle_mute,
 };
+pub use sync::start_sync;
 // `load_older` is only reachable through a hydrate-gated branch in `channel`;
 // re-exporting it on ssr fires "unused import" because nothing calls it there.
 #[cfg(feature = "hydrate")]

@@ -127,6 +127,12 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.notify.unread_count.update(|c| {
             c.remove(&cid);
         });
+        // Rebuild the rail's per-guild unread dots promptly: `unread_guilds`
+        // is recomputed only by `refresh_unread` (from `GET /unread`), and
+        // under SSE there is no periodic tick to pick up the channel the user
+        // just read — without this the dot of a now-fully-read guild would
+        // linger until the next event.
+        super::message::refresh_unread(s);
         // Ask the SW to close any tray notifications for this channel so a
         // burst of stacked notifs disappears once the user lands on the
         // channel that produced them (feedback row kx24k2cwftdppidhmh0e).
