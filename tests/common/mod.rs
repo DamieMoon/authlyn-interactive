@@ -51,17 +51,24 @@ pub struct Arena {
     pub router: Router,
     pub db: Surreal<Client>,
     pub media_dir: PathBuf,
+    /// The SAME `AppState` the router was built from. Tests that drive an
+    /// ssr core fn directly (e.g. `broadcast_system_message`) must use this
+    /// one when they assert on SSE delivery: a freshly constructed
+    /// `AppState::new(...)` carries its OWN broadcast channel, so emissions
+    /// on it never reach the router's `GET /events` subscribers.
+    pub state: AppState,
 }
 
 pub async fn arena() -> Arena {
     let db = test_db().await;
     let media_dir = test_media_dir();
     let state = AppState::new(db.clone(), media_dir.clone());
-    let router = make_router(state);
+    let router = make_router(state.clone());
     Arena {
         router,
         db,
         media_dir,
+        state,
     }
 }
 

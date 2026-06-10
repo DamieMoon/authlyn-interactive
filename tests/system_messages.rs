@@ -205,6 +205,59 @@ async fn system_message_round_trips_with_kind_system_over_get_messages() {
     assert_eq!(msgs[0]["body"], "Nova speaks");
 }
 
+/// Task 6/7 review carry-over: the fan-out must emit `message_created` on the
+/// SSE bus per fanned-out message, like every other message write. Driven on
+/// `a.state` (the ROUTER's `AppState`) so the emission lands on the same bus
+/// the `GET /events` stream subscribes to.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn broadcast_emits_message_created_per_fanned_out_message_over_sse() {
+    let a = common::arena().await;
+
+    // Owner + guild via HTTP so guild_member rows (SSE visibility) are real.
+    let owner = common::register_account(&a.router, "BusOwner", "password123").await;
+    let (st, _, guild) = common::send(
+        &a.router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "Bus" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (st, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+
+    // Subscribe BEFORE broadcasting.
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let result = broadcast_system_message(&a.state, "the bus hears Nova")
+        .await
+        .expect("broadcast");
+    assert_eq!(result.messages_sent, 1);
+
+    let ev = match common::next_sse_data(&mut body, std::time::Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected message_created over SSE, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "message_created");
+    assert_eq!(
+        ev["channel_id"],
+        cid.as_str(),
+        "the event names the guild's default channel the broadcast landed in"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Admin gate — fail-closed (empty admin set authorizes no one)
 // ---------------------------------------------------------------------------
