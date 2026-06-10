@@ -25,4 +25,18 @@ async fn sync_event_serializes_with_snake_case_type_tags() {
             channel_id: "c1".into()
         }
     );
+
+    let ev = SyncEvent::MessageEdited {
+        channel_id: "c1".into(),
+        message_id: "m1".into(),
+    };
+    assert_eq!(
+        serde_json::to_string(&ev).unwrap(),
+        r#"{"type":"message_edited","channel_id":"c1","message_id":"m1"}"#
+    );
+
+    // A future server's unknown event type must decode to Unknown, not error.
+    let future: SyncEvent = serde_json::from_str(r#"{"type":"warp_initiated"}"#).unwrap();
+    assert_eq!(future, SyncEvent::Unknown);
+    assert_eq!(future.channel_id(), None);
 }

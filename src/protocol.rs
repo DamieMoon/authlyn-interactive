@@ -806,6 +806,11 @@ pub enum SyncEvent {
     /// Guild/channel/membership metadata changed somewhere visible to you —
     /// refetch lists. Also used as a generic "resync" nudge after broadcast lag.
     ListsChanged,
+    /// Forward-compat catch-all: an event type this build doesn't know
+    /// (a newer server during version skew). Consumers MUST ignore it;
+    /// the server never constructs it.
+    #[serde(other)]
+    Unknown,
 }
 
 impl SyncEvent {
@@ -817,7 +822,7 @@ impl SyncEvent {
             | SyncEvent::MessageEdited { channel_id, .. }
             | SyncEvent::MessageDeleted { channel_id, .. }
             | SyncEvent::Typing { channel_id } => Some(channel_id),
-            SyncEvent::ListsChanged => None,
+            SyncEvent::ListsChanged | SyncEvent::Unknown => None,
         }
     }
 }
