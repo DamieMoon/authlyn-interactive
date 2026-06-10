@@ -51,11 +51,7 @@ pub async fn typing_ping(
         map.entry(cid.clone()).or_default().insert(account.0, now);
     }
 
-    // W1 bus: best-effort, never fails the request (send() errs only when
-    // no subscriber exists, which is the idle case).
-    let _ = state
-        .events
-        .send(crate::protocol::SyncEvent::Typing { channel_id: cid });
+    state.emit(crate::protocol::SyncEvent::Typing { channel_id: cid });
 
     StatusCode::NO_CONTENT.into_response()
 }

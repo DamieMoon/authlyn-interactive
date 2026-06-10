@@ -73,6 +73,13 @@ impl AppState {
         }
     }
 
+    /// Best-effort bus emission: never fails the request. `send()` errs only
+    /// when no subscriber exists (the idle case) — see the `events` field doc
+    /// for the capacity/lag rationale.
+    pub fn emit(&self, ev: crate::protocol::SyncEvent) {
+        let _ = self.events.send(ev);
+    }
+
     /// Build with all three halves supplied. Used by `main.rs`. Same
     /// canonicalization contract as [`Self::new`].
     pub fn with_leptos(

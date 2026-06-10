@@ -245,4 +245,5 @@ async fn edits_deletes_and_typing_reach_members_over_sse() {
         other => panic!("expected message_deleted, got {other:?}"),
     };
     assert_eq!(ev["type"], "message_deleted");
+    assert_eq!(ev["message_id"], mid.as_str());
 }

@@ -159,13 +159,9 @@ pub async fn post_message(
             // Fire-and-forget Web Push to the guild's other members (#30). Never
             // blocks or fails the send; a no-op when push is disabled.
             crate::server::push::notify_new_message(state.clone(), id.clone(), account.0.clone());
-            // W1 bus: best-effort, never fails the request (send() errs only when
-            // no subscriber exists, which is the idle case).
-            let _ = state
-                .events
-                .send(crate::protocol::SyncEvent::MessageCreated {
-                    channel_id: cid.clone(),
-                });
+            state.emit(crate::protocol::SyncEvent::MessageCreated {
+                channel_id: cid.clone(),
+            });
             (StatusCode::CREATED, Json(SendMessageResponse { id })).into_response()
         }
         Err(e) => {

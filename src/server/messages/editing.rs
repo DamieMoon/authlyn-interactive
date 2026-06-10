@@ -60,14 +60,10 @@ pub async fn edit_message(
     .await;
     match result {
         Ok(()) => {
-            // W1 bus: best-effort, never fails the request (send() errs only when
-            // no subscriber exists, which is the idle case).
-            let _ = state
-                .events
-                .send(crate::protocol::SyncEvent::MessageEdited {
-                    channel_id: cid.clone(),
-                    message_id: mid.clone(),
-                });
+            state.emit(crate::protocol::SyncEvent::MessageEdited {
+                channel_id: cid.clone(),
+                message_id: mid.clone(),
+            });
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => {
@@ -105,14 +101,10 @@ pub async fn delete_message(
     .await;
     match result {
         Ok(()) => {
-            // W1 bus: best-effort, never fails the request (send() errs only when
-            // no subscriber exists, which is the idle case).
-            let _ = state
-                .events
-                .send(crate::protocol::SyncEvent::MessageDeleted {
-                    channel_id: cid.clone(),
-                    message_id: mid.clone(),
-                });
+            state.emit(crate::protocol::SyncEvent::MessageDeleted {
+                channel_id: cid.clone(),
+                message_id: mid.clone(),
+            });
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => {
@@ -148,7 +140,13 @@ pub async fn restore_message(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // A restored message reappears — notify-and-fetch treats it as new arrival.
+            state.emit(crate::protocol::SyncEvent::MessageCreated {
+                channel_id: cid.clone(),
+            });
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_message failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
