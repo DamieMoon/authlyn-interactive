@@ -777,6 +777,51 @@ pub struct ListFeedbackResponse {
     pub items: Vec<FeedbackItem>,
 }
 
+// ---------------------------------------------------------------------------
+// SSE realtime bus (W1)
+// ---------------------------------------------------------------------------
+
+/// W1 realtime: the id-only event vocabulary broadcast over `GET /events`.
+/// Deliberately content-free (notify-and-fetch): clients react by refetching
+/// through the existing permission-checked endpoints, so this enum never
+/// becomes an authorization surface. Shared by ssr (emitter) and hydrate
+/// (EventSource consumer); always-on like every other wire DTO here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SyncEvent {
+    /// A message was created in this channel.
+    MessageCreated { channel_id: String },
+    /// A message was edited in this channel.
+    MessageEdited {
+        channel_id: String,
+        message_id: String,
+    },
+    /// A message was soft-deleted in this channel.
+    MessageDeleted {
+        channel_id: String,
+        message_id: String,
+    },
+    /// Someone (not necessarily you) pinged "typing" in this channel.
+    Typing { channel_id: String },
+    /// Guild/channel/membership metadata changed somewhere visible to you —
+    /// refetch lists. Also used as a generic "resync" nudge after broadcast lag.
+    ListsChanged,
+}
+
+impl SyncEvent {
+    /// The channel this event is scoped to, if any. `None` (ListsChanged) means
+    /// "deliver to everyone and let the refetch re-derive visibility".
+    pub fn channel_id(&self) -> Option<&str> {
+        match self {
+            SyncEvent::MessageCreated { channel_id }
+            | SyncEvent::MessageEdited { channel_id, .. }
+            | SyncEvent::MessageDeleted { channel_id, .. }
+            | SyncEvent::Typing { channel_id } => Some(channel_id),
+            SyncEvent::ListsChanged => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
