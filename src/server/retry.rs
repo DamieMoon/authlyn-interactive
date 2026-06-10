@@ -64,14 +64,17 @@ where
 /// SDK exposes them as plain `surrealdb::Error` values rather than a typed
 /// variant, so substring matching is the cheapest reliable test. The exact
 /// wording drifts between SurrealDB releases, so we match CASE-INSENSITIVELY on
-/// two markers present in BOTH texts we've observed: the `=3.1.0-beta.3` SDK
+/// markers from EVERY text we've observed: the `=3.1.0-beta.3` SDK
 /// emits `"...Transaction conflict: Write conflict, retry the transaction. This
-/// transaction can be retried"`, while the `3.0.4` server the dev box runs
-/// emits `"...Transaction conflict: Transaction write conflict. This transaction
-/// can be retried"`. Both contain `"write conflict"` and `"can be retried"`
-/// (either match suffices — defense-in-depth), and both are absent from the
-/// UNIQUE-violation text (`"already contains"`), so the two predicates stay
-/// disjoint (the `is_unique_violation` canary asserts this).
+/// transaction can be retried"`, the `3.0.4` server (prod/fenrir) emits
+/// `"...Transaction conflict: Transaction write conflict. This transaction
+/// can be retried"`, and the `3.1.3` server (dev box since 2026-06) emits
+/// `"The query was not executed due to a failed transaction"`. The first two
+/// contain `"write conflict"` and `"can be retried"`; the third contains
+/// neither, so `"failed transaction"` is matched as well. All three markers
+/// are absent from the UNIQUE-violation text (`"already contains"`), so the
+/// two predicates stay disjoint (the `is_unique_violation` canary asserts
+/// this against the live server).
 ///
 /// Exposed as `pub` (not `pub(crate)`) so the
 /// `is_write_conflict_matches_real_surrealdb_conflict` regression test in
@@ -83,7 +86,7 @@ where
 /// so the canary is load-bearing.
 pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
     let s = err.to_string().to_ascii_lowercase();
-    s.contains("write conflict") || s.contains("can be retried")
+    s.contains("write conflict") || s.contains("can be retried") || s.contains("failed transaction")
 }
 
 /// Identify SurrealDB UNIQUE-index violation errors via their Display
