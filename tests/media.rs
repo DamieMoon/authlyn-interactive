@@ -544,6 +544,71 @@ async fn served_image_carries_nosniff() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Immutable Cache-Control (Task 9): media ids are server-minted random 16-byte
+// ids and blobs are never replaced in place, so every successful media
+// response is immutable by construction — safe to cache for a year.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn media_responses_are_immutably_cacheable() {
+    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    // Inline image arm (serve_original, stored Content-Type).
+    let id = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+    let (status, headers, _) = get_media_full(&a.router, &owner, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .expect("media must carry Cache-Control")
+            .to_str()
+            .unwrap(),
+        IMMUTABLE,
+        "inline image responses are immutably cacheable"
+    );
+
+    // Thumbnail arm (`?w=` → jpeg_response).
+    let (status, headers, _) = get_media_full(&a.router, &owner, &format!("{id}?w=64")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .expect("thumbnail must carry Cache-Control")
+            .to_str()
+            .unwrap(),
+        IMMUTABLE,
+        "thumbnail responses are immutably cacheable"
+    );
+
+    // Attachment arm (serve_original, octet-stream download).
+    let pdf_id = upload_image(&a.router, &owner, "application/pdf", b"%PDF-1.4\n").await;
+    let (status, headers, _) = get_media_full(&a.router, &owner, &pdf_id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .expect("attachment must carry Cache-Control")
+            .to_str()
+            .unwrap(),
+        IMMUTABLE,
+        "attachment downloads are immutably cacheable"
+    );
+
+    // Error paths must NOT be cached: a 404 today could be a real blob
+    // tomorrow (and ids are unguessable, so a cached 404 is pure harm).
+    let (status, headers, _) =
+        get_media_full(&a.router, &owner, "deadbeefdeadbeefdeadbeefdeadbeef").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(
+        headers.get(header::CACHE_CONTROL).is_none(),
+        "media 404 must stay uncached"
+    );
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn legacy_non_image_blob_is_served_as_nosniff_attachment() {

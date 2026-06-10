@@ -293,6 +293,14 @@ pub async fn download_media(
 const THUMB_MIN_W: u32 = 16;
 const THUMB_MAX_W: u32 = 512;
 
+/// Cache-Control for every SUCCESSFUL media response. Media ids are
+/// server-minted random 16-byte ids ([`random_media_id`]) and blobs are never
+/// replaced in place, so a media URL's bytes are immutable by construction —
+/// a year of `immutable` caching is safe and kills PWA avatar/attachment
+/// refetch chatter. Error paths (404/500 via `error_response`) deliberately
+/// carry NO Cache-Control: a 404 today could be a real blob tomorrow.
+const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+
 /// Serve raw blob bytes. Always sends `X-Content-Type-Options: nosniff` so the
 /// browser cannot sniff stored bytes into active content. Inline-safe raster
 /// images are served with their stored type; anything else (legacy rows, svg,
@@ -304,6 +312,7 @@ fn serve_original(bytes: Vec<u8>, mime: String) -> Response {
             [
                 (header::CONTENT_TYPE, mime),
                 (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+                (header::CACHE_CONTROL, IMMUTABLE_CACHE.to_string()),
             ],
             bytes,
         )
@@ -314,6 +323,7 @@ fn serve_original(bytes: Vec<u8>, mime: String) -> Response {
                 (header::CONTENT_TYPE, DEFAULT_MIME.to_string()),
                 (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
                 (header::CONTENT_DISPOSITION, "attachment".to_string()),
+                (header::CACHE_CONTROL, IMMUTABLE_CACHE.to_string()),
             ],
             bytes,
         )
@@ -326,6 +336,7 @@ fn jpeg_response(bytes: Vec<u8>) -> Response {
         [
             (header::CONTENT_TYPE, "image/jpeg"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, IMMUTABLE_CACHE),
         ],
         bytes,
     )

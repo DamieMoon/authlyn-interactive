@@ -4,8 +4,9 @@
 //! flashed ancient messages on cold open). The `map_response` layer stamps
 //! `Cache-Control: no-store` on the small-body (JSON) route group. This locks
 //! that header onto API responses. It also characterizes that the media route
-//! group — a SEPARATE router without that layer — does NOT carry it (so the
-//! refactor can't silently move/drop the layer unnoticed).
+//! group — a SEPARATE router without that layer — is never stamped no-store
+//! (it carries its own immutable Cache-Control instead, set per-response in
+//! media.rs), so a refactor can't silently move/drop the layer unnoticed.
 
 mod common;
 
@@ -117,7 +118,9 @@ async fn media_route_group_is_not_no_store() {
     let (st, cc) = cache_control_of(&a.router, Some(&user), &format!("/media/{id}")).await;
     assert_eq!(st, StatusCode::OK);
     assert_eq!(
-        cc, None,
-        "media responses are not stamped no-store (separate route group)"
+        cc.as_deref(),
+        Some("public, max-age=31536000, immutable"),
+        "media responses carry their own immutable Cache-Control, never the \
+         JSON group's no-store (separate route group)"
     );
 }
