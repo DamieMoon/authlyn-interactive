@@ -354,8 +354,16 @@ pub(super) const MSG_PROJECTION: &str = "
             AS persona_avatar_id,
         body,
         (attachments ?? []) AS attachments,
-        (SELECT meta::id(id) AS id, mime FROM media_blob
-            WHERE meta::id(id) IN ($parent.attachments ?? [])) AS attachment_mimes,
+        -- `WHERE meta::id(id) IN $array` plans as a media_blob TableScan,
+        -- correlated PER MESSAGE ROW — O(page x |media_blob|) on the hot
+        -- polled path (W5/H4); this record-pointer form (FROM an array of
+        -- type::record pointers) point-reads instead. `WHERE id IS NOT NONE`
+        -- drops since-vanished blobs (a dangling pointer yields a NONE row
+        -- that would crash meta::id). Verified via EXPLAIN FULL on SurrealDB
+        -- 3.1.3: TableScan -> DynamicScan over array::map(...).
+        (SELECT meta::id(id) AS id, mime
+            FROM array::map(($parent.attachments ?? []), |$a| type::record('media_blob', $a))
+            WHERE id IS NOT NONE) AS attachment_mimes,
         tier,
         sent_at,
         (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
