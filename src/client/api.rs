@@ -26,7 +26,7 @@ use crate::protocol::{
     PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
     ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SendSystemMessageRequest,
     SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
-    SubmitFeedbackRequest, SystemBroadcastResult, VapidKeyResponse,
+    SubmitFeedbackRequest, SystemBroadcastResult, UnreadResponse, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -382,6 +382,11 @@ pub async fn mark_read(cid: &str, sent_at: &str, id: &str) -> Result<(), ApiErro
 /// used to hydrate `notify.last_seen` on shell mount (cross-device sync).
 pub async fn read_state() -> Result<ReadStateResponse, ApiError> {
     get("/channels/read-state").await
+}
+
+/// GET /unread — batched unread/ping summary for every visible text channel (W1).
+pub async fn get_unread() -> Result<UnreadResponse, ApiError> {
+    get("/unread").await
 }
 
 // ---------------------------------------------------------------------------
