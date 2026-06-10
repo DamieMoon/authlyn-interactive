@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod emoji;
+pub mod events;
 pub mod feedback;
 pub mod friends;
 pub mod guilds;
@@ -76,6 +77,10 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/security-question", post(auth::set_security_question))
         .route("/auth/reset/question", get(auth::get_reset_question))
         .route("/auth/reset/confirm", post(auth::confirm_password_reset))
+        // W1 realtime: long-lived SSE stream of id-only sync events, filtered
+        // per-connection to channels the caller may see. The group's no-store
+        // Cache-Control layer is correct for SSE.
+        .route("/events", get(events::events))
         .route(
             "/guilds",
             get(guilds::list_guilds).post(guilds::create_guild),
