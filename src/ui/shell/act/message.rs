@@ -879,13 +879,22 @@ pub(super) fn refresh_unread(s: Shell) {
             }
             // First sight: this client has no last-seen mark for the channel —
             // baseline it silently to the server-reported latest, don't glow.
+            // Only when `row.unread == 0`, though: per the protocol contract
+            // unread is 0 whenever the channel has no server-side read cursor,
+            // so `unread > 0` PROVES a cursor exists and `!known` merely means
+            // local hydration hasn't landed yet (fresh device, get_unread won
+            // the race against hydrate_last_seen). Baselining then would
+            // mark_read(latest) and silently wipe the unread on ALL devices —
+            // instead skip the row; the next pass glows it post-hydration.
             let known = s
                 .notify
                 .last_seen
                 .with_untracked(|m| m.contains_key(&row.channel_id));
             if !known {
-                if let (Some(sent_at), Some(id)) = (row.latest_sent_at, row.latest_id) {
-                    set_last_seen(s, &row.channel_id, (sent_at, id));
+                if row.unread == 0 {
+                    if let (Some(sent_at), Some(id)) = (row.latest_sent_at, row.latest_id) {
+                        set_last_seen(s, &row.channel_id, (sent_at, id));
+                    }
                 }
                 continue;
             }

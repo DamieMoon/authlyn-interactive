@@ -5,6 +5,9 @@
 //! The events are id-only ([`crate::protocol::SyncEvent`]) — nothing here
 //! trusts payload content; every reaction is a refetch through the existing
 //! permission-checked endpoints in [`super::message`].
+//!
+//! The driver, its closures, and its timers assume the shell mounts once per
+//! page load.
 
 use super::super::Shell;
 
@@ -52,9 +55,9 @@ pub fn start_sync(s: Shell) {
     };
     s.sync.polling.set(true);
 
-    // Consecutive-error counter, shared by the two handlers below: any
-    // delivered message resets it, so only an unbroken error run trips the
-    // fallback.
+    // Consecutive-error counter, shared by the handlers below: any delivered
+    // message or successful (re)open resets it, so only an unbroken error run
+    // trips the fallback.
     let errors = std::rc::Rc::new(std::cell::Cell::new(0u32));
 
     let on_message = {
@@ -81,11 +84,13 @@ pub fn start_sync(s: Shell) {
         Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
             let n = errors.get().saturating_add(1);
             errors.set(n);
-            if n >= MAX_CONSECUTIVE_SSE_ERRORS {
+            if n == MAX_CONSECUTIVE_SSE_ERRORS {
                 // SSE can't hold a connection this session: stop reconnecting,
                 // release the latch, and hand over to the poll loop (which
-                // re-takes the latch). Further stray onerror firings re-enter
-                // here but `start_poll` is latch-idempotent.
+                // re-takes the latch). The `==` check trips exactly once; later
+                // stray errors only increment past MAX. (Re-entry would NOT be
+                // safe: this branch itself releases the latch, so a second
+                // entry would spawn a second eternal poll loop.)
                 es.close();
                 s.sync.polling.set(false);
                 message::start_poll(s);
@@ -94,11 +99,25 @@ pub fn start_sync(s: Shell) {
     };
     es.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
+    // A successful (re)connect proves SSE can hold; only five FAILED attempts
+    // in a row without one open demote to polling. Without this, "consecutive"
+    // would be counted across delivered messages — a quiet tab's routine
+    // disconnects (laptop sleep, deploy restarts) would slowly trip the
+    // fallback even though every reconnect succeeded.
+    let on_open = {
+        let errors = std::rc::Rc::clone(&errors);
+        Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
+            errors.set(0);
+        })
+    };
+    es.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+
     // Deliberate bounded leak: ONE EventSource per shell mount, alive for the
     // whole session — `forget()` keeps the handlers valid without us managing
     // their lifetime from Rust.
     on_message.forget();
     on_error.forget();
+    on_open.forget();
 }
 
 /// Route one parsed [`SyncEvent`] to the cheapest sufficient refresh.
