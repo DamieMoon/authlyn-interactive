@@ -32,7 +32,10 @@ axum = { version = "0.8.0", optional = true, features = ["multipart"] }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 leptos_meta = { version = "0.8.0" }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+# Async runtime for the axum server (ssr; nova/freya add their own features
+# below). `sync` enables `tokio::sync::broadcast` — the process-wide W1
+# realtime event hub on `AppState` that fans mutation events out to SSE.
+tokio = { version = "1", features = ["rt-multi-thread", "sync"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
 # Browser `Date` for local-timezone timestamp formatting in the channel view.
 # Hydrate-only, same wiring as wasm-bindgen above.
@@ -56,12 +59,13 @@ gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 # Await browser Promises (serviceWorker.ready, pushManager.subscribe) when
 # wiring Web Push from the client. Hydrate-only; wasm-only.
 wasm-bindgen-futures = { version = "0.4", optional = true }
-# `futures-util::future::join_all` (hydrate-only). Already in the wasm graph
-# transitively via `wasm-bindgen-futures` and `gloo-net`, so exposing it
-# explicitly adds no new crates. Used by `shell/wardrobe.rs` (W7/B3) to
-# correlate parallel `upload_media` results with input order before posting
-# the persona-gallery batch endpoint. `default-features = false` to stay off
-# the std-formatted prelude bloat — we only use `future::join_all`.
+# Futures combinators, serving BOTH graphs. Hydrate: `future::join_all` in
+# `shell/wardrobe.rs` (W7/B3) correlates parallel `upload_media` results with
+# input order before posting the persona-gallery batch endpoint (already in
+# the wasm graph transitively via `wasm-bindgen-futures` and `gloo-net`, so
+# exposing it explicitly adds no new crates). Ssr: `Stream` helpers for the
+# W1 realtime SSE `GET /events` stream. `default-features = false` to stay
+# off the std-formatted prelude bloat.
 futures-util = { version = "0.3", default-features = false, features = ["alloc", "async-await"], optional = true }
 
 # SurrealDB client (ssr-only; never compiled into the WASM bundle).
@@ -168,6 +172,8 @@ futures = "0.3"
 # the lib graph, so the wasm bundle stays free of this ~80 KB brotli payload.
 emojis = "0.8.2"
 
+http-body-util = "0.1"   # frame-by-frame reading of SSE test responses (W1)
+
 [features]
 hydrate = [
     "leptos/hydrate",
@@ -197,6 +203,7 @@ ssr = [
     "dep:time",
     "dep:image",
     "dep:web-push",
+    "dep:futures-util",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

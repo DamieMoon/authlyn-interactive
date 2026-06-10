@@ -47,6 +47,11 @@ pub struct AppState {
     /// a plain `std::sync::Mutex`; the critical section is only ever a map
     /// insert / read / prune and is NEVER held across an `.await`.
     pub typing: Arc<Mutex<HashMap<String, HashMap<String, Instant>>>>,
+    /// W1 realtime: the process-wide SSE event bus. Every mutation handler
+    /// best-effort `send()`s a `SyncEvent`; every `GET /events` connection
+    /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
+    /// nudged to resync — events are droppable by design (notify-and-fetch).
+    pub events: tokio::sync::broadcast::Sender<crate::protocol::SyncEvent>,
 }
 
 impl AppState {
@@ -64,6 +69,7 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push: None,
             typing: Arc::new(Mutex::new(HashMap::new())),
+            events: tokio::sync::broadcast::channel(256).0,
         }
     }
 
@@ -81,6 +87,7 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push,
             typing: Arc::new(Mutex::new(HashMap::new())),
+            events: tokio::sync::broadcast::channel(256).0,
         }
     }
 }

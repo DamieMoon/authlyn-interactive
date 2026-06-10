@@ -682,6 +682,7 @@ dependencies = [
  "gloo-storage",
  "gloo-timers",
  "hex",
+ "http-body-util",
  "image",
  "js-sys",
  "leptos",
