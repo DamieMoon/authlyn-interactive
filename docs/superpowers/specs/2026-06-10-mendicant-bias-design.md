@@ -3,6 +3,7 @@
 **Date:** 2026-06-10 (catalogue locked same day after four creative passes)
 **Status:** Approved design — full catalogue locked by owner; implementation plan pending
 **Codename:** `mendicant-bias` (bump `[package.metadata.release].codename` at release)
+**Version:** **27.0.0** — this release retires CalVer (`YYYY.M.D`). The owner's call: a release of this scope deserves a major, 26.x ends here, and 27.0.0 ships the day the owner turns 27. SemVer from here on; update the project CLAUDE.md Versioning line at release.
 **Assets:** `assets/2026-06-10-mendicant-bias/` — 13 mockup HTML fragments from the brainstorm session (`grand-catalogue.html` is the definitive 51-card catalogue; `final-design-v4.html` shows the visual system) plus `lens-concepts-48.json` (full Swedish pitches for the 48 lens concepts, from a 6-agent generation workflow).
 
 ## Context
