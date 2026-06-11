@@ -158,6 +158,24 @@
 				opacity: 1;
 			}
 
+			// Touch (W4/T4): the long-press radial menu replaces the hover
+			// action row entirely (there is no hover to reveal it), and the
+			// row's tiny targets would only invite mis-taps. Also disarm the
+			// browser's own long-press behaviours on the row — text-selection
+			// loupe / iOS callout — so the 450ms radial timer owns the
+			// gesture (the copy action lives in the radial instead). Scoped
+			// to coarse pointers: desktop keeps the hover row AND native
+			// text selection untouched.
+			@media (pointer: coarse) {
+				user-select: none;
+				-webkit-user-select: none;
+				-webkit-touch-callout: none;
+
+				.msg-actions {
+					display: none;
+				}
+			}
+
 			// Ghost icon-button for the message edit/delete/save/cancel controls.
 			// `.row-edit` is scoped under `.sidebar` for the channel rename, so
 			// the message pane (under `.content`) needs its own copy.
@@ -715,4 +733,108 @@
 	height: 100%;
 	border-radius: inherit;
 	display: flex;
+}
+
+// ---- W4/T4 radial long-press action menu (touch) ----
+// Opened by a ~450ms press on a .msg (shell/channel/radial.rs). The menu
+// element itself is a ZERO-SIZE anchor fixed at the (viewport-clamped) press
+// point; the buttons fan out on an upward arc via per-slot `--ang`
+// rotate/translate transforms, and fx-blossom (_motion.scss) scales the
+// whole arc out of the anchor on open. position: fixed on both layers, so
+// nothing perturbs the message list / directional-bubble layout.
+
+// Dismiss layer: a genuinely-new tap closes the menu (the pointerdown-armed
+// click handler in radial.rs ignores the stray click manufactured by the
+// opening press itself). touch-action: none so a pan can't start on it,
+// mirroring .modal-backdrop.
+.radial-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	background: var(--scrim);
+	touch-action: none;
+}
+
+.radial-menu {
+	position: fixed;
+	width: 0;
+	height: 0;
+	z-index: 61;
+	animation: fx-blossom 240ms var(--ease-spring) both;
+
+	// One action button on the arc: a circular glass chip. The material is
+	// foundation's glass mixin (borderless variant — a circle wants its own
+	// hairline ring, drawn below). The positioning transform is the classic
+	// orbit trick: rotate to the slot angle, push out along the rotated
+	// x-axis, counter-rotate so the icon stays upright. -90deg points
+	// straight UP, so all slots sit on the upper arc, clear of the finger.
+	.radial-btn {
+		@include glass($border: false);
+		position: absolute;
+		// Self-center the 44px chip on the anchor before the arc transform.
+		left: -22px;
+		top: -22px;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid var(--glass-line);
+		border-radius: 50%;
+		color: var(--text);
+		box-shadow:
+			0 6px 20px rgba(0, 0, 0, 0.45),
+			inset 0 1px 0 var(--glass-highlight);
+		transform: rotate(var(--ang, -90deg)) translateX(64px)
+			rotate(calc(-1 * var(--ang, -90deg)));
+
+		.icon {
+			width: 1.15rem;
+			height: 1.15rem;
+		}
+
+		// .danger (delete) inherits its red from the global button.danger
+		// rule (_base.scss); active feedback only here — there is no hover
+		// on touch.
+		&:active {
+			border-color: var(--accent);
+			color: var(--accent-bright);
+		}
+
+		&.danger:active {
+			border-color: var(--danger);
+			color: var(--danger);
+		}
+	}
+
+	// Slot angles. n2 = reply/copy (someone else's message), n4 adds
+	// edit/delete (own message). Both spreads stay on the upper arc so the
+	// menu never opens under the pressing finger.
+	&.n2 .radial-btn:nth-child(1) {
+		--ang: -125deg;
+	}
+	&.n2 .radial-btn:nth-child(2) {
+		--ang: -55deg;
+	}
+	&.n4 .radial-btn:nth-child(1) {
+		--ang: -160deg;
+	}
+	&.n4 .radial-btn:nth-child(2) {
+		--ang: -113deg;
+	}
+	&.n4 .radial-btn:nth-child(3) {
+		--ang: -67deg;
+	}
+	&.n4 .radial-btn:nth-child(4) {
+		--ang: -20deg;
+	}
+
+	// Eye-candy tier: the chips glow like the rest of the fx-max chrome.
+	.app.fx-max & .radial-btn {
+		box-shadow:
+			0 6px 20px rgba(0, 0, 0, 0.45),
+			0 0 12px var(--glow-accent),
+			inset 0 1px 0 var(--glass-highlight);
+	}
 }

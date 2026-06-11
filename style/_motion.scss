@@ -69,6 +69,32 @@
 	}
 }
 
+// Radial long-press menu open (W4/T4). Animates the standalone
+// `scale`/`rotate` properties on `.radial-menu` — the 0×0 anchor div fixed
+// at the press point — so the keyframe never collides with the buttons'
+// positioning `transform` (the per-slot rotate/translate arc in
+// _content.scss): scaling the anchor scales the whole rendered arc about
+// the press point (a 0×0 box's 50%/50% transform-origin IS the anchor), so
+// the buttons bloom outward from under the finger and settle with a slight
+// counter-swing.
+@keyframes fx-blossom {
+	from {
+		opacity: 0;
+		scale: 0.2;
+		rotate: -14deg;
+	}
+	70% {
+		opacity: 1;
+		scale: 1.05;
+		rotate: 2deg;
+	}
+	to {
+		opacity: 1;
+		scale: 1;
+		rotate: 0deg;
+	}
+}
+
 // Warp channel-switch streak (W4: the .fx-max escalation of the .content
 // dip — consumer in _foundation.scss). A thin bright gradient sweeps the
 // pane left→right via background-position on a 200%-wide background; the
@@ -99,10 +125,13 @@
 // remove the decorative animations entirely (`animation: none` wins the
 // shared !important longhands on specificity), and both rules agree in
 // effect — no motion.
-// `.typing-indicator .star` and `.composer .send.sent` are listed
-// explicitly: they consume fx- keyframes (fx-orbit / fx-twinkle and the
-// send pulse's fx-glow-pulse) but their class names carry no "fx-", so the
-// attribute selector below would miss them. (The send button's charge RING
+// `.typing-indicator .star`, `.composer .send.sent`, and `.radial-menu`
+// are listed explicitly: they consume fx- keyframes (fx-orbit / fx-twinkle,
+// the send pulse's fx-glow-pulse, and the radial menu's fx-blossom) but
+// their class names carry no "fx-", so the attribute selector below would
+// miss them. With the blossom killed the radial menu still appears — the
+// keyframe only animates standalone scale/rotate/opacity, whose resting
+// values are the defaults. (The send button's charge RING
 // is exempt on purpose — it's a static fill bound to typed length, state
 // rather than motion.) The warp-streak ::after is also explicit: the
 // attribute selector matches the .fx-switching ELEMENT, but its
@@ -114,6 +143,7 @@
 	.app.fx-max::before,
 	.typing-indicator .star,
 	.composer .send.sent,
+	.radial-menu,
 	.app.fx-max .content.fx-switching::after,
 	[class*="fx-"] {
 		animation: none !important;

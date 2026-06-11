@@ -19,6 +19,7 @@ mod avatar;
 mod emoji_suggest;
 mod manager;
 mod meta;
+mod radial;
 mod skeleton;
 
 pub(crate) use manager::ChannelManagerModal;
@@ -132,16 +133,24 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
     .into_any()
 }
 
+/// True on touch-primary (coarse-pointer) devices — phones/tablets. Shared
+/// touch detection for the composer's Enter behaviour and the W4/T4
+/// long-press radial menu (`radial.rs` calls it via `super::is_touch`).
+#[cfg(feature = "hydrate")]
+fn is_touch() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false)
+}
+
 /// True on touch-primary devices (phones/tablets), where the on-screen
 /// keyboard's Enter must insert a newline rather than send — there's no
 /// Shift+Enter, so Enter-to-send would make multi-line messages impossible.
 /// Desktop (fine pointer) keeps Enter-to-send / Shift+Enter-for-newline.
 #[cfg(feature = "hydrate")]
 fn enter_inserts_newline() -> bool {
-    leptos::web_sys::window()
-        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
-        .map(|m| m.matches())
-        .unwrap_or(false)
+    is_touch()
 }
 
 /// Insert markup around the textarea's current selection. With a non-empty
@@ -317,6 +326,15 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
+
+    // W4/T4 radial long-press menu: the message whose touch action menu is
+    // open (None when closed). Channel-pane-local — both the per-`.msg`
+    // long-press handlers and the menu render live in this component, so it
+    // never needs to ride Shell state. `long_press` is the shared
+    // generation-counter timer tracker (see `radial::LongPress`).
+    let radial = RwSignal::new(None::<radial::RadialState>);
+    #[cfg(feature = "hydrate")]
+    let long_press = radial::LongPress::new();
     // Lightbox: the clicked message's IMAGE attachments + the index currently
     // shown, or None when closed. Arrow/swipe step the index within this list
     // (images only — videos keep their own inline controls and never enter the
@@ -509,7 +527,47 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             message_meta(s, &m, &cid, mine, info).into_any()
                         };
                         view! {
-                            <li class=li_class id=dom_id>
+                            <li class=li_class id=dom_id
+                                // W4/T4: a touch long-press opens the radial action
+                                // menu at the press point. pointermove past the slop
+                                // radius and pointerup/-cancel (the browser claiming
+                                // the gesture for scrolling) disarm the pending
+                                // press, so scrolls never fire it. System rows have
+                                // no actions (mirroring their absent hover row), so
+                                // they never arm. Desktop is untouched — `down`
+                                // no-ops on a fine pointer.
+                                on:pointerdown=move |_ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    if !is_system {
+                                        long_press.down(
+                                            &_ev, radial, m.clone(), cid.clone(), mine,
+                                        );
+                                    }
+                                    #[cfg(not(feature = "hydrate"))]
+                                    let _ = (&_ev, &m, &cid);
+                                }
+                                on:pointermove=move |_ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    long_press.moved(&_ev);
+                                }
+                                on:pointerup=move |_| {
+                                    #[cfg(feature = "hydrate")]
+                                    long_press.cancel();
+                                }
+                                on:pointercancel=move |_| {
+                                    #[cfg(feature = "hydrate")]
+                                    long_press.cancel();
+                                }
+                                // Some Android browsers fire the native context
+                                // menu on long-press; suppress it on touch only so
+                                // the radial owns the gesture. Desktop right-click
+                                // stays native.
+                                on:contextmenu=move |_ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    if is_touch() {
+                                        _ev.prevent_default();
+                                    }
+                                }>
                                 {meta}
                                 {reply_quote}
                                 // Editing happens in the main composer (✎ →
@@ -1215,6 +1273,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             // Right arrow keys, and pointer-swipe step the gallery (clamped, no
             // wrap); +/-/0 (and the on-screen buttons) zoom via CSS transform.
             {lightbox_view(lightbox, lb_zoom)}
+
+            // W4/T4 radial long-press action menu (touch) — the glass arc of
+            // reply/copy(/edit/delete) buttons blossoming at the press point,
+            // opened by the per-`.msg` pointer handlers above.
+            {radial::radial_menu(s, radial)}
         </div>
     }
 }
