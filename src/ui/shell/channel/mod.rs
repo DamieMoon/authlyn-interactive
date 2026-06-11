@@ -132,9 +132,9 @@ impl MessageActions {
 /// Map a message `kind` (+ viewer ownership) to its action affordances.
 /// Conservative on purpose: ONLY `kind='user'` is mutable (edit/delete,
 /// owner-gated); `system` (Nova DOT) offers nothing — immutable, not
-/// repliable, matching its actionless meta row exactly; any UNKNOWN/future
-/// kind (e.g. T6's immutable `kind='roll'`) gets reply+copy but NEVER
-/// edit/delete.
+/// repliable, matching its actionless meta row exactly; `roll` (W4/T6 Fate
+/// Engine) is reply+copy only; any UNKNOWN/future kind gets reply+copy but
+/// NEVER edit/delete.
 fn message_actions(kind: &str, mine: bool) -> MessageActions {
     match kind {
         "user" => MessageActions {
@@ -146,6 +146,15 @@ fn message_actions(kind: &str, mine: bool) -> MessageActions {
         "system" => MessageActions {
             reply: false,
             copy: false,
+            edit: false,
+            delete: false,
+        },
+        // Rolls are FULLY immutable even for their author — the server 403s
+        // both edit and delete on kind='roll' (server/messages/editing.rs,
+        // cheating-proof) — so never offer edit/delete here; reply+copy stay.
+        "roll" => MessageActions {
+            reply: true,
+            copy: true,
             edit: false,
             delete: false,
         },
@@ -647,6 +656,10 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // check, so system rows never arm the radial and keep the
                         // native context menu.
                         let is_system = m.kind == "system";
+                        // Roll results (W4/T6): an authored action (normal meta
+                        // row — persona/author name and reply/copy stay) whose
+                        // body renders as an animated glass chip below.
+                        let is_roll = m.kind == "roll";
                         // W4/T5 delivery effect: a known effect adds an
                         // `effect-{name}` class to the row. Re-whitelisted here
                         // (the server already validates) so an unexpected wire
@@ -664,6 +677,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // exemptions) — they only append.
                         let base_class = if is_system {
                             "msg system"
+                        } else if is_roll {
+                            // Full-width banner like the system row (exempt
+                            // from the directional-bubble squeeze, never
+                            // `.own`) — a roll is table-facing, not a bubble.
+                            "msg roll"
                         } else if mine {
                             "msg own"
                         } else {
@@ -685,7 +703,19 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // class flip — state, not motion — so it works under
                         // reduced-motion too.
                         let mid = m.id.clone();
-                        let text_view = if is_whisper {
+                        let text_view = if is_roll {
+                            // Glass result chip: die glyph + the
+                            // server-generated result text, rendered VERBATIM
+                            // (never markup-parsed — the body is the server's
+                            // formatted outcome, not user markup).
+                            view! {
+                                <span class="text roll-chip">
+                                    <span class="roll-die" aria-hidden="true">"🎲"</span>
+                                    <span class="roll-text">{body.clone()}</span>
+                                </span>
+                            }
+                            .into_any()
+                        } else if is_whisper {
                             let mid = m.id.clone();
                             view! {
                                 <span class="text"

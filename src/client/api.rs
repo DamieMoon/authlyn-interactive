@@ -24,9 +24,10 @@ use crate::protocol::{
     LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
     PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
-    ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SendSystemMessageRequest,
-    SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
-    SubmitFeedbackRequest, SystemBroadcastResult, UnreadResponse, VapidKeyResponse,
+    ResetQuestionResponse, RollRequest, SendMessageRequest, SendMessageResponse,
+    SendSystemMessageRequest, SetActivePersonaRequest, SetMemberRoleRequest,
+    SetSecurityQuestionRequest, SubmitFeedbackRequest, SystemBroadcastResult, UnreadResponse,
+    VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -333,6 +334,26 @@ pub async fn post_message(
             persona_id,
             reply_to_id,
             effect,
+        },
+    )
+    .await
+}
+
+/// POST /channels/{cid}/roll — the Fate Engine (W4/T6): send a roll
+/// EXPRESSION (`NdM(+|-K)?`, `coin`, `oracle`) and let the SERVER roll it —
+/// the client never computes an outcome. The result lands as an immutable
+/// `kind='roll'` message; a bad expression is a 400 whose message the
+/// composer status line surfaces.
+pub async fn roll(
+    cid: &str,
+    expr: &str,
+    persona: Option<String>,
+) -> Result<SendMessageResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/roll"),
+        &RollRequest {
+            expr: expr.to_string(),
+            persona,
         },
     )
     .await

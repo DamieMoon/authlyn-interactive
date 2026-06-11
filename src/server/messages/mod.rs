@@ -25,7 +25,9 @@
 //! - [`posting`] — POST + persist + attachment-existence check.
 //! - [`reading`] — GET + composite-cursor + MSG_PROJECTION (attachment mimes
 //!   join the projection) + typing-name resolution.
-//! - [`editing`] — PATCH/DELETE/restore/trash + the own-message gate.
+//! - [`editing`] — PATCH/DELETE/restore/trash + the own-message gate (and the
+//!   roll-immutability 403s).
+//! - [`rolling`] — POST /roll (W4/T6 Fate Engine: server-authoritative dice).
 //! - [`typing`] — POST /typing ping (in-memory).
 //! - this module: shared `channel_access` (the per-channel layer atop
 //!   [`crate::server::access::resolve_membership`]) + the per-message body
@@ -35,6 +37,7 @@ mod editing;
 mod posting;
 mod read_state;
 mod reading;
+mod rolling;
 mod typing;
 mod unread;
 
@@ -44,6 +47,7 @@ pub use self::editing::{delete_message, edit_message, list_deleted_messages, res
 pub use self::posting::post_message;
 pub use self::read_state::{mark_read, read_state};
 pub use self::reading::{list_messages, ListMessagesQuery};
+pub use self::rolling::{roll_message, ORACLE_ANSWERS};
 pub use self::typing::typing_ping;
 pub use self::unread::unread;
 

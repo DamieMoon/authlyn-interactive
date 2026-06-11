@@ -66,6 +66,31 @@ pub fn send_message(s: Shell) {
         return;
     };
     let body = s.composer.compose.get_untracked();
+    // Fate Engine intercept (W4/T6): `/roll <expr>`, `/coin`, `/oracle` route
+    // to the server-rolled endpoint instead of a normal send. The W4/T5
+    // effect picker value is IGNORED for rolls (a roll has no effect), the
+    // reply banner clears like any send, and staged attachments stay staged —
+    // a roll never carries them, so clearing would silently discard uploads.
+    if let Some(expr) = roll_command(body.trim()) {
+        s.composer.replying_to.set(None);
+        s.composer.effect_mode.set(None);
+        s.composer.compose.set(String::new());
+        super::channel::save_draft(s, "");
+        s.composer.status.set(String::new());
+        super::notify::request_notify_permission(s);
+        // Same race-proof persona carry as a normal send; the server re-checks
+        // can_edit_persona on it either way.
+        let persona = s.social.active_persona.get_untracked();
+        spawn_local(async move {
+            match api::roll(&ch.id, &expr, persona).await {
+                Ok(_) => after_send_success(s, &ch.id).await,
+                // A 400 (bad expression / bounds) surfaces its server message
+                // in the composer status line, like any failed send.
+                Err(e) => s.composer.status.set(api::humanize(&e)),
+            }
+        });
+        return;
+    }
     // The wire SEND request is ids-only; map the staged attachments down,
     // keeping only the ones whose upload has finished (`Ready`) — in-flight or
     // failed slots carry a placeholder id, not a real media id (F-8).
@@ -104,40 +129,63 @@ pub fn send_message(s: Shell) {
     let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
         match api::post_message(&ch.id, &body, attachments, persona, reply_to_id, effect).await {
-            Ok(_) => {
-                // W4/T2: send pulse — flip `.sent` on the Send button for one
-                // fx-glow-pulse cycle. Reset on a DETACHED timer so the
-                // post-send refresh round-trip below doesn't stretch the
-                // pulse. Generation-guarded (the `LongPress` pattern,
-                // channel/radial.rs): in a send burst an EARLIER timer firing
-                // mid-pulse would otherwise truncate a LATER send's pulse —
-                // only the generation's own timer may clear the flag.
-                let gen = s.composer.sent_gen.get_value().wrapping_add(1);
-                s.composer.sent_gen.set_value(gen);
-                s.composer.sent.set(true);
-                spawn_local(async move {
-                    gloo_timers::future::TimeoutFuture::new(400).await;
-                    // Still the newest send? (try_*: the shell may have been
-                    // disposed while we slept.)
-                    if s.composer.sent_gen.try_get_value() != Some(gen) {
-                        return;
-                    }
-                    let _ = s.composer.sent.try_set(false);
-                });
-                let cur = s.msg.cursor.get_untracked();
-                if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
-                    ingest(s, l.messages);
-                    // FB10a: advance this channel's last-seen to the new
-                    // cursor so `refresh_unread` doesn't glow the channel
-                    // for the user's OWN just-sent message.
-                    if let Some(cur) = s.msg.cursor.get_untracked() {
-                        set_last_seen(s, &ch.id, cur);
-                    }
-                }
-            }
+            Ok(_) => after_send_success(s, &ch.id).await,
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
+}
+
+/// Shared post-send success path (normal sends AND rolls): the Send-button
+/// pulse plus the immediate catch-up fetch.
+///
+/// W4/T2: send pulse — flip `.sent` on the Send button for one fx-glow-pulse
+/// cycle. Reset on a DETACHED timer so the post-send refresh round-trip below
+/// doesn't stretch the pulse. Generation-guarded (the `LongPress` pattern,
+/// channel/radial.rs): in a send burst an EARLIER timer firing mid-pulse would
+/// otherwise truncate a LATER send's pulse — only the generation's own timer
+/// may clear the flag.
+#[cfg(feature = "hydrate")]
+async fn after_send_success(s: Shell, cid: &str) {
+    let gen = s.composer.sent_gen.get_value().wrapping_add(1);
+    s.composer.sent_gen.set_value(gen);
+    s.composer.sent.set(true);
+    spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(400).await;
+        // Still the newest send? (try_*: the shell may have been
+        // disposed while we slept.)
+        if s.composer.sent_gen.try_get_value() != Some(gen) {
+            return;
+        }
+        let _ = s.composer.sent.try_set(false);
+    });
+    let cur = s.msg.cursor.get_untracked();
+    if let Ok(l) = api::list_messages(cid, cur.as_ref()).await {
+        ingest(s, l.messages);
+        // FB10a: advance this channel's last-seen to the new
+        // cursor so `refresh_unread` doesn't glow the channel
+        // for the user's OWN just-sent message.
+        if let Some(cur) = s.msg.cursor.get_untracked() {
+            set_last_seen(s, cid, cur);
+        }
+    }
+}
+
+/// Parse a composer body into a Fate Engine expression (W4/T6), or `None` for
+/// a normal send. `/roll <expr>` forwards the rest verbatim (the SERVER owns
+/// the grammar — an empty or bad tail surfaces its 400 in the status line);
+/// `/coin` and `/oracle` match bare or with a trailing space (so `/coined` is
+/// NOT a command). A bare `/roll` with no argument is left as a normal send.
+#[cfg(feature = "hydrate")]
+fn roll_command(trimmed: &str) -> Option<String> {
+    if let Some(rest) = trimmed.strip_prefix("/roll ") {
+        return Some(rest.trim().to_string());
+    }
+    for (cmd, expr) in [("/coin", "coin"), ("/oracle", "oracle")] {
+        if trimmed == cmd || trimmed.starts_with(&format!("{cmd} ")) {
+            return Some(expr.to_string());
+        }
+    }
+    None
 }
 
 /// Upload a picked/pasted image or video and stage it as a pending composer

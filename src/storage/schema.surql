@@ -1,7 +1,8 @@
 -- authlyn-interactive — SurrealDB schema (Discord-style roleplay platform)
 --
 -- Loaded on startup by `db::apply_schema`. All DEFINEs use `IF NOT EXISTS`
--- so re-applying on every boot is a no-op.
+-- so re-applying on every boot is a no-op — except `message.kind`, which uses
+-- OVERWRITE because its enum ASSERT was widened after shipping (see its block).
 --
 -- Server-trusted model: the server stores plaintext content directly.
 -- `record<...>` links are type annotations only (SurrealDB does not enforce
@@ -163,14 +164,22 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
--- System vs user message. A `kind='system'` message is authored by the reserved
+-- Message kind discriminator. `kind='system'` is authored by the reserved
 -- `account:nova_dot` bot (app-admin broadcast) and rendered distinctly (no persona,
--- immutable to edits). DEFAULT 'user' keeps every normal send unchanged. This is a
--- non-option field added to the POPULATED `message` table, so legacy rows hold NONE
--- and would crash the row-revalidating backfills below — it is materialised in the
--- SAME first backfill statement (see the DATA-SAFETY block), NOT a separate one.
-DEFINE FIELD IF NOT EXISTS kind    ON message TYPE string DEFAULT 'user'
-    ASSERT $value IN ['user', 'system'];
+-- immutable to edits). `kind='roll'` (W4/T6 Fate Engine) is a server-rolled dice
+-- result: authored by the roller, persona-aware, and FULLY immutable (the edit and
+-- delete handlers 403 on it — cheating-proof). DEFAULT 'user' keeps every normal
+-- send unchanged. This is a non-option field added to the POPULATED `message`
+-- table, so legacy rows hold NONE and would crash the row-revalidating backfills
+-- below — it is materialised in the SAME first backfill statement (see the
+-- DATA-SAFETY block), NOT a separate one.
+-- OVERWRITE (the file-wide IF NOT EXISTS exception): the enum was widened after
+-- the field shipped, and IF NOT EXISTS never re-applies over an existing field —
+-- the old two-value ASSERT would silently survive on prod and reject every roll.
+-- Re-defining is idempotent and does NOT re-validate existing rows (only writes
+-- validate), so the backfill hazard below is untouched by it.
+DEFINE FIELD OVERWRITE kind    ON message TYPE string DEFAULT 'user'
+    ASSERT $value IN ['user', 'system', 'roll'];
 -- Message effect (W4/T5): an optional roleplay delivery flourish picked at
 -- send time — 'whisper' (blurred until tapped), 'shout' (shake + warm tint),
 -- 'spell' (glow + sparks) — or NONE for an ordinary message. Purely cosmetic

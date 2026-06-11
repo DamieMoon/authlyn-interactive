@@ -122,31 +122,20 @@ pub async fn post_message(
             return error_response(StatusCode::NOT_FOUND, "channel not found");
         }
     };
-    // Attribution is decided at send time and re-derived server-side on EVERY
-    // send. The client may SUGGEST persona_id; we honor it only if the caller may
-    // still edit it, else fall back to the stored per-channel wear — but that
-    // stored `channel_active_persona` value is ALSO re-checked here, never
-    // trusted: a revoked editor or a deleted persona must not keep stamping via a
-    // stale wear row (the row is cleared on revoke/leave/delete, and this re-gate
-    // is the defense-in-depth that holds even if a cleanup path is ever missed).
-    // Final fallback: speak as the bare account.
-    let mut active_persona: Option<String> = None;
-    for candidate in [req.persona_id.as_deref(), stored_persona.as_deref()]
-        .into_iter()
-        .flatten()
+    let active_persona = match resolve_send_persona(
+        &state,
+        &account.0,
+        req.persona_id.as_deref(),
+        stored_persona.as_deref(),
+    )
+    .await
     {
-        match crate::server::permissions::can_edit_persona(&state, candidate, &account.0).await {
-            Ok(true) => {
-                active_persona = Some(candidate.to_string());
-                break;
-            }
-            Ok(false) => continue,
-            Err(e) => {
-                tracing::error!(error = %e, "can_edit_persona failed");
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-            }
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "can_edit_persona failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
-    }
+    };
 
     // Ping-mentions (L-4): parse `@username` runs out of the body and resolve
     // them — case-insensitively — to account ids of members of THIS channel's
@@ -169,6 +158,7 @@ pub async fn post_message(
         &account.0,
         active_persona.as_deref(),
         &body,
+        "user",
         &attachments,
         reply_to.as_deref(),
         &pinged_users,
@@ -192,13 +182,42 @@ pub async fn post_message(
     }
 }
 
+/// Attribution is decided at send time and re-derived server-side on EVERY
+/// send. The client may SUGGEST a persona; we honor it only if the caller may
+/// still edit it, else fall back to the stored per-channel wear — but that
+/// stored `channel_active_persona` value is ALSO re-checked here, never
+/// trusted: a revoked editor or a deleted persona must not keep stamping via a
+/// stale wear row (the row is cleared on revoke/leave/delete, and this re-gate
+/// is the defense-in-depth that holds even if a cleanup path is ever missed).
+/// Final fallback: speak as the bare account (`None`). Shared by
+/// [`post_message`] and the Fate Engine's `roll_message` so the
+/// `can_edit_persona` double-check can never diverge between the two senders.
+pub(super) async fn resolve_send_persona(
+    state: &AppState,
+    account: &str,
+    suggested: Option<&str>,
+    stored: Option<&str>,
+) -> surrealdb::Result<Option<String>> {
+    for candidate in [suggested, stored].into_iter().flatten() {
+        if crate::server::permissions::can_edit_persona(state, candidate, account).await? {
+            return Ok(Some(candidate.to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// Persist one message row, snapshotting the worn persona's identity onto it.
+/// `kind` is a compile-time literal from the callers (`"user"` here, `"roll"`
+/// in `rolling.rs`) — bound as a parameter regardless, never spliced. Shared
+/// so a roll rides the exact same persist + snapshot path as a normal send.
 #[allow(clippy::too_many_arguments)]
-async fn persist_message(
+pub(super) async fn persist_message(
     state: &AppState,
     cid: &str,
     author: &str,
     persona: Option<&str>,
     body: &str,
+    kind: &str,
     attachments: &[String],
     reply_to: Option<&str>,
     pinged_users: &[String],
@@ -242,6 +261,7 @@ async fn persist_message(
             channel = type::record('channel', $cid),
             author  = type::record('account', $author),
             body    = $body,
+            kind    = $kind,
             attachments = $attachments,
             pinged_users = $pinged_users{persona_set}{reply_set}{effect_set}
             RETURN meta::id(id) AS id_key;"
@@ -256,6 +276,7 @@ async fn persist_message(
         .bind(("cid", cid.to_string()))
         .bind(("author", author.to_string()))
         .bind(("body", body.to_string()))
+        .bind(("kind", kind.to_string()))
         .bind(("attachments", attachments.to_vec()))
         .bind(("pinged_users", pinged_records));
     if let Some(persona) = persona {

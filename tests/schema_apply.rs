@@ -47,12 +47,12 @@ async fn schema_applies_and_kind_guard_holds() {
     );
 }
 
-/// `message.kind` (the system-vs-user discriminator) carries the same enum
-/// ASSERT guard as `channel.kind`: 'user'/'system' accepted, anything else
-/// rejected on the pinned beta.
+/// `message.kind` (the user/system/roll discriminator) carries the same enum
+/// ASSERT guard as `channel.kind`: 'user'/'system'/'roll' (W4/T6) accepted,
+/// anything else rejected on the pinned beta.
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn message_kind_guard_accepts_user_and_system_rejects_other() {
+async fn message_kind_guard_accepts_known_set_rejects_other() {
     let arena = common::arena().await;
     arena
         .db
@@ -66,7 +66,7 @@ async fn message_kind_guard_accepts_user_and_system_rejects_other() {
         .check()
         .expect("account + guild + channel insert");
 
-    for k in ["user", "system"] {
+    for k in ["user", "system", "roll"] {
         arena
             .db
             .query(format!(
@@ -157,6 +157,87 @@ async fn applying_kind_over_populated_messages_materialises_without_wiping_attac
         row.kind, "user",
         "kind must be materialised to 'user' on legacy rows"
     );
+}
+
+/// W4/T6 (Fate Engine): the widened `message.kind` enum (`'roll'` added) must
+/// reach a database whose `kind` field ALREADY EXISTS with the old two-value
+/// ASSERT — exactly prod's state at deploy time. A `DEFINE FIELD IF NOT
+/// EXISTS` is a no-op there (the field exists, so the old ASSERT silently
+/// survives and every `/roll` insert dies on it); the definition must be
+/// re-applied (OVERWRITE) for the widening to land. This applies the real
+/// `storage::SCHEMA` over an old-ASSERT populated table and proves a
+/// `kind='roll'` row is then accepted (and legacy rows survive untouched).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn widened_kind_assert_reaches_a_db_where_kind_already_exists() {
+    let db = common::raw_db().await;
+
+    // The pre-T6 message schema: `kind` already defined with the OLD
+    // two-value ASSERT, plus the fields whose NONE-coercion matters.
+    db.query(
+        "DEFINE TABLE message SCHEMAFULL;\
+         DEFINE FIELD channel ON message TYPE record<channel>;\
+         DEFINE FIELD author ON message TYPE record<account>;\
+         DEFINE FIELD body ON message TYPE string;\
+         DEFINE FIELD attachments ON message TYPE array<string> DEFAULT [];\
+         DEFINE FIELD pinged_users ON message TYPE array<record<account>> DEFAULT [];\
+         DEFINE FIELD kind ON message TYPE string DEFAULT 'user' \
+             ASSERT $value IN ['user', 'system'];\
+         DEFINE FIELD tier ON message TYPE string DEFAULT 'default';\
+         DEFINE FIELD sent_at ON message TYPE datetime DEFAULT time::now();",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy row (record links are not referentially enforced).
+    db.query(
+        "CREATE message:legacy SET channel = channel:x, author = account:y, \
+         body = 'hi', attachments = ['keep-this-blob'];",
+    )
+    .await
+    .expect("seed legacy transport")
+    .check()
+    .expect("seed legacy row");
+
+    // Apply the REAL schema over the already-defined field.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema");
+
+    // The widened enum must now hold: 'roll' accepted AND persisted.
+    let mut resp = db
+        .query(
+            "CREATE message:fate SET channel = channel:x, author = account:y, \
+             body = '1d6 → [4] = 4', kind = 'roll';\
+             SELECT VALUE kind FROM message:fate;",
+        )
+        .await
+        .expect("roll insert transport")
+        .check()
+        .expect("kind='roll' must be accepted after the re-apply");
+    let kinds: Vec<String> = resp.take(1).expect("take kind");
+    assert_eq!(kinds, vec!["roll".to_string()], "roll kind persists");
+
+    // And the legacy row survived the apply untouched.
+    #[derive(SurrealValue)]
+    struct Row {
+        attachments: Vec<String>,
+        kind: String,
+    }
+    let mut resp = db
+        .query("SELECT attachments, kind FROM message:legacy;")
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Option<Row> = resp.take(0).expect("take");
+    let row = row.expect("legacy message row survives the re-apply");
+    assert_eq!(row.attachments, vec!["keep-this-blob".to_string()]);
+    assert_eq!(row.kind, "user", "legacy kind backfill still lands");
 }
 
 /// W4/T5 (message effects): adding the `option<string>` `effect` field to the

@@ -281,6 +281,25 @@ pub struct EditMessageRequest {
     pub body: String,
 }
 
+/// Body of `POST /channels/{cid}/roll` (W4/T6 Fate Engine). The server parses
+/// `expr` against a constrained grammar, rolls with ITS OWN RNG, and persists
+/// the formatted result as an immutable `kind='roll'` message — the client
+/// never computes (so can never forge) an outcome.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RollRequest {
+    /// The roll expression: `NdM`, `NdM+K`, or `NdM-K` (1 ≤ N ≤ 100,
+    /// 2 ≤ M ≤ 1000, |K| ≤ 1000; bare `dM` reads as `1dM`; case-insensitive
+    /// `d`, no whitespace), or the literals `coin` / `oracle`. Anything else
+    /// is a 400.
+    pub expr: String,
+    /// The persona the caller is wearing — same server-side double-check
+    /// semantics as [`SendMessageRequest::persona_id`] (re-validated via
+    /// `can_edit_persona`, falling back to the stored per-channel wear, else
+    /// the bare account).
+    #[serde(default)]
+    pub persona: Option<String>,
+}
+
 /// Successful response from `POST /channels/{cid}/messages`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SendMessageResponse {
@@ -352,9 +371,10 @@ pub struct MessageEnvelope {
     /// post-ship wire-compat reason as the siblings above (defaults to `false`).
     #[serde(default)]
     pub is_pinged: bool,
-    /// Message kind: `"user"` (a normal send) or `"system"` (an app-admin "Nova
-    /// DOT" broadcast, authored by the reserved bot account). Drives distinct
-    /// rendering (system badge, no edit/reply/persona-popup). `#[serde(default)]`
+    /// Message kind: `"user"` (a normal send), `"system"` (an app-admin "Nova
+    /// DOT" broadcast, authored by the reserved bot account), or `"roll"` (a
+    /// W4/T6 Fate Engine dice result — authored, persona-aware, immutable).
+    /// Drives distinct rendering and per-kind action gating. `#[serde(default)]`
     /// → `"user"` for the same post-ship wire-compat reason as the siblings above
     /// (and so older/native clients deserialize cleanly).
     #[serde(default = "default_message_kind")]

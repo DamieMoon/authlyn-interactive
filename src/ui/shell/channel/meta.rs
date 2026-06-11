@@ -46,8 +46,8 @@ pub(super) fn message_meta(
     let info_m = m.clone();
     // Affordances from the shared kind predicate (`message_actions` in
     // mod.rs) — the SAME one the touch radial uses, so the two surfaces can
-    // never drift (and a future immutable kind, e.g. T6's `kind='roll'`, is
-    // automatically edit/delete-free on both).
+    // never drift (immutable kinds like T6's `kind='roll'` are edit/delete-free
+    // on both).
     let actions = super::message_actions(&m.kind, mine);
 
     view! {

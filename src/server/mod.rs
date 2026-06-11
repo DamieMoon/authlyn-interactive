@@ -158,6 +158,9 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/messages/{mid}/restore",
             post(messages::restore_message),
         )
+        // Fate Engine (W4/T6): server-rolled dice persisted as an immutable
+        // kind='roll' message.
+        .route("/channels/{cid}/roll", post(messages::roll_message))
         // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
         .route("/channels/{cid}/typing", post(messages::typing_ping))
         .route(

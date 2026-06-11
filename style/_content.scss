@@ -319,7 +319,8 @@
 		// percentage-width placeholders, so the fit-content squeeze above
 		// collapses them to ~avatar width and the shimmer renders at ~0.
 		// Same full-width exemption as the draft/system rows — the complete
-		// exemption list is system / msg-draft / msg-skeleton, kept together.
+		// exemption list is system / roll / msg-draft / msg-skeleton, kept
+		// together.
 		.msg.msg-skeleton {
 			width: auto;
 			max-width: 100%;
@@ -370,6 +371,59 @@
 				user-select: text;
 				-webkit-user-select: text;
 				-webkit-touch-callout: default;
+			}
+		}
+
+		// Roll result (W4/T6 Fate Engine): a `kind='roll'` message — a
+		// server-rolled dice outcome. An AUTHORED action (normal meta row:
+		// persona/author name, reply+copy — see message_actions), but the
+		// body renders as a glass result chip and the row is a full-width
+		// banner like the system row, exempt from the directional-bubble
+		// squeeze. Entrance rides fx-roll-in; `.app.fx-max` adds a die
+		// tumble on the 🎲 glyph. Both are one-shot fx- keyframes killed
+		// under reduced-motion in _motion.scss (the classes carry no "fx-"
+		// token, so they sit on the explicit kill list there); everything
+		// that remains — the glass, the glow — is state.
+		.msg.roll {
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+			border-color: var(--accent-soft);
+			animation: fx-roll-in 0.35s var(--ease-quick) 1;
+
+			.roll-chip {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				margin-top: 0.15rem;
+				padding: 0.3rem 0.65rem;
+				border: 1px solid var(--accent-soft);
+				border-radius: 0.6rem;
+				// Glass: a translucent wash over whatever sits behind,
+				// frosted by the backdrop blur (graceful on engines
+				// without it — the wash alone still reads as a chip).
+				background: color-mix(in srgb, var(--card) 55%, transparent);
+				backdrop-filter: blur(8px);
+				-webkit-backdrop-filter: blur(8px);
+				box-shadow: 0 0 10px var(--glow-accent);
+			}
+
+			.roll-die {
+				// The standalone rotate/scale in fx-die-tumble don't apply
+				// to plain inlines.
+				display: inline-block;
+				font-size: 1.1rem;
+			}
+
+			.roll-text {
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+			}
+
+			// Eye-candy tier: the die tumbles in a full turn as the chip
+			// lands.
+			.app.fx-max & .roll-die {
+				animation: fx-die-tumble 0.6s var(--ease-quick) 1;
 			}
 		}
 

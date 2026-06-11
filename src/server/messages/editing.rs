@@ -1,6 +1,8 @@
 //! Per-message mutations: edit own, delete (soft, #22), restore, and the
 //! trash listing. Split from `server/messages.rs` in Wave 3; behavior preserved
-//! verbatim.
+//! verbatim. Also enforces roll immutability (W4/T6): `kind='roll'` rows are
+//! server-generated outcomes, so the author's own edit and delete are explicit
+//! 403s here (cheating-proof — see `rolling.rs`).
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
@@ -43,8 +45,15 @@ pub async fn edit_message(
 
     // Membership gate first (privacy 404 for non-members / unknown channel),
     // then the author check (403). The message must live in this channel.
-    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
-        return resp;
+    let kind = match require_own_message(&state, &cid, &mid, &account.0).await {
+        Ok(kind) => kind,
+        Err(resp) => return resp,
+    };
+    // Roll immutability (W4/T6, 6.2b — audit critical): the roller IS the
+    // author, so without this explicit guard they could PATCH the
+    // server-generated body into a forged result. Rolls are FULLY immutable.
+    if kind == "roll" {
+        return error_response(StatusCode::FORBIDDEN, "roll results cannot be edited");
     }
 
     let result = with_write_conflict_retry(|| async {
@@ -83,8 +92,15 @@ pub async fn delete_message(
     Path((cid, mid)): Path<(String, String)>,
     account: AuthAccount,
 ) -> Response {
-    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
-        return resp;
+    let kind = match require_own_message(&state, &cid, &mid, &account.0).await {
+        Ok(kind) => kind,
+        Err(resp) => return resp,
+    };
+    // Roll immutability (W4/T6, 6.2b — audit critical): without this guard the
+    // roller could delete an unfavorable roll. No edit, no delete — and since a
+    // roll can never be soft-deleted, the restore path needs no guard.
+    if kind == "roll" {
+        return error_response(StatusCode::FORBIDDEN, "roll results cannot be deleted");
     }
 
     // Soft-delete (#22): hidden by the deleted_at = NONE read filters; the
@@ -214,17 +230,23 @@ async fn load_deleted_messages(
     Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
 }
 
-/// Gate for the per-message mutations (edit/delete): the caller must be a
-/// member of the channel's guild (else privacy-404) *and* the message must
-/// exist in this channel and be authored by the caller (else 403). The two
-/// "not yours" cases — a stranger's message vs. a missing message — both
+/// Gate for the per-message mutations (edit/delete/restore): the caller must
+/// be a member of the channel's guild (else privacy-404) *and* the message
+/// must exist in this channel and be authored by the caller (else 403). The
+/// two "not yours" cases — a stranger's message vs. a missing message — both
 /// collapse to 403 so a member can't probe which message ids exist by edit.
+///
+/// Returns the message's `kind` on success so the edit/delete handlers can
+/// enforce roll immutability (W4/T6, 6.2b): system messages are already
+/// un-editable as an authorship side-effect (the author is `nova_dot`, never
+/// the caller), but a roll IS authored by the caller, so its immutability
+/// needs the explicit kind check at the call sites.
 async fn require_own_message(
     state: &AppState,
     cid: &str,
     mid: &str,
     account: &str,
-) -> Result<(), Response> {
+) -> Result<String, Response> {
     match channel_access(state, cid, account).await {
         Ok(AccessOutcome::Ok(_)) => {}
         Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
@@ -239,8 +261,8 @@ async fn require_own_message(
         }
     }
 
-    match message_author(state, cid, mid).await {
-        Ok(Some(author)) if author == account => Ok(()),
+    match message_author_and_kind(state, cid, mid).await {
+        Ok(Some((author, kind))) if author == account => Ok(kind),
         Ok(Some(_)) | Ok(None) => Err(error_response(
             StatusCode::FORBIDDEN,
             "you can only modify your own messages",
@@ -255,26 +277,30 @@ async fn require_own_message(
     }
 }
 
-/// The author account id of a message *scoped to a channel*, or `None` when
-/// no such message exists in that channel.
-async fn message_author(
+/// The author account id and `kind` of a message *scoped to a channel*, or
+/// `None` when no such message exists in that channel. The `?? 'user'`
+/// coalesce mirrors `MSG_PROJECTION` (reading.rs) — `kind` is materialised by
+/// the schema backfill, but a defensive default beats a decode error.
+async fn message_author_and_kind(
     state: &AppState,
     cid: &str,
     mid: &str,
-) -> surrealdb::Result<Option<String>> {
+) -> surrealdb::Result<Option<(String, String)>> {
     #[derive(SurrealValue)]
     struct Row {
         author_key: String,
+        kind: String,
     }
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(author) AS author_key FROM type::record('message', $mid)
+            "SELECT meta::id(author) AS author_key, (kind ?? 'user') AS kind
+                FROM type::record('message', $mid)
                 WHERE channel = type::record('channel', $cid);",
         )
         .bind(("mid", mid.to_string()))
         .bind(("cid", cid.to_string()))
         .await?
         .check()?;
-    Ok(resp.take::<Option<Row>>(0)?.map(|r| r.author_key))
+    Ok(resp.take::<Option<Row>>(0)?.map(|r| (r.author_key, r.kind)))
 }
