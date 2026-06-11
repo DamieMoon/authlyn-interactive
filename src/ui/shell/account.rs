@@ -6,6 +6,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
+use crate::ui::icons::IconClose;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
@@ -145,7 +146,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 <header class="account-head">
                     <h2>"Account"</h2>
                     <button class="row-edit" title="Close"
-                        on:click=move |_| open.set(false)>"✕"</button>
+                        on:click=move |_| open.set(false)><IconClose/></button>
                 </header>
 
                 // ---- Change password ----

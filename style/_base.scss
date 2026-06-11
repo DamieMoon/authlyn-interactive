@@ -52,6 +52,14 @@ textarea {
 	padding: 0.4rem 0.55rem;
 }
 
+// Inline-SVG icon components (src/ui/icons.rs): scale with the surrounding
+// font-size and sit on the text baseline like a glyph.
+.icon {
+	width: 1.1em;
+	height: 1.1em;
+	vertical-align: -0.18em;
+}
+
 .muted {
 	color: var(--text-muted);
 }
