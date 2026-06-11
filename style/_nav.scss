@@ -70,7 +70,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		z-index: 40; // above content, below the sheet (49/50) + modals (50)
+		z-index: 40; // above content, below the sheet (50/51) + modals (50)
 		display: flex;
 		align-items: stretch;
 		height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
@@ -156,17 +156,30 @@
 	}
 
 	// ---- channel-switch bottom sheet ----
+	// The sheet is conceptually a bottom-anchored modal, so its scrim MIRRORS
+	// .modal-backdrop exactly (_modal.scss): same modal z tier (backdrop 50,
+	// card 51 — above ALL app chrome: topbar z-5, tab bar z-40) and the same
+	// blur(4px) softening. Without the blur the dimmed composer's dense
+	// chrome stays crisp and reads as if it floated ABOVE the scrim against
+	// an empty near-black chat (W3/T5 review smoke).
 	.sheet-backdrop {
 		display: block;
 		position: fixed;
 		inset: 0;
-		z-index: 49;
+		z-index: 50;
 		background: var(--scrim);
 		animation: sheet-fade var(--dur-base) var(--ease-page);
 		// Full-screen fixed overlay: swallow touch gestures so a pinch over
 		// the backdrop can't trigger zoom/ghosting in the standalone PWA
 		// (same rationale as .modal-backdrop).
 		touch-action: none;
+
+		// Soften the app behind the scrim — the same @supports guard and
+		// blur as .modal-backdrop; the plain scrim is the fallback.
+		@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+			-webkit-backdrop-filter: blur(4px);
+			backdrop-filter: blur(4px);
+		}
 	}
 
 	.channel-sheet {
@@ -176,7 +189,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		z-index: 50;
+		z-index: 51; // the modal-card slot: one above its own backdrop (50)
 		max-height: 70vh;
 		padding: 0.4rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
 		@include glass($border: false);
