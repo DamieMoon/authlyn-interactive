@@ -75,6 +75,10 @@
 		align-items: stretch;
 		height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
 		padding: 0.3rem 0.4rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+		// Landscape notch: the fixed left:0/right:0 bar extends under the
+		// sensor housing; push the tabs clear of it (env() is 0 elsewhere).
+		padding-left: calc(0.4rem + env(safe-area-inset-left, 0px));
+		padding-right: calc(0.4rem + env(safe-area-inset-right, 0px));
 		@include glass($border: false);
 		border-top: 1px solid var(--glass-line);
 
@@ -192,6 +196,9 @@
 		z-index: 51; // the modal-card slot: one above its own backdrop (50)
 		max-height: 70vh;
 		padding: 0.4rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+		// Landscape notch: same fixed left:0/right:0 clearance as .bottom-tabs.
+		padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+		padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
 		@include glass($border: false);
 		border-top: 1px solid var(--glass-line);
 		border-radius: 18px 18px 0 0;

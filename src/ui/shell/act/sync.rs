@@ -85,6 +85,12 @@ pub fn start_sync(s: Shell) {
         let errors = std::rc::Rc::clone(&errors);
         let es = es.clone();
         Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
+            // Every error means the stream is NOT currently connected: drop
+            // the chip to ● POLLING for the disconnect/reconnect window (e.g.
+            // a deploy restart) — `onopen` restores ● LIVE when the browser's
+            // auto-reconnect lands. Without this the chip claims LIVE while
+            // disconnected (W3 whole-wave review).
+            s.sync.sse_live.set(false);
             let n = errors.get().saturating_add(1);
             errors.set(n);
             if n == MAX_CONSECUTIVE_SSE_ERRORS {

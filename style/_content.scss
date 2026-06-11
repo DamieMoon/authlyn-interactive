@@ -262,6 +262,17 @@
 			}
 		}
 
+		// Loading-skeleton rows (_skeleton.scss): the shimmer bars are empty
+		// percentage-width placeholders, so the fit-content squeeze above
+		// collapses them to ~avatar width and the shimmer renders at ~0.
+		// Same full-width exemption as the draft/system rows — the complete
+		// exemption list is system / msg-draft / msg-skeleton, kept together.
+		.msg.msg-skeleton {
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+		}
+
 		// System (Nova DOT) broadcast: an app-admin message. A solid blue accent
 		// rail + faint accent wash sets it apart from ordinary chat without
 		// shouting, and a small uppercase SYSTEM pill tags the sender. No

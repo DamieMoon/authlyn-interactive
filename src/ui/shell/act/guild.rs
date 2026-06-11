@@ -102,8 +102,29 @@ fn persist_rail_order(s: Shell, list: Vec<crate::protocol::GuildSummary>) {
     });
 }
 
+/// Open a guild from the desktop rail: load it AND auto-open its first text
+/// channel (correct there — the channel pane is visible immediately).
 #[cfg(feature = "hydrate")]
 pub fn open_server(s: Shell, gid: String) {
+    load_server(s, gid, true);
+}
+
+/// Select a guild from the mobile channel sheet (W3 whole-wave review):
+/// load its owner + channel list so the sheet's channel column populates,
+/// WITHOUT auto-opening any channel — auto-open would clear unread and fire
+/// the cross-device `mark_read` for a channel the user never saw. The
+/// read-state only moves when a channel row is actually tapped (the existing
+/// `ChannelRow` → `open_channel` path).
+#[cfg(feature = "hydrate")]
+pub fn select_server_for_sheet(s: Shell, gid: String) {
+    load_server(s, gid, false);
+}
+
+/// Shared guild-load tail of [`open_server`] / [`select_server_for_sheet`]:
+/// persist + select the guild, reset the per-guild state, fetch owner +
+/// channels, and (only when `auto_open_first`) open the first text channel.
+#[cfg(feature = "hydrate")]
+fn load_server(s: Shell, gid: String, auto_open_first: bool) {
     let _ = LocalStorage::set(KEY_SERVER, &gid);
     s.sel.sel_server.set(Some(gid.clone()));
     s.sel.sel_owner.set(None);
@@ -114,6 +135,9 @@ pub fn open_server(s: Shell, gid: String) {
         if let Ok(d) = api::get_guild(&gid).await {
             s.sel.sel_owner.set(Some(d.owner_id.clone()));
             s.sel.channels.set(d.channels.clone());
+            if !auto_open_first {
+                return;
+            }
             if let Some(first) = d
                 .channels
                 .iter()
@@ -225,6 +249,8 @@ pub fn move_guild(_s: Shell, _idx: usize, _target: usize) {}
 pub fn move_guild_to_bounds(_s: Shell, _idx: usize, _top: bool) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn open_server(_s: Shell, _gid: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn select_server_for_sheet(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn create_server(_s: Shell, _name: String) {}
 #[cfg(not(feature = "hydrate"))]

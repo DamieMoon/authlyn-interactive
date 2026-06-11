@@ -685,7 +685,8 @@ fn AppShell() -> impl IntoView {
             // it's up.
             <nav class="bottom-tabs">
                 <button class="tab"
-                    class:active=move || matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook) && !s.sync.sheet_open.get()
+                    class:active=move || matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook)
+                        && !s.sync.sheet_open.get() && !s.sync.wardrobe_open.get()
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
                         act::show_current_channel(s);
@@ -704,7 +705,8 @@ fn AppShell() -> impl IntoView {
                     <span class="tab-label">"Servers"</span>
                 </button>
                 <button class="tab"
-                    class:active=move || s.sync.pane.get() == Pane::Friends && !s.sync.sheet_open.get()
+                    class:active=move || s.sync.pane.get() == Pane::Friends
+                        && !s.sync.sheet_open.get() && !s.sync.wardrobe_open.get()
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
                         act::show_friends(s);
@@ -728,7 +730,9 @@ fn AppShell() -> impl IntoView {
             // ChannelList components the desktop columns render. Tapping the
             // backdrop dismisses; tapping a channel row switches AND
             // dismisses (wired in ChannelRow). Tapping a guild keeps the
-            // sheet open so a channel can be picked next. The DM "Direct"
+            // sheet open so a channel can be picked next — select-only via
+            // RailGuilds' `in_sheet`: it loads the channel list WITHOUT
+            // auto-opening (and mark-read-ing) a channel. The DM "Direct"
             // slot lands in W6; drag-down-to-close is a later polish — the
             // backdrop tap is the W3 dismissal floor.
             {move || s.sync.sheet_open.get().then(|| view! {
@@ -736,7 +740,7 @@ fn AppShell() -> impl IntoView {
                 <div class="channel-sheet" role="dialog" aria-label="Switch channel">
                     <div class="sheet-handle" aria-hidden="true"></div>
                     <div class="sheet-guilds">
-                        <RailGuilds/>
+                        <RailGuilds in_sheet=true/>
                     </div>
                     <div class="sheet-channels">
                         <Show when=move || s.sel.sel_server.get().is_some()
@@ -799,8 +803,14 @@ fn AppShell() -> impl IntoView {
 /// chrome in CSS) so the two stay one source. Owns its drag-source index, so
 /// concurrent instances can't observe each other's drags. Pulls [`Shell`]
 /// from context (the W6/C8 pattern the pane components use).
+///
+/// `in_sheet` branches the guild tap (W3 whole-wave review): the desktop
+/// rail opens the guild AND auto-opens its first text channel (it's visible
+/// at once), while the sheet instance only loads the channel list — the
+/// mark-read happens when the user actually taps a channel row, so browsing
+/// the sheet can't wipe unread state cross-device.
 #[component]
-fn RailGuilds() -> impl IntoView {
+fn RailGuilds(#[prop(optional)] in_sheet: bool) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     // L-5: index of the guild currently being dragged (HTML5 DnD), or None
     // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
@@ -840,7 +850,13 @@ fn RailGuilds() -> impl IntoView {
                         <button class="rail-guild" title=g.name
                             class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
                             class:unread=move || act::guild_has_unread(s, &gid_unread)
-                            on:click=move |_| act::open_server(s, gid.clone())>
+                            on:click=move |_| if in_sheet {
+                                // Sheet: select-only — populate the channel
+                                // list, never auto-open/mark-read a channel.
+                                act::select_server_for_sheet(s, gid.clone())
+                            } else {
+                                act::open_server(s, gid.clone())
+                            }>
                             {initial}
                         </button>
                         // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
