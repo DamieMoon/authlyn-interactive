@@ -48,10 +48,10 @@
 	overflow-y: auto;
 	animation: modal-enter var(--dur-page) var(--ease-page);
 
-	// Keyboard focus inside the modal (W6/C10): a warm gold ring on focusable
-	// children, but only when keyboard-focused (`:focus-visible`) so mouse
-	// clicks don't paint rings everywhere. The dialog itself is `tabindex=-1`
-	// so the initial-focus fallback doesn't bring up its own ring.
+	// Keyboard focus inside the modal (W6/C10): a blue --accent-bright ring on
+	// focusable children, but only when keyboard-focused (`:focus-visible`) so
+	// mouse clicks don't paint rings everywhere. The dialog itself is
+	// `tabindex=-1` so the initial-focus fallback doesn't bring up its own ring.
 	:focus-visible {
 		outline: 2px solid var(--accent-bright);
 		outline-offset: 1px;

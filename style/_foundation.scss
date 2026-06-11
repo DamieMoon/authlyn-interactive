@@ -3,11 +3,18 @@
 // and battery; see spec §1. Consumers opt in via @include glass / .glass.
 
 @mixin glass {
-	background: var(--glass-bg);
-	-webkit-backdrop-filter: blur(14px) saturate(1.4);
-	backdrop-filter: blur(14px) saturate(1.4);
+	// Fallback first: without backdrop-filter the 55%-alpha --glass-bg would
+	// be illegible over scrolling chat, so default to opaque --surface and
+	// only go translucent where the blur is actually supported.
+	background: var(--surface);
 	border: 1px solid var(--glass-line);
 	box-shadow: inset 0 1px 0 var(--glass-highlight);
+
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		background: var(--glass-bg);
+		-webkit-backdrop-filter: blur(14px) saturate(1.4);
+		backdrop-filter: blur(14px) saturate(1.4);
+	}
 }
 
 .glass {

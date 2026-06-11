@@ -10,9 +10,15 @@ macro_rules! icon {
     ($(#[$doc:meta])* $name:ident, $paths:expr) => {
         $(#[$doc])*
         #[component]
-        pub fn $name() -> impl IntoView {
+        pub fn $name(
+            /// Extra CSS classes merged after the base `icon` class, so call
+            /// sites can size/position an icon (`<IconX class="topbar-icon"/>`).
+            /// Defaults to empty — `<IconX/>` stays valid.
+            #[prop(optional, into)]
+            class: String,
+        ) -> impl IntoView {
             view! {
-                <svg class="icon" viewBox="0 0 24 24" fill="none"
+                <svg class=format!("icon {class}") viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="1.8"
                     stroke-linecap="round" stroke-linejoin="round"
                     aria-hidden="true" inner_html=$paths></svg>

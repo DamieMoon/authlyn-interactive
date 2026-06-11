@@ -186,9 +186,10 @@
 			}
 		}
 
-		// System (Nova DOT) broadcast: an app-admin message. A solid gold rail +
-		// faint gold wash sets it apart from ordinary chat without shouting, and a
-		// small uppercase SYSTEM pill tags the sender. No actions / persona popup.
+		// System (Nova DOT) broadcast: an app-admin message. A solid blue accent
+		// rail + faint accent wash sets it apart from ordinary chat without
+		// shouting, and a small uppercase SYSTEM pill tags the sender. No
+		// actions / persona popup.
 		.msg.system {
 			border-left: 3px solid var(--accent);
 			// Wash over the same --card base the plain .msg uses.

@@ -1,8 +1,13 @@
-//! Grimoire design tokens transcribed from `style/_tokens.scss` into Rust.
+//! Native design tokens — intentionally PINNED to the legacy Grimoire palette.
+//!
+//! The native client is deliberately not part of the Void Station redesign
+//! (spec §11: it must keep compiling and benefits from the shared API layer
+//! only), so these constants are decoupled from `style/_tokens.scss` (which
+//! now holds the web's Void Station tokens). Do not "sync" them.
 //!
 //! Freya has no CSS; the read UI is styled per-element with these constants
-//! (`.background(..)`/`.color(..)` accept an `(u8,u8,u8)` tuple). Colors are RGB
-//! tuples so they're `const`; keep the names aligned with the SCSS `--tokens`.
+//! (`.background(..)`/`.color(..)` accept an `(u8,u8,u8)` tuple). Colors are
+//! RGB tuples so they're `const`.
 
 /// An RGB color as Freya's element builders accept it (`impl Into<Color>`).
 pub type Rgb = (u8, u8, u8);

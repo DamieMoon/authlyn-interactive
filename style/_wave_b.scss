@@ -249,7 +249,7 @@
 		cursor: pointer;
 
 		&:hover {
-			background: var(--emoji-fav-bg);
+			background: color-mix(in srgb, var(--danger) 12%, transparent);
 		}
 	}
 }
@@ -372,7 +372,7 @@
 	cursor: pointer;
 
 	&:hover {
-		background: var(--emoji-fav-bg);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
 	}
 }
 

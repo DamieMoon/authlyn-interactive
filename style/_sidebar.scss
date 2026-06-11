@@ -69,8 +69,9 @@
 				color: var(--text);
 			}
 
-			// Unread (#23): brighten the name and add a WHITE glow so a channel
-			// with new messages stands out (L-4: white = plain unread).
+			// Unread (#23): brighten the name and add a blue glow so a channel
+			// with new messages stands out (L-4 vocabulary: blue = plain
+			// unread, orange = pinged — see `.pinged` below).
 			&.unread {
 				color: var(--text);
 				font-weight: 600;
@@ -78,7 +79,7 @@
 			}
 
 			// Ping (L-4): a message that @-mentions me. ORANGE glow, and it WINS
-			// over the plain white unread glow (the `.pinged` rule follows
+			// over the plain blue unread glow (the `.pinged` rule follows
 			// `.unread`, and both classes are applied, so this overrides it).
 			&.pinged {
 				color: var(--tint-orange);

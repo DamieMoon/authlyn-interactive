@@ -26,8 +26,8 @@
 
 		// Cross-guild unread badge (feedback grt9ohmw8pj2fi4eqb6h): any text
 		// channel in this guild has messages past the user's last-seen mark.
-		// Mirrors the sidebar `.channel.unread` orange tint with a small dot at
-		// the top-right of the rail circle.
+		// Blue plain-unread marker (matching the sidebar's blue `.channel.unread`
+		// glow) as a small dot at the top-right of the rail circle.
 		&.unread::after {
 			content: "";
 			position: absolute;
@@ -36,7 +36,7 @@
 			width: 10px;
 			height: 10px;
 			border-radius: 50%;
-			background: var(--tint-orange);
+			background: var(--accent);
 			box-shadow: 0 0 6px var(--unread-glow);
 		}
 	}

@@ -55,7 +55,8 @@
 // The default `.who` color comes from the nested rule that compiles to
 // `.content .messages .msg .who` (specificity 0,4,0), so the persona tint
 // must match that depth to win — a bare `.msg .who.mk-*` (0,3,0) loses and
-// the name stays the default purple. Do not "simplify" the long selector.
+// the name stays the default `.who` --text-soft slate. Do not "simplify"
+// the long selector.
 //
 // Each persona slot reads its color from the `--tint-{name}` token declared
 // in _tokens.scss, so a single token swap retints the chat author column.
