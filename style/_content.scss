@@ -588,6 +588,59 @@
 			// Firefox 124+ all support it.
 			field-sizing: content;
 		}
+
+		// W4/T2: charging send button. A thin conic-gradient ring around
+		// Send fills clockwise as the composed message grows — `--charge`
+		// (0..1) is bound from the compose signal in shell/channel/mod.rs
+		// ("full" at ~280 chars; not a length limit). The ring lives on a
+		// ::before sitting 4px OUTSIDE the button box with
+		// pointer-events: none, so the label and click target are untouched.
+		// The fill itself is static (state, not motion) so it stays under
+		// reduced-motion; the post-send `.sent` pulse IS motion and is
+		// killed explicitly in _motion.scss (its class carries no "fx-").
+		.send {
+			position: relative;
+
+			&::before {
+				content: "";
+				position: absolute;
+				inset: -4px;
+				background: conic-gradient(
+					var(--accent) calc(var(--charge, 0) * 360deg),
+					transparent 0
+				);
+				// Cut the centre away, keeping only a thin elliptical rim
+				// (closest-side: the ellipse hugs the ::before box).
+				-webkit-mask: radial-gradient(
+					closest-side,
+					transparent calc(100% - 3px),
+					#000 calc(100% - 3px)
+				);
+				mask: radial-gradient(
+					closest-side,
+					transparent calc(100% - 3px),
+					#000 calc(100% - 3px)
+				);
+				opacity: 0;
+				pointer-events: none;
+			}
+
+			// Only visible while something is composed.
+			&.charging::before {
+				opacity: 1;
+			}
+
+			// One glow pulse on a successful send — act::send_message flips
+			// `.sent` for ~400ms (matching the duration here).
+			&.sent {
+				animation: fx-glow-pulse 0.4s ease-out 1;
+			}
+
+			// Eye-candy tier: the ring itself glows.
+			.app.fx-max &::before {
+				filter: drop-shadow(0 0 6px var(--glow-accent));
+			}
+		}
 	}
 }
 

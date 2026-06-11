@@ -265,6 +265,13 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
+    // W4/T2 charging send button: fraction of a "full" message composed,
+    // driving the Send button's conic-gradient ring via the `--charge`
+    // custom property. ~280 chars FEELS full — it is not a length limit.
+    // Counted in chars (not bytes) so multibyte text/emoji don't over-fill.
+    let charge = Memo::new(move |_| {
+        (s.composer.compose.with(|c| c.chars().count()).min(280) as f64) / 280.0
+    });
     // Typing-ping throttle (#19): epoch-ms of the last `POST /typing` we fired,
     // so on:input pings at most once every ~2s while the user types instead of
     // every keystroke. `StoredValue` (not a signal) — it's plumbing, not UI.
@@ -1154,7 +1161,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </ul>
                     }
                 })}
-                <button class="send" on:click=move |_| {
+                // The charge ring (W4/T2): `--charge` (0..1) fills the conic
+                // ::before ring as the compose grows; `.charging` shows it
+                // only while something is typed; `.sent` plays the one-shot
+                // post-send pulse (flipped by act::send_message).
+                <button class="send"
+                    // Braced: a bare `>` would close the <button> tag in rstml.
+                    class:charging={move || charge.get() > 0.0}
+                    class:sent=move || s.composer.sent.get()
+                    style=("--charge", move || format!("{:.3}", charge.get()))
+                    on:click=move |_| {
                     act::send_message(s);
                     // Close any lingering `:`-autocomplete popover — on touch the
                     // Send button is the only send path (Enter inserts a newline),

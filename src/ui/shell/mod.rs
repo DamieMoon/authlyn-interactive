@@ -152,6 +152,7 @@ fn AppShell() -> impl IntoView {
         last_used_colors: RwSignal::new(act::load_color_history()),
         replying_to: RwSignal::new(None),
         editing: RwSignal::new(None),
+        sent: RwSignal::new(false),
     };
     provide_context(composer);
 

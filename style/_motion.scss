@@ -77,13 +77,17 @@
 // remove the decorative animations entirely (`animation: none` wins the
 // shared !important longhands on specificity), and both rules agree in
 // effect — no motion.
-// `.typing-indicator .star` is listed explicitly: it consumes fx-orbit /
-// fx-twinkle but its class name carries no "fx-", so the attribute
-// selector below would miss it.
+// `.typing-indicator .star` and `.composer .send.sent` are listed
+// explicitly: they consume fx- keyframes (fx-orbit / fx-twinkle and the
+// send pulse's fx-glow-pulse) but their class names carry no "fx-", so the
+// attribute selector below would miss them. (The send button's charge RING
+// is exempt on purpose — it's a static fill bound to typed length, state
+// rather than motion.)
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
 	.typing-indicator .star,
+	.composer .send.sent,
 	[class*="fx-"] {
 		animation: none !important;
 	}

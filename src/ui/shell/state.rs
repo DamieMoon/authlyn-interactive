@@ -148,6 +148,11 @@ pub(crate) struct Composer {
     /// instead of a post. Drives the "Editing message" banner; the ✕ / Esc
     /// restores the stashed draft. Client-only; never sent or persisted.
     pub(crate) editing: RwSignal<Option<EditingMessage>>,
+    /// One-shot send-pulse flag (W4/T2): `act::send_message` flips it true
+    /// after a successful post and a detached ~400ms timer resets it, so the
+    /// Send button's `.sent` class plays a single `fx-glow-pulse`. Cosmetic
+    /// and client-only; never sent or persisted.
+    pub(crate) sent: RwSignal<bool>,
 }
 
 /// An in-progress message edit driven through the main composer (see

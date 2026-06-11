@@ -100,6 +100,16 @@ pub fn send_message(s: Shell) {
     spawn_local(async move {
         match api::post_message(&ch.id, &body, attachments, persona, reply_to_id).await {
             Ok(_) => {
+                // W4/T2: send pulse — flip `.sent` on the Send button for one
+                // fx-glow-pulse cycle. Reset on a DETACHED timer so the
+                // post-send refresh round-trip below doesn't stretch the
+                // pulse. (A rapid second send inside the window simply rides
+                // the first pulse — cosmetic, not worth a generation counter.)
+                s.composer.sent.set(true);
+                spawn_local(async move {
+                    gloo_timers::future::TimeoutFuture::new(400).await;
+                    s.composer.sent.set(false);
+                });
                 let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
                     ingest(s, l.messages);
