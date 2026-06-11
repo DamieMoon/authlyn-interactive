@@ -128,11 +128,24 @@ fn dispatch(s: Shell, event: SyncEvent) {
         // ignored gracefully (protocol contract).
         SyncEvent::Unknown => {}
         // Metadata changed somewhere visible: refetch the lists AND the
-        // unread summary (a new/removed channel shifts both).
+        // unread summary (a new/removed channel shifts both). ListsChanged is
+        // ALSO the server's post-lag resync nudge (the bus dropped events on
+        // us), so reconcile the open channel too — a dropped message_created
+        // for the open pane would otherwise stay invisible until the next
+        // event happens to arrive (W1.5: completes the documented contract).
         SyncEvent::ListsChanged => {
             message::refresh_lists(s);
             message::refresh_unread(s);
+            spawn_local(async move {
+                message::refresh_open_channel(s).await;
+            });
         }
+        // W1.5 account-targeted nudges: the caller's read cursor moved on
+        // ANOTHER device — refresh unread so this device's glow clears.
+        SyncEvent::ReadStateChanged { .. } => message::refresh_unread(s),
+        // W1.5: the friends/requests list changed for this account.
+        // refresh_lists refetches friends (cheap, and keeps one entry point).
+        SyncEvent::FriendsChanged => message::refresh_lists(s),
         // Channel-scoped events: a change in the OPEN channel reconciles the
         // message pane; anywhere else only the batched unread summary moves.
         _ => {
@@ -159,7 +172,10 @@ fn dispatch(s: Shell, event: SyncEvent) {
                         schedule_typing_clear(s);
                     }
                 });
-            } else {
+            } else if !matches!(event, SyncEvent::Typing { .. }) {
+                // W1.5: typing in a NON-open channel cannot change unread
+                // state — skipping the refetch kills the 2s-cadence /unread
+                // storm one busy typist used to inflict on every member.
                 message::refresh_unread(s);
             }
         }

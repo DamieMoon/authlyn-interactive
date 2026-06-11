@@ -6,7 +6,7 @@
 use crate::protocol::SyncEvent;
 use crate::server::access::visible_channels;
 use crate::server::auth::AuthAccount;
-use crate::server::state::AppState;
+use crate::server::state::{AppState, BusEvent};
 use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::Stream;
@@ -16,7 +16,7 @@ use tokio::sync::broadcast;
 
 /// Per-connection stream state for the unfold below.
 struct Conn {
-    rx: broadcast::Receiver<SyncEvent>,
+    rx: broadcast::Receiver<BusEvent>,
     visible: HashSet<String>,
     state: AppState,
     account: String,
@@ -69,16 +69,28 @@ pub async fn events(
     let stream = futures_util::stream::unfold(conn, |mut conn| async move {
         loop {
             match conn.rx.recv().await {
-                Ok(ev) => match ev.channel_id() {
-                    Some(cid) if !conn.visible.contains(cid) => continue, // privacy filter
-                    Some(_) => return Some((Ok(sse_frame(&ev)), conn)),
-                    None => {
-                        // lists_changed (or forward-compat Unknown): visibility
-                        // may have shifted under us.
-                        conn.reload_visible().await;
-                        return Some((Ok(sse_frame(&ev)), conn));
+                Ok(be) => {
+                    // W1.5 account-targeted lane: deliver iff this connection's
+                    // account is named, with NO visibility check or reload —
+                    // targeted events are id-only nudges about the target's OWN
+                    // state (read cursor, friends edge), not channel content.
+                    if let Some(targets) = &be.targets {
+                        if targets.iter().any(|t| t == &conn.account) {
+                            return Some((Ok(sse_frame(&be.event)), conn));
+                        }
+                        continue;
                     }
-                },
+                    match be.event.channel_id() {
+                        Some(cid) if !conn.visible.contains(cid) => continue, // privacy filter
+                        Some(_) => return Some((Ok(sse_frame(&be.event)), conn)),
+                        None => {
+                            // lists_changed (or forward-compat Unknown): visibility
+                            // may have shifted under us.
+                            conn.reload_visible().await;
+                            return Some((Ok(sse_frame(&be.event)), conn));
+                        }
+                    }
+                }
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     // Dropped events: nudge the client to a full resync.
                     conn.reload_visible().await;

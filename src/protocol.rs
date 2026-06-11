@@ -806,6 +806,12 @@ pub enum SyncEvent {
     /// Guild/channel/membership metadata changed somewhere visible to you —
     /// refetch lists. Also used as a generic "resync" nudge after broadcast lag.
     ListsChanged,
+    /// The caller's read cursor moved in this channel (their OTHER devices
+    /// should refresh unread). Account-targeted on the server; never broadcast.
+    ReadStateChanged { channel_id: String },
+    /// The friends/requests list changed for this account (targeted to the
+    /// two accounts of the friendship edge).
+    FriendsChanged,
     /// Forward-compat catch-all: an event type this build doesn't know
     /// (a newer server during version skew). Consumers MUST ignore it;
     /// the server never constructs it.
@@ -814,15 +820,26 @@ pub enum SyncEvent {
 }
 
 impl SyncEvent {
-    /// The channel this event is scoped to, if any. `None` (ListsChanged) means
-    /// "deliver to everyone and let the refetch re-derive visibility".
+    /// The channel this event is VISIBILITY-scoped to, if any. `None`
+    /// (ListsChanged) means "deliver to everyone and let the refetch re-derive
+    /// visibility".
+    ///
+    /// `ReadStateChanged` carries a `channel_id` field but reports `None` here:
+    /// it (like `FriendsChanged`) is account-targeted on the server, and the
+    /// targeted delivery lane bypasses channel-visibility filtering entirely —
+    /// this method is never consulted for it. Returning the id would be wrong
+    /// anyway: visibility filtering would silently drop the nudge whenever the
+    /// recipient's visible-set is momentarily stale.
     pub fn channel_id(&self) -> Option<&str> {
         match self {
             SyncEvent::MessageCreated { channel_id }
             | SyncEvent::MessageEdited { channel_id, .. }
             | SyncEvent::MessageDeleted { channel_id, .. }
             | SyncEvent::Typing { channel_id } => Some(channel_id),
-            SyncEvent::ListsChanged | SyncEvent::Unknown => None,
+            SyncEvent::ListsChanged
+            | SyncEvent::ReadStateChanged { .. }
+            | SyncEvent::FriendsChanged
+            | SyncEvent::Unknown => None,
         }
     }
 }

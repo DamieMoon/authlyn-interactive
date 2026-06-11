@@ -40,3 +40,31 @@ async fn sync_event_serializes_with_snake_case_type_tags() {
     assert_eq!(future, SyncEvent::Unknown);
     assert_eq!(future.channel_id(), None);
 }
+
+/// W1.5 wire pins for the account-targeted variants. Both are NEW types on an
+/// already-shipped wire: a stale client deserializes them through the
+/// `#[serde(other)] Unknown` catch-all (pinned above with `warp_initiated`),
+/// so adding them is wire-compatible by construction.
+#[tokio::test]
+async fn targeted_sync_events_pin_their_wire_shape() {
+    // read_state_changed round-trips with its channel id…
+    let ev = SyncEvent::ReadStateChanged {
+        channel_id: "c1".into(),
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    assert_eq!(json, r#"{"type":"read_state_changed","channel_id":"c1"}"#);
+    let back: SyncEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, ev);
+    // …but is NOT channel-visibility-scoped: it is account-targeted on the
+    // server (the targeted lane bypasses visibility filtering entirely), so
+    // `channel_id()` deliberately reports None.
+    assert_eq!(ev.channel_id(), None);
+
+    // friends_changed is a bare tag.
+    let ev = SyncEvent::FriendsChanged;
+    let json = serde_json::to_string(&ev).unwrap();
+    assert_eq!(json, r#"{"type":"friends_changed"}"#);
+    let back: SyncEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, ev);
+    assert_eq!(ev.channel_id(), None);
+}

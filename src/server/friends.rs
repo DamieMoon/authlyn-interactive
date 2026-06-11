@@ -125,7 +125,10 @@ pub async fn add_friend(
         Ok(Some(_)) => {
             // reverse pending → accept it
             return match set_accepted(&state, &target, &account.0).await {
-                Ok(_) => StatusCode::OK.into_response(),
+                Ok(_) => {
+                    emit_friends_changed(&state, &account.0, &target);
+                    StatusCode::OK.into_response()
+                }
                 Err(e) => {
                     tracing::error!(error = %e, "auto-accept failed");
                     error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -167,7 +170,10 @@ pub async fn add_friend(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::CREATED.into_response(),
+        Ok(()) => {
+            emit_friends_changed(&state, &caller, &target);
+            StatusCode::CREATED.into_response()
+        }
         Err(e) if is_unique_violation(&e) => {
             error_response(StatusCode::CONFLICT, "request already exists")
         }
@@ -198,12 +204,15 @@ pub async fn accept_friend(
                   AND state = 'pending'
                 RETURN meta::id(id) AS id_key;",
         )
-        .bind(("aid", aid))
-        .bind(("me", account.0))
+        .bind(("aid", aid.clone()))
+        .bind(("me", account.0.clone()))
         .await
         .and_then(|mut r| r.take::<Vec<IdRow>>(0));
     match updated {
-        Ok(rows) if !rows.is_empty() => StatusCode::OK.into_response(),
+        Ok(rows) if !rows.is_empty() => {
+            emit_friends_changed(&state, &account.0, &aid);
+            StatusCode::OK.into_response()
+        }
         Ok(_) => error_response(StatusCode::NOT_FOUND, "no pending request from that user"),
         Err(e) => {
             tracing::error!(error = %e, "accept_friend failed");
@@ -233,12 +242,17 @@ pub async fn remove_friend(
                 OR (requester = type::record('account', $other)
                  AND addressee = type::record('account', $me));",
         )
-        .bind(("me", account.0))
-        .bind(("other", aid))
+        .bind(("me", account.0.clone()))
+        .bind(("other", aid.clone()))
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // Emitted even when nothing matched (idempotent DELETE): a spare
+            // id-only nudge costs one refetch; detecting no-op deletes doesn't.
+            emit_friends_changed(&state, &account.0, &aid);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "remove_friend failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -249,6 +263,17 @@ pub async fn remove_friend(
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/// W1.5: every friend mutation nudges EXACTLY the two accounts of the
+/// friendship edge over the SSE bus (account-targeted, never broadcast) —
+/// an incoming request / accept / removal becomes visible live on the other
+/// party's open clients instead of waiting for an unrelated event.
+fn emit_friends_changed(state: &AppState, a: &str, b: &str) {
+    state.emit_for(
+        vec![a.to_string(), b.to_string()],
+        crate::protocol::SyncEvent::FriendsChanged,
+    );
+}
 
 /// The `state` of the directed `requester -> addressee` friendship, if any.
 async fn pair_state(

@@ -18,6 +18,17 @@ use surrealdb::Surreal;
 
 use crate::server::push::PushSender;
 
+/// Bus envelope: an event plus its delivery scope. `targets: None` = the
+/// existing visibility-filtered/global path; `Some(accounts)` = deliver ONLY
+/// to those accounts' connections (bypasses channel-visibility filtering —
+/// targeted events must therefore never carry data the target may not see;
+/// they are id-only nudges like everything else on this bus).
+#[derive(Clone, Debug)]
+pub struct BusEvent {
+    pub event: crate::protocol::SyncEvent,
+    pub targets: Option<Vec<String>>,
+}
+
 /// The single state object handed to every axum handler.
 ///
 /// `Clone` is cheap: `LeptosOptions` is small, `Arc<Surreal<Client>>` is
@@ -48,10 +59,13 @@ pub struct AppState {
     /// insert / read / prune and is NEVER held across an `.await`.
     pub typing: Arc<Mutex<HashMap<String, HashMap<String, Instant>>>>,
     /// W1 realtime: the process-wide SSE event bus. Every mutation handler
-    /// best-effort `send()`s a `SyncEvent`; every `GET /events` connection
+    /// best-effort `send()`s a [`BusEvent`]; every `GET /events` connection
     /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
     /// nudged to resync — events are droppable by design (notify-and-fetch).
-    pub events: tokio::sync::broadcast::Sender<crate::protocol::SyncEvent>,
+    /// The envelope's `targets` field (W1.5) selects the visibility-filtered
+    /// path (`None`, via [`AppState::emit`]) or the account-targeted lane
+    /// (`Some`, via [`AppState::emit_for`]).
+    pub events: tokio::sync::broadcast::Sender<BusEvent>,
 }
 
 impl AppState {
@@ -75,9 +89,24 @@ impl AppState {
 
     /// Best-effort bus emission: never fails the request. `send()` errs only
     /// when no subscriber exists (the idle case) — see the `events` field doc
-    /// for the capacity/lag rationale.
+    /// for the capacity/lag rationale. `targets: None` = the visibility-filtered
+    /// path every pre-W1.5 call site means.
     pub fn emit(&self, ev: crate::protocol::SyncEvent) {
-        let _ = self.events.send(ev);
+        let _ = self.events.send(BusEvent {
+            event: ev,
+            targets: None,
+        });
+    }
+
+    /// Targeted best-effort emission: delivered only to `accounts`' connections.
+    /// Bypasses channel-visibility filtering (see [`BusEvent`]) — only ever pass
+    /// id-only nudges whose mere arrival reveals nothing beyond what the target
+    /// may already fetch.
+    pub fn emit_for(&self, accounts: Vec<String>, ev: crate::protocol::SyncEvent) {
+        let _ = self.events.send(BusEvent {
+            event: ev,
+            targets: Some(accounts),
+        });
     }
 
     /// Build with all three halves supplied. Used by `main.rs`. Same
