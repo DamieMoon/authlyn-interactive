@@ -1,8 +1,8 @@
 @use "tokens" as *;
 
 .sidebar {
-	background: var(--vellum);
-	border-right: 1px solid var(--rule-line);
+	background: var(--surface);
+	border-right: 1px solid var(--line);
 	display: flex;
 	flex-direction: column;
 	overflow-y: auto;
@@ -12,7 +12,7 @@
 		align-items: center;
 		gap: 0.25rem;
 		padding: 0.6rem 0.75rem;
-		border-bottom: 1px solid var(--rule-line);
+		border-bottom: 1px solid var(--line);
 
 		.server-title {
 			flex: 1;
@@ -55,26 +55,26 @@
 			text-align: left;
 			background: transparent;
 			border: none;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 			padding: 0.35rem 0.5rem;
 			border-radius: 0.375rem;
 
 			&:hover {
-				background: var(--vellum-2);
-				color: var(--ink);
+				background: var(--surface-2);
+				color: var(--text);
 			}
 
 			&.active {
-				background: var(--vellum-2);
-				color: var(--ink);
+				background: var(--surface-2);
+				color: var(--text);
 			}
 
 			// Unread (#23): brighten the name and add a WHITE glow so a channel
 			// with new messages stands out (L-4: white = plain unread).
 			&.unread {
-				color: var(--ink);
+				color: var(--text);
 				font-weight: 600;
-				text-shadow: 0 0 6px rgba(245, 245, 245, 0.7);
+				text-shadow: 0 0 6px var(--unread-glow);
 			}
 
 			// Ping (L-4): a message that @-mentions me. ORANGE glow, and it WINS
@@ -83,7 +83,7 @@
 			&.pinged {
 				color: var(--tint-orange);
 				font-weight: 600;
-				text-shadow: 0 0 6px rgba(238, 161, 96, 0.8);
+				text-shadow: 0 0 6px var(--pinged-glow);
 			}
 
 			// Per-channel unread count badge (L-4): a small pill at the row's
@@ -95,7 +95,7 @@
 				padding: 0 0.3rem;
 				border-radius: 0.6rem;
 				background: var(--tint-orange);
-				color: var(--vellum);
+				color: var(--surface);
 				font-size: 0.7rem;
 				font-weight: 700;
 				line-height: 1.1rem;
@@ -115,12 +115,12 @@
 	.row-edit {
 		background: transparent;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		padding: 0.2rem 0.35rem;
 		font-size: 0.85rem;
 
 		&:hover {
-			color: var(--ink);
+			color: var(--text);
 		}
 	}
 
@@ -140,7 +140,7 @@
 		display: flex;
 		gap: 0.25rem;
 		padding: 0.5rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 
 		input {
 			flex: 1;

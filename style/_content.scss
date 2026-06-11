@@ -26,7 +26,7 @@
 		// Reserve the status bar / notch / Dynamic Island height in the installed
 		// PWA (viewport-fit=cover). env() is 0 on non-notched devices/browsers.
 		padding-top: calc(0.6rem + env(safe-area-inset-top, 0px));
-		border-bottom: 1px solid var(--rule-line);
+		border-bottom: 1px solid var(--line);
 		min-width: 0;
 
 		// Controls keep their size and never wrap their label (e.g. "Log out"
@@ -71,8 +71,8 @@
 			flex-direction: column;
 			gap: 0.15rem;
 			padding: 0.4rem 0.6rem;
-			background: var(--vellum-2);
-			border: 1px solid var(--rule-line);
+			background: var(--surface-2);
+			border: 1px solid var(--line);
 			border-radius: 0.5rem;
 
 			& + .msg {
@@ -106,23 +106,23 @@
 			.row-edit {
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				padding: 0.2rem 0.35rem;
 				font-size: 0.85rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 
 			.who {
 				font-weight: 600;
-				color: var(--ink-soft);
+				color: var(--text-soft);
 			}
 
 			.when {
 				font-size: 0.75rem;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 			}
 
 			.text {
@@ -143,21 +143,21 @@
 				text-align: left;
 				background: transparent;
 				border: none;
-				border-left: 2px solid var(--gold);
+				border-left: 2px solid var(--accent);
 				padding: 0 0 0 0.5rem;
 				margin-bottom: 0.1rem;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				font-size: 0.8rem;
 				cursor: pointer;
 				overflow: hidden;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 
 				.reply-quote-who {
 					font-weight: 600;
-					color: var(--ink-soft);
+					color: var(--text-soft);
 					flex: none;
 				}
 
@@ -177,7 +177,7 @@
 		.msg.msg-draft {
 			opacity: 0.55;
 			border-style: dashed;
-			border-left: 2px solid var(--gold);
+			border-left: 2px solid var(--accent);
 
 			.text {
 				font-style: italic;
@@ -188,11 +188,11 @@
 		// faint gold wash sets it apart from ordinary chat without shouting, and a
 		// small uppercase SYSTEM pill tags the sender. No actions / persona popup.
 		.msg.system {
-			border-left: 3px solid var(--gold);
-			background: color-mix(in srgb, var(--gold) 8%, var(--vellum-2));
+			border-left: 3px solid var(--accent);
+			background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
 
 			.system-author {
-				color: var(--gold);
+				color: var(--accent);
 				font-weight: 700;
 			}
 
@@ -201,8 +201,8 @@
 				font-weight: 700;
 				letter-spacing: 0.06em;
 				text-transform: uppercase;
-				color: var(--gold);
-				border: 1px solid var(--gold-soft);
+				color: var(--accent);
+				border: 1px solid var(--accent-soft);
 				border-radius: 0.25rem;
 				padding: 0 0.3rem;
 			}
@@ -221,17 +221,17 @@
 		height: 2.4rem;
 		padding: 0;
 		border-radius: 50%;
-		border: 1px solid var(--rule-line);
-		background: var(--vellum-2);
-		color: var(--ink);
+		border: 1px solid var(--line);
+		background: var(--surface-2);
+		color: var(--text);
 		font-size: 1.2rem;
 		line-height: 1;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 		cursor: pointer;
 
 		&:hover {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 
@@ -245,9 +245,9 @@
 		z-index: 5;
 		padding: 0.35rem 0.9rem;
 		border-radius: 1rem;
-		border: 1px solid var(--gold);
-		background: var(--gold);
-		color: var(--parchment);
+		border: 1px solid var(--accent);
+		background: var(--accent);
+		color: var(--void);
 		font-size: 0.85rem;
 		font-weight: 600;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -265,13 +265,13 @@
 		padding: 0.1rem clamp(0.5rem, 2vw, 1rem) 0;
 		font-size: 0.78rem;
 		font-style: italic;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		line-height: 1.3;
 		user-select: none;
 	}
 
 	.composer {
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 		// Positioned ancestor for the absolute emoji popovers (.emoji-picker /
 		// .emoji-suggest are direct children using bottom:100%). Without this they
 		// anchor to .channel-view (full height) and open entirely above the
@@ -298,11 +298,11 @@
 			gap: 0.5rem;
 			width: 100%;
 			padding: 0.25rem 0.5rem;
-			border-left: 2px solid var(--gold);
-			background: var(--vellum-2);
+			border-left: 2px solid var(--accent);
+			background: var(--surface-2);
 			border-radius: 0.3rem;
 			font-size: 0.8rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 
 			.reply-banner-text {
 				min-width: 0;
@@ -311,12 +311,12 @@
 				white-space: nowrap;
 
 				strong {
-					color: var(--ink-soft);
+					color: var(--text-soft);
 				}
 
 				.reply-banner-snippet {
 					margin-left: 0.4rem;
-					color: var(--ink-muted);
+					color: var(--text-muted);
 				}
 			}
 
@@ -325,12 +325,12 @@
 				flex: none;
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				cursor: pointer;
 				padding: 0 0.2rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 		}
@@ -344,11 +344,11 @@
 			gap: 0.5rem;
 			width: 100%;
 			padding: 0.25rem 0.5rem;
-			border-left: 2px solid var(--ink-soft);
-			background: var(--vellum-2);
+			border-left: 2px solid var(--text-soft);
+			background: var(--surface-2);
 			border-radius: 0.3rem;
 			font-size: 0.8rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 
 			.edit-banner-text {
 				min-width: 0;
@@ -362,12 +362,12 @@
 				flex: none;
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				cursor: pointer;
 				padding: 0 0.2rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 		}
@@ -403,8 +403,8 @@
 			grid-template-columns: repeat(4, 1.2rem);
 			gap: 0.4rem;
 			padding: 0.5rem;
-			background: var(--vellum);
-			border: 1px solid var(--rule-line);
+			background: var(--surface);
+			border: 1px solid var(--line);
 			border-radius: 8px;
 			box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 
@@ -460,7 +460,7 @@
 	border-radius: 50%;
 	flex: 0 0 auto;
 	background: var(--avatar-tile);
-	color: var(--ink-soft);
+	color: var(--text-soft);
 	font-weight: 600;
 	font-size: 1.05rem;
 	vertical-align: middle;

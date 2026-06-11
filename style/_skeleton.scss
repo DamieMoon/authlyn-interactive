@@ -14,10 +14,10 @@
 @mixin shimmer-surface {
 	background-image: linear-gradient(
 		90deg,
-		var(--vellum-2) 0%,
-		var(--rule-line) 20%,
-		var(--vellum-2) 40%,
-		var(--vellum-2) 100%
+		var(--surface-2) 0%,
+		var(--line) 20%,
+		var(--surface-2) 40%,
+		var(--surface-2) 100%
 	);
 	background-size: 200% 100%;
 	animation: shimmer 1.4s ease-in-out infinite;

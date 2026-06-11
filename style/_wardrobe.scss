@@ -62,17 +62,17 @@
 // as the persona/lorebook reorder controls but sized for the channel row.
 .channel-reorder {
 	padding: 0 0.3rem;
-	border: 1px solid var(--rule-line);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--ink);
+	background: var(--surface);
+	color: var(--text);
 	cursor: pointer;
 	font-size: 0.7rem;
 	line-height: 1.4;
 
 	&:hover:not(:disabled) {
-		border-color: var(--gold);
-		color: var(--gold);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	&:disabled {
@@ -84,17 +84,17 @@
 // Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
 .persona-reorder {
 	padding: 0.1rem 0.45rem;
-	border: 1px solid var(--rule-line);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--ink);
+	background: var(--surface);
+	color: var(--text);
 	cursor: pointer;
 	font-size: 0.8rem;
 	line-height: 1.5;
 
 	&:hover:not(:disabled) {
-		border-color: var(--gold);
-		color: var(--gold);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	&:disabled {
@@ -108,13 +108,13 @@
 	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.75rem;
-	background: var(--vellum-2);
-	border: 1px solid var(--rule-line);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 
 	&.worn {
-		border-color: var(--gold);
-		box-shadow: 0 0 0 1px var(--gold) inset;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent) inset;
 	}
 
 	// L-5: cards are draggable to reorder (only when not filtering); hint grab.
@@ -133,9 +133,9 @@
 		justify-content: center;
 		height: 5rem;
 		border-radius: 0.5rem;
-		background: var(--vellum);
-		border: 1px dashed var(--rule-line);
-		color: var(--gold);
+		background: var(--surface);
+		border: 1px dashed var(--line);
+		color: var(--accent);
 		font-size: 2rem;
 		font-weight: 700;
 		user-select: none;
@@ -152,19 +152,19 @@
 		padding: 0;
 
 		&:hover .card-name {
-			color: var(--gold);
+			color: var(--accent);
 		}
 	}
 
 	.card-name {
 		font-size: 1.05rem;
 		font-weight: 700;
-		color: var(--ink);
+		color: var(--text);
 	}
 
 	.card-desc {
 		font-size: 0.85rem;
-		color: var(--ink);
+		color: var(--text);
 		// Preserve author newlines (Shift+Enter) in the blurb.
 		white-space: pre-wrap;
 		// Clamp the blurb to a few lines so cards stay uniform.
@@ -181,8 +181,8 @@
 		gap: 0.4rem;
 
 		.worn {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 }
@@ -191,7 +191,7 @@
 // its inner layout. The accent border distinguishes it from other modals.
 .persona-detail {
 	gap: 0.6rem;
-	border-color: var(--gold);
+	border-color: var(--accent);
 
 	.detail-head {
 		display: flex;
@@ -209,8 +209,8 @@
 		justify-content: center;
 		height: 6rem;
 		border-radius: 0.5rem;
-		background: var(--vellum-2);
-		border: 1px dashed var(--rule-line);
+		background: var(--surface-2);
+		border: 1px dashed var(--line);
 		font-size: 0.85rem;
 	}
 
@@ -219,11 +219,11 @@
 		flex-direction: column;
 		gap: 0.25rem;
 		font-size: 0.85rem;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 
 		input,
 		textarea {
-			color: var(--ink);
+			color: var(--text);
 		}
 
 		textarea {
@@ -237,8 +237,8 @@
 		gap: 0.4rem;
 
 		.save {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 
@@ -248,7 +248,7 @@
 		flex-direction: column;
 		gap: 0.3rem;
 		padding-top: 0.4rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 		font-size: 0.85rem;
 
 		.share-row {
@@ -256,8 +256,8 @@
 			align-items: center;
 			gap: 0.5rem;
 			padding: 0.25rem 0.4rem;
-			background: var(--vellum-2);
-			border: 1px solid var(--rule-line);
+			background: var(--surface-2);
+			border: 1px solid var(--line);
 			border-radius: 0.4rem;
 			cursor: pointer;
 
@@ -279,7 +279,7 @@
 .gallery-field {
 	&:focus,
 	&:focus-visible {
-		outline: 2px solid var(--gold);
+		outline: 2px solid var(--accent);
 		outline-offset: 4px;
 		border-radius: 0.35rem;
 	}
@@ -301,7 +301,7 @@
 
 	// Active-avatar indicator: accent ring around the current portrait choice.
 	&.is-avatar {
-		border-color: var(--gold);
+		border-color: var(--accent);
 	}
 }
 
@@ -309,7 +309,7 @@
 // occupying the same cell shape as a loaded thumb. Cleared on batch success;
 // retained on batch failure so the user sees the commit didn't take.
 .gallery-thumb-pending {
-	background: var(--vellum-2);
+	background: var(--surface-2);
 	border-radius: 0.35rem;
 	overflow: hidden;
 }
@@ -319,9 +319,9 @@
 	height: 100%;
 	background: linear-gradient(
 		90deg,
-		var(--vellum-2) 0%,
+		var(--surface-2) 0%,
 		var(--backdrop-deep) 50%,
-		var(--vellum-2) 100%
+		var(--surface-2) 100%
 	);
 	background-size: 200% 100%;
 	animation: gallery-skeleton-shimmer 1.4s ease-in-out infinite;
@@ -345,7 +345,7 @@
 	width: 100%;
 	aspect-ratio: 1 / 1;
 	padding: 0;
-	background: var(--vellum-2);
+	background: var(--surface-2);
 	border: none;
 	border-radius: 0.35rem;
 	cursor: pointer;
@@ -360,7 +360,7 @@
 	left: 50%;
 	transform: translateX(-50%);
 	font-size: 0.75rem;
-	color: var(--gold);
+	color: var(--accent);
 	pointer-events: none;
 	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
@@ -376,7 +376,7 @@
 	border-radius: 50%;
 	border: none;
 	background: var(--backdrop-deep);
-	color: var(--ink);
+	color: var(--text);
 	cursor: pointer;
 	line-height: 1;
 	font-size: 0.75rem;

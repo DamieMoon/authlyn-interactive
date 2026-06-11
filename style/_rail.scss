@@ -1,7 +1,7 @@
 @use "tokens" as *;
 
 .rail {
-	background: var(--parchment-deep);
+	background: var(--void-deep);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -19,9 +19,9 @@
 		position: relative;
 
 		&.active {
-			border-color: var(--gold);
-			box-shadow: 0 0 0 2px var(--gold);
-			color: var(--ink);
+			border-color: var(--accent);
+			box-shadow: 0 0 0 2px var(--accent);
+			color: var(--text);
 		}
 
 		// Cross-guild unread badge (feedback grt9ohmw8pj2fi4eqb6h): any text
@@ -37,7 +37,7 @@
 			height: 10px;
 			border-radius: 50%;
 			background: var(--tint-orange);
-			box-shadow: 0 0 6px rgba(238, 161, 96, 0.7);
+			box-shadow: 0 0 6px var(--unread-glow);
 		}
 	}
 
@@ -74,17 +74,17 @@
 
 		.rail-reorder-btn {
 			padding: 0 0.25rem;
-			border: 1px solid var(--rule-line);
+			border: 1px solid var(--line);
 			border-radius: 0.25rem;
-			background: var(--vellum);
-			color: var(--ink);
+			background: var(--surface);
+			color: var(--text);
 			cursor: pointer;
 			font-size: 0.6rem;
 			line-height: 1.3;
 
 			&:hover:not(:disabled) {
-				border-color: var(--gold);
-				color: var(--gold);
+				border-color: var(--accent);
+				color: var(--accent);
 			}
 
 			&:disabled {

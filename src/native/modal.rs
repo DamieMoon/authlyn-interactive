@@ -52,7 +52,7 @@ pub fn modal_overlay(card: Element, on_close: impl Fn() + Clone + 'static) -> El
 /// this to build a custom modal (e.g. the persona editor); for a yes/no prompt
 /// use [`confirm_modal`].
 pub fn modal_card(body: Element) -> Element {
-    // `.modal { border: 1px solid var(--rule-line) }` is drawn as a 1px
+    // `.modal { border: 1px solid var(--line) }` is drawn as a 1px
     // RULE_LINE frame wrapping the VELLUM card (a faux border — the freya 0.4
     // `border` builder's `Border` value isn't ergonomically constructible here).
     rect()

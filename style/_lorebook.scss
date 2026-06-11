@@ -12,8 +12,8 @@
 }
 
 .lore-entry {
-	background: var(--vellum-2);
-	border: 1px solid var(--rule-line);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
 	border-radius: 0.5rem;
 	padding: 0.6rem 0.75rem;
 
@@ -51,17 +51,17 @@
 .lore-cancel,
 .lore-delete {
 	padding: 0.1rem 0.45rem;
-	border: 1px solid var(--rule-line);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--ink);
+	background: var(--surface);
+	color: var(--text);
 	cursor: pointer;
 	font-size: 0.8rem;
 	line-height: 1.5;
 
 	&:hover:not(:disabled) {
-		border-color: var(--gold);
-		color: var(--gold);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	&:disabled {
@@ -71,18 +71,18 @@
 }
 
 .lore-delete:hover {
-	border-color: var(--ink-danger-hover);
-	color: var(--ink-danger-hover);
+	border-color: var(--danger-hover);
+	color: var(--danger-hover);
 }
 
 .lore-save {
-	border-color: var(--gold);
-	color: var(--gold);
+	border-color: var(--accent);
+	color: var(--accent);
 }
 
 .lore-content {
 	font-size: 0.9rem;
-	color: var(--ink-muted);
+	color: var(--text-muted);
 	white-space: pre-wrap;
 	word-break: break-word;
 }
@@ -98,10 +98,10 @@
 .lore-edit-keys {
 	width: 100%;
 	padding: 0.3rem 0.5rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	color: var(--ink);
+	color: var(--text);
 	font: inherit;
 	font-size: 0.9rem;
 }
@@ -110,10 +110,10 @@
 	width: 100%;
 	min-height: 4rem;
 	padding: 0.3rem 0.5rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	color: var(--ink);
+	color: var(--text);
 	font: inherit;
 	font-size: 0.9rem;
 	resize: vertical;
@@ -128,10 +128,10 @@
 	textarea {
 		width: 100%;
 		padding: 0.35rem 0.5rem;
-		background: var(--vellum);
-		border: 1px solid var(--rule-line);
+		background: var(--surface);
+		border: 1px solid var(--line);
 		border-radius: 0.3rem;
-		color: var(--ink);
+		color: var(--text);
 		font: inherit;
 	}
 
@@ -143,14 +143,14 @@
 	button {
 		align-self: flex-start;
 		padding: 0.3rem 0.8rem;
-		border: 1px solid var(--gold);
+		border: 1px solid var(--accent);
 		border-radius: 0.3rem;
-		background: var(--vellum);
-		color: var(--gold);
+		background: var(--surface);
+		color: var(--accent);
 		cursor: pointer;
 
 		&:hover {
-			background: var(--vellum-2);
+			background: var(--surface-2);
 		}
 	}
 }

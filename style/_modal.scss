@@ -33,8 +33,8 @@
 }
 
 .modal {
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 	padding: 1rem 1.2rem;
 	width: 100%;
@@ -53,7 +53,7 @@
 	// clicks don't paint rings everywhere. The dialog itself is `tabindex=-1`
 	// so the initial-focus fallback doesn't bring up its own ring.
 	:focus-visible {
-		outline: 2px solid var(--gold-warm);
+		outline: 2px solid var(--accent-bright);
 		outline-offset: 1px;
 		border-radius: 0.25rem;
 	}
@@ -84,13 +84,13 @@
 	padding: 0.1rem 0.4rem;
 	background: none;
 	border: none;
-	color: var(--ink-muted);
+	color: var(--text-muted);
 	cursor: pointer;
 	font-size: 1.1rem;
 	line-height: 1;
 
 	&:hover {
-		color: var(--ink);
+		color: var(--text);
 	}
 }
 
@@ -121,14 +121,14 @@
 	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 0.5rem;
-	background: var(--vellum-2);
-	border: 1px solid var(--rule-line);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 2.4rem; // larger monogram fallback to suit the bigger box
 	font-weight: 700;
-	color: var(--gold);
+	color: var(--accent);
 }
 
 // ---- confirm dialog (reuses .modal / .modal-backdrop) ----
@@ -140,7 +140,7 @@
 
 	p {
 		margin: 0;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 	}
 
 	.confirm-actions {
@@ -220,7 +220,7 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.3rem 0.4rem;
-		border: 1px solid var(--rule-line);
+		border: 1px solid var(--line);
 		border-radius: 6px;
 		background: var(--surface-2, transparent);
 
@@ -257,7 +257,7 @@
 		gap: 0.4rem;
 		padding-top: 0.5rem;
 		margin-top: 0.25rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 
 		.manager-create-row {
 			display: flex;
@@ -289,12 +289,12 @@
 		gap: 0.4rem;
 		padding-top: 0.5rem;
 		margin-top: 0.5rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 
 		h3 {
 			margin: 0;
 			font-size: 0.9rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 		}
 
 		.account-save {
@@ -316,7 +316,7 @@
 	.account-status {
 		min-height: 1em;
 		margin: 0.25rem 0 0;
-		color: var(--ink-soft);
+		color: var(--text-soft);
 	}
 }
 
@@ -336,8 +336,8 @@
 		width: 100%;
 		resize: vertical;
 		min-height: 6rem;
-		background: var(--vellum-2);
-		border: 1px solid var(--rule-line);
+		background: var(--surface-2);
+		border: 1px solid var(--line);
 		border-radius: 0.35rem;
 		color: inherit;
 		font: inherit;
@@ -347,7 +347,7 @@
 
 		&:focus {
 			outline: none;
-			border-color: var(--gold);
+			border-color: var(--accent);
 		}
 	}
 
@@ -372,8 +372,8 @@
 
 	.fb-item {
 		padding: 0.5rem 0.6rem;
-		background: var(--vellum-2);
-		border: 1px solid var(--rule-line);
+		background: var(--surface-2);
+		border: 1px solid var(--line);
 		border-radius: 0.5rem;
 	}
 
@@ -390,17 +390,17 @@
 		text-transform: uppercase;
 		padding: 0.05rem 0.4rem;
 		border-radius: 0.3rem;
-		background: var(--vellum);
-		border: 1px solid var(--rule-line);
+		background: var(--surface);
+		border: 1px solid var(--line);
 
 		&.fb-bug {
-			color: var(--ink-danger);
-			border-color: var(--ink-danger);
+			color: var(--danger);
+			border-color: var(--danger);
 		}
 
 		&.fb-idea {
-			color: var(--gold);
-			border-color: var(--gold);
+			color: var(--accent);
+			border-color: var(--accent);
 		}
 	}
 
@@ -410,7 +410,7 @@
 
 	.fb-when {
 		font-size: 0.7rem;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		margin-left: auto;
 	}
 
@@ -431,13 +431,13 @@
 		padding: 0 0.3rem;
 		background: none;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		cursor: pointer;
 		font-size: 0.85rem;
 		line-height: 1;
 
 		&:hover {
-			color: var(--ink-danger);
+			color: var(--danger);
 		}
 	}
 }
@@ -455,12 +455,12 @@
 	gap: 0.6rem;
 	max-width: calc(100vw - 2rem);
 	padding: 0.55rem 0.55rem 0.55rem 0.9rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 	font-size: 0.9rem;
-	color: var(--ink);
+	color: var(--text);
 
 	.sw-update-refresh {
 		padding: 0.3rem 0.8rem;
@@ -472,13 +472,13 @@
 		padding: 0 0.4rem;
 		background: none;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		cursor: pointer;
 		font-size: 1.1rem;
 		line-height: 1;
 
 		&:hover {
-			color: var(--ink);
+			color: var(--text);
 		}
 	}
 }
