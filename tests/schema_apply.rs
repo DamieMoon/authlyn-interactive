@@ -159,6 +159,161 @@ async fn applying_kind_over_populated_messages_materialises_without_wiping_attac
     );
 }
 
+/// W4/T5 (message effects): adding the `option<string>` `effect` field to the
+/// POPULATED `message` table must need NO backfill — NONE is a valid value for
+/// an `option<>` field, so the existing first backfill stays untouched and a
+/// legacy row survives the apply with `effect = NONE` and its other fields
+/// intact. The post-apply UPDATE round-trip is the real existence probe: a
+/// SCHEMAFULL table silently STRIPS undefined fields (it does not error), so
+/// only a persisted read-back proves the field was actually defined.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_effect_over_populated_messages_keeps_legacy_rows_with_effect_none() {
+    let db = common::raw_db().await;
+
+    // A minimal pre-`effect` message schema: the fields whose NONE-coercion
+    // matters on re-validation (both non-option arrays + kind) plus the basics,
+    // so re-applying the full schema introduces `effect` over a populated row.
+    db.query(
+        "DEFINE TABLE message SCHEMAFULL;\
+         DEFINE FIELD channel ON message TYPE record<channel>;\
+         DEFINE FIELD author ON message TYPE record<account>;\
+         DEFINE FIELD body ON message TYPE string;\
+         DEFINE FIELD attachments ON message TYPE array<string> DEFAULT [];\
+         DEFINE FIELD pinged_users ON message TYPE array<record<account>> DEFAULT [];\
+         DEFINE FIELD kind ON message TYPE string DEFAULT 'user';\
+         DEFINE FIELD tier ON message TYPE string DEFAULT 'default';\
+         DEFINE FIELD sent_at ON message TYPE datetime DEFAULT time::now();",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy row (record links are not referentially enforced, so
+    // the dangling channel/author ids are fine).
+    db.query(
+        "CREATE message:legacy SET channel = channel:x, author = account:y, \
+         body = 'hi', attachments = ['keep-this-blob'];",
+    )
+    .await
+    .expect("seed legacy transport")
+    .check()
+    .expect("seed legacy row");
+
+    // Apply the REAL schema: adds `effect` (option<string>) over the populated
+    // table. Must not crash-loop — no backfill is required for option<>.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+        attachments: Vec<String>,
+        kind: String,
+        effect: Option<String>,
+    }
+    let mut resp = db
+        .query("SELECT body, attachments, kind, effect FROM message:legacy;")
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Option<Row> = resp.take(0).expect("take");
+    let row = row.expect("legacy message row survives the migration");
+    assert_eq!(row.body, "hi", "body must survive the apply untouched");
+    assert_eq!(
+        row.attachments,
+        vec!["keep-this-blob".to_string()],
+        "attachments must survive the apply untouched"
+    );
+    assert_eq!(row.kind, "user", "kind must survive the apply untouched");
+    assert_eq!(row.effect, None, "legacy rows read back effect = NONE");
+
+    // Existence probe: a valid effect written AFTER the apply must persist —
+    // on a schema without the field, SCHEMAFULL strips it and this reads NONE.
+    let mut resp = db
+        .query(
+            "UPDATE message:legacy SET effect = 'whisper';\
+             SELECT VALUE effect FROM message:legacy;",
+        )
+        .await
+        .expect("update transport")
+        .check()
+        .expect("updating a legacy row with a valid effect must be accepted");
+    let effects: Vec<Option<String>> = resp.take(1).expect("take effect");
+    assert_eq!(
+        effects,
+        vec![Some("whisper".to_string())],
+        "effect must be a real defined field that persists, not silently stripped"
+    );
+}
+
+/// W4/T5: the `message.effect` enum guard — `option<string>` with
+/// `ASSERT $value = NONE OR $value IN ['whisper','shout','spell']` on the
+/// pinned beta. NONE (the everyday effect-less send) and each known effect are
+/// accepted AND persist; an out-of-set value is rejected.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn message_effect_guard_accepts_known_set_rejects_other() {
+    let arena = common::arena().await;
+    arena
+        .db
+        .query(
+            "CREATE account:a SET username = 'A', username_ci = 'a', password_hash = 'x';\
+             CREATE guild:g SET name = 'G', owner = account:a;\
+             CREATE channel:c SET guild = guild:g, name = 'general', kind = 'text';",
+        )
+        .await
+        .expect("seed transport")
+        .check()
+        .expect("account + guild + channel insert");
+
+    for e in ["whisper", "shout", "spell"] {
+        let mut resp = arena
+            .db
+            .query(format!(
+                "CREATE message:{e} SET channel = channel:c, author = account:a, \
+                 body = 'hi', effect = '{e}';\
+                 SELECT VALUE effect FROM message:{e};"
+            ))
+            .await
+            .expect("transport")
+            .check()
+            .unwrap_or_else(|err| panic!("message.effect = '{e}' must be accepted: {err}"));
+        let got: Vec<Option<String>> = resp.take(1).expect("take effect");
+        assert_eq!(
+            got,
+            vec![Some(e.to_string())],
+            "effect '{e}' must persist (not be silently stripped by SCHEMAFULL)"
+        );
+    }
+
+    arena
+        .db
+        .query("CREATE message:plain SET channel = channel:c, author = account:a, body = 'hi';")
+        .await
+        .expect("transport")
+        .check()
+        .expect("an effect-less message must stay accepted (option<> ⇒ NONE valid)");
+
+    let bad = arena
+        .db
+        .query(
+            "CREATE message:bad SET channel = channel:c, author = account:a, \
+             body = 'hi', effect = 'sparkle-bomb';",
+        )
+        .await
+        .expect("transport");
+    assert!(
+        bad.check().is_err(),
+        "message.effect ASSERT must reject an out-of-set value"
+    );
+}
+
 /// The reserved Nova DOT bot account (author of all `kind='system'` messages) is
 /// seeded by `storage::SCHEMA`, and login as it is impossible (sentinel password
 /// hash → 401, never 500 — see `crypto::verify_on_blocking_pool`).

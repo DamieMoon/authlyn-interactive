@@ -154,6 +154,7 @@ fn AppShell() -> impl IntoView {
         editing: RwSignal::new(None),
         sent: RwSignal::new(false),
         sent_gen: StoredValue::new(0),
+        effect_mode: RwSignal::new(None),
     };
     provide_context(composer);
 

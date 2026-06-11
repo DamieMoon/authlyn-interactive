@@ -436,6 +436,8 @@ impl ApiClient {
                 persona_id,
                 // The native client has no reply UI yet (L-3); always a top-level send.
                 reply_to_id: None,
+                // No effect picker in the native composer yet (W4/T5) either.
+                effect: None,
             },
         )
         .await

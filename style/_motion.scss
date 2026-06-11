@@ -117,6 +117,53 @@
 	}
 }
 
+// One-shot shout shake (W4/T5: `.msg.effect-shout`). A horizontal jolt that
+// decays to rest — translateX only, so it composes with the row's flex
+// layout and never fights a positioning transform. The row carries no
+// transform at rest, so a killed/finished animation leaves it exactly put.
+@keyframes fx-shout {
+	0% {
+		transform: translateX(0);
+	}
+	15% {
+		transform: translateX(-5px);
+	}
+	30% {
+		transform: translateX(4px);
+	}
+	45% {
+		transform: translateX(-3px);
+	}
+	60% {
+		transform: translateX(2px);
+	}
+	75% {
+		transform: translateX(-1px);
+	}
+	100% {
+		transform: translateX(0);
+	}
+}
+
+// Spell spark (W4/T5: the glowing dots on `.msg.effect-spell`). A tiny dot
+// drifts upward, brightening then fading out. Opacity is keyframed from a 0
+// BASE (the fx-warp pattern) so a killed or finished animation leaves NO
+// static dot behind — the reduced-motion kill below makes the sparks simply
+// vanish while the row's glow (state) stays.
+@keyframes fx-spark {
+	0% {
+		transform: translateY(0) scale(0.6);
+		opacity: 0;
+	}
+	30% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(-14px) scale(1.1);
+		opacity: 0;
+	}
+}
+
 // Decorative motion dies wholesale under reduced-motion. Scoped to the
 // fx- keyframe consumers + the aurora layer — NOT a global animation kill.
 // This COMPLEMENTS the global freeze in _base.scss (which collapses every
@@ -138,6 +185,13 @@
 // `animation: none` doesn't reach the pseudo-element carrying fx-warp.
 // (The STD .fx-switching dip is transition-based — _content.scss carries
 // its own reduced-motion guard.)
+// The W4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
+// carry no "fx-" in the class string, and the spell sparks live on
+// pseudo-elements the element-level attribute kill can't reach. With these
+// killed: shout keeps its warm tint (state), spell keeps its glow (state)
+// while the sparks vanish entirely (their base opacity is 0), and whisper
+// never appears here at all — its blur+reveal is pure state and must keep
+// working under reduced-motion.
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
@@ -145,6 +199,11 @@
 	.composer .send.sent,
 	.radial-menu,
 	.app.fx-max .content.fx-switching::after,
+	.msg.effect-shout,
+	.msg.effect-spell,
+	.msg.effect-spell::before,
+	.msg.effect-spell::after,
+	.msg.effect-spell .text::after,
 	[class*="fx-"] {
 		animation: none !important;
 	}

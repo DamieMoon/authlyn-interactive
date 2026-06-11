@@ -264,6 +264,13 @@ pub struct SendMessageRequest {
     /// replying to a reply quotes that reply, not its own parent.
     #[serde(default)]
     pub reply_to_id: Option<String>,
+    /// Optional delivery effect (W4/T5): `"whisper"` (blurred until tapped),
+    /// `"shout"` (shake + warm tint), or `"spell"` (glow + sparks). `None` /
+    /// empty = an ordinary message. The server VALIDATES against that exact
+    /// set; an unknown value is a 400 (mirroring the body checks). Purely
+    /// cosmetic — it gates no behavior.
+    #[serde(default)]
+    pub effect: Option<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
@@ -352,6 +359,13 @@ pub struct MessageEnvelope {
     /// (and so older/native clients deserialize cleanly).
     #[serde(default = "default_message_kind")]
     pub kind: String,
+    /// Delivery effect picked at send time (W4/T5): `"whisper"`, `"shout"`, or
+    /// `"spell"`; `None` for an ordinary message (and on every legacy row —
+    /// the field is `option<>` in the schema, no backfill). Drives rendering
+    /// only (`effect-{name}` class on the message row). `#[serde(default)]`
+    /// for the same post-ship wire-compat reason as the siblings above.
+    #[serde(default)]
+    pub effect: Option<String>,
 }
 
 /// serde default for [`MessageEnvelope::kind`]: a message with no `kind` on the

@@ -1111,3 +1111,151 @@ async fn list_messages_returns_attachment_mime_in_the_page_response() {
         "each attachment id resolves to ITS OWN mime"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Message effects (W4/T5): whisper / shout / spell
+// ---------------------------------------------------------------------------
+
+/// W4/T5: a message posted with a valid `effect` round-trips — the value rides
+/// MSG_PROJECTION onto the list envelope — while an effect-less post and an
+/// empty-string `effect` (treated as absent, mirroring `reply_to_id`) both
+/// list `effect` as null.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn message_effect_round_trips_through_post_and_list() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    // 1) plain, 2) whispered, 3) empty-string effect (= absent).
+    post_one(&a.router, &owner, &cid, "plain").await;
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "psst", "effect": "whisper" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "whispered post: {body:?}");
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "blank effect", "effect": "" })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "empty effect = absent: {body:?}"
+    );
+
+    let (status, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = list["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 3);
+    assert!(
+        msgs[0]["effect"].is_null(),
+        "an effect-less message lists effect = null, got {:?}",
+        msgs[0]["effect"]
+    );
+    assert_eq!(
+        msgs[1]["effect"], "whisper",
+        "the effect rides the list envelope"
+    );
+    assert!(
+        msgs[2]["effect"].is_null(),
+        "an empty-string effect is treated as absent, got {:?}",
+        msgs[2]["effect"]
+    );
+}
+
+/// W4/T5: an out-of-set `effect` is rejected with a 400 BEFORE any write —
+/// server-side validation mirrors the body checks rather than leaning on the
+/// DB ASSERT (which would surface as a 500), and nothing is persisted.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn unknown_message_effect_is_400_and_persists_nothing() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "boom", "effect": "sparkle-bomb" })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a garbage effect must 400, got {status}: {body:?}"
+    );
+
+    let (status, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        list["messages"].as_array().unwrap().len(),
+        0,
+        "the rejected message must not be persisted"
+    );
+}
+
+/// W4/T5 spoiler-leak guard: replying to a whispered message must NOT leak the
+/// hidden text through the reply-quote preview — the projection masks the
+/// snippet with a fixed placeholder when the parent carries effect='whisper'.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_preview_masks_whispered_parent_snippet() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "the hidden secret", "effect": "whisper" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let parent = body["id"].as_str().unwrap().to_string();
+
+    let (status, m) = reply_to(&a.router, &owner, &cid, "what was that?", &parent).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let reply_id = m["id"].as_str().unwrap().to_string();
+
+    let (status, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let msgs = list["messages"].as_array().unwrap();
+    let reply = msgs.iter().find(|m| m["id"] == reply_id).unwrap();
+    let snippet = reply["reply_to"]["body_snippet"].as_str().unwrap();
+    assert!(
+        !snippet.contains("hidden secret"),
+        "whispered parent text must not leak via the reply quote, got {snippet:?}"
+    );
+    assert_eq!(snippet, "(whisper)", "masked with the fixed placeholder");
+}

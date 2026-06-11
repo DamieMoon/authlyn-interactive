@@ -289,6 +289,10 @@ pub(super) struct MessageRow {
     /// `"user"` or `"system"` (Nova DOT admin broadcast). Coalesced to `"user"`
     /// in the projection so legacy rows are safe.
     pub kind: String,
+    /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None` for an
+    /// ordinary message and on every legacy row (`option<>` field — NONE is
+    /// valid, no coalesce needed).
+    pub effect: Option<String>,
 }
 
 impl MessageRow {
@@ -331,6 +335,7 @@ impl MessageRow {
             }),
             is_pinged: self.is_pinged,
             kind: self.kind,
+            effect: self.effect,
         }
     }
 }
@@ -372,10 +377,15 @@ pub(super) const MSG_PROJECTION: &str = "
         (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
             id: meta::id(reply_to),
             author_display: (reply_to.author.display_name ?: reply_to.author.username),
-            body_snippet: string::slice(reply_to.body, 0, 100)
+            /* spoiler-leak guard (W4/T5): a whispered parent's hidden text must
+               not surface through the quote snippet — masked with a fixed
+               placeholder instead. */
+            body_snippet: (IF reply_to.effect = 'whisper' THEN '(whisper)'
+                           ELSE string::slice(reply_to.body, 0, 100) END)
          } ELSE NONE END) AS reply_to,
         (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged,
-        (kind ?? 'user') AS kind";
+        (kind ?? 'user') AS kind,
+        effect";
 
 async fn load_messages(
     state: &AppState,

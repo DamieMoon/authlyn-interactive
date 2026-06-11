@@ -73,6 +73,39 @@ fn display_name(m: &MessageEnvelope) -> String {
         .unwrap_or_else(|| m.author_display.clone())
 }
 
+/// The composer effect picker's cycle order (W4/T5): no effect → whisper →
+/// shout → spell → back to none. Values match the server's validated set
+/// (`MESSAGE_EFFECTS` in `server/messages/posting.rs`).
+fn next_effect(cur: Option<&str>) -> Option<&'static str> {
+    match cur {
+        None => Some("whisper"),
+        Some("whisper") => Some("shout"),
+        Some("shout") => Some("spell"),
+        _ => None,
+    }
+}
+
+/// Glyph shown on the effect-picker button per mode (◌ = no effect).
+fn effect_glyph(cur: Option<&str>) -> &'static str {
+    match cur {
+        Some("whisper") => "🤫",
+        Some("shout") => "📣",
+        Some("spell") => "✨",
+        _ => "◌",
+    }
+}
+
+/// `title`/`aria-label` for the effect-picker button: names the CURRENT mode
+/// (what the next send will do) and the cycling affordance.
+fn effect_label(cur: Option<&str>) -> &'static str {
+    match cur {
+        Some("whisper") => "Message effect: whisper — blurred until tapped. Click to change.",
+        Some("shout") => "Message effect: shout — shake and warm tint. Click to change.",
+        Some("spell") => "Message effect: spell — glow and sparks. Click to change.",
+        _ => "Message effect: none. Click to cycle whisper, shout, spell.",
+    }
+}
+
 /// Per-kind action affordances for one message row — THE single source for
 /// what a message offers, shared by the hover `.msg-actions` row (`meta.rs`)
 /// and the touch radial (`radial.rs`) so the two surfaces can never drift.
@@ -335,6 +368,13 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
+    // W4/T5 whisper reveal: ids of whispered messages the viewer has tapped
+    // open. A pane-level set rather than per-row signals (the markup_view
+    // spoiler pattern) because every poll/ingest re-renders the whole row map,
+    // which would reset per-row state mid-conversation. Tapping the blurred
+    // text toggles membership; message ids are globally unique, so entries
+    // from other channels are harmless.
+    let revealed = RwSignal::new(std::collections::HashSet::<String>::new());
     // W4/T2 charging send button: fraction of a "full" message composed,
     // driving the Send button's conic-gradient ring via the `--charge`
     // custom property. ~280 chars FEELS full — it is not a length limit.
@@ -607,21 +647,60 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // check, so system rows never arm the radial and keep the
                         // native context menu.
                         let is_system = m.kind == "system";
+                        // W4/T5 delivery effect: a known effect adds an
+                        // `effect-{name}` class to the row. Re-whitelisted here
+                        // (the server already validates) so an unexpected wire
+                        // value can never inject an arbitrary class.
+                        let effect = m
+                            .effect
+                            .as_deref()
+                            .filter(|e| matches!(*e, "whisper" | "shout" | "spell"));
+                        let is_whisper = effect == Some("whisper");
                         // Directional bubbles: the viewer's own messages carry
                         // `.own` (right-aligned in CSS). System rows are authored
                         // by the Nova DOT account, never the viewer — but branch
-                        // order makes them never-"own" regardless.
-                        let li_class = if is_system {
+                        // order makes them never-"own" regardless. Effects don't
+                        // change the base composition (or the full-width
+                        // exemptions) — they only append.
+                        let base_class = if is_system {
                             "msg system"
                         } else if mine {
                             "msg own"
                         } else {
                             "msg"
                         };
+                        let li_class = match effect {
+                            Some(e) => format!("{base_class} effect-{e}"),
+                            None => base_class.to_string(),
+                        };
                         let meta = if is_system {
                             system_message_meta(&m).into_any()
                         } else {
                             message_meta(s, &m, &cid, mine, info).into_any()
+                        };
+                        // Whisper reveal: the blur sits on `.text` only (the
+                        // meta row stays readable); tapping the text toggles
+                        // this message's id in the pane-level `revealed` set,
+                        // which flips the row's `.revealed` class. A plain
+                        // class flip — state, not motion — so it works under
+                        // reduced-motion too.
+                        let mid = m.id.clone();
+                        let text_view = if is_whisper {
+                            let mid = m.id.clone();
+                            view! {
+                                <span class="text"
+                                    title="whispered — tap to reveal"
+                                    on:click=move |_| revealed.update(|r| {
+                                        if !r.insert(mid.clone()) {
+                                            r.remove(&mid);
+                                        }
+                                    })>
+                                    {render_body(&body)}
+                                </span>
+                            }
+                            .into_any()
+                        } else {
+                            view! { <span class="text">{render_body(&body)}</span> }.into_any()
                         };
                         view! {
                             // Long-press handling is delegated to the <ul> above —
@@ -629,13 +708,17 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             // the row only needs its `msg-{id}` dom id (+ the
                             // `system` class) for the handlers to resolve it at
                             // fire time.
-                            <li class=li_class id=dom_id>
+                            <li class=li_class id=dom_id
+                                class:revealed=move || {
+                                    is_whisper && revealed.with(|r| r.contains(&mid))
+                                }>
                                 {meta}
                                 {reply_quote}
                                 // Editing happens in the main composer (✎ →
                                 // act::start_edit), not inline, so the body is
-                                // always just rendered markup.
-                                <span class="text">{render_body(&body)}</span>
+                                // always just rendered markup (whisper rows add
+                                // the tap-to-reveal handler above).
+                                {text_view}
                                 {(!atts.is_empty()).then(|| attachment_grid(atts.clone(), lightbox))}
                             </li>
                         }
@@ -1281,6 +1364,20 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </ul>
                     }
                 })}
+                // W4/T5: effect picker — cycles the NEXT message's delivery
+                // effect none → whisper → shout → spell (then back). The mode
+                // rides the send as `SendMessageRequest::effect` and RESETS to
+                // none after each send (act::send_message). Distinct glyph per
+                // mode; title/aria-label name the current mode.
+                <button class="effect-pick" type="button"
+                    class:active=move || s.composer.effect_mode.get().is_some()
+                    title=move || effect_label(s.composer.effect_mode.get().as_deref())
+                    aria-label=move || effect_label(s.composer.effect_mode.get().as_deref())
+                    on:click=move |_| s.composer.effect_mode.update(|e| {
+                        *e = next_effect(e.as_deref()).map(str::to_string);
+                    })>
+                    {move || effect_glyph(s.composer.effect_mode.get().as_deref())}
+                </button>
                 // The charge ring (W4/T2): `--charge` (0..1) fills the conic
                 // ::before ring as the compose grows; `.charging` shows it
                 // only while something is typed; `.sent` plays the one-shot

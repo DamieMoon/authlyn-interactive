@@ -171,6 +171,15 @@ DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- 
 -- SAME first backfill statement (see the DATA-SAFETY block), NOT a separate one.
 DEFINE FIELD IF NOT EXISTS kind    ON message TYPE string DEFAULT 'user'
     ASSERT $value IN ['user', 'system'];
+-- Message effect (W4/T5): an optional roleplay delivery flourish picked at
+-- send time — 'whisper' (blurred until tapped), 'shout' (shake + warm tint),
+-- 'spell' (glow + sparks) — or NONE for an ordinary message. Purely cosmetic
+-- (rendering only; does not gate any action). `option<>` ⇒ NONE is a valid
+-- value on legacy rows, so NO backfill is needed and the first-backfill block
+-- below stays untouched (the SCHEMAFULL NONE-coercion hazard does not apply).
+-- The ASSERT admits NONE explicitly, then restricts set members.
+DEFINE FIELD IF NOT EXISTS effect  ON message TYPE option<string>
+    ASSERT $value = NONE OR $value IN ['whisper', 'shout', 'spell'];
 -- Reply-to (L-3): the message this one is replying to (Discord-style quote),
 -- or NONE for a non-reply. A live record link — the reply preview is resolved
 -- by a null-safe join at read time (MSG_PROJECTION), NOT snapshotted, and a

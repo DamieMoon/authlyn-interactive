@@ -315,13 +315,15 @@ pub async fn list_messages_before(
 }
 
 /// POST /channels/{cid}/messages — send a message with optional attachments,
-/// a worn persona, and an optional reply-to parent (L-3).
+/// a worn persona, an optional reply-to parent (L-3), and an optional delivery
+/// effect (W4/T5: whisper/shout/spell; server-validated).
 pub async fn post_message(
     cid: &str,
     body: &str,
     attachment_ids: Vec<String>,
     persona_id: Option<String>,
     reply_to_id: Option<String>,
+    effect: Option<String>,
 ) -> Result<SendMessageResponse, ApiError> {
     post_json(
         &format!("/channels/{cid}/messages"),
@@ -330,6 +332,7 @@ pub async fn post_message(
             attachment_ids,
             persona_id,
             reply_to_id,
+            effect,
         },
     )
     .await

@@ -15,6 +15,11 @@ use crate::server::state::AppState;
 
 use super::{channel_access, AccessOutcome, MAX_ATTACHMENTS, MAX_BODY_CHARS};
 
+/// The full set of valid message effects (W4/T5) — must match the
+/// `message.effect` ASSERT in `storage/schema.surql`. Validated HERE so an
+/// unknown value is a clean 400 (the DB ASSERT alone would surface as a 500).
+const MESSAGE_EFFECTS: [&str; 3] = ["whisper", "shout", "spell"];
+
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/messages
 // ---------------------------------------------------------------------------
@@ -65,6 +70,21 @@ pub async fn post_message(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
+
+    // Delivery effect (W4/T5): absent / empty-after-trim means "no effect"
+    // (mirroring `reply_to_id`); anything else must be in the known set, else
+    // 400 — server-validated like every other body field, never trusted to
+    // the DB ASSERT.
+    let effect = match req.effect.as_deref().map(str::trim) {
+        Some(e) if !e.is_empty() => {
+            if MESSAGE_EFFECTS.contains(&e) {
+                Some(e.to_string())
+            } else {
+                return error_response(StatusCode::BAD_REQUEST, "unknown message effect");
+            }
+        }
+        _ => None,
+    };
 
     // Reply target (L-3): the parent must exist, live in THIS channel, and not be
     // soft-deleted — else 400. Validated before any write so a reply never stores
@@ -152,6 +172,7 @@ pub async fn post_message(
         &attachments,
         reply_to.as_deref(),
         &pinged_users,
+        effect.as_deref(),
     )
     .await
     {
@@ -181,12 +202,13 @@ async fn persist_message(
     attachments: &[String],
     reply_to: Option<&str>,
     pinged_users: &[String],
+    effect: Option<&str>,
 ) -> surrealdb::Result<String> {
     // `persona` is optional; only set the field when the caller is wearing
-    // one, so a personaless author leaves it NONE. `reply_to` is likewise only
-    // set when this is a reply, so a non-reply leaves it NONE. Both are spliced
-    // as static column fragments (no user values in the SQL text); the values
-    // ride in via `.bind()`.
+    // one, so a personaless author leaves it NONE. `reply_to` and `effect` are
+    // likewise only set when present, so an ordinary message leaves them NONE.
+    // All are spliced as static column fragments (no user values in the SQL
+    // text); the values ride in via `.bind()`.
     let persona_set = if persona.is_some() {
         // Snapshot the worn persona's name/description onto the row so the
         // message survives the persona being renamed or deleted later.
@@ -205,6 +227,14 @@ async fn persist_message(
     } else {
         ""
     };
+    // Already validated against MESSAGE_EFFECTS by the caller; the value still
+    // rides in via `.bind()`, never the SQL text.
+    let effect_set = if effect.is_some() {
+        ",
+            effect = $effect"
+    } else {
+        ""
+    };
     // `pinged_users` is always set (empty array when nobody is mentioned); the
     // resolved account ids ride in as bound `RecordId`s, never spliced into SQL.
     let sql = format!(
@@ -213,7 +243,7 @@ async fn persist_message(
             author  = type::record('account', $author),
             body    = $body,
             attachments = $attachments,
-            pinged_users = $pinged_users{persona_set}{reply_set}
+            pinged_users = $pinged_users{persona_set}{reply_set}{effect_set}
             RETURN meta::id(id) AS id_key;"
     );
     let pinged_records: Vec<surrealdb::types::RecordId> = pinged_users
@@ -233,6 +263,9 @@ async fn persist_message(
     }
     if let Some(reply_to) = reply_to {
         q = q.bind(("reply_to", reply_to.to_string()));
+    }
+    if let Some(effect) = effect {
+        q = q.bind(("effect", effect.to_string()));
     }
     let mut resp = q.await?.check()?;
     let row: Option<IdRow> = resp.take(0)?;

@@ -372,6 +372,116 @@
 				-webkit-touch-callout: default;
 			}
 		}
+
+		// Message effects (W4/T5): an `effect-{name}` class set per-row from
+		// the (server-validated, client-re-whitelisted) envelope field. Pure
+		// presentation on top of the base/.own/.system composition above —
+		// the full-width exemptions and action affordances are untouched.
+
+		// whisper — a storyteller spoiler: the body is blurred until tapped
+		// (shell/channel/mod.rs toggles `.revealed` per message). The blur is
+		// STATE, not motion, so it survives reduced-motion on purpose; the
+		// reveal is a plain class flip that needs no animation (the filter
+		// transition is collapsed to 0.01ms by the _base.scss freeze there).
+		// Selection is disarmed while hidden so the "secret" can't be copied
+		// out from under the blur.
+		.msg.effect-whisper .text {
+			filter: blur(4px);
+			cursor: pointer;
+			transition: filter var(--dur-quick) var(--ease-quick);
+			user-select: none;
+			-webkit-user-select: none;
+		}
+
+		.msg.effect-whisper.revealed .text {
+			filter: none;
+			user-select: text;
+			-webkit-user-select: text;
+		}
+
+		// shout — a one-shot shake (fx-shout, killed under reduced-motion in
+		// _motion.scss) plus a warm tint that stays: the tint is state, so a
+		// shout still reads as a shout with the motion removed.
+		.msg.effect-shout {
+			animation: fx-shout 0.45s var(--ease-quick) 1;
+			border-color: color-mix(in srgb, var(--tint-orange) 45%, var(--line));
+
+			.text {
+				color: color-mix(in srgb, var(--tint-orange) 45%, var(--text));
+			}
+		}
+
+		// spell — a soft accent glow base (state — stays under
+		// reduced-motion) plus tiny rising sparks at the STANDARD tier: two
+		// glowing pseudo-element dots near the top-right corner riding
+		// fx-spark. Spark opacity is keyframed from a 0 BASE (the fx-warp
+		// pattern) so the reduced-motion kill in _motion.scss leaves no
+		// static dot behind. `.app.fx-max` layers density + glow on top: a
+		// third spark (on `.text::after`), a stronger halo, and a slow
+		// breathing pulse.
+		.msg.effect-spell {
+			position: relative;
+			border-color: var(--accent-soft);
+			box-shadow: 0 0 10px var(--glow-accent);
+
+			&::before,
+			&::after {
+				content: "";
+				position: absolute;
+				width: 5px;
+				height: 5px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 6px var(--glow-accent);
+				opacity: 0;
+				pointer-events: none;
+				animation: fx-spark 1.8s ease-out infinite;
+			}
+
+			&::before {
+				top: 0.45rem;
+				right: 0.7rem;
+			}
+
+			&::after {
+				top: 0.95rem;
+				right: 1.5rem;
+				width: 4px;
+				height: 4px;
+				animation-delay: 0.6s;
+			}
+
+			// Third spark, fx-max only. Lives on the text span so it doesn't
+			// fight the li's own two dots; positioned off the span's top-left.
+			.text {
+				position: relative;
+			}
+
+			.app.fx-max &::after {
+				width: 5px;
+				height: 5px;
+			}
+
+			.app.fx-max & {
+				box-shadow: 0 0 18px var(--glow-accent);
+				animation: fx-glow-pulse 2.4s ease-in-out infinite;
+			}
+
+			.app.fx-max & .text::after {
+				content: "";
+				position: absolute;
+				top: -0.3rem;
+				left: -0.55rem;
+				width: 4px;
+				height: 4px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 6px var(--glow-accent);
+				opacity: 0;
+				pointer-events: none;
+				animation: fx-spark 2.1s ease-out infinite 1.1s;
+			}
+		}
 	}
 
 	// Floating round button that jumps the message list to the latest message.
@@ -663,6 +773,21 @@
 			// lacks `field-sizing` support — Chrome 123+ / Safari 17.4+ /
 			// Firefox 124+ all support it.
 			field-sizing: content;
+		}
+
+		// W4/T5: the effect-mode picker beside Send. Quiet while no effect is
+		// armed (muted glyph); `.active` (any mode picked) lights the accent
+		// ring + glow so an armed flourish is unmissable before sending. The
+		// glow is state, not motion — nothing to kill under reduced-motion.
+		.effect-pick {
+			min-width: 2.4rem;
+			color: var(--text-muted);
+
+			&.active {
+				color: var(--text);
+				border-color: var(--accent);
+				box-shadow: 0 0 6px var(--glow-accent);
+			}
 		}
 
 		// W4/T2: charging send button. A thin conic-gradient ring around

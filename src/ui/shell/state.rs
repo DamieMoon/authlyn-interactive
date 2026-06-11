@@ -159,6 +159,12 @@ pub(crate) struct Composer {
     /// (the `LongPress` pattern, channel/radial.rs). `StoredValue` (not a
     /// signal) — it's plumbing, not UI.
     pub(crate) sent_gen: StoredValue<u64>,
+    /// Delivery-effect mode for the NEXT send (W4/T5): `"whisper"`, `"shout"`,
+    /// `"spell"`, or `None` for an ordinary message. Cycled by the composer's
+    /// effect picker, sent as `SendMessageRequest::effect`, and RESET to `None`
+    /// after each send (an effect is a per-message flourish, not a sticky
+    /// mode). Client-only state; the server re-validates the value.
+    pub(crate) effect_mode: RwSignal<Option<String>>,
 }
 
 /// An in-progress message edit driven through the main composer (see

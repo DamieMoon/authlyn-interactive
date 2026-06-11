@@ -85,6 +85,11 @@ pub fn send_message(s: Shell) {
     // `reply_to_id`, and the banner clears the moment we send.
     let reply_to_id = s.composer.replying_to.get_untracked().map(|r| r.id);
     s.composer.replying_to.set(None);
+    // Capture + RESET the delivery effect (W4/T5): an effect is a per-message
+    // flourish, not a sticky mode — the picker returns to "no effect" the
+    // moment the send is dispatched.
+    let effect = s.composer.effect_mode.get_untracked();
+    s.composer.effect_mode.set(None);
     s.composer.compose.set(String::new());
     // Drop the now-sent channel's persisted draft (removes the key + persists).
     super::channel::save_draft(s, "");
@@ -98,7 +103,7 @@ pub fn send_message(s: Shell) {
     // per-channel row having committed.
     let persona = s.social.active_persona.get_untracked();
     spawn_local(async move {
-        match api::post_message(&ch.id, &body, attachments, persona, reply_to_id).await {
+        match api::post_message(&ch.id, &body, attachments, persona, reply_to_id, effect).await {
             Ok(_) => {
                 // W4/T2: send pulse — flip `.sent` on the Send button for one
                 // fx-glow-pulse cycle. Reset on a DETACHED timer so the
