@@ -25,7 +25,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 // `public/` (cargo-leptos `assets-dir`) and are copied to the
                 // site root, so they serve at these absolute URLs.
                 <link rel="manifest" href="/manifest.webmanifest"/>
-                <meta name="theme-color" content="#221c16"/>
+                <meta name="theme-color" content="#0b0e14"/>
                 <meta name="mobile-web-app-capable" content="yes"/>
                 <meta name="apple-mobile-web-app-capable" content="yes"/>
                 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
