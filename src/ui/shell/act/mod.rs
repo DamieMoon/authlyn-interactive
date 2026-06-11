@@ -41,7 +41,7 @@ pub use account::{admin_reset_password, change_password, logout, set_security_qu
 pub use admin::send_system_broadcast;
 pub use channel::{
     create_channel, move_channel_to_bounds, open_channel, open_deep_link, rename_channel,
-    restore_channel, restore_session, swap_channel,
+    restore_channel, restore_session, show_current_channel, swap_channel,
 };
 pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
 // `move_channel` (drag drop target) is only reached from a hydrate-gated drag

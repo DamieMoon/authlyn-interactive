@@ -22,6 +22,26 @@ pub fn open_channel(s: Shell, ch: ChannelSummary) {
     open_channel_at(s, ch, None);
 }
 
+/// Mobile Chat tab: re-route to the pane that matches the SELECTED channel's
+/// kind, mirroring [`open_channel_at`]'s kind→pane map (`lorebook` →
+/// [`Pane::Lorebook`], everything else → [`Pane::Channel`]) WITHOUT reloading
+/// anything — the channel's messages / lore entries are already in state from
+/// when it was opened. Hardcoding `Pane::Channel` in the tab handler showed
+/// the previous text channel's messages (and composer target) under a
+/// lorebook channel's header (review W3/T5). With no channel selected (a
+/// fresh mobile session lands on Friends) there is nothing to show, so open
+/// the channel sheet for the user to pick one instead of rendering an empty
+/// `ChannelPane` with a dead composer.
+#[cfg(feature = "hydrate")]
+pub fn show_current_channel(s: Shell) {
+    use super::super::Pane;
+    match s.sel.sel_channel.get_untracked() {
+        Some(ch) if ch.kind == "lorebook" => s.sync.pane.set(Pane::Lorebook),
+        Some(_) => s.sync.pane.set(Pane::Channel),
+        None => s.sync.sheet_open.set(true),
+    }
+}
+
 /// Load the persisted per-channel drafts (channel id -> text) from
 /// localStorage. Called once when the [`super::super::Composer`] is built so
 /// drafts survive a reload / PWA close.
@@ -441,6 +461,8 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn show_current_channel(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_drafts() -> std::collections::HashMap<String, String> {

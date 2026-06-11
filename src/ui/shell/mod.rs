@@ -595,8 +595,13 @@ fn AppShell() -> impl IntoView {
                     // Mobile fast-switch (W3/T5, spec §2): tapping the channel
                     // name opens the channel sheet; the ▾ is the affordance.
                     // CSS hides this on desktop (the sidebar is the switcher).
+                    // Renders on BOTH channel-bound panes (Channel + Lorebook)
+                    // — a Pane::Channel-only filter made the 📖 sigil branch
+                    // dead code and left lorebook channels with no mobile
+                    // header/switcher once the Chat tab routes them to their
+                    // real pane (review W3/T5).
                     {move || s.sel.sel_channel.get()
-                        .filter(|_| s.sync.pane.get() == Pane::Channel)
+                        .filter(|_| matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook))
                         .map(|c| {
                             let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
                             view! {
@@ -658,17 +663,22 @@ fn AppShell() -> impl IntoView {
             </section>
 
             // Mobile-only bottom tab bar (W3/T5; CSS hides it on desktop).
-            // Chat returns to the channel pane, Servers opens the channel-
+            // Chat re-routes to the SELECTED channel's own pane by kind
+            // (act::show_current_channel — lorebook channels get the Lorebook
+            // pane, never a hardcoded Pane::Channel; with no channel selected
+            // it opens the sheet to pick one), Servers opens the channel-
             // switch sheet (the sheet IS the server+channel switcher),
-            // Friends/Personas reuse the existing pane/modal actions. Every
-            // non-Servers tab also dismisses the sheet so a tab tap never
-            // lands "behind" it.
+            // Friends/Personas reuse the existing pane/modal actions. The
+            // non-Servers tabs' sheet_open.set(false) calls are defensive
+            // only, not load-bearing: while the sheet is open its backdrop
+            // covers the tab bar, so a tab can't normally be tapped while
+            // it's up.
             <nav class="bottom-tabs">
                 <button class="tab"
-                    class:active=move || s.sync.pane.get() == Pane::Channel && !s.sync.sheet_open.get()
+                    class:active=move || matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook) && !s.sync.sheet_open.get()
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
-                        s.sync.pane.set(Pane::Channel);
+                        act::show_current_channel(s);
                     }>
                     <IconChat class="tab-icon"/>
                     <span class="tab-label">"Chat"</span>
@@ -887,7 +897,7 @@ fn ChannelRow(
     len: usize,
     editing: RwSignal<Option<String>>,
     // L-5: the shared drag-source index for HTML5 drag-to-reorder (owned by
-    // `AppShell`). `None` between drags.
+    // `ChannelList` since the W3/T5 extraction). `None` between drags.
     drag_from: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
