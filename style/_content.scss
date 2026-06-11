@@ -115,13 +115,22 @@
 				}
 			}
 
+			// Persona name: uppercase + letter-spaced (Duo polish, spec §1).
+			// text-transform is purely visual — the snapshotted name is
+			// untouched, and it's a no-op on non-cased (CJK/emoji) glyphs.
 			.who {
 				font-weight: 600;
+				font-size: 0.82rem;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
 				color: var(--text-soft);
 			}
 
+			// Timestamp rides the mono stack (Duo polish, spec §1).
 			.when {
-				font-size: 0.75rem;
+				font-family: var(--font-mono);
+				font-size: 0.72rem;
+				letter-spacing: 0.02em;
 				color: var(--text-muted);
 			}
 
@@ -157,8 +166,13 @@
 					color: var(--text);
 				}
 
+				// Matches the `.who` uppercase treatment for consistency, a
+				// notch smaller so the snippet stays the dominant line.
 				.reply-quote-who {
 					font-weight: 600;
+					font-size: 0.72rem;
+					letter-spacing: 0.06em;
+					text-transform: uppercase;
 					color: var(--text-soft);
 					flex: none;
 				}
@@ -175,9 +189,12 @@
 
 		// Directional bubbles (spec §1): the viewer's own messages lean right
 		// with a mirrored corner + blue-tinted card; everyone else stays left.
-		// Cap width so long prose still breathes. Pure presentation — the
-		// `.own` class is set per-message from the `mine` flag at render.
+		// Bubbles hug their content (fit-content) and cap at 88% so long
+		// prose still breathes (T1 review: a fixed 88% made short messages
+		// wide cards). Pure presentation — the `.own` class is set
+		// per-message from the `mine` flag at render.
 		.msg {
+			width: fit-content;
 			max-width: 88%;
 			margin-right: auto; // others: hug the left
 		}
@@ -205,6 +222,7 @@
 			border-left: 2px solid var(--accent);
 			// Exempt from the directional-bubble squeeze: the ghost row stays
 			// a full-width banner like the system row below.
+			width: auto;
 			max-width: 100%;
 			margin-right: 0;
 
@@ -223,9 +241,13 @@
 			background: color-mix(in srgb, var(--accent) 8%, var(--card));
 			// System broadcasts stay full-width banners, exempt from the
 			// directional-bubble max-width/left-hug above.
+			width: auto;
 			max-width: 100%;
 			margin-right: 0;
 
+			// The span carries BOTH classes (`who system-author`), so the
+			// `.who` uppercase/letter-spacing/size above already applies;
+			// this rule only swaps the color to the accent.
 			.system-author {
 				color: var(--accent);
 				font-weight: 600;
