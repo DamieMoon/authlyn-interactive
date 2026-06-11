@@ -30,6 +30,14 @@
 	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
 	// backdrop can't trigger zoom/ghosting in the standalone PWA.
 	touch-action: none;
+
+	// Soften the app behind the scrim (W3 glass chrome). Same @supports
+	// guard as foundation's glass mixin; the plain scrim is the fallback.
+	// The .modal CARD below stays opaque var(--surface) for legibility.
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		-webkit-backdrop-filter: blur(4px);
+		backdrop-filter: blur(4px);
+	}
 }
 
 .modal {
