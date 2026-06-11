@@ -153,6 +153,7 @@ fn AppShell() -> impl IntoView {
         replying_to: RwSignal::new(None),
         editing: RwSignal::new(None),
         sent: RwSignal::new(false),
+        sent_gen: StoredValue::new(0),
     };
     provide_context(composer);
 

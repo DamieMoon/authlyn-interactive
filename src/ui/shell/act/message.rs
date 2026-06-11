@@ -103,12 +103,21 @@ pub fn send_message(s: Shell) {
                 // W4/T2: send pulse — flip `.sent` on the Send button for one
                 // fx-glow-pulse cycle. Reset on a DETACHED timer so the
                 // post-send refresh round-trip below doesn't stretch the
-                // pulse. (A rapid second send inside the window simply rides
-                // the first pulse — cosmetic, not worth a generation counter.)
+                // pulse. Generation-guarded (the `LongPress` pattern,
+                // channel/radial.rs): in a send burst an EARLIER timer firing
+                // mid-pulse would otherwise truncate a LATER send's pulse —
+                // only the generation's own timer may clear the flag.
+                let gen = s.composer.sent_gen.get_value().wrapping_add(1);
+                s.composer.sent_gen.set_value(gen);
                 s.composer.sent.set(true);
                 spawn_local(async move {
                     gloo_timers::future::TimeoutFuture::new(400).await;
-                    s.composer.sent.set(false);
+                    // Still the newest send? (try_*: the shell may have been
+                    // disposed while we slept.)
+                    if s.composer.sent_gen.try_get_value() != Some(gen) {
+                        return;
+                    }
+                    let _ = s.composer.sent.try_set(false);
                 });
                 let cur = s.msg.cursor.get_untracked();
                 if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {

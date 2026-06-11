@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use leptos::prelude::RwSignal;
+use leptos::prelude::{RwSignal, StoredValue};
 
 use crate::protocol::{
     Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
@@ -153,6 +153,12 @@ pub(crate) struct Composer {
     /// Send button's `.sent` class plays a single `fx-glow-pulse`. Cosmetic
     /// and client-only; never sent or persisted.
     pub(crate) sent: RwSignal<bool>,
+    /// Pulse generation, bumped per send: the detached reset timer only
+    /// clears [`Composer::sent`] if its generation is still current, so an
+    /// EARLIER send's timer can't truncate a LATER send's pulse mid-burst
+    /// (the `LongPress` pattern, channel/radial.rs). `StoredValue` (not a
+    /// signal) — it's plumbing, not UI.
+    pub(crate) sent_gen: StoredValue<u64>,
 }
 
 /// An in-progress message edit driven through the main composer (see

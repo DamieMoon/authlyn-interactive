@@ -338,9 +338,17 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     // W4/T2 charging send button: fraction of a "full" message composed,
     // driving the Send button's conic-gradient ring via the `--charge`
     // custom property. ~280 chars FEELS full — it is not a length limit.
-    // Counted in chars (not bytes) so multibyte text/emoji don't over-fill.
+    // Counted in chars (not bytes) so multibyte text/emoji don't over-fill,
+    // and TRIMMED to mirror `send_message`'s guard — whitespace-only compose
+    // must not light a ring on a button whose send path no-ops. (`.charging`
+    // below is `charge > 0`, so it follows the same trimmed predicate.
+    // Attachments-only stays 0: the ring reflects text length.)
     let charge = Memo::new(move |_| {
-        (s.composer.compose.with(|c| c.chars().count()).min(280) as f64) / 280.0
+        (s.composer
+            .compose
+            .with(|c| c.trim().chars().count())
+            .min(280) as f64)
+            / 280.0
     });
     // Typing-ping throttle (#19): epoch-ms of the last `POST /typing` we fired,
     // so on:input pings at most once every ~2s while the user types instead of
