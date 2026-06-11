@@ -62,6 +62,29 @@
 		.spacer {
 			flex: 1;
 		}
+
+		// Live-sync chip (W3/T6, mock final-design.html `.topb .stat`): a small
+		// mono readout of the sync driver's real state — mint ● LIVE with a
+		// soft glow while the SSE stream is connected, faint ● POLLING on the
+		// fallback. No latency number (the mock's `· 12ms` is fake precision).
+		// Desktop-only: the mobile topbar is already full, so hide ≤768px.
+		.sync-chip {
+			flex: 0 0 auto;
+			font-family: var(--font-mono);
+			font-size: 0.68rem;
+			letter-spacing: 0.05em;
+			color: var(--text-faint);
+			user-select: none;
+
+			&.live {
+				color: var(--live);
+				text-shadow: 0 0 6px color-mix(in srgb, var(--live) 65%, transparent);
+			}
+
+			@media (max-width: 768px) {
+				display: none;
+			}
+		}
 	}
 
 	.messages {

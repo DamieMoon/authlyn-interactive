@@ -121,6 +121,16 @@
 
 	@include channel-rows;
 
+	// Desktop polish (W3/T6, mock final-design.html `.ch.on`): the active
+	// channel row carries a left accent rail. Scoped under .sidebar — NOT in
+	// the shared channel-rows mixin — so the mobile channel sheet (_nav.scss,
+	// T5) is untouched. padding-left compensates the 2px border so the label
+	// doesn't shift on activation.
+	.channels .channel.active {
+		border-left: 2px solid var(--accent);
+		padding-left: calc(0.5rem - 2px);
+	}
+
 	// Small ghost icon-button used for the inline rename affordances (✎ ✓ ✕).
 	.row-edit {
 		background: transparent;

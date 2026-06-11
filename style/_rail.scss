@@ -93,6 +93,10 @@
 
 .rail {
 	background: var(--void-deep);
+	// Crisp hairline between rail and sidebar (W3/T6 desktop polish, mock
+	// final-design.html): each column closes with its own --line edge, like
+	// .sidebar's border-right and .topbar's border-bottom.
+	border-right: 1px solid var(--line);
 	display: flex;
 	flex-direction: column;
 	align-items: center;

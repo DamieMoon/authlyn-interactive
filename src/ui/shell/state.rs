@@ -172,6 +172,15 @@ pub(crate) struct SyncState {
     /// it; the SSE driver releases it when giving up so the poll fallback can
     /// take over.
     pub(crate) polling: RwSignal<bool>,
+    /// True while the SSE `EventSource` stream is connected: set on the
+    /// stream's `onopen` (alongside the consecutive-error reset — they fire
+    /// together) and cleared at the poll-fallback handoff and on the
+    /// constructor-failure path (`act::sync::start_sync`). Drives the topbar's
+    /// honest `● LIVE` / `● POLLING` chip — state.rs is shared across graphs,
+    /// but a bare `RwSignal<bool>` compiles everywhere; only the hydrate-real
+    /// sync driver ever WRITES it (ssr constructs it `false` and never reads
+    /// it, like every other signal here).
+    pub(crate) sse_live: RwSignal<bool>,
     /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
     /// (e.g. the notification poll) can filter out the user's OWN messages
     /// without reaching into reactive context from a spawned future (FB10b).

@@ -157,6 +157,7 @@ fn AppShell() -> impl IntoView {
 
     let sync = SyncState {
         polling: RwSignal::new(false),
+        sse_live: RwSignal::new(false),
         me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
         sheet_open: RwSignal::new(false),
@@ -646,6 +647,15 @@ fn AppShell() -> impl IntoView {
                         })
                     }
                     <span class="spacer"></span>
+                    // Live-sync chip (W3/T6): honest SSE-vs-polling state from
+                    // `SyncState::sse_live` — mint ● LIVE while the EventSource
+                    // stream is connected, dimmed ● POLLING on the fallback.
+                    // Deliberately NO latency number (the mock's `· 12ms` is
+                    // fake precision). Desktop-only: CSS hides it ≤768px — the
+                    // mobile topbar is already full (trigger/bell/trash/gear).
+                    <span class="sync-chip" class:live=move || s.sync.sse_live.get()>
+                        {move || if s.sync.sse_live.get() { "● LIVE" } else { "● POLLING" }}
+                    </span>
                     <button title="Account"
                         on:click=move |_| { s.composer.status.set(String::new()); account_open.set(true); }>
                         "⚙"

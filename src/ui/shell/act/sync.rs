@@ -49,7 +49,10 @@ pub fn start_sync(s: Shell) {
     message::refresh_lists(s);
     message::refresh_unread(s);
     let Ok(es) = web_sys::EventSource::new("/events") else {
-        // No EventSource support — poll forever, as before W1.
+        // No EventSource support — poll forever, as before W1. The live chip
+        // shows ● POLLING for the session (defensive set: false is also the
+        // initial value).
+        s.sync.sse_live.set(false);
         message::start_poll(s);
         return;
     };
@@ -92,6 +95,7 @@ pub fn start_sync(s: Shell) {
                 // safe: this branch itself releases the latch, so a second
                 // entry would spawn a second eternal poll loop.)
                 es.close();
+                s.sync.sse_live.set(false); // chip flips to ● POLLING
                 s.sync.polling.set(false);
                 message::start_poll(s);
             }
@@ -108,6 +112,9 @@ pub fn start_sync(s: Shell) {
         let errors = std::rc::Rc::clone(&errors);
         Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
             errors.set(0);
+            // The stream is (re)connected: the topbar chip reads ● LIVE.
+            // Set alongside the error reset — the two signals are one fact.
+            s.sync.sse_live.set(true);
         })
     };
     es.set_onopen(Some(on_open.as_ref().unchecked_ref()));
