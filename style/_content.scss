@@ -9,6 +9,33 @@
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
+	// Anchors the .fx-max warp-streak ::after overlay (W4/T3, _foundation.scss).
+	position: relative;
+	// Warp channel-switch return leg (W4/T3): when act::open_channel_at's
+	// ~180ms timer drops .fx-switching, the pane eases back from the dip.
+	transition:
+		opacity 180ms ease,
+		transform 180ms ease;
+
+	// The dip itself: a quick blink-and-scale (STD tier) that covers the
+	// message-list swap — the flash of an empty list underneath is intended.
+	// Going IN is faster than coming back (70ms vs 180ms) for a snappy warp
+	// feel. .fx-max layers a light streak on top (_foundation.scss).
+	&.fx-switching {
+		opacity: 0.6;
+		transform: scale(0.985);
+		transition-duration: 70ms;
+	}
+
+	// Reduced-motion: _base.scss already freezes transition-duration to
+	// 0.01ms, but the dimmed/scaled STATE would still flash for the timer
+	// window — neutralize the properties so the swap is plainly instant.
+	@media (prefers-reduced-motion: reduce) {
+		&.fx-switching {
+			opacity: 1;
+			transform: none;
+		}
+	}
 
 	// The pane wrapper must fill .content and constrain its own children,
 	// or .messages' flex:1/overflow-y below never engages and the page grows.

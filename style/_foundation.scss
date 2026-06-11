@@ -63,3 +63,27 @@
 .app.fx-max .channel.active {
 	box-shadow: 0 0 14px var(--glow-accent);
 }
+
+// Warp channel-switch streak (W4/T3): while act::open_channel_at holds
+// .fx-switching (~180ms), a thin light streak sweeps the content pane on top
+// of the STD dim+scale dip (_content.scss). The overlay covers the pane
+// exactly (inset: 0 against .content's position: relative) and the streak
+// moves via background-position (fx-warp, _motion.scss), so nothing paints
+// outside .content and no overflow clipping is needed. Base opacity 0 +
+// `forwards` keep it invisible before the sweep starts and after it ends —
+// even if the class outlives the animation by a frame.
+.app.fx-max .content.fx-switching::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	// Above the .topbar (z-index 5): the dip scales the whole pane, so the
+	// streak crosses the whole pane too. .fx-switching's transform makes
+	// .content a stacking context, keeping this below sibling overlays.
+	z-index: 6;
+	pointer-events: none;
+	opacity: 0;
+	background: linear-gradient(105deg, transparent 42%, var(--glow-accent) 50%, transparent 58%)
+		no-repeat;
+	background-size: 200% 100%;
+	animation: fx-warp 180ms ease-out forwards;
+}

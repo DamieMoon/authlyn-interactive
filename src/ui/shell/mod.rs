@@ -163,6 +163,7 @@ fn AppShell() -> impl IntoView {
         pane: RwSignal::new(Pane::Friends),
         sheet_open: RwSignal::new(false),
         wardrobe_open: RwSignal::new(false),
+        switching: RwSignal::new(false),
     };
     provide_context(sync);
 
@@ -592,7 +593,11 @@ fn AppShell() -> impl IntoView {
                 </Show>
             </aside>
 
-            <section class="content">
+            // `fx-switching` plays the warp channel-switch transition (W4/T3):
+            // a brief dim+scale dip (and an .fx-max light streak) that covers
+            // the message-list swap. Bound on the pane wrapper only — the
+            // rail/sidebar must not warp.
+            <section class="content" class:fx-switching=move || s.sync.switching.get()>
                 <header class="topbar">
                     // Mobile fast-switch (W3/T5, spec §2): tapping the channel
                     // name opens the channel sheet; the ▾ is the affordance.

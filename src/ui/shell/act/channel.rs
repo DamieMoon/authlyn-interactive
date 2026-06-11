@@ -84,6 +84,19 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     use super::super::Pane;
     let cid = ch.id.clone();
     let kind = ch.kind.clone();
+    // W4/T3: warp transition — flag the content pane as switching so
+    // `.content.fx-switching` plays the dip (and the .fx-max streak) over the
+    // message-list swap; this covers BOTH the lorebook and text branches
+    // below. A detached timer clears it after ~180ms (matching the CSS
+    // timing); the spawned future doesn't run until this synchronous body —
+    // which sets the pane and clears the messages — has yielded. A rapid
+    // second switch inside the window simply rides the first warp — cosmetic,
+    // not worth a generation counter (same call as the send pulse, W4/T2).
+    s.sync.switching.set(true);
+    spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(180).await;
+        s.sync.switching.set(false);
+    });
     // Re-opening the channel you're already on (e.g. returning from the
     // Wardrobe pane) must NOT reset the worn persona from the server — a
     // just-worn value could be clobbered by a stale read before its write

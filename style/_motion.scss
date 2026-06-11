@@ -69,6 +69,28 @@
 	}
 }
 
+// Warp channel-switch streak (W4: the .fx-max escalation of the .content
+// dip — consumer in _foundation.scss). A thin bright gradient sweeps the
+// pane left→right via background-position on a 200%-wide background; the
+// percentages are inverted because background-position % aligns image-% to
+// container-% (150% parks the streak off-screen LEFT, -50% off-screen
+// RIGHT). Opacity is keyframed (base is 0) so a killed/finished animation
+// leaves NO static streak behind while .fx-switching is still up.
+@keyframes fx-warp {
+	0% {
+		background-position: 150% 0;
+		opacity: 0;
+	}
+	20%,
+	80% {
+		opacity: 1;
+	}
+	100% {
+		background-position: -50% 0;
+		opacity: 0;
+	}
+}
+
 // Decorative motion dies wholesale under reduced-motion. Scoped to the
 // fx- keyframe consumers + the aurora layer — NOT a global animation kill.
 // This COMPLEMENTS the global freeze in _base.scss (which collapses every
@@ -82,12 +104,17 @@
 // send pulse's fx-glow-pulse) but their class names carry no "fx-", so the
 // attribute selector below would miss them. (The send button's charge RING
 // is exempt on purpose — it's a static fill bound to typed length, state
-// rather than motion.)
+// rather than motion.) The warp-streak ::after is also explicit: the
+// attribute selector matches the .fx-switching ELEMENT, but its
+// `animation: none` doesn't reach the pseudo-element carrying fx-warp.
+// (The STD .fx-switching dip is transition-based — _content.scss carries
+// its own reduced-motion guard.)
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
 	.typing-indicator .star,
 	.composer .send.sent,
+	.app.fx-max .content.fx-switching::after,
 	[class*="fx-"] {
 		animation: none !important;
 	}
