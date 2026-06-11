@@ -1,0 +1,59 @@
+// Motion library (W2): shared keyframes + the reduced-motion kill switch.
+// Components reference these names; .fx-max layers more in W5/W11.
+
+@keyframes aurora-drift {
+	from {
+		transform: translate3d(0, 0, 0) scale(1);
+		opacity: 0.85;
+	}
+	to {
+		transform: translate3d(12px, -10px, 0) scale(1.06);
+		opacity: 1;
+	}
+}
+
+@keyframes fx-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes fx-glow-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 6px var(--glow-accent);
+	}
+	50% {
+		box-shadow: 0 0 16px var(--glow-accent);
+	}
+}
+
+@keyframes fx-sweep {
+	from {
+		transform: translateX(-130%) skewX(-16deg);
+	}
+	to {
+		transform: translateX(330%) skewX(-16deg);
+	}
+}
+
+// Decorative motion dies wholesale under reduced-motion. Scoped to the
+// fx- keyframe consumers + the aurora layer — NOT a global animation kill.
+// This COMPLEMENTS the global freeze in _base.scss (which collapses every
+// animation/transition duration to 0.01ms so JS event listeners still fire,
+// covering e.g. the skeleton shimmer): these higher-specificity selectors
+// remove the decorative animations entirely (`animation: none` wins the
+// shared !important longhands on specificity), and both rules agree in
+// effect — no motion.
+@media (prefers-reduced-motion: reduce) {
+	.app::before,
+	.app.fx-max::before,
+	[class*="fx-"] {
+		animation: none !important;
+	}
+}

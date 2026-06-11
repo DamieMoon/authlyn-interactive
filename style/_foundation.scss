@@ -1,0 +1,49 @@
+// Void Station material foundations (W2). Glass is for CHROME (topbar,
+// tabbar, sheets, modals) — prose cards stay opaque (--card) for legibility
+// and battery; see spec §1. Consumers opt in via @include glass / .glass.
+
+@mixin glass {
+	background: var(--glass-bg);
+	-webkit-backdrop-filter: blur(14px) saturate(1.4);
+	backdrop-filter: blur(14px) saturate(1.4);
+	border: 1px solid var(--glass-line);
+	box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.glass {
+	@include glass;
+}
+
+// Aurora ambience: two soft nebula tints behind everything. Static in
+// Standard; .fx-max (appearance tier) animates a slow drift. Painted on a
+// fixed pseudo-layer so the grid layout above is untouched.
+//
+// Visibility contract: this layer is z-index -1, so it paints BELOW all
+// in-flow content but ABOVE the canvas. The canvas gets `body`'s
+// `var(--void)` via background propagation (_base.scss — `html` sets no
+// background, and must never gain one: an `html` background would stop the
+// propagation and make body's background paint OVER this layer, burying the
+// aurora). `.app` and `.content` paint no background of their own, and the
+// gradient stack below carries its own opaque `var(--void)` base, so the
+// aurora shows through the content column.
+.app::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	background:
+		radial-gradient(ellipse 90% 55% at 80% -10%, var(--aurora-1) 0%, transparent 60%),
+		radial-gradient(ellipse 65% 45% at 5% 110%, var(--aurora-2) 0%, transparent 55%),
+		var(--void);
+}
+
+// Appearance tier: .fx-max escalates ambience. W2 ships the scaffolding +
+// the first demonstrative effects; W5/W11 add the full Eye-candy set here.
+.app.fx-max::before {
+	animation: aurora-drift 9s ease-in-out infinite alternate;
+}
+.app.fx-max .rail-guild.active,
+.app.fx-max .channel.active {
+	box-shadow: 0 0 14px var(--glow-accent);
+}
