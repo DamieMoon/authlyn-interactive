@@ -7,7 +7,7 @@ A Discord-style roleplay chat app: accounts/sessions, guilds, channels, messages
 
 ## Stack
 - Single Rust crate, **Leptos 0.8 full-stack**: axum 0.8 SSR server + WASM (`hydrate()`) browser bundle from one `src/` tree. `crate-type = ["cdylib","rlib"]`.
-- **SurrealDB 3.x** over WebSocket (Rust SDK pinned `=3.1.0-beta.3`, Cargo.toml:61); 18 SCHEMAFULL tables in `src/storage/schema.surql`, embedded via `include_str!`.
+- **SurrealDB 3.x** over WebSocket (Rust SDK pinned `=3.1.0-beta.3`, Cargo.toml:77); 18 SCHEMAFULL tables in `src/storage/schema.surql`, embedded via `include_str!`.
 - Built with **cargo-leptos** (config in `[package.metadata.leptos]`). Key crates: leptos_axum, tokio, argon2 (argon2id), image (thumbnails), web-push (VAPID), gloo-net/web-sys (client), rmcp/reqwest (nova), freya/rfd (native `authlyn-native` client).
 - Toolchain pinned in `rust-toolchain.toml`: stable + rustfmt + clippy + `wasm32-unknown-unknown`.
 
@@ -53,7 +53,7 @@ First run on a fresh clone (in order — `cargo`/`cargo-leptos` are not vendored
 - **Commits:** Conventional Commits `type(scope): subject` (incl. non-standard `a11y`). Review fixes append `(review F-Dxx-x)` (ids in `docs/CODE-REVIEW-2026-05-29.md`); phased work uses `(Wn/Cn)`. Bodies explain the invariant/finding + fix, end with a `Tests:` line naming new test fns, then trailer `Co-Authored-By: Claude Opus 4.x (1M context)`.
 - **Versioning:** CalVer `YYYY.M.D` in `[package].version`; human codename in `[package.metadata.release].codename` (currently `saffron-tide`). Codename bumping is MANUAL — pick a fresh two-word name.
 - **Formatting:** default rustfmt — there is NO `rustfmt.toml`; do not invent project rules.
-- **Tests:** integration suites in `tests/*.rs` (16 files), `#[tokio::test]` async fns with long snake_case full-sentence names; shared harness `tests/common/mod.rs` (kept as a subdir `mod.rs` so Cargo does not treat it as its own test binary).
+- **Tests:** integration suites in `tests/*.rs` (20 files), `#[tokio::test]` async fns with long snake_case full-sentence names; shared harness `tests/common/mod.rs` (kept as a subdir `mod.rs` so Cargo does not treat it as its own test binary).
 - **Doc-comment density (match this):** every Cargo.toml dependency carries a `#` comment stating purpose + features + ssr-vs-hydrate build-graph constraint; every module has a `//!` header stating scope + feature-gating; public REST fns lead with `/// VERB /path — intent.`.
 
 ## Recommended skills & workflow
