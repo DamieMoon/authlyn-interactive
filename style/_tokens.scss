@@ -5,20 +5,9 @@
 // typography). Token names are semantic (--void/--surface/--accent…) so the
 // next redesign is again a value-only edit of THIS FILE.
 //
-// SCSS `$vars` are kept dual-tracked: they're consumed by the few
-// `rgba($var, alpha)` sites where SCSS-time substitution is still simpler.
-// UPDATE THEM TOGETHER with the `:root` tokens — they must stay consistent.
-
-$bg: #0b0e14;
-$panel: #0e121a;
-$panel-2: #131927;
-$line: #1a2130;
-$text: #dde6f2;
-$muted: #8a98ad;
-$accent: #4d9fff;
-
 :root {
 	// Core surfaces (Void Station: layered deep-space graphite)
+	// Elevation (dark→light): --void-deep < --void < --surface < --card < --surface-2 (hover/active)
 	--void-deep: #07090f; // darkest base, page edges / rail bg
 	--void: #0b0e14; // page surface
 	--surface: #0e121a; // raised chrome panels (rail / sidebar / modal)

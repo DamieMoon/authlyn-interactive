@@ -103,8 +103,7 @@
 		background: transparent;
 
 		&:hover {
-			// $accent is the SCSS twin of --accent (_tokens.scss): update BOTH.
-			background: rgba($accent, 0.12);
+			background: color-mix(in srgb, var(--accent) 12%, transparent);
 		}
 	}
 }

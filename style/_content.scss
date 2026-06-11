@@ -71,7 +71,7 @@
 			flex-direction: column;
 			gap: 0.15rem;
 			padding: 0.4rem 0.6rem;
-			background: var(--surface-2);
+			background: var(--card);
 			border: 1px solid var(--line);
 			border-radius: 0.5rem;
 
@@ -126,6 +126,8 @@
 			}
 
 			.text {
+				// The story itself stays serif (Duo typography, spec §1).
+				font-family: var(--font-prose);
 				// pre-wrap renders message newlines/blank lines and still
 				// wraps at spaces; break-word stops long URLs overflowing.
 				white-space: pre-wrap;
@@ -189,7 +191,8 @@
 		// small uppercase SYSTEM pill tags the sender. No actions / persona popup.
 		.msg.system {
 			border-left: 3px solid var(--accent);
-			background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+			// Wash over the same --card base the plain .msg uses.
+			background: color-mix(in srgb, var(--accent) 8%, var(--card));
 
 			.system-author {
 				color: var(--accent);
@@ -417,6 +420,8 @@
 		}
 
 		textarea {
+			// What you type is prose — match the message body's serif.
+			font-family: var(--font-prose);
 			flex: 1;
 			min-width: 0;
 			resize: none;

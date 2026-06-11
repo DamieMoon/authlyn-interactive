@@ -1,16 +1,17 @@
-// Self-hosted webfonts + body typography for the Grimoire palette.
+// Self-hosted webfonts — Duo typography (W2, Void Station).
 //
-// Two SIL OFL families:
-//   - Crimson Pro (body) — humanist serif, 400 + 600, Latin subset
-//   - EB Garamond (display) — lapidary serif, 400 + 600, Latin subset
+// Two SIL OFL families from the fontsource jsdelivr mirror:
+//   - Space Grotesk (UI chrome, 400 + 600, Latin subset) — body default
+//     via --font-ui in _tokens.scss
+//   - Crimson Pro (prose, 400 + 600, Latin subset) — message text /
+//     composer / lorebook / persona descriptions via --font-prose
 //
-// Subset woff2 files in public/fonts/ are ~18–24 KB each (≈82 KB total,
-// gzip-immutable cached). Fetched from the fontsource jsdelivr mirror at
-// build time of the W6/C5 commit; both fonts are SIL OFL so re-hosting is
-// allowed.
+// Subset woff2 files in public/fonts/ are ~13–19 KB each (≈64 KB total,
+// gzip-immutable cached); re-hosting is allowed under the SIL OFL.
 //
-// `font-display: swap` so the first paint uses the system serif fallback
-// chain (Georgia / Cambria) and re-renders when the woff2 arrives — no FOIT.
+// `font-display: swap` so the first paint uses the system fallback chain
+// (sans for chrome, Georgia/Cambria for prose) and re-renders when the
+// woff2 arrives — no FOIT.
 
 @font-face {
 	font-family: "Crimson Pro";
@@ -29,17 +30,17 @@
 }
 
 @font-face {
-	font-family: "EB Garamond";
+	font-family: "Space Grotesk";
 	font-style: normal;
 	font-weight: 400;
 	font-display: swap;
-	src: url("/fonts/eb-garamond-400.woff2") format("woff2");
+	src: url("/fonts/space-grotesk-400.woff2") format("woff2");
 }
 
 @font-face {
-	font-family: "EB Garamond";
+	font-family: "Space Grotesk";
 	font-style: normal;
 	font-weight: 600;
 	font-display: swap;
-	src: url("/fonts/eb-garamond-600.woff2") format("woff2");
+	src: url("/fonts/space-grotesk-600.woff2") format("woff2");
 }

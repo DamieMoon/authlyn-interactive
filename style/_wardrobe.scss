@@ -163,6 +163,8 @@
 	}
 
 	.card-desc {
+		// Persona descriptions are prose — serif per the Duo typography (spec §1).
+		font-family: var(--font-prose);
 		font-size: 0.85rem;
 		color: var(--text);
 		// Preserve author newlines (Shift+Enter) in the blurb.

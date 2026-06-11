@@ -81,6 +81,8 @@
 }
 
 .lore-content {
+	// Lore entries are prose — serif per the Duo typography (spec §1).
+	font-family: var(--font-prose);
 	font-size: 0.9rem;
 	color: var(--text-muted);
 	white-space: pre-wrap;
