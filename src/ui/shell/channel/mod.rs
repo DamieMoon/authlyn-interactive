@@ -818,6 +818,26 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </li>
                     }
                 })}
+                // Ghost Quill rows (W4/T7): OTHER members' live drafts, below
+                // the real messages. Their own `ghost_drafts` signal (never
+                // the message list), fetched from the permission-checked
+                // /typing-drafts endpoint on SSE nudges, rendered ONLY while
+                // the receiver's pref is on (toggling off hides them at
+                // once). Draft text renders as plain text — clearly-not-real
+                // styling (dashed, italic) over fidelity. Static rows, no
+                // animation, so nothing to kill for reduced motion.
+                {move || s.prefs.ghost_quill.get().then(|| {
+                    s.msg.ghost_drafts.get().into_iter().map(|g| {
+                        view! {
+                            <li class="msg msg-ghost">
+                                <div class="meta">
+                                    <span class="who">{g.display_name} " ✒️"</span>
+                                </div>
+                                <span class="text">{g.draft}</span>
+                            </li>
+                        }
+                    }).collect_view()
+                })}
             </ul>
 
             // Unread pill — shown only when messages arrived while the user was
@@ -1264,12 +1284,21 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             }
                             // Throttled "is typing" ping (#19): fire at most once
                             // per ~2s while typing. Fire-and-forget; ignore errors.
+                            // Ghost Quill (W4/T7): with the SENDER's pref on, the
+                            // ping carries the compose text as `draft` (empty text
+                            // included — the server clears the entry on it); with
+                            // the pref off it stays the classic bare ping.
                             let now = js_sys::Date::now();
                             if now - last_typing_ping.get_value() >= 2000.0 {
                                 if let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) {
                                     last_typing_ping.set_value(now);
+                                    let draft = s
+                                        .prefs
+                                        .ghost_quill
+                                        .get_untracked()
+                                        .then(|| value.clone());
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::post_typing(&cid).await;
+                                        let _ = api::post_typing(&cid, draft).await;
                                     });
                                 }
                             }

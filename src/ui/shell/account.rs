@@ -211,6 +211,19 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Eye-candy appearance (extra glow & motion)"</span>
                     </label>
+                    // Ghost Quill (W4/T7): opt-in BOTH ways — this toggle
+                    // governs sharing your own in-progress text AND seeing
+                    // others'. Default OFF; the label spells out the privacy
+                    // trade so opting in is informed.
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.prefs.ghost_quill.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.prefs.ghost_quill.set(on);
+                                act::set_ghost_quill(on);
+                            }/>
+                        <span>"Ghost Quill — share your in-progress drafts & see others' (live co-writing)"</span>
+                    </label>
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>

@@ -167,6 +167,10 @@ pub async fn post_message(
     .await
     {
         Ok(id) => {
+            // The composed text just landed as a real message: drop the
+            // author's Ghost Quill draft so no ghost row lingers beside it
+            // for up to the TTL (W4/T7 clear-on-send).
+            super::typing::clear_draft(&state, &cid, &account.0);
             // Fire-and-forget Web Push to the guild's other members (#30). Never
             // blocks or fails the send; a no-op when push is disabled.
             crate::server::push::notify_new_message(state.clone(), id.clone(), account.0.clone());

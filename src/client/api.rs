@@ -26,8 +26,8 @@ use crate::protocol::{
     PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
     ResetQuestionResponse, RollRequest, SendMessageRequest, SendMessageResponse,
     SendSystemMessageRequest, SetActivePersonaRequest, SetMemberRoleRequest,
-    SetSecurityQuestionRequest, SubmitFeedbackRequest, SystemBroadcastResult, UnreadResponse,
-    VapidKeyResponse,
+    SetSecurityQuestionRequest, SubmitFeedbackRequest, SystemBroadcastResult, TypingDraftEntry,
+    TypingPingRequest, UnreadResponse, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -361,9 +361,30 @@ pub async fn roll(
 
 /// POST /channels/{cid}/typing — ping "I am typing" in a channel (#19).
 /// Fire-and-forget: the composer calls this at most every ~2s while typing;
-/// errors are ignored by the caller.
-pub async fn post_typing(cid: &str) -> Result<(), ApiError> {
-    post_empty(&format!("/channels/{cid}/typing")).await
+/// errors are ignored by the caller. `draft` is the Ghost Quill opt-in
+/// (W4/T7): `Some(compose text)` only when the SENDER's own pref is on
+/// (the server stores it ephemerally for other members to fetch);
+/// `None` sends the classic body-less ping, which also clears any draft
+/// the server still holds for this caller.
+pub async fn post_typing(cid: &str, draft: Option<String>) -> Result<(), ApiError> {
+    match draft {
+        Some(draft) => {
+            post_json_empty(
+                &format!("/channels/{cid}/typing"),
+                &TypingPingRequest { draft: Some(draft) },
+            )
+            .await
+        }
+        None => post_empty(&format!("/channels/{cid}/typing")).await,
+    }
+}
+
+/// GET /channels/{cid}/typing-drafts — other members' live Ghost Quill drafts
+/// (W4/T7). Called on `Typing`/`MessageCreated` SSE events for the OPEN
+/// channel, and only when the RECEIVER's pref is on — draft text rides this
+/// permission-checked fetch, never the id-only SSE bus.
+pub async fn get_typing_drafts(cid: &str) -> Result<Vec<TypingDraftEntry>, ApiError> {
+    get(&format!("/channels/{cid}/typing-drafts")).await
 }
 
 /// PATCH /channels/{cid}/messages/{mid} — edit one of your own messages.

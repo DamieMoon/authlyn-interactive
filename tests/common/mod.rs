@@ -72,6 +72,24 @@ pub async fn arena() -> Arena {
     }
 }
 
+/// Like [`arena`] but with the Ghost Quill typing-draft TTL overridden
+/// (W4/T7). The TTL is a plain `Copy` field on `AppState`, so it MUST be set
+/// before `make_router` clones the state — hence a dedicated constructor
+/// rather than mutating `Arena::state` afterwards. Lets the prune tests run
+/// in milliseconds instead of sleeping out the 8s production TTL.
+pub async fn arena_with_draft_ttl(ttl: std::time::Duration) -> Arena {
+    let db = test_db().await;
+    let media_dir = test_media_dir();
+    let state = AppState::new(db.clone(), media_dir.clone()).with_draft_ttl(ttl);
+    let router = make_router(state.clone());
+    Arena {
+        router,
+        db,
+        media_dir,
+        state,
+    }
+}
+
 /// Per-arena media-storage tempdir. Uses `random_id()` for uniqueness —
 /// 16 bytes of entropy is more than enough to prevent collisions even
 /// under aggressive parallel `cargo test` workers. Leaks on drop —

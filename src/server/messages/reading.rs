@@ -111,23 +111,42 @@ pub async fn list_messages(
 }
 
 /// Resolve typing account ids to display names, preferring each typist's worn
-/// persona name IN THIS CHANNEL (`channel_active_persona` → `persona.name`) so
-/// the indicator matches how their messages are attributed, falling back to the
-/// account's `display_name`/`username`. Order is not significant (the client
-/// formats "A and B are typing").
+/// persona name IN THIS CHANNEL — a thin wrapper over
+/// [`resolve_display_names`] that drops the account-id half (the indicator
+/// only formats names; Ghost Quill's drafts endpoint needs the pairs).
+async fn resolve_typing_names(
+    state: &AppState,
+    cid: &str,
+    accounts: &[String],
+) -> surrealdb::Result<Vec<String>> {
+    Ok(resolve_display_names(state, cid, accounts)
+        .await?
+        .into_iter()
+        .map(|(_acct, name)| name)
+        .collect())
+}
+
+/// Resolve account ids to `(account_id, display_name)` pairs, preferring each
+/// account's worn persona name IN THIS CHANNEL (`channel_active_persona` →
+/// `persona.name`) so the name matches how their messages are attributed,
+/// falling back to the account's `display_name`/`username`. Order is not
+/// significant (callers format or sort as needed). Shared by the typing
+/// indicator ([`resolve_typing_names`]) and the Ghost Quill drafts endpoint
+/// (`typing::typing_drafts`, W4/T7) so the persona-aware resolution can never
+/// diverge between the two.
 ///
-/// One round-trip total: a two-statement query batches every typist
+/// One round-trip total: a two-statement query batches every account
 /// (`account` IN-list + `channel_active_persona` IN-list scoped to this
 /// channel), then a HashMap merge in Rust resolves the persona-or-fallback
 /// preference. W5/H2 — was N round-trips (one query per typist); the
 /// previous comment about avoiding a correlated sub-SELECT inside the
 /// projection (3.1.0-beta.3 unevenness) is honored: this batch keeps the
 /// two table reads as independent top-level SELECTs.
-async fn resolve_typing_names(
+pub(super) async fn resolve_display_names(
     state: &AppState,
     cid: &str,
     accounts: &[String],
-) -> surrealdb::Result<Vec<String>> {
+) -> surrealdb::Result<Vec<(String, String)>> {
     if accounts.is_empty() {
         return Ok(Vec::new());
     }
@@ -177,10 +196,11 @@ async fn resolve_typing_names(
     Ok(accounts_rows
         .into_iter()
         .map(|r| {
-            persona_by_acct
+            let name = persona_by_acct
                 .get(&r.acct_id)
                 .cloned()
-                .unwrap_or(r.fallback)
+                .unwrap_or(r.fallback);
+            (r.acct_id, name)
         })
         .collect())
 }

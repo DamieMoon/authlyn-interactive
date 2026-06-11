@@ -160,6 +160,9 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
         s.msg.typing.set(Vec::new());
+        // …and the previous channel's Ghost Quill rows (W4/T7): ghosts are
+        // channel-scoped and must never leak across a switch.
+        s.msg.ghost_drafts.set(Vec::new());
         // Opening clears the unread glow, the ping glow, and the count badge at
         // once (L-4); the high-water mark advances once messages load below.
         s.notify.unread.update(|u| {

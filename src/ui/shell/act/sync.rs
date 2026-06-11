@@ -178,6 +178,13 @@ fn dispatch(s: Shell, event: SyncEvent) {
                     ) {
                         message::set_last_seen(s, &oc, cur);
                     }
+                    // Ghost Quill (W4/T7): a Typing event may mean a fresh
+                    // draft, a MessageCreated means the sender's draft was
+                    // just cleared server-side — refetch either way (the
+                    // helper no-ops with the pref off). Draft TEXT rides this
+                    // permission-checked fetch only; the event itself stays
+                    // id-only.
+                    message::refresh_ghost_drafts(s).await;
                     // Typing names piggyback on the page response and only
                     // change when something triggers a refresh; arm the
                     // staleness clearer whenever the pane shows typists.
@@ -221,6 +228,13 @@ fn schedule_typing_clear(s: Shell) {
         // already reset `typing`, making this a no-op.
         if s.msg.typing.with_untracked(|t| !t.is_empty()) {
             message::refresh_open_channel(s).await;
+        }
+        // Ghost Quill rows share the typing cadence: when the typist STOPS
+        // (no further pings, no further events) their server entry prunes at
+        // the same ~8s TTL, but nothing would tell this client — so the same
+        // clearer refetches the drafts (now empty) just past it (W4/T7).
+        if s.msg.ghost_drafts.with_untracked(|g| !g.is_empty()) {
+            message::refresh_ghost_drafts(s).await;
         }
     });
 }

@@ -1246,6 +1246,41 @@ pub(super) async fn refresh_open_channel(s: Shell) {
     }
 }
 
+/// One Ghost Quill pass for the OPEN channel (W4/T7): fetch other members'
+/// live drafts from `GET /typing-drafts` into their own `ghost_drafts` signal
+/// (never the real `messages` list). Receiver-side opt-in: with the pref OFF
+/// this clears any lingering ghosts and fetches NOTHING — the render is
+/// pref-gated too, this is belt-and-braces. Run by the SSE driver on
+/// `Typing`/`MessageCreated` events for the open channel and by its
+/// staleness clearer; the poll fallback deliberately skips it (SSE-only
+/// enhancement — under polling there is no per-keystroke nudge, so ghosts
+/// would render seconds-stale and linger a full TTL).
+#[cfg(feature = "hydrate")]
+pub(super) async fn refresh_ghost_drafts(s: Shell) {
+    if !s.prefs.ghost_quill.get_untracked() {
+        if s.msg.ghost_drafts.with_untracked(|g| !g.is_empty()) {
+            s.msg.ghost_drafts.set(Vec::new());
+        }
+        return;
+    }
+    if s.sync.pane.get_untracked() != Pane::Channel {
+        return;
+    }
+    let Some(ch) = s.sel.sel_channel.get_untracked() else {
+        return;
+    };
+    if let Ok(drafts) = api::get_typing_drafts(&ch.id).await {
+        // Stale-guard: drop this pass if the channel changed while the fetch
+        // was in flight (same discipline as refresh_open_channel). The
+        // unconditional set also clears the signal whenever the fetch
+        // returns empty.
+        if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+            return;
+        }
+        s.msg.ghost_drafts.set(drafts);
+    }
+}
+
 /// The background sync loop (single instance, guarded by `s.sync.polling`).
 /// Every tick it refreshes the open channel's messages; every ~6s it also
 /// refreshes the lists. The AUTOMATIC FALLBACK behind the SSE driver

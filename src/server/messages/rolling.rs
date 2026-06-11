@@ -249,6 +249,9 @@ pub async fn roll_message(
     .await
     {
         Ok(id) => {
+            // A /roll replaces the composed text — clear the author's Ghost
+            // Quill draft like a normal send does (W4/T7 clear-on-send).
+            super::typing::clear_draft(&state, &cid, &account.0);
             // A roll is a message like any other on the notify side: Web Push
             // to the guild's other members + the SSE bus (notify-and-fetch).
             crate::server::push::notify_new_message(state.clone(), id.clone(), account.0.clone());

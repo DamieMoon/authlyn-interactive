@@ -436,6 +436,37 @@ pub struct ListMessagesResponse {
     pub active_persona: Option<String>,
 }
 
+/// Body of `POST /channels/{cid}/typing` (W4/T7 Ghost Quill). The ping has
+/// been body-less since #19 and MUST stay wire-compatible: a bare POST (no
+/// body, no Content-Type) is still a plain "I am typing" stamp. When the
+/// SENDER has the Ghost Quill pref ON, the client attaches its current
+/// compose text as `draft`; the server stores it in the ephemeral
+/// typing-draft map (8s TTL, in-memory only — never the DB, never the SSE
+/// bus). Absent or empty `draft` CLEARS any stored entry, so a sender
+/// toggling the pref off (or deleting their text) stops ghosting at the very
+/// next ping. Drafts over 2000 chars are TRUNCATED on a char boundary, never
+/// rejected — a mid-typing ping must not start failing as the composer grows.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TypingPingRequest {
+    #[serde(default)]
+    pub draft: Option<String>,
+}
+
+/// One live co-writer draft from `GET /channels/{cid}/typing-drafts`
+/// (W4/T7 Ghost Quill) — the endpoint returns a bare JSON array of these.
+/// Only OTHER members' unexpired drafts appear (your own is excluded, like
+/// the typing indicator); `display_name` is resolved exactly like the typing
+/// names: the author's worn persona in this channel first, else their
+/// account display name / username. Draft text rides ONLY this
+/// permission-checked fetch — the receiving client opts in by fetching, the
+/// sender opted in by attaching the draft to its ping.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TypingDraftEntry {
+    pub account_id: String,
+    pub display_name: String,
+    pub draft: String,
+}
+
 /// Body of `POST /channels/{cid}/mark-read` (L-1) — record the caller's
 /// per-channel last-seen high-water mark server-side, so the read/unread state
 /// syncs across devices instead of living only in each browser's localStorage.

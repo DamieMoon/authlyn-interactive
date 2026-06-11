@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::extract::FromRef;
 use leptos::prelude::LeptosOptions;
@@ -17,6 +17,17 @@ use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
 use crate::server::push::PushSender;
+
+/// The Ghost Quill draft store (W4/T7): `(channel_id, account_id)` →
+/// `(draft text, last-ping Instant)`. Named so the `AppState` field stays
+/// readable (and clippy's type-complexity lint quiet).
+pub type TypingDraftMap = HashMap<(String, String), (String, Instant)>;
+
+/// Production TTL for a stored typing draft (W4/T7 Ghost Quill). Matches the
+/// typing indicator's 8s (`server::messages::typing::TYPING_TTL`) on purpose:
+/// the same ~2s ping cadence keeps both alive, so the ghost row and the
+/// "is typing" line expire together.
+pub const DEFAULT_DRAFT_TTL: Duration = Duration::from_secs(8);
 
 /// Bus envelope: an event plus its delivery scope. `targets: None` = the
 /// existing visibility-filtered/global path; `Some(accounts)` = deliver ONLY
@@ -58,6 +69,20 @@ pub struct AppState {
     /// a plain `std::sync::Mutex`; the critical section is only ever a map
     /// insert / read / prune and is NEVER held across an `.await`.
     pub typing: Arc<Mutex<HashMap<String, HashMap<String, Instant>>>>,
+    /// Ghost Quill (W4/T7): ephemeral live-draft store, keyed
+    /// `(channel_id, account_id)` → `(draft text, last-ping Instant)`.
+    /// Mirrors `typing`'s discipline exactly: in-memory only (never the DB),
+    /// TTL-pruned opportunistically on write and read, and the `Mutex` is
+    /// NEVER held across an `.await`. Draft TEXT lives ONLY here and is
+    /// surfaced ONLY through the permission-checked
+    /// `GET /channels/{cid}/typing-drafts` — it never rides the SSE bus,
+    /// which stays id-only by design.
+    pub typing_drafts: Arc<Mutex<TypingDraftMap>>,
+    /// How long a stored typing draft stays live without a refreshing ping.
+    /// [`DEFAULT_DRAFT_TTL`] (8s) in production; injectable via
+    /// [`AppState::with_draft_ttl`] so the prune tests don't sleep 8s. Plain
+    /// `Copy` data — set it BEFORE the state is cloned into the router.
+    pub draft_ttl: Duration,
     /// W1 realtime: the process-wide SSE event bus. Every mutation handler
     /// best-effort `send()`s a [`BusEvent`]; every `GET /events` connection
     /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
@@ -83,8 +108,20 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push: None,
             typing: Arc::new(Mutex::new(HashMap::new())),
+            typing_drafts: Arc::new(Mutex::new(HashMap::new())),
+            draft_ttl: DEFAULT_DRAFT_TTL,
             events: tokio::sync::broadcast::channel(256).0,
         }
+    }
+
+    /// Override the typing-draft TTL (W4/T7) — test injectability so the
+    /// prune behavior is provable without sleeping out the production 8s.
+    /// Builder-style: apply BEFORE handing the state to `make_router`
+    /// (`draft_ttl` is `Copy`, so a later mutation never reaches the
+    /// router's clone).
+    pub fn with_draft_ttl(mut self, ttl: Duration) -> Self {
+        self.draft_ttl = ttl;
+        self
     }
 
     /// Best-effort bus emission: never fails the request. `send()` errs only
@@ -123,6 +160,8 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push,
             typing: Arc::new(Mutex::new(HashMap::new())),
+            typing_drafts: Arc::new(Mutex::new(HashMap::new())),
+            draft_ttl: DEFAULT_DRAFT_TTL,
             events: tokio::sync::broadcast::channel(256).0,
         }
     }

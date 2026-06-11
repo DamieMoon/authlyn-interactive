@@ -162,7 +162,14 @@ fn small_body_routes() -> Router<AppState> {
         // kind='roll' message.
         .route("/channels/{cid}/roll", post(messages::roll_message))
         // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
+        // W4/T7 Ghost Quill: the ping's optional `draft` body + the
+        // permission-checked drafts read (the ONLY way draft text leaves the
+        // server — the SSE bus stays id-only).
         .route("/channels/{cid}/typing", post(messages::typing_ping))
+        .route(
+            "/channels/{cid}/typing-drafts",
+            get(messages::typing_drafts),
+        )
         .route(
             "/channels/{cid}/lorebook",
             get(lorebook::list_entries).post(lorebook::create_entry),

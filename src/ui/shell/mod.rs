@@ -141,6 +141,7 @@ fn AppShell() -> impl IntoView {
         anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         typing: RwSignal::new(Vec::new()),
+        ghost_drafts: RwSignal::new(Vec::new()),
     };
     provide_context(msg);
 
@@ -209,6 +210,7 @@ fn AppShell() -> impl IntoView {
     let prefs = Prefs {
         dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
         eyecandy: RwSignal::new(act::eyecandy_enabled()),
+        ghost_quill: RwSignal::new(act::ghost_quill_enabled()),
     };
     provide_context(prefs);
 

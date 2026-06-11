@@ -25,7 +25,7 @@ use leptos::prelude::{RwSignal, StoredValue};
 
 use crate::protocol::{
     Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
-    MessageEnvelope, PersonaSummary, ReplyPreview,
+    MessageEnvelope, PersonaSummary, ReplyPreview, TypingDraftEntry,
 };
 
 use super::{Pane, PendingDelete};
@@ -80,6 +80,14 @@ pub(crate) struct MessageView {
     /// (#19), refreshed from each message-poll response. Cleared on channel
     /// switch; drives the `.typing-indicator` line above the composer.
     pub(crate) typing: RwSignal<Vec<String>>,
+    /// Ghost Quill (W4/T7): OTHER members' live drafts in the open channel,
+    /// fetched from `GET /typing-drafts` on `Typing`/`MessageCreated` SSE
+    /// events when the receiver's pref is on. Deliberately its OWN signal —
+    /// ghost rows must never collide with the real `messages` list state.
+    /// Cleared on channel switch and whenever a fetch returns empty; rendered
+    /// only while `Prefs::ghost_quill` is on. SSE-only enhancement: the poll
+    /// fallback never populates it.
+    pub(crate) ghost_drafts: RwSignal<Vec<TypingDraftEntry>>,
 }
 
 /// Max staged attachments per message (composer cap). Matches the server-side
@@ -301,4 +309,9 @@ pub(crate) struct Prefs {
     /// tier (animated aurora, stronger glows; W5/W11 add the full set).
     /// Standard is the default. Persisted to localStorage.
     pub(crate) eyecandy: RwSignal<bool>,
+    /// Ghost Quill (W4/T7): opt-in live co-writer draft preview. Governs BOTH
+    /// directions for this client — sending the compose text with the typing
+    /// ping AND fetching/rendering other members' ghost rows. Default OFF
+    /// (privacy-respecting). Persisted to localStorage.
+    pub(crate) ghost_quill: RwSignal<bool>,
 }

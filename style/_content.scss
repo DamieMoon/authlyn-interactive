@@ -315,12 +315,38 @@
 			}
 		}
 
+		// Ghost Quill row (W4/T7): ANOTHER member's live draft, fetched from
+		// the permission-checked /typing-drafts endpoint (opt-in both ways).
+		// Same clearly-not-real language as the own-draft preview above —
+		// dimmer still, dashed all around in the muted border tone (no accent
+		// rail: that reads "yours"), italic body. Static glass row, zero
+		// animation, so it needs no _motion.scss kill-list entry
+		// (reduced-motion safe by construction).
+		.msg.msg-ghost {
+			opacity: 0.45;
+			border: 1px dashed var(--line-strong);
+			background: transparent;
+			// Same full-width banner exemption as the draft/system rows.
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+
+			.who {
+				color: var(--text-muted);
+			}
+
+			.text {
+				font-style: italic;
+				color: var(--text-muted);
+			}
+		}
+
 		// Loading-skeleton rows (_skeleton.scss): the shimmer bars are empty
 		// percentage-width placeholders, so the fit-content squeeze above
 		// collapses them to ~avatar width and the shimmer renders at ~0.
 		// Same full-width exemption as the draft/system rows — the complete
-		// exemption list is system / roll / msg-draft / msg-skeleton, kept
-		// together.
+		// exemption list is system / roll / msg-draft / msg-ghost /
+		// msg-skeleton, kept together.
 		.msg.msg-skeleton {
 			width: auto;
 			max-width: 100%;
