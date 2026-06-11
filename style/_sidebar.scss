@@ -1,34 +1,11 @@
 @use "tokens" as *;
 
-.sidebar {
-	background: var(--surface);
-	border-right: 1px solid var(--line);
-	display: flex;
-	flex-direction: column;
-	overflow-y: auto;
-
-	.server-header {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		padding: 0.6rem 0.75rem;
-		border-bottom: 1px solid var(--line);
-
-		.server-title {
-			flex: 1;
-			min-width: 0;
-			font-weight: 600;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.rename-input {
-			flex: 1;
-			min-width: 0;
-		}
-	}
-
+// Channel-row vocabulary, shared between the desktop sidebar (below) and the
+// mobile channel-sheet (`_nav.scss`, W3/T5) so both consumers of the
+// `ChannelList` component style one source. Carries the full row set:
+// open button, active/unread/pinged states, the count badge, and the
+// inline-rename input.
+@mixin channel-rows {
 	.channels {
 		list-style: none;
 		margin: 0;
@@ -111,6 +88,38 @@
 			min-width: 0;
 		}
 	}
+}
+
+.sidebar {
+	background: var(--surface);
+	border-right: 1px solid var(--line);
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+
+	.server-header {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid var(--line);
+
+		.server-title {
+			flex: 1;
+			min-width: 0;
+			font-weight: 600;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.rename-input {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+
+	@include channel-rows;
 
 	// Small ghost icon-button used for the inline rename affordances (✎ ✓ ✕).
 	.row-edit {

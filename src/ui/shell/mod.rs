@@ -21,6 +21,7 @@ use crate::protocol::{ChannelSummary, ListFriendsResponse};
 // existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
 use crate::ui::avatar::monogram;
 use crate::ui::emoji::EmojiResolver;
+use crate::ui::icons::{IconChat, IconFriends, IconPersonas, IconServers};
 use crate::ui::inline_rename::InlineRename;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
@@ -257,17 +258,12 @@ fn AppShell() -> impl IntoView {
     // L-5: the unified channel-management window (create/rename/delete/reorder),
     // opened from the owner-gated "⚙ Manage" button in the server header.
     let channel_manager_open = RwSignal::new(false);
-    // L-5: index of the rail guild currently being dragged (HTML5 DnD), or None
-    // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
-    let rail_drag_from = RwSignal::new(None::<usize>);
-    // L-5: same, for the sidebar channel rows (shared across rows so the drop
-    // target row can read which row started the drag).
-    let chan_drag_from = RwSignal::new(None::<usize>);
-    // Inline-rename edit state (owner only): the server title and per-channel rows.
-    // The edit buffers live INSIDE `<InlineRename>` now (W6/C7); these signals
-    // just gate whether the input is rendered at all.
+    // Inline-rename edit state for the server title (owner only). The edit
+    // buffer lives INSIDE `<InlineRename>` (W6/C7); this signal just gates
+    // whether the input is rendered. (The per-channel equivalent moved into
+    // `ChannelList` with the W3/T5 extraction, alongside the drag-reorder
+    // source indices — each list instance owns its own.)
     let editing_server = RwSignal::new(false);
-    let editing_channel = RwSignal::new(None::<String>);
     // The invite/manage controls show only to the owner of the open server.
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
@@ -354,63 +350,7 @@ fn AppShell() -> impl IntoView {
             <nav class="rail">
                 <button class="rail-home" title="Friends"
                     on:click=move |_| act::show_friends(s)>"@"</button>
-                {move || {
-                    let guilds = s.sel.guilds.get();
-                    let len = guilds.len();
-                    // `len`/`idx` feed the rail-reorder `disabled` closures, which
-                    // the `view!` macro strips on ssr — silence the unused warning.
-                    let _ = len;
-                    guilds.into_iter().enumerate().map(|(idx, g)| {
-                        let gid = g.id.clone();
-                        let initial = monogram(&g.name, '#');
-                        let gid_active = gid.clone();
-                        let gid_unread = gid.clone();
-                        view! {
-                            // Drag-to-reorder (HTML5): the wrap is draggable;
-                            // dragstart records this index, dragover allows the
-                            // drop, drop moves the dragged guild here (L-5).
-                            <div class="rail-guild-wrap" draggable="true"
-                                on:dragstart=move |_ev| rail_drag_from.set(Some(idx))
-                                on:dragover=move |_ev| {
-                                    #[cfg(feature = "hydrate")] _ev.prevent_default();
-                                }
-                                on:drop=move |_ev| {
-                                    #[cfg(feature = "hydrate")] {
-                                        _ev.prevent_default();
-                                        if let Some(from) = rail_drag_from.get_untracked() {
-                                            act::move_guild(s, from, idx);
-                                        }
-                                        rail_drag_from.set(None);
-                                    }
-                                }
-                                on:dragend=move |_ev| rail_drag_from.set(None)>
-                                <button class="rail-guild" title=g.name
-                                    class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
-                                    class:unread=move || act::guild_has_unread(s, &gid_unread)
-                                    on:click=move |_| act::open_server(s, gid.clone())>
-                                    {initial}
-                                </button>
-                                // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
-                                // a neighbour, ⤒/⤓ bring to top/bottom. ↑/⤒
-                                // disabled on the first guild, ↓/⤓ on the last.
-                                <div class="rail-reorder">
-                                    <button class="rail-reorder-btn" title="Move up"
-                                        disabled=move || idx == 0
-                                        on:click=move |_| act::swap_guild(s, idx, true)>"↑"</button>
-                                    <button class="rail-reorder-btn" title="Move down"
-                                        disabled=move || idx == len.saturating_sub(1)
-                                        on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
-                                    <button class="rail-reorder-btn" title="Bring to top"
-                                        disabled=move || idx == 0
-                                        on:click=move |_| act::move_guild_to_bounds(s, idx, true)>"⤒"</button>
-                                    <button class="rail-reorder-btn" title="Bring to bottom"
-                                        disabled=move || idx == len.saturating_sub(1)
-                                        on:click=move |_| act::move_guild_to_bounds(s, idx, false)>"⤓"</button>
-                                </div>
-                            </div>
-                        }
-                    }).collect_view()
-                }}
+                <RailGuilds/>
                 // Guild trash button — loads + opens the deleted-guilds panel.
                 <button class="rail-trash" title="Trashed servers"
                     class:active=move || guild_trash_open.get()
@@ -527,15 +467,7 @@ fn AppShell() -> impl IntoView {
                         on:click=move |_| act::show_members(s)>
                         "👥 Members"
                     </button>
-                    <ul class="channels">
-                        {move || {
-                            let chans = s.sel.channels.get();
-                            let len = chans.len();
-                            chans.into_iter().enumerate().map(|(idx, c)| {
-                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel drag_from=chan_drag_from/> }
-                            }).collect_view()
-                        }}
-                    </ul>
+                    <ChannelList/>
                     <Show when=is_owner fallback=|| ()>
                         <div class="channel-add">
                             <button class="channel-add-btn" title="New channel"
@@ -660,6 +592,21 @@ fn AppShell() -> impl IntoView {
 
             <section class="content">
                 <header class="topbar">
+                    // Mobile fast-switch (W3/T5, spec §2): tapping the channel
+                    // name opens the channel sheet; the ▾ is the affordance.
+                    // CSS hides this on desktop (the sidebar is the switcher).
+                    {move || s.sel.sel_channel.get()
+                        .filter(|_| s.sync.pane.get() == Pane::Channel)
+                        .map(|c| {
+                            let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
+                            view! {
+                                <button class="chan-trigger" title="Switch channel"
+                                    on:click=move |_| s.sync.sheet_open.set(true)>
+                                    <span class="chan-trigger-name">{sigil}{c.name}</span>
+                                    <span class="chan-trigger-caret" aria-hidden="true">"▾"</span>
+                                </button>
+                            }
+                        })}
                     <span class="muted">"Signed in as " <strong>{username}</strong></span>
                     // Mute toggle for the open channel (suppresses its
                     // new-message notifications); 🔔 = active, 🔕 = muted.
@@ -710,6 +657,78 @@ fn AppShell() -> impl IntoView {
                 <p class="error">{move || s.composer.status.get()}</p>
             </section>
 
+            // Mobile-only bottom tab bar (W3/T5; CSS hides it on desktop).
+            // Chat returns to the channel pane, Servers opens the channel-
+            // switch sheet (the sheet IS the server+channel switcher),
+            // Friends/Personas reuse the existing pane/modal actions. Every
+            // non-Servers tab also dismisses the sheet so a tab tap never
+            // lands "behind" it.
+            <nav class="bottom-tabs">
+                <button class="tab"
+                    class:active=move || s.sync.pane.get() == Pane::Channel && !s.sync.sheet_open.get()
+                    on:click=move |_| {
+                        s.sync.sheet_open.set(false);
+                        s.sync.pane.set(Pane::Channel);
+                    }>
+                    <IconChat class="tab-icon"/>
+                    <span class="tab-label">"Chat"</span>
+                    // Aggregate unread dot: any guild has a channel with
+                    // messages past the user's last-seen mark.
+                    {move || (!s.notify.unread_guilds.get().is_empty())
+                        .then(|| view! { <span class="tab-dot"></span> })}
+                </button>
+                <button class="tab"
+                    class:active=move || s.sync.sheet_open.get()
+                    on:click=move |_| s.sync.sheet_open.set(true)>
+                    <IconServers class="tab-icon"/>
+                    <span class="tab-label">"Servers"</span>
+                </button>
+                <button class="tab"
+                    class:active=move || s.sync.pane.get() == Pane::Friends && !s.sync.sheet_open.get()
+                    on:click=move |_| {
+                        s.sync.sheet_open.set(false);
+                        act::show_friends(s);
+                    }>
+                    <IconFriends class="tab-icon"/>
+                    <span class="tab-label">"Friends"</span>
+                </button>
+                <button class="tab"
+                    class:active=move || s.sync.wardrobe_open.get()
+                    on:click=move |_| {
+                        s.sync.sheet_open.set(false);
+                        act::show_wardrobe(s);
+                    }>
+                    <IconPersonas class="tab-icon"/>
+                    <span class="tab-label">"Personas"</span>
+                </button>
+            </nav>
+
+            // Channel-switch bottom sheet (W3/T5): a glass sheet over its own
+            // scrim, mobile-only via CSS. Reuses the SAME RailGuilds /
+            // ChannelList components the desktop columns render. Tapping the
+            // backdrop dismisses; tapping a channel row switches AND
+            // dismisses (wired in ChannelRow). Tapping a guild keeps the
+            // sheet open so a channel can be picked next. The DM "Direct"
+            // slot lands in W6; drag-down-to-close is a later polish — the
+            // backdrop tap is the W3 dismissal floor.
+            {move || s.sync.sheet_open.get().then(|| view! {
+                <div class="sheet-backdrop" on:click=move |_| s.sync.sheet_open.set(false)></div>
+                <div class="channel-sheet" role="dialog" aria-label="Switch channel">
+                    <div class="sheet-handle" aria-hidden="true"></div>
+                    <div class="sheet-guilds">
+                        <RailGuilds/>
+                    </div>
+                    <div class="sheet-channels">
+                        <Show when=move || s.sel.sel_server.get().is_some()
+                            fallback=|| view! {
+                                <p class="muted pad">"Pick a server above."</p>
+                            }>
+                            <ChannelList/>
+                        </Show>
+                    </div>
+                </div>
+            })}
+
             {move || if account_open.get() {
                 view! { <AccountModal s=s open=account_open/> }.into_any()
             } else {
@@ -753,9 +772,112 @@ fn AppShell() -> impl IntoView {
     }
 }
 
+/// The guild-circle list (W3/T5 extraction): active ring, per-guild unread
+/// dot, click-to-open, hover ↑/↓/⤒/⤓ reorder controls, and HTML5
+/// drag-to-reorder (L-5). Rendered by BOTH the desktop rail (vertical) and
+/// the mobile channel-sheet's server strip (horizontal; it hides the reorder
+/// chrome in CSS) so the two stay one source. Owns its drag-source index, so
+/// concurrent instances can't observe each other's drags. Pulls [`Shell`]
+/// from context (the W6/C8 pattern the pane components use).
+#[component]
+fn RailGuilds() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    // L-5: index of the guild currently being dragged (HTML5 DnD), or None
+    // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
+    let drag_from = RwSignal::new(None::<usize>);
+    view! {
+        {move || {
+            let guilds = s.sel.guilds.get();
+            let len = guilds.len();
+            // `len`/`idx`/`drag_from` feed the reorder `disabled` closures and
+            // drag handlers, which the `view!` macro strips on ssr — silence
+            // the unused warning.
+            let _ = (len, &drag_from);
+            guilds.into_iter().enumerate().map(|(idx, g)| {
+                let gid = g.id.clone();
+                let initial = monogram(&g.name, '#');
+                let gid_active = gid.clone();
+                let gid_unread = gid.clone();
+                view! {
+                    // Drag-to-reorder (HTML5): the wrap is draggable;
+                    // dragstart records this index, dragover allows the
+                    // drop, drop moves the dragged guild here (L-5).
+                    <div class="rail-guild-wrap" draggable="true"
+                        on:dragstart=move |_ev| drag_from.set(Some(idx))
+                        on:dragover=move |_ev| {
+                            #[cfg(feature = "hydrate")] _ev.prevent_default();
+                        }
+                        on:drop=move |_ev| {
+                            #[cfg(feature = "hydrate")] {
+                                _ev.prevent_default();
+                                if let Some(from) = drag_from.get_untracked() {
+                                    act::move_guild(s, from, idx);
+                                }
+                                drag_from.set(None);
+                            }
+                        }
+                        on:dragend=move |_ev| drag_from.set(None)>
+                        <button class="rail-guild" title=g.name
+                            class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
+                            class:unread=move || act::guild_has_unread(s, &gid_unread)
+                            on:click=move |_| act::open_server(s, gid.clone())>
+                            {initial}
+                        </button>
+                        // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
+                        // a neighbour, ⤒/⤓ bring to top/bottom. ↑/⤒
+                        // disabled on the first guild, ↓/⤓ on the last.
+                        <div class="rail-reorder">
+                            <button class="rail-reorder-btn" title="Move up"
+                                disabled=move || idx == 0
+                                on:click=move |_| act::swap_guild(s, idx, true)>"↑"</button>
+                            <button class="rail-reorder-btn" title="Move down"
+                                disabled=move || idx == len.saturating_sub(1)
+                                on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
+                            <button class="rail-reorder-btn" title="Bring to top"
+                                disabled=move || idx == 0
+                                on:click=move |_| act::move_guild_to_bounds(s, idx, true)>"⤒"</button>
+                            <button class="rail-reorder-btn" title="Bring to bottom"
+                                disabled=move || idx == len.saturating_sub(1)
+                                on:click=move |_| act::move_guild_to_bounds(s, idx, false)>"⤓"</button>
+                        </div>
+                    </div>
+                }
+            }).collect_view()
+        }}
+    }
+}
+
+/// The channel-row list (W3/T5 extraction): the `<ul class="channels">` of
+/// [`ChannelRow`]s. Rendered by BOTH the desktop sidebar and the mobile
+/// channel-sheet (which hides the owner management chrome in CSS) so the two
+/// stay one source. Owns the shared-across-rows inline-rename target and the
+/// drag-reorder source index — per instance, so the sidebar's edit state
+/// never leaks into the sheet's. Pulls [`Shell`] from context.
+#[component]
+fn ChannelList() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    // Which channel id is being inline-renamed (owner only), if any. The
+    // rename draft buffer lives inside `<InlineRename>` itself (W6/C7).
+    let editing = RwSignal::new(None::<String>);
+    // L-5: index of the channel row currently being dragged (shared across
+    // rows so the drop-target row can read which row started the drag).
+    let drag_from = RwSignal::new(None::<usize>);
+    view! {
+        <ul class="channels">
+            {move || {
+                let chans = s.sel.channels.get();
+                let len = chans.len();
+                chans.into_iter().enumerate().map(|(idx, c)| {
+                    view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing drag_from=drag_from/> }
+                }).collect_view()
+            }}
+        </ul>
+    }
+}
+
 /// One channel row in the sidebar: the open-channel button, plus an owner-only
 /// inline rename (✎ → input + ✓/✕). Edit state is shared across rows via the
-/// `editing` (which cid, if any) signal owned by `AppShell`; the rename
+/// `editing` (which cid, if any) signal owned by [`ChannelList`]; the rename
 /// draft buffer lives inside `<InlineRename>` itself (W6/C7).
 #[component]
 fn ChannelRow(
@@ -851,7 +973,13 @@ fn ChannelRow(
                     let start_name = name0.clone();
                     view! {
                         <button class="channel" class:active=active class:unread=unread class:pinged=pinged
-                            on:click=move |_| act::open_channel(s, ch.clone())>
+                            on:click=move |_| {
+                                // Picking a channel dismisses the mobile sheet
+                                // (W3/T5); a no-op from the desktop sidebar,
+                                // where the sheet is never open.
+                                s.sync.sheet_open.set(false);
+                                act::open_channel(s, ch.clone());
+                            }>
                             {sigil}{name0.clone()}
                             {badge}
                         </button>

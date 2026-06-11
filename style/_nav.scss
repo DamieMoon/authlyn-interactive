@@ -1,0 +1,238 @@
+@use "tokens" as *;
+// Cross-partial @use is idempotent per compilation (same note as
+// _content.scss): foundation/rail/sidebar's top-level rules still emit
+// exactly once via main.scss's earlier @use; we only pull their mixins.
+@use "foundation" as *;
+@use "rail" as *;
+@use "sidebar" as *;
+
+// Hybrid mobile navigation (W3/T5): the fixed bottom tab bar
+// (Chat / Servers / Friends / Personas) + the glass channel-switch bottom
+// sheet. Loaded AFTER _mobile.scss in main.scss so these @media rules win
+// over the generic mobile overrides.
+//
+// Layout contract (CRITICAL safe-area math): the tab bar is the ONLY owner
+// of env(safe-area-inset-bottom) on mobile — the .app grid reserves
+// (tab-bar height + inset) via border-box padding, so the composer's bottom
+// edge IS the tab bar's top edge and the home-indicator inset is never
+// double-counted. (_content.scss's composer inset is for desktop/PWA
+// without the tab bar; it's zeroed below.)
+
+// Mount-time slide-up for the sheet. The global reduced-motion freeze in
+// _base.scss collapses animation durations to 0.01ms, so this honors
+// prefers-reduced-motion without a local @media block.
+@keyframes sheet-rise {
+	from {
+		transform: translateY(100%);
+	}
+	to {
+		transform: translateY(0);
+	}
+}
+
+@keyframes sheet-fade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+// ---- desktop (>768px): no mobile-nav chrome at all ----
+// The 3-column grid's rail + sidebar ARE the navigation; the topbar's
+// channel-name trigger is likewise mobile-only (the sidebar is visible).
+.bottom-tabs,
+.sheet-backdrop,
+.channel-sheet,
+.chan-trigger {
+	display: none;
+}
+
+@media (max-width: 768px) {
+	.app {
+		// Bar content height (without the safe-area inset). One knob: the
+		// bar sizes itself from it AND the grid reserves it, so the two
+		// can't drift apart.
+		--tabbar-h: 3.6rem;
+		padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+	}
+
+	// The composer sits directly on the tab bar's top edge — the bar owns
+	// the bottom inset now (see the layout contract above).
+	.content .composer {
+		padding-bottom: 0.35rem;
+	}
+
+	// ---- bottom tab bar ----
+	.bottom-tabs {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 40; // above content, below the sheet (49/50) + modals (50)
+		display: flex;
+		align-items: stretch;
+		height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+		padding: 0.3rem 0.4rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+		@include glass($border: false);
+		border-top: 1px solid var(--glass-line);
+
+		.tab {
+			flex: 1 1 0;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 0.2rem;
+			padding: 0;
+			background: transparent;
+			border: none;
+			color: var(--text-muted);
+			position: relative;
+
+			.tab-icon {
+				width: 1.4rem;
+				height: 1.4rem;
+			}
+
+			.tab-label {
+				font-size: 0.62rem;
+				font-weight: 600;
+				letter-spacing: 0.05em;
+				text-transform: uppercase;
+				line-height: 1;
+			}
+
+			&.active {
+				color: var(--accent);
+				text-shadow: 0 0 8px var(--glow-accent);
+
+				.tab-icon {
+					filter: drop-shadow(0 0 5px var(--glow-accent));
+				}
+			}
+
+			// Aggregate unread dot (Chat tab): any guild has a channel past
+			// the user's last-seen mark.
+			.tab-dot {
+				position: absolute;
+				top: 0.15rem;
+				left: calc(50% + 0.5rem);
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 6px var(--unread-glow);
+			}
+		}
+	}
+
+	// ---- topbar channel-name trigger (spec §2 fast-switch) ----
+	.chan-trigger {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+		max-width: 42vw;
+		padding: 0.2rem 0.3rem;
+		background: transparent;
+		border: none;
+		color: var(--text);
+		font-weight: 600;
+
+		.chan-trigger-name {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.chan-trigger-caret {
+			flex: none;
+			font-size: 0.7rem;
+			color: var(--text-muted);
+		}
+	}
+
+	// ---- channel-switch bottom sheet ----
+	.sheet-backdrop {
+		display: block;
+		position: fixed;
+		inset: 0;
+		z-index: 49;
+		background: var(--scrim);
+		animation: sheet-fade var(--dur-base) var(--ease-page);
+		// Full-screen fixed overlay: swallow touch gestures so a pinch over
+		// the backdrop can't trigger zoom/ghosting in the standalone PWA
+		// (same rationale as .modal-backdrop).
+		touch-action: none;
+	}
+
+	.channel-sheet {
+		display: flex;
+		flex-direction: column;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 50;
+		max-height: 70vh;
+		padding: 0.4rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+		@include glass($border: false);
+		border-top: 1px solid var(--glass-line);
+		border-radius: 18px 18px 0 0;
+		animation: sheet-rise var(--dur-page) var(--ease-page);
+
+		.sheet-handle {
+			flex: none;
+			width: 2.6rem;
+			height: 0.28rem;
+			margin: 0.2rem auto 0.6rem;
+			border-radius: 999px;
+			background: var(--line-strong);
+		}
+
+		// Horizontal server strip: the same RailGuilds markup the desktop
+		// rail renders, laid out as a scrollable row.
+		.sheet-guilds {
+			flex: none;
+			display: flex;
+			align-items: flex-start;
+			gap: 0.6rem;
+			overflow-x: auto;
+			padding: 0 0.2rem 0.6rem;
+			border-bottom: 1px solid var(--line);
+			@include guild-circles;
+
+			// The hover-reveal reorder chrome is desktop furniture — the
+			// sheet is a fast switcher, not a management surface.
+			// (!important: outranks the mixin's `&:hover .rail-reorder`.)
+			.rail-reorder {
+				display: none !important;
+			}
+		}
+
+		// The same ChannelList markup the desktop sidebar renders, with
+		// thumb-sized rows (the desktop rows are mouse-dense) and without
+		// the owner management chrome.
+		.sheet-channels {
+			min-height: 0;
+			overflow-y: auto;
+			padding-top: 0.4rem;
+			@include channel-rows;
+
+			.channels .channel {
+				padding: 0.65rem 0.6rem;
+				font-size: 1rem;
+			}
+
+			// Owner management chrome (reorder arrows, rename ✎, delete 🗑)
+			// stays a desktop-sidebar affair; the sheet is switch-only.
+			.channel-reorder,
+			.row-edit {
+				display: none;
+			}
+		}
+	}
+}

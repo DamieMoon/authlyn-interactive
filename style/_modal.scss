@@ -25,7 +25,7 @@
 	align-items: center;
 	justify-content: center;
 	padding: 1rem;
-	background: rgba(0, 0, 0, 0.55);
+	background: var(--scrim);
 	animation: modal-backdrop-enter var(--dur-base) var(--ease-page);
 	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
 	// backdrop can't trigger zoom/ghosting in the standalone PWA.

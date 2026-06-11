@@ -178,9 +178,9 @@ pub(crate) struct SyncState {
     pub(crate) me: RwSignal<Option<String>>,
     pub(crate) pane: RwSignal<Pane>,
     /// Mobile-only: whether the channel-switch bottom-sheet is open. Renamed
-    /// from `nav_open` when the edge-swipe drawer was deleted (W3/T4); the
-    /// bottom-tab bar + sheet (W3/T5) are its readers.
-    #[allow(dead_code)] // W3/T5 wires the readers (bottom-tabs + sheet)
+    /// from `nav_open` when the edge-swipe drawer was deleted (W3/T4). Set by
+    /// the Servers tab + the topbar channel-name trigger; cleared by the
+    /// backdrop tap, a channel pick, and the other tabs (W3/T5).
     pub(crate) sheet_open: RwSignal<bool>,
     /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
     /// wardrobe is no longer a full pane you can only leave by selecting

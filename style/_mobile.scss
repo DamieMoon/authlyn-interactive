@@ -5,8 +5,9 @@
 	}
 
 	// The edge-swipe drawer was deleted (W3/T4): rail + sidebar are simply
-	// hidden on mobile so the content column owns the viewport.
-	// W3/T5: bottom-tabs + channel sheet land here.
+	// hidden on mobile so the content column owns the viewport. The W3/T5
+	// replacements (bottom-tabs + channel sheet) live in `_nav.scss`,
+	// loaded after this partial so its @media rules win.
 	.rail,
 	.sidebar {
 		display: none;

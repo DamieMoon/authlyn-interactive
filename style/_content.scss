@@ -32,13 +32,14 @@
 		padding-top: calc(0.6rem + env(safe-area-inset-top, 0px));
 		// Frosted-glass chrome (W3): canonical material is foundation's
 		// @mixin glass, incl. its @supports opaque fallback for old WebKit.
-		@include glass;
-		// A bar wants a single bottom edge — override the mixin's 4-side
-		// --glass-line border to bottom-only.
-		border: none;
+		// A bar wants a single bottom edge, so skip the mixin's 4-side
+		// border and draw our own.
+		@include glass($border: false);
 		border-bottom: 1px solid var(--line);
-		// Layer above .messages so the backdrop blur samples the scrolling
-		// content sliding beneath the bar.
+		// Overlay chrome: keep the bar above the pane's floating controls
+		// (.jump-bottom / .unread-pill). The blur samples the aurora ambience
+		// behind the content column — .messages scrolls BELOW the bar in
+		// flow, never beneath it.
 		position: relative;
 		z-index: 5;
 		min-width: 0;

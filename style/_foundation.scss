@@ -2,12 +2,18 @@
 // tabbar, sheets, modals) — prose cards stay opaque (--card) for legibility
 // and battery; see spec §1. Consumers opt in via @include glass / .glass.
 
-@mixin glass {
+// `$border: false` skips the 4-side --glass-line border for consumers that
+// want a single edge or none (bars/sheets draw their own `border-top`/
+// `border-bottom` after the include — see .topbar / .bottom-tabs /
+// .channel-sheet). Default stays the bordered panel.
+@mixin glass($border: true) {
 	// Fallback first: without backdrop-filter the 55%-alpha --glass-bg would
 	// be illegible over scrolling chat, so default to opaque --surface and
 	// only go translucent where the blur is actually supported.
 	background: var(--surface);
-	border: 1px solid var(--glass-line);
+	@if $border {
+		border: 1px solid var(--glass-line);
+	}
 	box-shadow: inset 0 1px 0 var(--glass-highlight);
 
 	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
