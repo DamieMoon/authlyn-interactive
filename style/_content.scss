@@ -179,6 +179,19 @@
 				-webkit-user-select: none;
 				-webkit-touch-callout: none;
 
+				// iOS quirk: WebKit can resolve long-press selection from the
+				// text-carrying DESCENDANT, not the ancestor — with only the
+				// parent disarmed, long-press still summoned the native
+				// callout (Copy / Look Up / Translate) with selection handles
+				// over our radial menu. Repeat all three properties on every
+				// descendant explicitly so the 450ms radial timer owns the
+				// gesture. (`.msg.system` re-enables below, same shape.)
+				* {
+					user-select: none;
+					-webkit-user-select: none;
+					-webkit-touch-callout: none;
+				}
+
 				.msg-actions {
 					display: none;
 				}
@@ -397,6 +410,16 @@
 				user-select: text;
 				-webkit-user-select: text;
 				-webkit-touch-callout: default;
+
+				// Mirror the `.msg *` descendant disarm above: iOS reads
+				// these off the text-carrying descendants, so re-enabling
+				// only the parent would leave system-row text uncopyable.
+				// `.msg.system *` out-specifies `.msg *`, so this wins.
+				* {
+					user-select: text;
+					-webkit-user-select: text;
+					-webkit-touch-callout: default;
+				}
 			}
 		}
 
@@ -477,6 +500,17 @@
 			filter: none;
 			user-select: text;
 			-webkit-user-select: text;
+
+			// Coarse pointers: revealed whisper text stays UNSELECTABLE like
+			// every other message body (the radial's Copy is the touch copy
+			// path) — this rule out-specifies the `.msg *` disarm, so without
+			// the override a long-press on revealed whisper text would
+			// resurrect the iOS callout. Reveal-tap itself (the filter flip
+			// above) is untouched.
+			@media (pointer: coarse) {
+				user-select: none;
+				-webkit-user-select: none;
+			}
 		}
 
 		// The attachment grid is a SIBLING of `.text` (channel/mod.rs), so

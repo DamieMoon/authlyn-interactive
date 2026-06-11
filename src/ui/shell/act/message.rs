@@ -174,9 +174,13 @@ async fn after_send_success(s: Shell, cid: &str) {
 /// a normal send. `/roll <expr>` forwards the rest verbatim (the SERVER owns
 /// the grammar — an empty or bad tail surfaces its 400 in the status line);
 /// `/coin` and `/oracle` match bare or with a trailing space (so `/coined` is
-/// NOT a command). A bare `/roll` with no argument is left as a normal send.
+/// NOT a command). A bare `/roll` with no argument defaults to `1d20` (the
+/// tabletop convention) instead of posting as literal text.
 #[cfg(feature = "hydrate")]
 fn roll_command(trimmed: &str) -> Option<String> {
+    if trimmed == "/roll" {
+        return Some("1d20".to_string());
+    }
     if let Some(rest) = trimmed.strip_prefix("/roll ") {
         return Some(rest.trim().to_string());
     }

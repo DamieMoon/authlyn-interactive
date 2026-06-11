@@ -757,7 +757,7 @@ fn AppShell() -> impl IntoView {
                             fallback=|| view! {
                                 <p class="muted pad">"Pick a server above."</p>
                             }>
-                            <ChannelList/>
+                            <ChannelList in_sheet=true/>
                         </Show>
                     </div>
                 </div>
@@ -842,10 +842,23 @@ fn RailGuilds(#[prop(optional)] in_sheet: bool) -> impl IntoView {
                     // Drag-to-reorder (HTML5): the wrap is draggable;
                     // dragstart records this index, dragover allows the
                     // drop, drop moves the dragged guild here (L-5).
-                    <div class="rail-guild-wrap" draggable="true"
+                    //
+                    // NOT in the sheet: on iOS, a `draggable` element arms
+                    // touch drag-and-drop on press, which HIJACKS the tap —
+                    // the bottom sheet's guild strip was completely dead on
+                    // iPhone. Drag-reorder is desktop hover furniture, so the
+                    // sheet instance renders draggable="false" (handlers stay
+                    // attached but never fire without it; dragover's
+                    // preventDefault is gated below anyway so a drop can
+                    // never be armed in the sheet).
+                    <div class="rail-guild-wrap"
+                        draggable={if in_sheet { "false" } else { "true" }}
                         on:dragstart=move |_ev| drag_from.set(Some(idx))
                         on:dragover=move |_ev| {
-                            #[cfg(feature = "hydrate")] _ev.prevent_default();
+                            #[cfg(feature = "hydrate")]
+                            if !in_sheet {
+                                _ev.prevent_default();
+                            }
                         }
                         on:drop=move |_ev| {
                             #[cfg(feature = "hydrate")] {
@@ -899,8 +912,13 @@ fn RailGuilds(#[prop(optional)] in_sheet: bool) -> impl IntoView {
 /// stay one source. Owns the shared-across-rows inline-rename target and the
 /// drag-reorder source index — per instance, so the sidebar's edit state
 /// never leaks into the sheet's. Pulls [`Shell`] from context.
+///
+/// `in_sheet` mirrors [`RailGuilds`]: the sheet instance renders its rows
+/// non-draggable, because iOS hijacks taps on `draggable` elements (touch
+/// drag-and-drop arming eats the press), which made the sheet's channel rows
+/// dead on iPhone. Drag-reorder stays desktop-sidebar-only.
 #[component]
-fn ChannelList() -> impl IntoView {
+fn ChannelList(#[prop(optional)] in_sheet: bool) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     // Which channel id is being inline-renamed (owner only), if any. The
     // rename draft buffer lives inside `<InlineRename>` itself (W6/C7).
@@ -914,7 +932,7 @@ fn ChannelList() -> impl IntoView {
                 let chans = s.sel.channels.get();
                 let len = chans.len();
                 chans.into_iter().enumerate().map(|(idx, c)| {
-                    view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing drag_from=drag_from/> }
+                    view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing drag_from=drag_from in_sheet=in_sheet/> }
                 }).collect_view()
             }}
         </ul>
@@ -935,6 +953,8 @@ fn ChannelRow(
     // L-5: the shared drag-source index for HTML5 drag-to-reorder (owned by
     // `ChannelList` since the W3/T5 extraction). `None` between drags.
     drag_from: RwSignal<Option<usize>>,
+    // Sheet instance renders non-draggable (iOS tap hijack — see ChannelList).
+    in_sheet: bool,
 ) -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_owner = move || {
@@ -951,11 +971,16 @@ fn ChannelRow(
     view! {
         // Drag-to-reorder (owner only in practice; the server re-checks).
         // dragstart records this row, dragover allows the drop, drop moves the
-        // dragged channel to this index (L-5).
-        <li draggable="true"
+        // dragged channel to this index (L-5). NOT in the sheet: iOS hijacks
+        // taps on `draggable` elements (see RailGuilds), so the sheet rows
+        // render draggable="false" and dragover stays inert there.
+        <li draggable={if in_sheet { "false" } else { "true" }}
             on:dragstart=move |_ev| drag_from.set(Some(idx))
             on:dragover=move |_ev| {
-                #[cfg(feature = "hydrate")] _ev.prevent_default();
+                #[cfg(feature = "hydrate")]
+                if !in_sheet {
+                    _ev.prevent_default();
+                }
             }
             on:drop=move |_ev| {
                 #[cfg(feature = "hydrate")] {
