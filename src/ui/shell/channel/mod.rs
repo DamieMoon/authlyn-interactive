@@ -632,7 +632,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             })}
 
             // "%name% is typing…" line (#19), fed by the message poll. Renders
-            // nothing when nobody else is typing.
+            // nothing when nobody else is typing. A constellation of orbiting
+            // stars (one per typist, capped at 3; W4/T1) decorates the line —
+            // purely decorative (aria-hidden) ALONGSIDE the names text, which
+            // stays for accessibility. Per-star stagger/color is nth-child
+            // CSS; the typing payload carries no per-persona color, so stars
+            // alternate the shared accent/mint hues.
             {move || {
                 let names = s.msg.typing.get();
                 let line = match names.len() {
@@ -641,7 +646,16 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     2 => format!("{} and {} are typing…", names[0], names[1]),
                     _ => "Several people are typing…".to_string(),
                 };
-                view! { <div class="typing-indicator">{line}</div> }.into_any()
+                let stars = (0..names.len().min(3))
+                    .map(|_| view! { <span class="star"></span> })
+                    .collect_view();
+                view! {
+                    <div class="typing-indicator">
+                        <span class="constellation" aria-hidden="true">{stars}</span>
+                        {line}
+                    </div>
+                }
+                .into_any()
             }}
 
             <div class="composer">

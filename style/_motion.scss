@@ -42,6 +42,33 @@
 	}
 }
 
+// A tiny star circling a center point (W4: the typing-indicator
+// constellation). The counter-rotate keeps the star itself unrotated while
+// it orbits at a 6px radius.
+@keyframes fx-orbit {
+	from {
+		transform: rotate(0deg) translateX(6px) rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg) translateX(6px) rotate(-360deg);
+	}
+}
+
+// Star shimmer. Animates the standalone `scale` property (NOT `transform`)
+// so it composes with fx-orbit's transform on the same element — a second
+// transform-based animation would overwrite the orbit entirely.
+@keyframes fx-twinkle {
+	0%,
+	100% {
+		opacity: 0.5;
+		scale: 0.8;
+	}
+	50% {
+		opacity: 1;
+		scale: 1.2;
+	}
+}
+
 // Decorative motion dies wholesale under reduced-motion. Scoped to the
 // fx- keyframe consumers + the aurora layer — NOT a global animation kill.
 // This COMPLEMENTS the global freeze in _base.scss (which collapses every
@@ -50,9 +77,13 @@
 // remove the decorative animations entirely (`animation: none` wins the
 // shared !important longhands on specificity), and both rules agree in
 // effect — no motion.
+// `.typing-indicator .star` is listed explicitly: it consumes fx-orbit /
+// fx-twinkle but its class name carries no "fx-", so the attribute
+// selector below would miss it.
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
+	.typing-indicator .star,
 	[class*="fx-"] {
 		animation: none !important;
 	}
