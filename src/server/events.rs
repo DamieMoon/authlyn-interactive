@@ -71,11 +71,20 @@ pub async fn events(
             match conn.rx.recv().await {
                 Ok(be) => {
                     // W1.5 account-targeted lane: deliver iff this connection's
-                    // account is named, with NO visibility check or reload —
-                    // targeted events are id-only nudges about the target's OWN
-                    // state (read cursor, friends edge), not channel content.
+                    // account is named, with NO visibility check — targeted
+                    // events are id-only nudges about the target's own
+                    // per-account state, not channel content.
                     if let Some(targets) = &be.targets {
                         if targets.iter().any(|t| t == &conn.account) {
+                            // Trap guard: a targeted ListsChanged (e.g. a future
+                            // invite-accept nudging the new member) shifts what
+                            // THIS connection may see. Without reloading here,
+                            // `conn.visible` would go stale and the privacy
+                            // filter below would silently drop this connection's
+                            // subsequent channel events.
+                            if matches!(be.event, SyncEvent::ListsChanged) {
+                                conn.reload_visible().await;
+                            }
                             return Some((Ok(sse_frame(&be.event)), conn));
                         }
                         continue;

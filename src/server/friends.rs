@@ -249,7 +249,12 @@ pub async fn remove_friend(
     {
         Ok(_) => {
             // Emitted even when nothing matched (idempotent DELETE): a spare
-            // id-only nudge costs one refetch; detecting no-op deletes doesn't.
+            // id-only nudge costs the target one refetch; detecting no-op
+            // deletes would need a RETURN clause and buys nothing. Side
+            // effect, accepted: `aid` is unvalidated here, so any
+            // authenticated caller can nudge an arbitrary account into one
+            // permission-checked `/friends` refetch — harmless (id-only,
+            // rate-bounded by the caller's own requests).
             emit_friends_changed(&state, &account.0, &aid);
             StatusCode::NO_CONTENT.into_response()
         }
