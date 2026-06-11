@@ -161,7 +161,7 @@ pub(crate) struct EditingMessage {
     pub(crate) stashed_draft: String,
 }
 
-/// Background-sync, current pane selection, mobile drawer, and the
+/// Background-sync, current pane selection, the mobile bottom-sheet, and the
 /// auth-mirrored account id.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
@@ -177,8 +177,11 @@ pub(crate) struct SyncState {
     /// without reaching into reactive context from a spawned future (FB10b).
     pub(crate) me: RwSignal<Option<String>>,
     pub(crate) pane: RwSignal<Pane>,
-    /// Mobile-only: whether the off-canvas rail+sidebar drawer is open.
-    pub(crate) nav_open: RwSignal<bool>,
+    /// Mobile-only: whether the channel-switch bottom-sheet is open. Renamed
+    /// from `nav_open` when the edge-swipe drawer was deleted (W3/T4); the
+    /// bottom-tab bar + sheet (W3/T5) are its readers.
+    #[allow(dead_code)] // W3/T5 wires the readers (bottom-tabs + sheet)
+    pub(crate) sheet_open: RwSignal<bool>,
     /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
     /// wardrobe is no longer a full pane you can only leave by selecting
     /// another pane — it overlays the current view and closes on backdrop
