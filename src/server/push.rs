@@ -287,6 +287,11 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         // SW maps it to `/media/{id}` as the notification's large image. `None`
         // when the persona has no avatar — the SW then omits the image.
         sender_avatar_id: Option<String>,
+        /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None`. Read
+        /// so a whispered body can be masked before it rides the push payload
+        /// (see [`notification_body`]) — the same spoiler-leak guard as the
+        /// reply-quote mask in `reading.rs` MSG_PROJECTION.
+        effect: Option<String>,
         /// Account-id keys this message `@`-mentions (L-4) — used to set a
         /// per-recipient `pinged` flag on the push payload so a future SW can
         /// style a ping differently. Empty when the message pings nobody.
@@ -304,6 +309,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
                  ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
                     AS sender_avatar_id,
                 body,
+                effect,
                 (pinged_users ?? []).map(|$u| meta::id($u)) AS pinged_keys
              FROM type::record('message', $mid);",
         )
@@ -355,7 +361,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // The persona avatar `image` (when present) is the same for everyone but is
     // added to each per-recipient payload below.
     let title = format!("{} in #{}", info.sender_name, info.channel_name);
-    let body = notification_body(&info.body);
+    let body = notification_body(&info.body, info.effect.as_deref());
 
     let mut dead: Vec<String> = Vec::new();
     for sub in &subs {
@@ -401,8 +407,15 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
 }
 
 /// Notification body: a trimmed snippet of the message, or a stand-in when the
-/// message is image-only (empty body).
-fn notification_body(body: &str) -> String {
+/// message is image-only (empty body). A whispered message (W4/T5
+/// hidden-until-tapped spoiler) is masked FIRST — its secret must never appear
+/// in plaintext on a lock screen — using the same fixed `(whisper)`
+/// placeholder as the reply-quote guard in `reading.rs` MSG_PROJECTION, so
+/// every leak vector shows one consistent stand-in.
+fn notification_body(body: &str, effect: Option<&str>) -> String {
+    if effect == Some("whisper") {
+        return "(whisper)".to_string();
+    }
     let t = body.trim();
     if t.is_empty() {
         return "\u{1F4F7} sent an image".to_string();
@@ -412,5 +425,46 @@ fn notification_body(body: &str) -> String {
         format!("{snippet}\u{2026}")
     } else {
         t.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{notification_body, MAX_BODY_CHARS};
+
+    /// Spoiler-leak guard (W4/T5 review): a whispered message's hidden text
+    /// must never ride the push payload onto the OS lock screen — the body is
+    /// masked with the SAME fixed `(whisper)` placeholder as the reply-quote
+    /// guard (`reading.rs` MSG_PROJECTION, pinned by
+    /// `reply_preview_masks_whispered_parent_snippet` in tests/messages.rs).
+    #[test]
+    fn whisper_effect_masks_push_notification_body_with_fixed_placeholder() {
+        let masked = notification_body("the hidden secret", Some("whisper"));
+        assert!(
+            !masked.contains("hidden secret"),
+            "whispered text must not leak into the push payload, got {masked:?}"
+        );
+        assert_eq!(masked, "(whisper)", "masked with the fixed placeholder");
+        // An image-only whisper (empty body) is masked too — the placeholder,
+        // not the "sent an image" stand-in.
+        assert_eq!(notification_body("  ", Some("whisper")), "(whisper)");
+    }
+
+    /// Non-whisper effects keep the normal snippet behavior: pass-through,
+    /// image-only stand-in, and the [`MAX_BODY_CHARS`] truncation.
+    #[test]
+    fn non_whisper_effects_keep_the_normal_snippet_behavior() {
+        for effect in [None, Some("shout"), Some("spell")] {
+            assert_eq!(notification_body("hello there", effect), "hello there");
+        }
+        assert_eq!(notification_body("", None), "\u{1F4F7} sent an image");
+        let long = "x".repeat(MAX_BODY_CHARS + 80);
+        let out = notification_body(&long, Some("shout"));
+        assert_eq!(
+            out.chars().count(),
+            MAX_BODY_CHARS + 1,
+            "truncated snippet plus the ellipsis"
+        );
+        assert!(out.ends_with('\u{2026}'));
     }
 }

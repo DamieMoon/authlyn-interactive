@@ -702,6 +702,33 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         } else {
                             view! { <span class="text">{render_body(&body)}</span> }.into_any()
                         };
+                        // Whisper veil for media (review): the attachment grid
+                        // is a SIBLING of `.text`, so while hidden the CSS
+                        // (_content.scss) blurs it and drops its
+                        // pointer-events — a tap on the media area then lands
+                        // on this wrapper, which REVEALS instead of opening
+                        // the lightbox. Insert-only (never a toggle): once
+                        // revealed, a lightbox click bubbling back up here
+                        // must not re-hide the row mid-open. Non-whisper rows
+                        // render the bare grid, no wrapper.
+                        let atts_view = (!atts.is_empty()).then(|| {
+                            let grid = attachment_grid(atts.clone(), lightbox);
+                            if is_whisper {
+                                let mid = m.id.clone();
+                                view! {
+                                    <div class="atts-veil"
+                                        title="whispered — tap to reveal"
+                                        on:click=move |_| revealed.update(|r| {
+                                            r.insert(mid.clone());
+                                        })>
+                                        {grid}
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                grid.into_any()
+                            }
+                        });
                         view! {
                             // Long-press handling is delegated to the <ul> above —
                             // no per-row listeners (and no per-row envelope clone);
@@ -719,7 +746,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                 // always just rendered markup (whisper rows add
                                 // the tap-to-reveal handler above).
                                 {text_view}
-                                {(!atts.is_empty()).then(|| attachment_grid(atts.clone(), lightbox))}
+                                {atts_view}
                             </li>
                         }
                     }).collect_view()

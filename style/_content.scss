@@ -399,9 +399,34 @@
 			-webkit-user-select: text;
 		}
 
+		// The attachment grid is a SIBLING of `.text` (channel/mod.rs), so
+		// the spoiler veil must cover it separately: a touch more blur than
+		// the text (media silhouettes read through 4px), and pointer-events
+		// off while hidden so a tap on the media area falls through to the
+		// row's `.atts-veil` wrapper — which reveals — instead of opening the
+		// lightbox. Both restored on `.revealed`.
+		.msg.effect-whisper .attachments {
+			filter: blur(6px);
+			pointer-events: none;
+			transition: filter var(--dur-quick) var(--ease-quick);
+		}
+
+		.msg.effect-whisper .atts-veil {
+			cursor: pointer;
+		}
+
+		.msg.effect-whisper.revealed .attachments {
+			filter: none;
+			pointer-events: auto;
+		}
+
 		// shout — a one-shot shake (fx-shout, killed under reduced-motion in
 		// _motion.scss) plus a warm tint that stays: the tint is state, so a
-		// shout still reads as a shout with the motion removed.
+		// shout still reads as a shout with the motion removed. The `1`-count
+		// animation replays whenever the row re-enters the DOM (older-history
+		// prepend, deletion compaction, channel re-entry) — accepted: replay
+		// on entry reads fine, and strict once-per-message would need
+		// ingest-tracking state.
 		.msg.effect-shout {
 			animation: fx-shout 0.45s var(--ease-quick) 1;
 			border-color: color-mix(in srgb, var(--tint-orange) 45%, var(--line));
