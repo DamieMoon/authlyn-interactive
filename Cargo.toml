@@ -293,7 +293,12 @@ site-addr = "127.0.0.1:3000"
 reload-port = 3001
 
 #  The browserlist query used for optimizing the CSS.
-browserquery = "defaults"
+# Pin iOS into the query: with plain "defaults", Lightning CSS strips the
+# `-webkit-backdrop-filter` prefix from the compiled bundle, and pre-Safari-18
+# iOS (which still needs the prefix) would render the W2 glass chrome
+# unblurred — the owner tests on iOS. Keep iOS old enough in the query that
+# the prefix survives optimization.
+browserquery = "defaults, fully supports es6-module, iOS >= 15"
 
 # The environment Leptos will run in, usually either "DEV" or "PROD"
 env = "DEV"

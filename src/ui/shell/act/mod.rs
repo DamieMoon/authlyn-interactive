@@ -93,6 +93,7 @@ pub use persona::{
 #[cfg(feature = "hydrate")]
 pub use persona::move_persona;
 pub use prefs::{
-    compose_preview_enabled, confirm_delete_message_enabled, rp_dialogue_style_enabled,
-    set_compose_preview, set_confirm_delete_message, set_rp_dialogue_style,
+    compose_preview_enabled, confirm_delete_message_enabled, eyecandy_enabled,
+    rp_dialogue_style_enabled, set_compose_preview, set_confirm_delete_message, set_eyecandy,
+    set_rp_dialogue_style,
 };

@@ -294,6 +294,7 @@ fn AppShell() -> impl IntoView {
 
     let prefs = Prefs {
         dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
+        eyecandy: RwSignal::new(act::eyecandy_enabled()),
     };
     provide_context(prefs);
 
@@ -447,7 +448,7 @@ fn AppShell() -> impl IntoView {
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
 
     view! {
-        <div class="app" class:nav-open=move || s.sync.nav_open.get() class:dialogue-style=move || s.prefs.dialogue_style.get()>
+        <div class="app" class:nav-open=move || s.sync.nav_open.get() class:dialogue-style=move || s.prefs.dialogue_style.get() class:fx-max=move || s.prefs.eyecandy.get()>
             <nav class="rail">
                 <button class="rail-home" title="Friends"
                     on:click=move |_| { act::show_friends(s); s.sync.nav_open.set(false); }>"@"</button>

@@ -1,5 +1,5 @@
 //! localStorage-backed user toggle prefs (confirm-delete, compose-preview,
-//! dialogue-style). Pure read/write helpers — no Shell interaction.
+//! dialogue-style, eyecandy). Pure read/write helpers — no Shell interaction.
 
 #[cfg(feature = "hydrate")]
 use gloo_storage::{LocalStorage, Storage};
@@ -67,6 +67,27 @@ pub fn set_rp_dialogue_style(on: bool) {
     let _ = LocalStorage::set(KEY_DIALOGUE_STYLE, if on { "1" } else { "0" });
 }
 
+// ---- Eye-candy appearance tier toggle ----
+//
+// localStorage key for the Eye-candy appearance tier (`.fx-max`) toggle. "1"
+// = on; absent or anything else = off (Standard is the default).
+#[cfg(feature = "hydrate")]
+const KEY_EYECANDY: &str = "authlyn.eyecandy";
+
+/// Eye-candy appearance tier (`.fx-max`). Default OFF (Standard).
+#[cfg(feature = "hydrate")]
+pub fn eyecandy_enabled() -> bool {
+    LocalStorage::get::<String>(KEY_EYECANDY)
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+/// Persist the Eye-candy appearance-tier toggle.
+#[cfg(feature = "hydrate")]
+pub fn set_eyecandy(on: bool) {
+    let _ = LocalStorage::set(KEY_EYECANDY, if on { "1" } else { "0" });
+}
+
 // ---- ssr stubs (no localStorage on the server) ----
 
 #[cfg(not(feature = "hydrate"))]
@@ -92,3 +113,11 @@ pub fn rp_dialogue_style_enabled() -> bool {
 
 #[cfg(not(feature = "hydrate"))]
 pub fn set_rp_dialogue_style(_on: bool) {}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn eyecandy_enabled() -> bool {
+    false
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn set_eyecandy(_on: bool) {}

@@ -43,7 +43,10 @@
 .app.fx-max::before {
 	animation: aurora-drift 9s ease-in-out infinite alternate;
 }
-.app.fx-max .rail-guild.active,
+.app.fx-max .rail-guild.active {
+	// layered: keep the active ring under the glow — review W2/T3
+	box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--glow-accent);
+}
 .app.fx-max .channel.active {
 	box-shadow: 0 0 14px var(--glow-accent);
 }

@@ -201,6 +201,15 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Style roleplay dialogue"</span>
                     </label>
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.prefs.eyecandy.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.prefs.eyecandy.set(on);
+                                act::set_eyecandy(on);
+                            }/>
+                        <span>"Eye-candy appearance (extra glow & motion)"</span>
+                    </label>
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>
