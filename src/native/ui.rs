@@ -1122,7 +1122,11 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
                 .font_size(theme::FS_META)
                 .text(short_time(&m.sent_at)),
         );
-    if mine && !editing {
+    // Only kind='user' is mutable — system broadcasts and kind='roll' results
+    // reject edit/delete server-side (403, forge-proof rolls), so offering the
+    // buttons would be a dead-end affordance (mirrors the web's
+    // message_actions predicate).
+    if mine && !editing && m.kind == "user" {
         let (eid, ebody) = (m.id.clone(), m.body.clone());
         let did = m.id.clone();
         meta = meta
