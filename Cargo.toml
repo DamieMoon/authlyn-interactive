@@ -46,9 +46,11 @@ js-sys = { version = "0.3", optional = true }
 # interfaces back the progress-reporting media upload (F-8): gloo-net's Fetch
 # has no upload-progress hook, so `api::upload_media` drives a raw XHR and
 # subscribes to `upload.onprogress`. EventSource + MessageEvent back the W1
-# SSE sync consumer (`GET /events` stream + its onmessage payloads).
-# Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "Element", "NodeList", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent"] }
+# SSE sync consumer (`GET /events` stream + its onmessage payloads). DomRect
+# backs the radial menu's topbar-bottom measurement (W4/T4 audit,
+# `getBoundingClientRect` in shell/channel/radial.rs) — no leptos-family
+# crate enables it, so it must be listed here. Hydrate-only; feature-unified.
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device

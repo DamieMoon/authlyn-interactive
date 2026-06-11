@@ -82,6 +82,12 @@ pub fn save_draft(s: Shell, text: &str) {
 #[cfg(feature = "hydrate")]
 pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     use super::super::Pane;
+    // W4/T4 radial: a long-press armed in the OUTGOING channel must not fire
+    // over the incoming pane (its envelope/cid are stale — a cross-channel
+    // reply banner), and an already-open menu must not survive the switch.
+    // Bumps the LongPress generation + closes the menu; no-op when no
+    // ChannelPane is mounted.
+    super::super::channel::disarm_radial();
     let cid = ch.id.clone();
     let kind = ch.kind.clone();
     // W4/T3: warp transition — flag the content pane as switching so

@@ -73,6 +73,67 @@ fn display_name(m: &MessageEnvelope) -> String {
         .unwrap_or_else(|| m.author_display.clone())
 }
 
+/// Per-kind action affordances for one message row — THE single source for
+/// what a message offers, shared by the hover `.msg-actions` row (`meta.rs`)
+/// and the touch radial (`radial.rs`) so the two surfaces can never drift.
+/// Built by [`message_actions`].
+#[derive(Clone, Copy)]
+struct MessageActions {
+    reply: bool,
+    copy: bool,
+    edit: bool,
+    delete: bool,
+}
+
+impl MessageActions {
+    /// Number of offered actions — zero means "never arm the radial"; the
+    /// count also picks the radial's n2/n4 arc spread.
+    fn count(self) -> usize {
+        usize::from(self.reply)
+            + usize::from(self.copy)
+            + usize::from(self.edit)
+            + usize::from(self.delete)
+    }
+}
+
+/// Map a message `kind` (+ viewer ownership) to its action affordances.
+/// Conservative on purpose: ONLY `kind='user'` is mutable (edit/delete,
+/// owner-gated); `system` (Nova DOT) offers nothing — immutable, not
+/// repliable, matching its actionless meta row exactly; any UNKNOWN/future
+/// kind (e.g. T6's immutable `kind='roll'`) gets reply+copy but NEVER
+/// edit/delete.
+fn message_actions(kind: &str, mine: bool) -> MessageActions {
+    match kind {
+        "user" => MessageActions {
+            reply: true,
+            copy: true,
+            edit: mine,
+            delete: mine,
+        },
+        "system" => MessageActions {
+            reply: false,
+            copy: false,
+            edit: false,
+            delete: false,
+        },
+        _ => MessageActions {
+            reply: true,
+            copy: true,
+            edit: false,
+            delete: false,
+        },
+    }
+}
+
+/// Channel-switch disarm hook for the radial: cancels a pending long-press
+/// and closes an open menu (`act::channel::open_channel_at` calls this so a
+/// press straddling the switch can't open a menu carrying the OLD channel's
+/// envelope). Hydrate-only — its only caller is the hydrate `open_channel_at`.
+#[cfg(feature = "hydrate")]
+pub(super) fn disarm_radial() {
+    radial::disarm();
+}
+
 /// The clickable reply quote rendered ABOVE a reply's body (L-3): the parent
 /// author + a short body snippet. Clicking it scrolls the parent into view via
 /// the same `msg-{id}` anchor the deep-link / unread-pill / older-history paths
@@ -328,13 +389,20 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     let info = RwSignal::new(None::<MessageEnvelope>);
 
     // W4/T4 radial long-press menu: the message whose touch action menu is
-    // open (None when closed). Channel-pane-local — both the per-`.msg`
+    // open (None when closed). Channel-pane-local — the delegated `<ul>`
     // long-press handlers and the menu render live in this component, so it
-    // never needs to ride Shell state. `long_press` is the shared
-    // generation-counter timer tracker (see `radial::LongPress`).
+    // never needs to ride Shell state. `long_press` is the generation-counter
+    // timer tracker (see `radial::LongPress`); `radial_armed` is the
+    // manufactured-click guard for the menu's backdrop/buttons, created ONCE
+    // here because a per-render StoredValue would leak an arena slot per open.
     let radial = RwSignal::new(None::<radial::RadialState>);
-    #[cfg(feature = "hydrate")]
     let long_press = radial::LongPress::new();
+    let radial_armed = StoredValue::new(false);
+    // Channel switches must disarm a pending press / close an open menu —
+    // act::channel::open_channel_at reaches the pane-local state through this
+    // registration (see radial::disarm).
+    #[cfg(feature = "hydrate")]
+    radial::register_disarm(long_press, radial);
     // Lightbox: the clicked message's IMAGE attachments + the index currently
     // shown, or None when closed. Arrow/swipe step the index within this list
     // (images only — videos keep their own inline controls and never enter the
@@ -467,6 +535,24 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     view! {
         <div class="channel-view">
             <ul class="messages" node_ref=list_ref
+                // W4/T4 radial long-press: DELEGATED listeners — 5 on this
+                // <ul>, not 5 per row (this build has no tachys event
+                // delegation, so per-row `on:` means per-row addEventListener
+                // calls that the non-keyed list re-attaches wholesale on
+                // every message change). The handlers resolve the pressed
+                // row from `ev.target().closest("li[id^='msg-']")` and look
+                // the envelope up by id only when a press actually fires;
+                // pointermove past the slop radius and pointerup/-cancel
+                // (the browser claiming the gesture for scrolling) disarm
+                // the pending press, so scrolls never fire it. System rows
+                // never arm and keep the NATIVE context menu so their text
+                // stays copyable on touch. Desktop is untouched — `down`
+                // no-ops on a fine pointer; right-click stays native.
+                on:pointerdown=move |ev| long_press.down(&ev, s, auth, radial)
+                on:pointermove=move |ev| long_press.moved(&ev)
+                on:pointerup=move |_| long_press.cancel()
+                on:pointercancel=move |_| long_press.cancel()
+                on:contextmenu=move |ev| radial::suppress_touch_context_menu(&ev)
                 on:scroll=move |_ev| {
                     #[cfg(feature = "hydrate")]
                     if let Some(el) = list_ref.get_untracked() {
@@ -508,7 +594,10 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         let reply_quote = m.reply_to.clone().map(reply_quote);
                         // System (Nova DOT) messages get a distinct row + a stripped
                         // meta line (no edit/reply/persona-popup); everything else is
-                        // a normal authored message.
+                        // a normal authored message. The `system` class doubles as
+                        // the marker the delegated long-press handlers (radial.rs)
+                        // check, so system rows never arm the radial and keep the
+                        // native context menu.
                         let is_system = m.kind == "system";
                         // Directional bubbles: the viewer's own messages carry
                         // `.own` (right-aligned in CSS). System rows are authored
@@ -527,47 +616,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             message_meta(s, &m, &cid, mine, info).into_any()
                         };
                         view! {
-                            <li class=li_class id=dom_id
-                                // W4/T4: a touch long-press opens the radial action
-                                // menu at the press point. pointermove past the slop
-                                // radius and pointerup/-cancel (the browser claiming
-                                // the gesture for scrolling) disarm the pending
-                                // press, so scrolls never fire it. System rows have
-                                // no actions (mirroring their absent hover row), so
-                                // they never arm. Desktop is untouched — `down`
-                                // no-ops on a fine pointer.
-                                on:pointerdown=move |_ev| {
-                                    #[cfg(feature = "hydrate")]
-                                    if !is_system {
-                                        long_press.down(
-                                            &_ev, radial, m.clone(), cid.clone(), mine,
-                                        );
-                                    }
-                                    #[cfg(not(feature = "hydrate"))]
-                                    let _ = (&_ev, &m, &cid);
-                                }
-                                on:pointermove=move |_ev| {
-                                    #[cfg(feature = "hydrate")]
-                                    long_press.moved(&_ev);
-                                }
-                                on:pointerup=move |_| {
-                                    #[cfg(feature = "hydrate")]
-                                    long_press.cancel();
-                                }
-                                on:pointercancel=move |_| {
-                                    #[cfg(feature = "hydrate")]
-                                    long_press.cancel();
-                                }
-                                // Some Android browsers fire the native context
-                                // menu on long-press; suppress it on touch only so
-                                // the radial owns the gesture. Desktop right-click
-                                // stays native.
-                                on:contextmenu=move |_ev| {
-                                    #[cfg(feature = "hydrate")]
-                                    if is_touch() {
-                                        _ev.prevent_default();
-                                    }
-                                }>
+                            // Long-press handling is delegated to the <ul> above —
+                            // no per-row listeners (and no per-row envelope clone);
+                            // the row only needs its `msg-{id}` dom id (+ the
+                            // `system` class) for the handlers to resolve it at
+                            // fire time.
+                            <li class=li_class id=dom_id>
                                 {meta}
                                 {reply_quote}
                                 // Editing happens in the main composer (✎ →
@@ -1276,8 +1330,8 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 
             // W4/T4 radial long-press action menu (touch) — the glass arc of
             // reply/copy(/edit/delete) buttons blossoming at the press point,
-            // opened by the per-`.msg` pointer handlers above.
-            {radial::radial_menu(s, radial)}
+            // opened by the delegated <ul> pointer handlers above.
+            {radial::radial_menu(s, radial, radial_armed)}
         </div>
     }
 }

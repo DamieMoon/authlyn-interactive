@@ -165,7 +165,9 @@
 			// loupe / iOS callout — so the 450ms radial timer owns the
 			// gesture (the copy action lives in the radial instead). Scoped
 			// to coarse pointers: desktop keeps the hover row AND native
-			// text selection untouched.
+			// text selection untouched. `.msg.system` is exempted below —
+			// system rows have no radial, so native selection/callout is
+			// their only copy path.
 			@media (pointer: coarse) {
 				user-select: none;
 				-webkit-user-select: none;
@@ -349,6 +351,19 @@
 				border: 1px solid var(--accent-soft);
 				border-radius: 0.25rem;
 				padding: 0 0.3rem;
+			}
+
+			// System rows never arm the radial — they offer no actions (see
+			// message_actions in shell/channel/mod.rs) — so the coarse-pointer
+			// selection/callout disarm on `.msg` above would only make a Nova
+			// DOT broadcast's text UNCOPYABLE on touch. Re-enable native
+			// selection and the iOS callout (its Copy) here; the delegated
+			// contextmenu suppression (shell/channel/radial.rs) is likewise
+			// gated off system rows.
+			@media (pointer: coarse) {
+				user-select: text;
+				-webkit-user-select: text;
+				-webkit-touch-callout: default;
 			}
 		}
 	}
@@ -743,10 +758,11 @@
 // whole arc out of the anchor on open. position: fixed on both layers, so
 // nothing perturbs the message list / directional-bubble layout.
 
-// Dismiss layer: a genuinely-new tap closes the menu (the pointerdown-armed
-// click handler in radial.rs ignores the stray click manufactured by the
-// opening press itself). touch-action: none so a pan can't start on it,
-// mirroring .modal-backdrop.
+// Dismiss layer: a genuinely-new tap closes the menu (the shared
+// pointerdown-armed guard in radial.rs — covering this backdrop AND the
+// chips — ignores the stray compat click manufactured by the opening press
+// itself). touch-action: none so a pan can't start on it, mirroring
+// .modal-backdrop.
 .radial-backdrop {
 	position: fixed;
 	inset: 0;

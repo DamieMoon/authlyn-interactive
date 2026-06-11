@@ -44,13 +44,11 @@ pub(super) fn message_meta(
     let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
 
     let info_m = m.clone();
-    let mid = m.id.clone();
-    let cid = cid.clone();
-    let copy_body = m.body.clone();
-    let edit_body = m.body.clone();
-    // The whole envelope, captured for the reply affordance — `start_reply`
-    // builds the banner preview from it (L-3).
-    let reply_m = m.clone();
+    // Affordances from the shared kind predicate (`message_actions` in
+    // mod.rs) — the SAME one the touch radial uses, so the two surfaces can
+    // never drift (and a future immutable kind, e.g. T6's `kind='roll'`, is
+    // automatically edit/delete-free on both).
+    let actions = super::message_actions(&m.kind, mine);
 
     view! {
         <div class="meta">
@@ -58,54 +56,69 @@ pub(super) fn message_meta(
             <button class=who_class title="persona info"
                 on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
             <time class="when">{when}</time>
-            // Action row — copy is available on every message (own AND others)
-            // so the markup source can be re-pasted under a different persona;
-            // edit + delete remain own-message only.
+            // Action row — reply/copy are available on every user message
+            // (own AND others): copy so the markup source can be re-pasted
+            // under a different persona, reply stashing the parent in the
+            // composer banner (L-3); edit + delete remain own-message only.
             <span class="msg-actions">
-                // Reply is available on every message (own AND others), like
-                // copy; click stashes the parent in the composer banner (L-3).
-                <button class="row-edit" title="reply"
-                    on:click=move |_| act::start_reply(s, reply_m.clone())>"↩"</button>
-                <button class="row-edit" title="copy markup (no color)"
-                    on:click=move |_| act::copy_message_body(s, copy_body.clone())>"📋"</button>
-                {mine.then(|| {
-                    let edit_mid = mid.clone();
+                {actions.reply.then(|| {
+                    // The whole envelope, captured for the reply affordance —
+                    // `start_reply` builds the banner preview from it (L-3).
+                    let reply_m = m.clone();
+                    view! {
+                        <button class="row-edit" title="reply"
+                            on:click=move |_| act::start_reply(s, reply_m.clone())>"↩"</button>
+                    }
+                })}
+                {actions.copy.then(|| {
+                    let copy_body = m.body.clone();
+                    view! {
+                        <button class="row-edit" title="copy markup (no color)"
+                            on:click=move |_| {
+                                act::copy_message_body(s, copy_body.clone())
+                            }>"📋"</button>
+                    }
+                })}
+                {actions.edit.then(|| {
+                    let edit_mid = m.id.clone();
                     let edit_cid = cid.clone();
-                    let edit_body = edit_body.clone();
-                    let del_mid = mid.clone();
+                    let edit_body = m.body.clone();
+                    view! {
+                        <button class="row-edit" title="edit"
+                            on:click=move |_| {
+                                if let Some(cid) = edit_cid.clone() {
+                                    act::start_edit(
+                                        s, cid, edit_mid.clone(), edit_body.clone(),
+                                    );
+                                }
+                            }>"✎"</button>
+                    }
+                })}
+                {actions.delete.then(|| {
+                    let del_mid = m.id.clone();
                     let del_cid = cid.clone();
                     view! {
-                        <>
-                            <button class="row-edit" title="edit"
-                                on:click=move |_| {
-                                    if let Some(cid) = edit_cid.clone() {
-                                        act::start_edit(
-                                            s, cid, edit_mid.clone(), edit_body.clone(),
+                        <button class="row-edit" title="delete"
+                            on:click=move |_| {
+                                if let Some(cid) = del_cid.clone() {
+                                    // Message deletes confirm unless the user
+                                    // opted out in account settings; other
+                                    // deletes always confirm.
+                                    if act::confirm_delete_message_enabled() {
+                                        act::ask_delete(
+                                            s,
+                                            "Delete this message? This cannot be undone."
+                                                .to_string(),
+                                            PendingDelete::Message {
+                                                cid,
+                                                mid: del_mid.clone(),
+                                            },
                                         );
+                                    } else {
+                                        act::delete_message(s, cid, del_mid.clone());
                                     }
-                                }>"✎"</button>
-                            <button class="row-edit" title="delete"
-                                on:click=move |_| {
-                                    if let Some(cid) = del_cid.clone() {
-                                        // Message deletes confirm unless the user
-                                        // opted out in account settings; other
-                                        // deletes always confirm.
-                                        if act::confirm_delete_message_enabled() {
-                                            act::ask_delete(
-                                                s,
-                                                "Delete this message? This cannot be undone."
-                                                    .to_string(),
-                                                PendingDelete::Message {
-                                                    cid,
-                                                    mid: del_mid.clone(),
-                                                },
-                                            );
-                                        } else {
-                                            act::delete_message(s, cid, del_mid.clone());
-                                        }
-                                    }
-                                }>"🗑"</button>
-                        </>
+                                }
+                            }>"🗑"</button>
                     }
                 })}
             </span>
