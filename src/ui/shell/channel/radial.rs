@@ -297,10 +297,15 @@ pub(super) fn disarm() {
 /// `_content.scss`) — plus slack. The top clamp keeps the anchor below the
 /// topbar, whose height is NOT a constant: on a notched-device PWA it grows
 /// by `env(safe-area-inset-top)` (~59px) to ~109-115px total, so measure its
-/// real bottom edge at open time and keep 120 as the no-topbar fallback. The
+/// real bottom edge at open time and keep 120 as the no-topbar fallback —
+/// FLOORED at the arc's own vertical reach (the n4 top chips peak
+/// `64·sin(113°) + 22 ≈ 81px` above the anchor; a zero-inset topbar bottoms
+/// out at ~58-68px, which alone would let them clip off the top edge). The
 /// `.max()` guards keep `clamp` panic-free on degenerate (tiny) viewports.
 #[cfg(feature = "hydrate")]
 fn clamp_to_viewport(x: f64, y: f64) -> (f64, f64) {
+    // Vertical arc reach + slack; pairs with margin_x's 86px+slack derivation.
+    const ARC_REACH_TOP: f64 = 90.0;
     let (vw, vh) = leptos::web_sys::window()
         .map(|w| {
             (
@@ -317,7 +322,8 @@ fn clamp_to_viewport(x: f64, y: f64) -> (f64, f64) {
         .and_then(|w| w.document())
         .and_then(|d| d.query_selector(".topbar").ok().flatten())
         .map(|bar| bar.get_bounding_client_rect().bottom() + 8.0)
-        .unwrap_or(120.0);
+        .unwrap_or(120.0)
+        .max(ARC_REACH_TOP);
     (
         x.clamp(margin_x, (vw - margin_x).max(margin_x)),
         y.clamp(top, (vh - 16.0).max(top)),
