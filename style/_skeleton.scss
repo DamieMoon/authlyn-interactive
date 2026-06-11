@@ -11,13 +11,17 @@
 
 // Reused shimmer background: a soft highlight band swept left-to-right over
 // the placeholder surface. `200% 100%` so the sweep has room to travel.
+// Contrast note: skeleton rows sit on the `--card` msg base, so the bar body
+// must clear it — `--line` body with a `--line-strong` sweep highlight. The
+// border-tone palette is the ONLY dimming mechanism (no extra opacity), or
+// the bars collapse back to ~1:1 against `--card` and disappear.
 @mixin shimmer-surface {
 	background-image: linear-gradient(
 		90deg,
-		var(--surface-2) 0%,
-		var(--line) 20%,
-		var(--surface-2) 40%,
-		var(--surface-2) 100%
+		var(--line) 0%,
+		var(--line-strong) 20%,
+		var(--line) 40%,
+		var(--line) 100%
 	);
 	background-size: 200% 100%;
 	animation: shimmer 1.4s ease-in-out infinite;
@@ -36,12 +40,13 @@
 	.channel-view {
 		// A skeleton row mirrors the real `.msg` card layout (avatar to the
 		// left, body bars to the right) so real content swaps in without a
-		// jump. Subtle — slightly dimmed so it reads as "loading", not content.
+		// jump. No opacity dampening here — the shimmer palette above is
+		// already the dimming mechanism, and stacking both made the bars
+		// invisible against the `--card` base.
 		.msg.msg-skeleton {
 			flex-direction: row;
 			align-items: flex-start;
 			gap: 0.6rem;
-			opacity: 0.7;
 
 			.skel-avatar {
 				flex: none;

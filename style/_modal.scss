@@ -95,8 +95,10 @@
 }
 
 // In the read-only info popup the description shows in full (no card clamp).
+// Persona descriptions are prose — serif per the Duo typography (spec §1).
 .modal .card-desc {
 	display: block;
+	font-family: var(--font-prose);
 	-webkit-line-clamp: unset;
 	line-clamp: unset;
 	overflow: visible;
@@ -127,7 +129,7 @@
 	align-items: center;
 	justify-content: center;
 	font-size: 2.4rem; // larger monogram fallback to suit the bigger box
-	font-weight: 700;
+	font-weight: 600;
 	color: var(--accent);
 }
 
@@ -386,7 +388,7 @@
 
 	.fb-kind {
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		text-transform: uppercase;
 		padding: 0.05rem 0.4rem;
 		border-radius: 0.3rem;
