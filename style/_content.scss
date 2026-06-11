@@ -173,6 +173,29 @@
 			}
 		}
 
+		// Directional bubbles (spec §1): the viewer's own messages lean right
+		// with a mirrored corner + blue-tinted card; everyone else stays left.
+		// Cap width so long prose still breathes. Pure presentation — the
+		// `.own` class is set per-message from the `mine` flag at render.
+		.msg {
+			max-width: 88%;
+			margin-right: auto; // others: hug the left
+		}
+		.msg.own {
+			margin-left: auto;
+			margin-right: 0;
+			background: color-mix(in srgb, var(--accent) 9%, var(--card));
+			border-color: var(--accent-soft);
+			border-radius: 0.5rem 0.15rem 0.5rem 0.5rem; // mirrored top-right
+		}
+		.msg.own .meta {
+			flex-direction: row-reverse;
+		}
+		.msg.own .msg-actions {
+			margin-left: 0;
+			margin-right: auto;
+		}
+
 		// Ghost draft row: lays out exactly like a real .msg (inherits the base
 		// rule above) but reads as un-sent — dimmed, italic body, a dashed accent
 		// rail on the left. Selector pinned to the exact class the composer emits.
@@ -180,6 +203,10 @@
 			opacity: 0.55;
 			border-style: dashed;
 			border-left: 2px solid var(--accent);
+			// Exempt from the directional-bubble squeeze: the ghost row stays
+			// a full-width banner like the system row below.
+			max-width: 100%;
+			margin-right: 0;
 
 			.text {
 				font-style: italic;
@@ -194,6 +221,10 @@
 			border-left: 3px solid var(--accent);
 			// Wash over the same --card base the plain .msg uses.
 			background: color-mix(in srgb, var(--accent) 8%, var(--card));
+			// System broadcasts stay full-width banners, exempt from the
+			// directional-bubble max-width/left-hug above.
+			max-width: 100%;
+			margin-right: 0;
 
 			.system-author {
 				color: var(--accent);

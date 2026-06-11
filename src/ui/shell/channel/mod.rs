@@ -485,7 +485,17 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // meta line (no edit/reply/persona-popup); everything else is
                         // a normal authored message.
                         let is_system = m.kind == "system";
-                        let li_class = if is_system { "msg system" } else { "msg" };
+                        // Directional bubbles: the viewer's own messages carry
+                        // `.own` (right-aligned in CSS). System rows are authored
+                        // by the Nova DOT account, never the viewer — but branch
+                        // order makes them never-"own" regardless.
+                        let li_class = if is_system {
+                            "msg system"
+                        } else if mine {
+                            "msg own"
+                        } else {
+                            "msg"
+                        };
                         let meta = if is_system {
                             system_message_meta(&m).into_any()
                         } else {
