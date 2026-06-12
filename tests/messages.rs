@@ -546,6 +546,325 @@ async fn cursor_paginates_past_100_in_order() {
     );
 }
 
+/// Force a message's `sent_at` to an exact instant via direct DB write — the
+/// API stamps `time::now()`, so equal-`sent_at` tie groups (the boundary the
+/// strict composite cursor tie-break exists for) can only be built this way.
+/// Parameterized: the datetime rides `type::datetime($at)`, never a
+/// `<string>` cast (the cursor invariant).
+#[cfg(feature = "ssr")]
+async fn force_sent_at(a: &common::Arena, mid: &str, at: &str) {
+    a.db.query("UPDATE type::record('message', $mid) SET sent_at = type::datetime($at);")
+        .bind(("mid", mid.to_string()))
+        .bind(("at", at.to_string()))
+        .await
+        .expect("force sent_at transport")
+        .check()
+        .expect("force sent_at");
+}
+
+/// GET a message page and return its ids in display order.
+#[cfg(feature = "ssr")]
+async fn page_ids(router: &axum::Router, cookie: &str, cid: &str, query: &str) -> Vec<String> {
+    let (status, _, body) = common::send(
+        router,
+        Method::GET,
+        &format!("/channels/{cid}/messages{query}"),
+        Some(cookie),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Review M-11/M-12: the composite cursor at an equal-`sent_at` tie group, in
+/// BOTH directions. Three early rows, a five-row tie group sharing ONE
+/// instant, three late rows; the cursor walks the tie group by id. Pins the
+/// exact page membership + order the index-friendly split (equality-boundary
+/// statement + open-range statement) must reassemble: strictly-greater /
+/// strictly-lesser tie ids only, the cursor row itself never included.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn cursor_tie_break_with_equal_sent_at_is_strict_in_both_directions() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    const T_TIE: &str = "2026-01-01T10:00:10Z";
+    let mut early: Vec<String> = Vec::new();
+    for i in 0..3 {
+        let id = post_one(&a.router, &owner, &cid, &format!("early {i}")).await;
+        force_sent_at(&a, &id, &format!("2026-01-01T10:00:0{i}Z")).await;
+        early.push(id);
+    }
+    let mut ties: Vec<String> = Vec::new();
+    for i in 0..5 {
+        let id = post_one(&a.router, &owner, &cid, &format!("tie {i}")).await;
+        force_sent_at(&a, &id, T_TIE).await;
+        ties.push(id);
+    }
+    let mut late: Vec<String> = Vec::new();
+    for i in 0..3 {
+        let id = post_one(&a.router, &owner, &cid, &format!("late {i}")).await;
+        force_sent_at(&a, &id, &format!("2026-01-01T10:00:2{i}Z")).await;
+        late.push(id);
+    }
+    // Within the tie group display order is the id tie-break (lexical).
+    ties.sort();
+
+    // Forward (catch-up) from the MIDDLE tie id: the strictly-greater tie ids
+    // in id order, then the late rows — the cursor row itself excluded.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?since={T_TIE}&after_id={}", ties[2]),
+    )
+    .await;
+    let expected: Vec<String> = ties[3..].iter().chain(late.iter()).cloned().collect();
+    assert_eq!(got, expected, "catch-up from the middle of the tie group");
+
+    // Forward from the TOP tie id: the tie group is exhausted.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?since={T_TIE}&after_id={}", ties[4]),
+    )
+    .await;
+    assert_eq!(got, late, "catch-up from the top of the tie group");
+
+    // Backward (scroll-up) from the middle tie id: the early rows + the
+    // strictly-lesser tie ids, ASC display order, cursor row excluded.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?before={T_TIE}&before_id={}", ties[2]),
+    )
+    .await;
+    let expected: Vec<String> = early.iter().chain(ties[..2].iter()).cloned().collect();
+    assert_eq!(got, expected, "backfill from the middle of the tie group");
+
+    // Backward from the BOTTOM tie id: no tie rows at all.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?before={T_TIE}&before_id={}", ties[0]),
+    )
+    .await;
+    assert_eq!(got, early, "backfill from the bottom of the tie group");
+}
+
+/// Review M-12: when MORE than a page matches a cursor, both directions keep
+/// the 100 rows NEAREST the cursor — catch-up keeps the oldest 100 past it,
+/// backfill keeps the newest 100 before it. NOTE: every row here carries a
+/// distinct API-stamped `sent_at`, so the tie-boundary statement returns zero
+/// rows and the range statement self-limits to exactly the page — this test
+/// pins the range arm's LIMIT direction only. The `rows.truncate(...)` line
+/// itself is pinned by `cursor_truncation_keeps_tie_rows_nearest_the_cursor_
+/// when_tie_and_range_overflow_the_page` below, where BOTH statements return
+/// rows.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn cursor_pages_keep_the_hundred_rows_nearest_the_cursor_when_more_match() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    const TOTAL: usize = 121; // m0..m120 — one more than a page on each side
+    for i in 0..TOTAL {
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/channels/{cid}/messages"),
+            Some(&owner),
+            Some(&json!({ "body": format!("m{i}") })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    // Recover the m0 and m120 envelopes: the newest page holds m21..m120, a
+    // backfill before its first row holds m0..m20.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let newest = body["messages"].as_array().unwrap().clone();
+    assert_eq!(newest.first().unwrap()["body"], "m21");
+    let m120 = newest.last().unwrap().clone();
+    assert_eq!(m120["body"], "m120");
+    let first = newest.first().unwrap();
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!(
+            "/channels/{cid}/messages?before={}&before_id={}",
+            first["sent_at"].as_str().unwrap(),
+            first["id"].as_str().unwrap()
+        ),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let oldest = body["messages"].as_array().unwrap().clone();
+    let m0 = oldest.first().unwrap().clone();
+    assert_eq!(m0["body"], "m0");
+
+    // Catch-up from m0: 120 rows match; the page is the oldest 100 of them
+    // (m1..m100), nearest AFTER the cursor.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!(
+            "/channels/{cid}/messages?since={}&after_id={}",
+            m0["sent_at"].as_str().unwrap(),
+            m0["id"].as_str().unwrap()
+        ),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page = body["messages"].as_array().unwrap();
+    assert_eq!(page.len(), 100);
+    assert_eq!(page.first().unwrap()["body"], "m1");
+    assert_eq!(page.last().unwrap()["body"], "m100");
+
+    // Backfill from m120: 120 rows match; the page is the newest 100 of them
+    // (m20..m119), nearest BEFORE the cursor.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!(
+            "/channels/{cid}/messages?before={}&before_id={}",
+            m120["sent_at"].as_str().unwrap(),
+            m120["id"].as_str().unwrap()
+        ),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page = body["messages"].as_array().unwrap();
+    assert_eq!(page.len(), 100);
+    assert_eq!(page.first().unwrap()["body"], "m20");
+    assert_eq!(page.last().unwrap()["body"], "m119");
+}
+
+/// Review M-12 (re-review): pins the ONLY correctness-load-bearing Rust line
+/// of the split-statement rewrite — `rows.truncate(MESSAGES_PAGE_LIMIT)`
+/// BEFORE the display flip (`reading.rs::load_messages`). A page of distinct
+/// timestamps can never exercise it (the tie statement returns zero rows and
+/// the range statement self-limits to exactly 100, so the truncate is a
+/// no-op); here BOTH statements return rows: a 5-row tie group at the cursor
+/// instant plus 120 range rows past it → 104 candidates for a 100-row page.
+/// Kills both surviving mutants:
+/// - truncate DELETED → a 104-row page leaks (the length assert);
+/// - truncate moved AFTER `out.reverse()` → the Before page keeps the FAR
+///   oldest rows and drops the 4 tie rows nearest the cursor (silently
+///   skipped history — the membership asserts).
+/// Layout: low tie group at T_LOW, 120 distinct-stamp range rows between,
+/// high tie group at T_HIGH. Catch-up from the bottom low-tie id must return
+/// the 4 greater low-tie ids + the oldest 96 range rows; backfill from the
+/// top high-tie id must return the newest 96 range rows + the 4 lesser
+/// high-tie ids (ASC display order).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn cursor_truncation_keeps_tie_rows_nearest_the_cursor_when_tie_and_range_overflow_the_page()
+{
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    const T_LOW: &str = "2026-02-01T10:00:00Z";
+    const T_HIGH: &str = "2026-02-01T12:00:00Z";
+
+    let mut low_ties: Vec<String> = Vec::new();
+    for i in 0..5 {
+        let id = post_one(&a.router, &owner, &cid, &format!("low tie {i}")).await;
+        force_sent_at(&a, &id, T_LOW).await;
+        low_ties.push(id);
+    }
+    let mut range: Vec<String> = Vec::new();
+    for i in 0..120 {
+        let id = post_one(&a.router, &owner, &cid, &format!("range {i}")).await;
+        // Distinct strictly-increasing instants between the tie groups:
+        // 11:00:00 .. 11:01:59.
+        force_sent_at(
+            &a,
+            &id,
+            &format!("2026-02-01T11:{:02}:{:02}Z", i / 60, i % 60),
+        )
+        .await;
+        range.push(id);
+    }
+    let mut high_ties: Vec<String> = Vec::new();
+    for i in 0..5 {
+        let id = post_one(&a.router, &owner, &cid, &format!("high tie {i}")).await;
+        force_sent_at(&a, &id, T_HIGH).await;
+        high_ties.push(id);
+    }
+    // Within a tie group display order is the id tie-break (lexical).
+    low_ties.sort();
+    high_ties.sort();
+
+    // Catch-up from the BOTTOM low-tie id: 124 rows match (4 ties + 120
+    // range); the page is the 100 nearest AFTER the cursor — all 4 greater
+    // tie ids first, then the oldest 96 range rows. A dropped truncate leaks
+    // 104 rows here.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?since={T_LOW}&after_id={}", low_ties[0]),
+    )
+    .await;
+    let expected: Vec<String> = low_ties[1..]
+        .iter()
+        .chain(range[..96].iter())
+        .cloned()
+        .collect();
+    assert_eq!(got.len(), 100, "catch-up page is exactly one page");
+    assert_eq!(
+        got, expected,
+        "catch-up keeps the tie rows nearest the cursor"
+    );
+
+    // Backfill from the TOP high-tie id: 124 rows match (4 ties + 120 range);
+    // the page is the 100 nearest BEFORE the cursor — the newest 96 range
+    // rows, then all 4 lesser tie ids, ASC display order. Truncating AFTER
+    // the display reverse keeps the far-oldest range rows instead and drops
+    // the tie rows entirely.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?before={T_HIGH}&before_id={}", high_ties[4]),
+    )
+    .await;
+    let expected: Vec<String> = range[24..]
+        .iter()
+        .chain(high_ties[..4].iter())
+        .cloned()
+        .collect();
+    assert_eq!(got.len(), 100, "backfill page is exactly one page");
+    assert_eq!(
+        got, expected,
+        "backfill keeps the tie rows nearest the cursor, not the far end of the range"
+    );
+}
+
 /// Locks down the W5/H2 batch typing-name resolution: two typists are pinged
 /// into the channel; a third member polls and sees both names — and never
 /// themselves — using their username (no `display_name`, no worn persona,
@@ -926,6 +1245,70 @@ async fn reply_to_soft_deleted_parent_is_400() {
         status,
         StatusCode::BAD_REQUEST,
         "a soft-deleted reply target must 400"
+    );
+}
+
+/// M-26: validation ORDER is security-load-bearing. `reply_target_valid` and
+/// `all_media_exist` are DB probes, so the membership gate (privacy-404) must
+/// run BEFORE them — otherwise a non-member POSTing a reply gets 400 "invalid
+/// reply target" when the target is absent from the channel but 404 when it
+/// exists there, a 400-vs-404 existence oracle on (cid, rid) pairs. Every
+/// non-member probe variant must collapse to the byte-identical privacy-404.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nonmember_post_probes_collapse_to_the_identical_privacy_404() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+    let parent = post_one(&a.router, &owner, &cid, "members only").await;
+    let outsider = common::register_account(&a.router, "Outsider", "password123").await;
+
+    // (a) Reply target that EXISTS in the channel — already 404 today.
+    let (st_real, body_real) = reply_to(&a.router, &outsider, &cid, "probe", &parent).await;
+    // (b) Reply target absent from the channel — the oracle's other face:
+    // must be the SAME 404, never the validator's 400.
+    let (st_bogus, body_bogus) = reply_to(&a.router, &outsider, &cid, "probe", "nosuchmsg").await;
+    // (c) Unknown attachment id — `all_media_exist` is a DB probe too.
+    let (st_media, _, body_media) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&outsider),
+        Some(&json!({ "body": "probe", "attachment_ids": ["nosuchblob"] })),
+    )
+    .await;
+    // (d) The canonical privacy-404 every channel handler emits.
+    let (st_canon, _, body_canon) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+
+    assert_eq!(st_real, StatusCode::NOT_FOUND);
+    assert_eq!(
+        st_bogus,
+        StatusCode::NOT_FOUND,
+        "a non-member's bogus reply target must hit the membership 404, not the 400 validator"
+    );
+    assert_eq!(
+        st_media,
+        StatusCode::NOT_FOUND,
+        "a non-member's unknown attachment must hit the membership 404, not the 400 validator"
+    );
+    assert_eq!(st_canon, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body_real, body_bogus,
+        "existing vs missing reply target must be indistinguishable to a non-member"
+    );
+    assert_eq!(
+        body_bogus, body_media,
+        "reply-target and attachment probes must share one privacy-404 body"
+    );
+    assert_eq!(
+        body_media, body_canon,
+        "the POST privacy-404 body must be byte-identical to the list handler's"
     );
 }
 

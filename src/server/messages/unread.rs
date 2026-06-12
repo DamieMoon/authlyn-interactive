@@ -3,15 +3,26 @@
 //!
 //! Three DB round-trips total (visible channels, read cursors, one
 //! multi-statement batch), independent of channel count. The batch issues
-//! unread ids `LIMIT 100` + a ping probe `LIMIT 1` per cursored channel and
-//! the latest row per cursorless channel.
+//! capped unread ids + a ping probe per cursored channel and the latest row
+//! per cursorless channel.
 //! Bind names are loop-indexed (`$cid_0`, `$at_0`, …) — only the loop index
 //! enters the query text, never a user value (the sanctioned splice form, like
 //! `MSG_PROJECTION`). The unread predicate is the strict composite tie-break
-//! the message cursor uses: `sent_at > $at OR (sent_at = $at AND meta::id(id)
-//! > $mid)`, with the stored cursor bound as a true `datetime` (never a
+//! the message cursor uses — `sent_at > $at OR (sent_at = $at AND
+//! meta::id(id) > $mid)` — but each probe is issued as TWO statements (an
+//! equality statement covering the cursor's own instant, refined by the
+//! strict id tie-break, plus an open `sent_at > $at` range) because the
+//! planner cannot push the OR form into the `(channel, sent_at)` index
+//! (review M-11): EXPLAIN FULL on the 3.1.3 dev binary plans the OR as an
+//! unbounded per-channel IndexScan — the caught-up case (the common one)
+//! fetched EVERY row in the channel per call — while the split halves plan as
+//! a `[channel, $at]` point access and a `MoreThan` range. The halves are
+//! disjoint by construction (`sent_at =` vs `sent_at >`), so re-merging them
+//! in step 4 (sum the counts, OR the ping flags) reproduces the OR predicate
+//! exactly; the equal-`sent_at` tie-group test in `tests/unread.rs` pins the
+//! boundary. The stored cursor is bound as a true `datetime` (never a
 //! `<string>` cast — see `server::datetime`). Soft-deleted messages never
-//! count (`deleted_at = NONE` everywhere); visibility comes from
+//! count (`deleted_at = NONE` in every statement); visibility comes from
 //! [`visible_channels`], so a non-member's channels simply don't appear.
 
 use std::collections::HashMap;
@@ -35,10 +46,13 @@ use crate::server::state::AppState;
 const UNREAD_COUNT_CAP: usize = 100;
 
 /// Which output row statement `i` of the batch feeds, and how to read it.
+/// A cursored channel emits TWO `Unread` and TWO `Ping` statements (the
+/// tie-boundary + open-range split, see the module doc); step 4 accumulates
+/// them onto the same output row.
 enum Stmt {
-    /// Unread message ids (capped) → `out[i].unread`.
+    /// Unread message ids (capped) → summed into `out[i].unread`.
     Unread(usize),
-    /// Ping probe (`LIMIT 1`) → `out[i].pinged`.
+    /// Ping probe (`LIMIT 1`) → OR-ed into `out[i].pinged`.
     Ping(usize),
     /// Latest live row of a cursorless channel → `out[i].latest_*`.
     Latest(usize),
@@ -101,23 +115,39 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
         let mut kinds: Vec<Stmt> = Vec::new();
         for (i, ch) in visible.iter().enumerate() {
             if cursors.contains_key(&ch.channel_id) {
-                // Strict composite tie-break: the cursor row itself is READ.
+                // Strict composite tie-break (the cursor row itself is READ),
+                // split per probe into the tie-boundary statement (`sent_at =
+                // $at`, ids strictly past the cursor's) + the open-range
+                // statement (`sent_at > $at`) so both ride the (channel,
+                // sent_at) index instead of walking the channel — see the
+                // module doc. The pairs are disjoint; step 4 re-merges them.
                 sql.push_str(&format!(
                     "SELECT VALUE meta::id(id) FROM message
                         WHERE channel = type::record('channel', $cid_{i})
                           AND deleted_at = NONE
-                          AND (sent_at > $at_{i}
-                               OR (sent_at = $at_{i} AND meta::id(id) > $mid_{i}))
+                          AND sent_at = $at_{i} AND meta::id(id) > $mid_{i}
                         LIMIT {UNREAD_COUNT_CAP};
                      SELECT VALUE meta::id(id) FROM message
                         WHERE channel = type::record('channel', $cid_{i})
                           AND deleted_at = NONE
-                          AND (sent_at > $at_{i}
-                               OR (sent_at = $at_{i} AND meta::id(id) > $mid_{i}))
+                          AND sent_at > $at_{i}
+                        LIMIT {UNREAD_COUNT_CAP};
+                     SELECT VALUE meta::id(id) FROM message
+                        WHERE channel = type::record('channel', $cid_{i})
+                          AND deleted_at = NONE
+                          AND sent_at = $at_{i} AND meta::id(id) > $mid_{i}
+                          AND type::record('account', $acct) IN (pinged_users ?? [])
+                        LIMIT 1;
+                     SELECT VALUE meta::id(id) FROM message
+                        WHERE channel = type::record('channel', $cid_{i})
+                          AND deleted_at = NONE
+                          AND sent_at > $at_{i}
                           AND type::record('account', $acct) IN (pinged_users ?? [])
                         LIMIT 1;"
                 ));
                 kinds.push(Stmt::Unread(i));
+                kinds.push(Stmt::Unread(i));
+                kinds.push(Stmt::Ping(i));
                 kinds.push(Stmt::Ping(i));
             } else {
                 // No cursor: surface the latest live row so the client can
@@ -154,11 +184,17 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
             match kind {
                 Stmt::Unread(i) => {
                     let ids: Vec<String> = resp.take(stmt_idx)?;
-                    out[*i].unread = ids.len();
+                    // Two statements feed one channel (tie-boundary + open
+                    // range); their row sets are disjoint by construction
+                    // (`sent_at =` vs `>`), so summing is exact. Re-capped:
+                    // each half is LIMITed independently, so the raw sum
+                    // could otherwise exceed the cap the single-statement
+                    // form enforced.
+                    out[*i].unread = (out[*i].unread + ids.len()).min(UNREAD_COUNT_CAP);
                 }
                 Stmt::Ping(i) => {
                     let ids: Vec<String> = resp.take(stmt_idx)?;
-                    out[*i].pinged = !ids.is_empty();
+                    out[*i].pinged |= !ids.is_empty();
                 }
                 Stmt::Latest(i) => {
                     if let Some(latest) = resp.take::<Option<LatestRow>>(stmt_idx)? {

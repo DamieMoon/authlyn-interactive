@@ -437,3 +437,82 @@ async fn nova_dot_system_account_is_seeded_and_cannot_log_in() {
         "the Nova DOT bot account cannot be logged into"
     );
 }
+
+/// W5 review M-37: the `guild_member_account` index (the account-only lookup
+/// `access::visible_channels` runs on every /events connect, ListsChanged
+/// visibility reload, and GET /unread) must land on a database whose
+/// `guild_member` table is ALREADY POPULATED — exactly prod's state at deploy
+/// time. `DEFINE INDEX` builds over existing rows at apply, so the apply must
+/// not error, the index must exist afterwards, and the lookup must serve the
+/// pre-existing rows through it.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn new_guild_member_account_index_applies_over_populated_rows() {
+    let db = common::raw_db().await;
+
+    // The pre-M-37 guild_member schema: every real field, but ONLY the
+    // (guild, account) composite index — no account-only index.
+    db.query(
+        "DEFINE TABLE guild_member SCHEMAFULL;\
+         DEFINE FIELD guild ON guild_member TYPE record<guild>;\
+         DEFINE FIELD account ON guild_member TYPE record<account>;\
+         DEFINE FIELD role ON guild_member TYPE string DEFAULT 'member' ASSERT $value IN ['owner', 'admin', 'member'];\
+         DEFINE FIELD active_persona ON guild_member TYPE option<record<persona>>;\
+         DEFINE FIELD joined_at ON guild_member TYPE datetime DEFAULT time::now();\
+         DEFINE INDEX guild_member_pair ON guild_member FIELDS guild, account UNIQUE;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // Populated membership rows (record links are not referentially enforced,
+    // so the dangling guild/account ids are fine).
+    db.query(
+        "CREATE guild_member SET guild = guild:g1, account = account:alpha;\
+         CREATE guild_member SET guild = guild:g2, account = account:alpha;\
+         CREATE guild_member SET guild = guild:g1, account = account:beta;",
+    )
+    .await
+    .expect("seed transport")
+    .check()
+    .expect("seed membership rows");
+
+    // Apply the REAL schema: must not error, and must add the new index.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over populated guild_member");
+
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE guild_member); RETURN object::keys($i.indexes);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let indexes: Vec<String> = resp.take(1).expect("take index names");
+    assert!(
+        indexes.contains(&"guild_member_account".to_string()),
+        "the account-only index must exist after apply, got: {indexes:?}"
+    );
+
+    // The visible_channels lookup shape serves the pre-existing rows.
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(guild) FROM guild_member
+                WHERE account = type::record('account', $account);",
+        )
+        .bind(("account", "alpha".to_string()))
+        .await
+        .expect("lookup query")
+        .check()
+        .expect("lookup check");
+    let mut guilds: Vec<String> = resp.take(0).expect("take guilds");
+    guilds.sort();
+    assert_eq!(
+        guilds,
+        vec!["g1".to_string(), "g2".to_string()],
+        "pre-existing memberships are served through the new index"
+    );
+}

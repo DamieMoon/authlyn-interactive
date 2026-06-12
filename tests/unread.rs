@@ -1,5 +1,9 @@
 //! W1: batched GET /unread — cursor math (strict composite tie-break), ping
-//! flag, baseline fields, and privacy (only visible channels appear).
+//! flag, baseline fields, privacy (only visible channels appear), and the
+//! soft-delete exclusions (deleted messages/channels/guilds never count —
+//! review M-16). The equal-`sent_at` tie-group test (review M-11) pins the
+//! strict boundary semantics across the index-friendly split of the unread
+//! predicate into an equality + open-range statement pair.
 #![cfg(feature = "ssr")]
 
 mod common;
@@ -76,6 +80,49 @@ async fn post_msg(router: &axum::Router, cookie: &str, cid: &str, body: &str) ->
         .iter()
         .find(|m| m["id"] == id.as_str())
         .expect("posted message must appear in the page")
+        .clone()
+}
+
+/// Force a message's `sent_at` to an exact instant via direct DB write. The
+/// API stamps `time::now()` at send, so an equal-`sent_at` tie group — the
+/// boundary the strict composite cursor tie-break exists for — can only be
+/// built this way. Parameterized: the datetime rides `type::datetime($at)`,
+/// never a `<string>` cast (the cursor invariant).
+async fn force_sent_at(a: &common::Arena, mid: &str, at: &str) {
+    a.db.query("UPDATE type::record('message', $mid) SET sent_at = type::datetime($at);")
+        .bind(("mid", mid.to_string()))
+        .bind(("at", at.to_string()))
+        .await
+        .expect("force sent_at transport")
+        .check()
+        .expect("force sent_at");
+}
+
+/// POST /channels/{cid}/mark-read at an explicit `(sent_at, id)` cursor and
+/// assert the 204.
+async fn mark_read_at(router: &axum::Router, cookie: &str, cid: &str, sent_at: &str, id: &str) {
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{cid}/mark-read"),
+        Some(cookie),
+        Some(&json!({ "sent_at": sent_at, "id": id })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+}
+
+/// GET /unread and return the row for `cid` (panics when absent — the
+/// presence-negative tests scan the array themselves).
+async fn unread_row(router: &axum::Router, cookie: &str, cid: &str) -> serde_json::Value {
+    let (st, _, body) = common::send(router, Method::GET, "/unread", Some(cookie), None).await;
+    assert_eq!(st, StatusCode::OK);
+    body["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["channel_id"] == cid)
+        .expect("channel row in /unread")
         .clone()
 }
 
@@ -248,5 +295,210 @@ async fn unread_lists_only_channels_the_caller_can_see() {
     assert!(
         rows.iter().all(|r| r["channel_id"] != cid.as_str()),
         "foreign channels must not appear in /unread"
+    );
+}
+
+/// Review M-11: the strict composite tie-break at an equal-`sent_at` tie
+/// group, for BOTH the unread count and the ping probe. Five mention-carrying
+/// messages share ONE instant; the cursor walks the tie group by id. Pins the
+/// boundary semantics the split (equality + open-range) statements must
+/// reassemble exactly: the cursor row and lexically-lesser tie ids are read,
+/// strictly-greater tie ids and later rows are unread.
+#[tokio::test]
+async fn unread_tie_break_at_equal_sent_at_counts_only_strictly_higher_ids() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+    let buddy = common::register_account(&a.router, "UnreadTieBuddy", "password123").await;
+    invite(&a.router, &owner, &gid, "UnreadTieBuddy").await;
+
+    const T0: &str = "2026-01-01T10:00:00Z";
+    const T1: &str = "2026-01-01T10:00:01Z";
+    const T2: &str = "2026-01-01T10:00:02Z";
+
+    // Five tie-group messages, every one mentioning buddy (so the ping probe
+    // is exercised at the same boundary), then two later plain messages.
+    let mut ties: Vec<String> = Vec::new();
+    for i in 0..5 {
+        let m = post_msg(&a.router, &owner, &cid, &format!("@UnreadTieBuddy tie {i}")).await;
+        ties.push(m["id"].as_str().unwrap().to_string());
+    }
+    let later1 = post_msg(&a.router, &owner, &cid, "after one").await;
+    let later2 = post_msg(&a.router, &owner, &cid, "after two").await;
+    let later2_id = later2["id"].as_str().unwrap().to_string();
+    for id in &ties {
+        force_sent_at(&a, id, T0).await;
+    }
+    force_sent_at(&a, later1["id"].as_str().unwrap(), T1).await;
+    force_sent_at(&a, &later2_id, T2).await;
+    // The tie-break compares id strings; walk the cursor along the sorted ids.
+    ties.sort();
+
+    // Cursor ON the middle tie row: the two strictly-greater tie ids + the
+    // two later rows are unread; the cursor row itself and the lesser tie ids
+    // are not. The greater tie rows carry mentions → pinged.
+    mark_read_at(&a.router, &buddy, &cid, T0, &ties[2]).await;
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(
+        row["unread"], 4,
+        "two greater tie ids + two later messages; the cursor row is read"
+    );
+    assert_eq!(
+        row["pinged"], true,
+        "unread tie rows above the cursor id mention buddy"
+    );
+
+    // Cursor on the TOP tie id: the whole tie group is read; only the two
+    // later (mention-free) rows remain.
+    mark_read_at(&a.router, &buddy, &cid, T0, &ties[4]).await;
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(row["unread"], 2, "the whole tie group is behind the cursor");
+    assert_eq!(
+        row["pinged"], false,
+        "every mention sits at or below the cursor"
+    );
+
+    // Fully caught up (cursor = the newest row): zero unread — the exact case
+    // that must not degrade into a whole-channel walk.
+    mark_read_at(&a.router, &buddy, &cid, T2, &later2_id).await;
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(row["unread"], 0);
+    assert_eq!(row["pinged"], false);
+}
+
+/// Review M-16: a soft-deleted message stops counting toward unread (and
+/// stops pinging) IMMEDIATELY, and a restore (the undo-toast round trip)
+/// brings both back — the `deleted_at = NONE` filter in the unread and ping
+/// statements is load-bearing, not decorative.
+#[tokio::test]
+async fn soft_deleted_message_stops_counting_toward_unread_until_restored() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+    let buddy = common::register_account(&a.router, "UnreadTrashBuddy", "password123").await;
+    invite(&a.router, &owner, &gid, "UnreadTrashBuddy").await;
+
+    let m1 = post_msg(&a.router, &owner, &cid, "baseline").await;
+    mark_read_at(
+        &a.router,
+        &buddy,
+        &cid,
+        m1["sent_at"].as_str().unwrap(),
+        m1["id"].as_str().unwrap(),
+    )
+    .await;
+    let m2 = post_msg(&a.router, &owner, &cid, "@UnreadTrashBuddy soon gone").await;
+    let m2_id = m2["id"].as_str().unwrap().to_string();
+
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(row["unread"], 1);
+    assert_eq!(row["pinged"], true);
+
+    // Soft-delete → the badge and the ping must drop it immediately.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{m2_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(
+        row["unread"], 0,
+        "a soft-deleted message must not count toward unread"
+    );
+    assert_eq!(row["pinged"], false, "a soft-deleted mention must not ping");
+
+    // Restore → it counts (and pings) again.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{m2_id}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(
+        row["unread"], 1,
+        "a restored message counts toward unread again"
+    );
+    assert_eq!(row["pinged"], true, "a restored mention pings again");
+}
+
+/// Review M-16: a soft-deleted channel's row disappears from /unread (its
+/// messages must not inflate any badge), while sibling live channels stay.
+#[tokio::test]
+async fn soft_deleted_channel_disappears_from_unread() {
+    let a = common::arena().await;
+    let (owner, gid, cid_general) = setup(&a.router).await;
+    let (st, _, annex) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "annex", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let cid_annex = annex["id"].as_str().unwrap().to_string();
+    post_msg(&a.router, &owner, &cid_annex, "doomed channel content").await;
+
+    // Present while live…
+    unread_row(&a.router, &owner, &cid_annex).await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}/channels/{cid_annex}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // …gone once trashed; the live sibling keeps its row.
+    let (st, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let rows = body["channels"].as_array().unwrap();
+    assert!(
+        rows.iter().all(|r| r["channel_id"] != cid_annex.as_str()),
+        "a soft-deleted channel must not appear in /unread"
+    );
+    assert!(
+        rows.iter().any(|r| r["channel_id"] == cid_general.as_str()),
+        "the live sibling channel still appears"
+    );
+}
+
+/// Review M-16: soft-deleting a GUILD drops every one of its channels from
+/// /unread — the `guild.deleted_at = NONE` clause in `visible_channels`, the
+/// filter /unread (and SSE) seed from.
+#[tokio::test]
+async fn soft_deleted_guild_drops_its_channels_from_unread() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+    post_msg(&a.router, &owner, &cid, "guild going down").await;
+
+    // Present while live…
+    unread_row(&a.router, &owner, &cid).await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (st, _, body) = common::send(&a.router, Method::GET, "/unread", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let rows = body["channels"].as_array().unwrap();
+    assert!(
+        rows.iter().all(|r| r["guild_id"] != gid.as_str()),
+        "a soft-deleted guild's channels must not appear in /unread"
     );
 }

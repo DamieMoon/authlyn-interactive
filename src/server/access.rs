@@ -108,7 +108,11 @@ pub(crate) struct VisibleChannel {
 }
 
 /// Load every [`VisibleChannel`] for `account`. Two parameterized statements,
-/// one round-trip.
+/// one round-trip. The account-only `guild_member` lookup is served by the
+/// `guild_member_account` index (review M-37 — the `(guild, account)` UNIQUE
+/// composite can't serve a non-prefix predicate, so this planned as a
+/// TableScan on every /events connect, ListsChanged visibility reload, and
+/// GET /unread).
 pub(crate) async fn visible_channels(
     state: &AppState,
     account: &str,

@@ -135,13 +135,24 @@ async fn resolve_typing_names(
 /// (`typing::typing_drafts`, W4/T7) so the persona-aware resolution can never
 /// diverge between the two.
 ///
-/// One round-trip total: a two-statement query batches every account
-/// (`account` IN-list + `channel_active_persona` IN-list scoped to this
-/// channel), then a HashMap merge in Rust resolves the persona-or-fallback
-/// preference. W5/H2 — was N round-trips (one query per typist); the
-/// previous comment about avoiding a correlated sub-SELECT inside the
-/// projection (3.1.0-beta.3 unevenness) is honored: this batch keeps the
-/// two table reads as independent top-level SELECTs.
+/// One round-trip total: a two-statement query batches every account, then a
+/// HashMap merge in Rust resolves the persona-or-fallback preference. W5/H2 —
+/// was N round-trips (one query per typist); the previous comment about
+/// avoiding a correlated sub-SELECT inside the projection (3.1.0-beta.3
+/// unevenness) is honored: this batch keeps the two table reads as
+/// independent top-level SELECTs.
+///
+/// Review M-38: both halves used `meta::id(x) IN $accts`, the documented
+/// TableScan anti-pattern this branch already fixed in
+/// `posting.rs::all_media_exist` and the `attachment_mimes` arm — left here
+/// on the per-keystroke Ghost Quill path. The ids now bind as `RecordId`s:
+/// the account half point-reads `FROM $acct_records` (`id IS NOT NONE` drops
+/// since-vanished accounts, preserving the silently-skip behavior), and the
+/// persona half's `account IN $acct_records` is an equality set on the
+/// PREFIX of the `(account, channel)` UNIQUE index — EXPLAIN FULL on the
+/// 3.1.3 dev binary plans one `channel_active_persona_pair` IndexScan branch
+/// per account (vs the prior TableScan), with the channel equality filtered
+/// on those few rows.
 pub(super) async fn resolve_display_names(
     state: &AppState,
     cid: &str,
@@ -160,24 +171,28 @@ pub(super) async fn resolve_display_names(
         acct_id: String,
         persona_name: Option<String>,
     }
+    let acct_records: Vec<surrealdb::types::RecordId> = accounts
+        .iter()
+        .map(|id| surrealdb::types::RecordId::new("account", id.as_str()))
+        .collect();
     let mut resp = state
         .db
         .query(
             "SELECT
                 meta::id(id) AS acct_id,
                 (IF display_name != '' THEN display_name ELSE username END) AS fallback
-             FROM account
-             WHERE meta::id(id) IN $accts;
+             FROM $acct_records
+             WHERE id IS NOT NONE;
 
              SELECT
                 meta::id(account) AS acct_id,
                 persona.name AS persona_name
              FROM channel_active_persona
-             WHERE channel = type::record('channel', $cid)
-               AND meta::id(account) IN $accts;",
+             WHERE account IN $acct_records
+               AND channel = type::record('channel', $cid);",
         )
         .bind(("cid", cid.to_string()))
-        .bind(("accts", accounts.to_vec()))
+        .bind(("acct_records", acct_records))
         .await?
         .check()?;
     let accounts_rows: Vec<AccountRow> = resp.take(0)?;
@@ -374,6 +389,19 @@ impl MessageRow {
 // that would crash meta::id). Verified via EXPLAIN FULL on the SurrealDB
 // 3.1.3 server binary (the dev binary): TableScan -> DynamicScan over
 // array::map(...).
+//
+// VERSION-SKEW WARNING (review M-32, unresolved): everything above is
+// verified ONLY on the 3.1.3 dev binary. Prod (fenrir) still runs 3.0.4,
+// which has NEVER executed this closure-as-FROM-source + correlated `$parent`
+// shape — the pre-T10 post-page mime batch was the only form 3.0.4 ever ran —
+// and no test can ever cover the skew (the suite runs against the dev
+// binary; same blind spot that let the widened `message.kind` ASSERT bug
+// reach prod). If 3.0.4 errors on or mis-evaluates this projection, EVERY
+// message-page read 500s on prod immediately after deploy. Runbook gate
+// before the first deploy of this projection: execute one MSG_PROJECTION
+// SELECT against a throwaway namespace on prod's binary over HTTP /sql
+// (seeded message + media_blob + whispered reply parent), or upgrade prod to
+// the verified 3.1.3 first.
 pub(super) const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
@@ -417,6 +445,21 @@ async fn load_messages(
     // `reverse` is set for the DESC-ordered arms (the newest page and the
     // older-history page): they ORDER BY DESC so LIMIT keeps the rows nearest
     // "now" / nearest the cursor, then we flip the page back to ASC for display.
+    //
+    // The two cursor arms each run as TWO statements (review M-12): an
+    // equality statement covering the cursor's own `sent_at` instant (the tie
+    // group, refined by the strict id tie-break) and an OPEN range over
+    // everything past it. The planner cannot push the equivalent
+    // single-statement OR — `sent_at > $c OR (sent_at = $c AND id > $i)` —
+    // into the (channel, sent_at) index: EXPLAIN FULL on the 3.1.3 dev binary
+    // planned the OR as an unbounded IndexScan over the WHOLE channel per
+    // catch-up call, the split as a `[channel, $c]` point access plus a
+    // `MoreThan`/`LessThan` range. Statement order = page order (tie-boundary
+    // rows sit nearest the cursor on both arms); the halves are disjoint
+    // (`sent_at =` vs `>`/`<`) and each is LIMITed, so concatenating and
+    // truncating to the page limit yields exactly the single-statement page.
+    // tests/messages.rs pins the tie-group boundary and the nearest-the-cursor
+    // truncation in both directions.
     let (sql, bound, reverse) = match cursor {
         CursorState::None => (
             format!(
@@ -433,8 +476,13 @@ async fn load_messages(
                 "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
-                      AND (sent_at > type::datetime($since)
-                           OR (sent_at = type::datetime($since) AND meta::id(id) > $after_id))
+                      AND sent_at = type::datetime($since)
+                      AND meta::id(id) > $after_id
+                    ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at > type::datetime($since)
                     ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
             ),
             Some(("since", since, "after_id", after_id)),
@@ -445,8 +493,13 @@ async fn load_messages(
                 "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
-                      AND (sent_at < type::datetime($before)
-                           OR (sent_at = type::datetime($before) AND meta::id(id) < $before_id))
+                      AND sent_at = type::datetime($before)
+                      AND meta::id(id) < $before_id
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at < type::datetime($before)
                     ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
             ),
             Some(("before", before, "before_id", before_id)),
@@ -454,6 +507,7 @@ async fn load_messages(
         ),
     };
 
+    let split = bound.is_some();
     let mut q = state
         .db
         .query(sql)
@@ -464,7 +518,16 @@ async fn load_messages(
         q = q.bind((k1, v1)).bind((k2, v2));
     }
     let mut resp = q.await?.check()?;
-    let rows: Vec<MessageRow> = resp.take(0)?;
+    let mut rows: Vec<MessageRow> = resp.take(0)?;
+    if split {
+        // Cursor arms: statement 0 is the tie-boundary page head, statement 1
+        // the open-range tail. Truncate BEFORE the display flip so the kept
+        // rows are the ones nearest the cursor — exactly what the
+        // single-statement LIMIT kept.
+        let tail: Vec<MessageRow> = resp.take(1)?;
+        rows.extend(tail);
+        rows.truncate(MESSAGES_PAGE_LIMIT as usize);
+    }
     let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
     if reverse {
         out.reverse();

@@ -131,6 +131,14 @@ DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'm
 DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<persona>>;
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;
+-- W1 hot path (review M-37): `access::visible_channels` asks "which guilds is
+-- this account in?" on every /events connect, every per-connection ListsChanged
+-- visibility reload, and every GET /unread. An account-only predicate cannot
+-- use the (guild, account) composite above (account is not a prefix field), so
+-- it planned as a guild_member TableScan (EXPLAIN, SurrealDB 3.1.3). Plain
+-- non-unique index; DEFINE INDEX builds over existing rows at apply time, so
+-- there is no backfill hazard (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS guild_member_account ON guild_member FIELDS account;
 
 -- Per-channel worn persona (supersedes per-guild guild_member.active_persona).
 -- One row per (account, channel); UPSERT on wear, DELETE on unwear. Brand-new
