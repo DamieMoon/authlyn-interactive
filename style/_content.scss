@@ -131,13 +131,17 @@
 
 		// Per-message card: a subtle frame separates each message from the
 		// next and stacks the author/timestamp meta line above the body.
+		// Finding #53 (other-author bubbles melted into the void): the lift
+		// is the --card value bump in _tokens.scss plus this --line-strong
+		// hairline — the crisp edge that survives crushed blacks on cheap
+		// panels (POCO C3 floor). Cheap CSS only: no blur, no shadow.
 		.msg {
 			display: flex;
 			flex-direction: column;
 			gap: 0.15rem;
 			padding: 0.4rem 0.6rem;
 			background: var(--card);
-			border: 1px solid var(--line);
+			border: 1px solid var(--line-strong);
 			border-radius: 0.5rem;
 
 			& + .msg {

@@ -11,7 +11,12 @@
 	--void-deep: #07090f; // darkest base, page edges / rail bg
 	--void: #0b0e14; // page surface
 	--surface: #0e121a; // raised chrome panels (rail / sidebar / modal)
-	--card: #10141d; // content cards (.msg) — calm, opaque, NOT glass
+	// Lifted a notch 2026-06 (live finding #53: other-author bubbles melted
+	// into the void) — still strictly below --surface-2 per channel, so the
+	// elevation ladder above keeps its order. Every bubble variant (.own /
+	// .system accent washes, roll-chip glass) is a relative mix over this
+	// token and inherits the lift coherently.
+	--card: #121724; // content cards (.msg) — calm, opaque, NOT glass
 	--surface-2: #131927; // hover / active surface
 	--line: #1a2130; // hairline borders
 	--line-strong: #222b3c; // emphasized borders (inputs, frames)
