@@ -371,6 +371,54 @@
 			margin-right: 0;
 		}
 
+		// Re-entry dividers (UX evolution #9): virtual rows, never message
+		// cards — no .msg class, so none of the card-frame / bubble rules
+		// above apply. A faint mono label between two hairlines (Void
+		// Station console register). Static state, not motion: nothing for
+		// reduced-motion to kill, nothing the floor device pays for. The
+		// NEW divider marks the unread frontier captured at channel open
+		// (accent-tinted; its dom id is the unread jump's anchor target);
+		// date separators mark local-midnight crossings in ISO YYYY-MM-DD —
+		// locale-stable on every device. Non-interactive chrome, so
+		// selection is disarmed on every pointer class (not just coarse)
+		// and the 44px tap-target rule doesn't apply.
+		.msg-divider {
+			display: flex;
+			align-items: center;
+			gap: 0.6rem;
+			// Own vertical rhythm: dividers break the `.msg + .msg`
+			// adjacency, so they carry the inter-row spacing themselves.
+			margin: 0.6rem 0 0.4rem;
+			user-select: none;
+			-webkit-user-select: none;
+
+			.divider-line {
+				flex: 1;
+				height: 1px;
+				background: var(--glass-line);
+			}
+
+			.divider-label {
+				flex: none;
+				font-family: var(--font-mono);
+				font-size: 0.68rem;
+				letter-spacing: 0.14em;
+				color: var(--text-muted);
+			}
+		}
+
+		// The unread frontier: same skeleton as a date line, tinted accent
+		// so "where I left off" reads at a glance among the date separators.
+		.msg-divider.new-divider {
+			.divider-line {
+				background: color-mix(in srgb, var(--accent) 45%, transparent);
+			}
+
+			.divider-label {
+				color: var(--accent-bright);
+			}
+		}
+
 		// System (Nova DOT) broadcast: an app-admin message. A solid blue accent
 		// rail + faint accent wash sets it apart from ordinary chat without
 		// shouting, and a small uppercase SYSTEM pill tags the sender. No

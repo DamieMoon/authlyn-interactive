@@ -88,6 +88,15 @@ pub(crate) struct MessageView {
     /// only while `Prefs::ghost_quill` is on. SSE-only enhancement: the poll
     /// fallback never populates it.
     pub(crate) ghost_drafts: RwSignal<Vec<TypingDraftEntry>>,
+    /// Re-entry NEW divider (UX evolution #9): the unread baseline captured
+    /// when the channel was opened — the composite `(sent_at, id)` last-seen
+    /// cursor from BEFORE the open advanced it. `Some` only when the opened
+    /// page actually held rows past it; the list renders a virtual "NEW"
+    /// divider above the first such row (`act::reentry::first_unread_id`).
+    /// Render-time ornament ONLY: it never enters seen/cursor bookkeeping and
+    /// never writes read state. Reset on every channel switch
+    /// (`act::channel::open_channel_at`).
+    pub(crate) new_divider: RwSignal<Option<(String, String)>>,
 }
 
 /// Max staged attachments per message (composer cap). Matches the server-side
@@ -298,6 +307,14 @@ pub(crate) struct Notify {
     /// client `Notification` (server push already delivers it — see
     /// `notify::notify_messages`); when false the poll path is the fallback.
     pub(crate) web_push_enabled: RwSignal<bool>,
+    /// Re-entry scroll memory (UX evolution #9): channel id → the message row
+    /// id that was at the top of the viewport when the user last LEFT the
+    /// channel (no entry = they left at the tail). Captured on switch-away,
+    /// consumed one-shot on the next open — deep-link and unread-jump win —
+    /// and persisted to localStorage like the drafts map (`act::reentry`).
+    /// Client-only; never sent to the server and never feeds `last_seen` /
+    /// read state.
+    pub(crate) scroll_marks: RwSignal<HashMap<String, String>>,
 }
 
 /// Soft-deleted-item overlays (#22 Phase 2): own deleted guilds, deleted

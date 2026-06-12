@@ -148,6 +148,7 @@ fn AppShell() -> impl IntoView {
         seen: RwSignal::new(HashSet::new()),
         typing: RwSignal::new(Vec::new()),
         ghost_drafts: RwSignal::new(Vec::new()),
+        new_divider: RwSignal::new(None),
     };
     provide_context(msg);
 
@@ -203,6 +204,7 @@ fn AppShell() -> impl IntoView {
         last_seen: RwSignal::new(HashMap::new()),
         humming: RwSignal::new(HashMap::new()),
         web_push_enabled: RwSignal::new(false),
+        scroll_marks: RwSignal::new(act::reentry::load_scroll_marks()),
     };
     provide_context(notify);
 

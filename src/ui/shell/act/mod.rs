@@ -22,6 +22,9 @@
 //!   automatic fallback.
 //! - [`persona`] — wardrobe ops: create/update/remove/leave/swap/share/avatar +
 //!   wear/unwear.
+//! - [`reentry`] — re-entry aids (UX evolution #9): the unread-frontier NEW
+//!   divider baseline, date-separator labels, and per-channel scroll memory
+//!   (pure decision fns + localStorage / DOM capture).
 //! - [`toast`] — the one-at-a-time toast capsule: push/keyed-dismiss + the
 //!   action dispatcher (UX evolution #11).
 //! - [`emoji`] — guild custom-emoji refresh/create/delete + image upload.
@@ -40,6 +43,7 @@ pub mod message;
 pub mod notify;
 pub mod persona;
 pub mod prefs;
+pub mod reentry;
 pub mod sync;
 pub mod toast;
 

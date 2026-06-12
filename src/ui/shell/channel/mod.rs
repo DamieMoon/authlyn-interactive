@@ -15,7 +15,8 @@
 //!
 //! This file owns `ChannelPane` itself (the message-list/composer view), the
 //! composer's caret-aware `apply_markup`, the touch-vs-desktop Enter helper,
-//! and the small `deleted_message_row`.
+//! the small `deleted_message_row`, and the re-entry divider rows
+//! (`new_divider_row`/`date_divider_row`, UX evolution #9).
 
 mod attachments;
 mod avatar;
@@ -164,6 +165,42 @@ fn message_actions(kind: &str, mine: bool) -> MessageActions {
 #[cfg(feature = "hydrate")]
 pub(super) fn disarm_radial() {
     radial::disarm();
+}
+
+/// The "NEW" unread-frontier divider (UX evolution #9): a virtual row marking
+/// where unread began when the channel was opened, rendered above the first
+/// row strictly past the captured baseline. Sentinel discipline (the
+/// skeleton-row rule): it is NOT a message — its dom id is deliberately NOT
+/// `msg-`-prefixed, so the delegated radial handlers and the message-anchor
+/// lookups can never resolve it, and it never enters seen/cursor bookkeeping.
+/// The id doubles as the unread jump's anchor target
+/// (`act::reentry::NEW_DIVIDER_ANCHOR`), so landing there shows the frontier
+/// line itself, not an unmarked message among look-alike cards.
+fn new_divider_row() -> impl IntoView {
+    view! {
+        <li class="msg-divider new-divider" id=act::reentry::NEW_DIVIDER_ANCHOR
+            role="separator" aria-label="new messages">
+            <span class="divider-line" aria-hidden="true"></span>
+            <span class="divider-label">"NEW"</span>
+            <span class="divider-line" aria-hidden="true"></span>
+        </li>
+    }
+}
+
+/// A date-separator row (UX evolution #9) between messages from different
+/// days. `label` is the ISO `YYYY-MM-DD` date — locale-stable on every device
+/// (and the native Swedish date shape), computed against the VIEWER's local
+/// midnight on hydrate (`act::reentry::date_label`). Same sentinel discipline
+/// as the NEW divider: no `msg-` id, never in seen/cursor bookkeeping.
+fn date_divider_row(label: String) -> impl IntoView {
+    let aria = format!("messages from {label}");
+    view! {
+        <li class="msg-divider date-divider" role="separator" aria-label=aria>
+            <span class="divider-line" aria-hidden="true"></span>
+            <span class="divider-label">{label}</span>
+            <span class="divider-line" aria-hidden="true"></span>
+        </li>
+    }
 }
 
 /// The clickable reply quote rendered ABOVE a reply's body (L-3): the parent
@@ -635,7 +672,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             gloo_timers::future::TimeoutFuture::new(0).await;
             if let Some(el) = leptos::web_sys::window()
                 .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id(&format!("msg-{id}")))
+                .and_then(|d| {
+                    // Re-entry (UX evolution #9): the unread jump lands AT
+                    // the NEW divider — the sentinel anchor resolves to the
+                    // divider row's own dom id, so the frontier line itself
+                    // is visible above the first unread message. Every other
+                    // anchor is a real `msg-{id}` row, unchanged.
+                    if id == act::reentry::NEW_DIVIDER_ANCHOR {
+                        d.get_element_by_id(act::reentry::NEW_DIVIDER_ANCHOR)
+                    } else {
+                        d.get_element_by_id(&format!("msg-{id}"))
+                    }
+                })
             {
                 el.scroll_into_view();
             }
@@ -696,7 +744,32 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel.sel_channel.get().map(|c| c.id);
-                    s.msg.messages.get().into_iter().map(|m| {
+                    let msgs = s.msg.messages.get();
+                    // Re-entry dividers (UX evolution #9) — pure render-time
+                    // grouping over the composite-ordered list (never
+                    // re-sorted client-side): `new_before` is the id of the
+                    // first row strictly past the unread baseline captured at
+                    // channel open; `prev_date` threads the running local-date
+                    // label so a separator lands wherever consecutive rows
+                    // cross midnight. Neither divider is a message: no `msg-`
+                    // dom id, never in seen/cursor bookkeeping (sentinel
+                    // discipline) — see `new_divider_row`/`date_divider_row`.
+                    let new_before = s
+                        .msg
+                        .new_divider
+                        .get()
+                        .and_then(|baseline| act::reentry::first_unread_id(&msgs, &baseline));
+                    let mut prev_date: Option<String> = None;
+                    msgs.into_iter().map(|m| {
+                        let date = act::reentry::date_label(&m.sent_at);
+                        let date_row = (prev_date.as_deref() != Some(date.as_str()))
+                            .then(|| date_divider_row(date.clone()));
+                        prev_date = Some(date);
+                        // Date separator ABOVE the NEW divider when both land
+                        // on the same row ("a new day — and here is where you
+                        // left off").
+                        let new_row =
+                            (new_before.as_deref() == Some(m.id.as_str())).then(new_divider_row);
                         let atts = m.attachments.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let body = m.body.clone();
@@ -814,6 +887,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             }
                         });
                         view! {
+                            // Virtual divider rows render as SIBLINGS above the
+                            // real row (a multi-root view flattens into the
+                            // <ul>) — exactly where the date flips or the
+                            // unread frontier begins.
+                            {date_row}
+                            {new_row}
                             // Long-press handling is delegated to the <ul> above —
                             // no per-row listeners (and no per-row envelope clone);
                             // the row only needs its `msg-{id}` dom id (+ the

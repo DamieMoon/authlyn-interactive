@@ -1,6 +1,8 @@
-//! Channel actions: open (incl. deep link + session restore), create/rename/
+//! Channel actions: open (incl. deep link, session restore + the re-entry
+//! NEW-divider/scroll-memory capture, UX evolution #9), create/rename/
 //! delete/swap/restore. Cross-calls: `open_channel_at` dispatches into
-//! [`super::message`] for the per-channel sync setup; channel reorders defer to
+//! [`super::message`] for the per-channel sync setup and [`super::reentry`]
+//! for the re-entry capture/restore; channel reorders defer to
 //! [`super::guild::open_server`] for the post-reorder reload.
 
 use super::super::Shell;
@@ -88,6 +90,12 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // Bumps the LongPress generation + closes the menu; no-op when no
     // ChannelPane is mounted.
     super::super::channel::disarm_radial();
+    // Re-entry scroll memory (UX evolution #9): record where the user stands
+    // in the OUTGOING channel before any state below is touched — the DOM
+    // still shows it. Leaving at the tail clears the mark instead (re-entry
+    // should land at the tail again); no-op when no message list is mounted
+    // (a sheet pick from another pane keeps the previously captured mark).
+    super::reentry::capture_scroll_mark(s);
     let cid = ch.id.clone();
     let kind = ch.kind.clone();
     // Re-opening the channel you're already on (e.g. returning from the
@@ -153,6 +161,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.msg.loading_older.set(false);
         s.msg.more_history.set(true);
         s.msg.anchor_to.set(None);
+        // Re-entry (UX evolution #9): the unread frontier is re-captured per
+        // open below — a stale divider must never paint over the incoming
+        // channel's list.
+        s.msg.new_divider.set(None);
         s.msg.seen.update(|h| h.clear());
         // First page is now in flight: show loading skeletons until it lands
         // (the spawned task below clears this on every exit path) (F-7).
@@ -184,9 +196,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // burst of stacked notifs disappears once the user lands on the
         // channel that produced them (feedback row kx24k2cwftdppidhmh0e).
         super::notify::clear_notifs_for_channel(&cid);
-        // Capture the prior last-seen mark BEFORE the page load advances it, so
-        // we can jump to the OLDEST unread message on open (L-4). An explicit
-        // `anchor` (a notification deep-link) always wins over the unread jump.
+        // Capture the prior last-seen mark BEFORE the page load advances it:
+        // it is BOTH the unread-jump target (L-4) and the NEW-divider baseline
+        // (re-entry, UX evolution #9). An explicit `anchor` (a notification
+        // deep-link) always wins over the unread jump.
         let prior_seen = s.notify.last_seen.with_untracked(|m| m.get(&cid).cloned());
         super::message::start_poll(s);
         let seen_cid = cid.clone();
@@ -220,20 +233,35 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 super::message::ingest(s, l.messages);
                 s.msg.oldest.set(oldest);
                 s.msg.more_history.set(full_page);
-                // Deep-link: now the page is in the DOM, ask the scroll
-                // Effect to bring the notified message into view. An explicit
-                // deep-link anchor wins; otherwise jump to the OLDEST unread
-                // message — the first one strictly past the prior last-seen
-                // composite cursor (L-4). String-tuple compare matches the
-                // cursor's strict (sent_at, id) tie-break, same as `hydrate_last_seen`.
-                let jump = anchor.or_else(|| {
-                    let prior = prior_seen.as_ref()?;
-                    s.msg.messages.with_untracked(|msgs| {
-                        msgs.iter()
-                            .find(|m| (m.sent_at.clone(), m.id.clone()) > *prior)
-                            .map(|m| m.id.clone())
-                    })
+                // Re-entry (UX evolution #9): the unread frontier. `prior_seen`
+                // was captured BEFORE the page load advanced the mark; when
+                // rows strictly past it exist (the composite tie-break lives
+                // in `reentry::first_unread_id`), stash it as the NEW-divider
+                // baseline — a render-time ornament only: it never enters
+                // seen/cursor bookkeeping and only READS the read-state path
+                // (mark_read / set_last_seen semantics are untouched).
+                let first_unread = prior_seen.as_ref().and_then(|prior| {
+                    s.msg
+                        .messages
+                        .with_untracked(|msgs| super::reentry::first_unread_id(msgs, prior))
                 });
+                if first_unread.is_some() {
+                    s.msg.new_divider.set(prior_seen.clone());
+                }
+                // Jump precedence: an explicit deep-link anchor wins; else
+                // land AT the NEW divider, so the frontier is marked, not
+                // inferred (L-4's jump used to target the first unread row
+                // itself, leaving the marker-less boundary to be guessed);
+                // else restore the remembered scroll anchor (one-shot — see
+                // `take_restore_anchor`). No mark = the default tail
+                // behaviour, untouched.
+                let jump = anchor
+                    .or_else(|| {
+                        first_unread
+                            .is_some()
+                            .then(|| super::reentry::NEW_DIVIDER_ANCHOR.to_string())
+                    })
+                    .or_else(|| super::reentry::take_restore_anchor(s, &cid));
                 if let Some(mid) = jump {
                     s.msg.anchor_to.set(Some(mid));
                 }
