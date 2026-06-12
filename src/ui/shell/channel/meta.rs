@@ -8,7 +8,7 @@
 
 use leptos::prelude::*;
 
-use super::super::{act, PendingDelete, Shell};
+use super::super::{act, Shell};
 use super::avatar::{chat_avatar, format_local_time};
 use super::display_name;
 use crate::markup::Color;
@@ -98,25 +98,14 @@ pub(super) fn message_meta(
                     let del_mid = m.id.clone();
                     let del_cid = cid.clone();
                     view! {
-                        <button class="row-edit" title="delete"
+                        <button class="row-edit" title="delete (undo for 6s)"
                             on:click=move |_| {
                                 if let Some(cid) = del_cid.clone() {
-                                    // Message deletes confirm unless the user
-                                    // opted out in account settings; other
-                                    // deletes always confirm.
-                                    if act::confirm_delete_message_enabled() {
-                                        act::ask_delete(
-                                            s,
-                                            "Delete this message? This cannot be undone."
-                                                .to_string(),
-                                            PendingDelete::Message {
-                                                cid,
-                                                mid: del_mid.clone(),
-                                            },
-                                        );
-                                    } else {
-                                        act::delete_message(s, cid, del_mid.clone());
-                                    }
+                                    // Instant + undoable (UX evolution #11):
+                                    // the row hides at once, an undo toast
+                                    // drains 6s, then the real DELETE fires —
+                                    // no confirm modal in the flow anymore.
+                                    act::delete_message(s, cid, del_mid.clone());
                                 }
                             }>"🗑"</button>
                     }

@@ -33,12 +33,13 @@ mod friends;
 mod lorebook;
 mod members;
 mod state;
+mod toast;
 mod wardrobe;
 
 #[cfg(feature = "hydrate")]
 pub(crate) use state::COMPOSER_MAX_ATTACHMENTS;
 pub(crate) use state::{
-    Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Trash,
+    Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Toasts, Trash,
 };
 
 use account::AccountModal;
@@ -47,6 +48,7 @@ use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
 use members::MembersPane;
+use toast::toast_host;
 use wardrobe::WardrobePane;
 
 #[component]
@@ -84,16 +86,19 @@ pub(crate) enum Pane {
 /// (with a human prompt in `confirm_prompt`); the top-level confirm modal in
 /// `AppShell` dispatches the matching `act::` fn when the user confirms. Storing
 /// a closure in a signal is awkward in Leptos, so we describe the action as data.
+///
+/// Message deletes no longer queue here (UX evolution #11): they act
+/// instantly with a 6s undo toast instead (`act::delete_message`); the
+/// confirm modal stays for the heavier owner-gated restores below.
 #[derive(Clone)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) enum PendingDelete {
-    Message { cid: String, mid: String },
     Channel { gid: String, cid: String },
     Server { gid: String },
     Persona { pid: String },
 }
 
-/// Aggregate of the shell's reactive state, grouped into 9 sub-structs.
+/// Aggregate of the shell's reactive state, grouped into 10 sub-structs.
 ///
 /// Each sub-struct is also `provide_context`'d in `AppShell` so a deeper
 /// component can pull just the slice it needs via `use_context::<Selection>()`
@@ -111,6 +116,7 @@ pub(crate) struct Shell {
     pub(crate) notify: Notify,
     pub(crate) trash: Trash,
     pub(crate) prefs: Prefs,
+    pub(crate) toasts: Toasts,
 }
 
 #[component]
@@ -215,6 +221,11 @@ fn AppShell() -> impl IntoView {
     };
     provide_context(prefs);
 
+    let toasts = Toasts {
+        current: RwSignal::new(None),
+    };
+    provide_context(toasts);
+
     let s = Shell {
         sel,
         msg,
@@ -225,6 +236,7 @@ fn AppShell() -> impl IntoView {
         notify,
         trash,
         prefs,
+        toasts,
     };
     // Make the aggregate available to pane components (W6/C8) so they can drop
     // their `s: Shell` prop in favour of `use_context::<Shell>()`.
@@ -808,6 +820,12 @@ fn AppShell() -> impl IntoView {
                     </Modal>
                 }
             })}
+
+            // The toast layer (UX evolution #11): one transient glass capsule
+            // at a time, fixed above the composer/tab bar. Born for the
+            // undo-able message delete; the host renders empty (and eats no
+            // taps) while no toast is up.
+            {toast_host(s)}
         </div>
     }
 }

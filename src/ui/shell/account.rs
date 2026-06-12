@@ -30,10 +30,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let new_pw = RwSignal::new(String::new());
     let confirm = RwSignal::new(String::new());
 
-    // ---- preferences section: message-delete confirmation toggle ----
-    // Seeded from localStorage (default ON); each change persists immediately.
-    let confirm_delete_msg = RwSignal::new(act::confirm_delete_message_enabled());
-
     // ---- feedback section: local form state ----
     let feedback_open = RwSignal::new(false);
     let fb_kind = RwSignal::new("other".to_string());
@@ -182,17 +178,11 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 </section>
 
                 // ---- Preferences ----
+                // (The old "Ask before deleting a message" toggle is gone:
+                // message deletion is instant with a 6s undo toast now — UX
+                // evolution #11 — so there is no confirm modal to gate.)
                 <section class="account-section">
                     <h3>"Preferences"</h3>
-                    <label class="pref-row">
-                        <input type="checkbox" prop:checked=move || confirm_delete_msg.get()
-                            on:change=move |ev| {
-                                let on = event_target_checked(&ev);
-                                confirm_delete_msg.set(on);
-                                act::set_confirm_delete_message(on);
-                            }/>
-                        <span>"Ask before deleting a message"</span>
-                    </label>
                     <label class="pref-row">
                         <input type="checkbox" prop:checked=move || s.prefs.dialogue_style.get()
                             on:change=move |ev| {
@@ -386,7 +376,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 <section class="account-section">
                     <h3>"Session"</h3>
                     <button class="danger account-logout"
-                        on:click=move |_| act::logout(auth)>
+                        on:click=move |_| act::logout(s, auth)>
                         "Log out"
                     </button>
                 </section>

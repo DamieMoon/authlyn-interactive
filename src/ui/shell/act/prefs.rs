@@ -1,30 +1,14 @@
-//! localStorage-backed user toggle prefs (confirm-delete, compose-preview,
-//! dialogue-style, eyecandy, ghost-quill). Pure read/write helpers — no
-//! Shell interaction.
+//! localStorage-backed user toggle prefs (compose-preview, dialogue-style,
+//! eyecandy, ghost-quill). Pure read/write helpers — no Shell interaction.
+//!
+//! (The old "ask before deleting a message" toggle and its
+//! `authlyn.confirm_delete_message` key were retired by the undo-toast
+//! deletion evolution — UX evolution #11: message deletes are instant with a
+//! 6s undo now, so there is no confirm modal to gate. A stale stored key is
+//! simply ignored.)
 
 #[cfg(feature = "hydrate")]
 use gloo_storage::{LocalStorage, Storage};
-
-// ---- "ask before deleting a message" toggle ----
-//
-// localStorage key for the "ask before deleting a message" toggle. Absent or
-// any value other than "0" means ON (confirm); "0" means the user opted out.
-#[cfg(feature = "hydrate")]
-const KEY_CONFIRM_DELETE_MSG: &str = "authlyn.confirm_delete_message";
-
-/// Whether message deletes should ask for confirmation (default ON).
-#[cfg(feature = "hydrate")]
-pub fn confirm_delete_message_enabled() -> bool {
-    LocalStorage::get::<String>(KEY_CONFIRM_DELETE_MSG)
-        .map(|v| v != "0")
-        .unwrap_or(true)
-}
-
-/// Persist the message-delete confirmation toggle.
-#[cfg(feature = "hydrate")]
-pub fn set_confirm_delete_message(on: bool) {
-    let _ = LocalStorage::set(KEY_CONFIRM_DELETE_MSG, if on { "1" } else { "0" });
-}
 
 // ---- composer live-preview toggle ----
 //
@@ -115,14 +99,6 @@ pub fn set_ghost_quill(on: bool) {
 }
 
 // ---- ssr stubs (no localStorage on the server) ----
-
-#[cfg(not(feature = "hydrate"))]
-pub fn confirm_delete_message_enabled() -> bool {
-    true
-}
-
-#[cfg(not(feature = "hydrate"))]
-pub fn set_confirm_delete_message(_on: bool) {}
 
 #[cfg(not(feature = "hydrate"))]
 pub fn compose_preview_enabled() -> bool {

@@ -2,7 +2,8 @@
 //!
 //! - Compose: [`send_message`], [`add_compose_attachment`],
 //!   [`remove_compose_attachment`].
-//! - Edits + deletes: [`edit_message`], [`delete_message`],
+//! - Edits + deletes: [`edit_message`], [`delete_message`] (instant-hide +
+//!   6s undo toast; the real DELETE is delayed — UX evolution #11),
 //!   [`restore_deleted_message`], [`load_deleted_messages`].
 //! - Background sync primitives: [`start_poll`] (the SSE fallback loop),
 //!   [`refresh_open_channel`], [`refresh_lists`], [`refresh_unread`],
@@ -498,25 +499,203 @@ pub fn edit_message(s: Shell, cid: String, mid: String, body: String) {
     });
 }
 
-/// Delete one of the caller's own messages, then drop it from `s.msg.messages`
-/// and `s.msg.seen` so a subsequent catch-up poll doesn't treat it as already
-/// seen (it won't reappear regardless — the server row is gone — but
-/// clearing `seen` keeps the dedupe set tidy). `s.msg.cursor` is left as-is:
-/// it still marks the high-water mark for the poll, so deleting a row never
-/// rewinds the catch-up window.
+/// Grace window before a message delete actually fires (UX evolution #11):
+/// the row hides instantly, the undo toast drains for this long, then the
+/// real DELETE goes out. One knob — the toast lifetime is fed from it so the
+/// drain bar tells the truth.
+#[cfg(feature = "hydrate")]
+const UNDO_DELETE_MS: u32 = 6000;
+
+/// One staged (not yet sent) message delete. Hydrate-only and `!Send`-free,
+/// so it lives in the [`PENDING_DELETE`] thread-local (the `RETRY_FILES`
+/// pattern) rather than in Shell state.
+#[cfg(feature = "hydrate")]
+struct PendingMsgDelete {
+    /// Generation key tying the registry entry, its commit timer, and its
+    /// undo toast together; a flushed/undone entry strands its timer.
+    key: u64,
+    cid: String,
+    mid: String,
+    /// The hidden row, verbatim, for an exact undo/resurrection. Reinsert
+    /// position is derived from its composite `(sent_at, id)` cursor — the
+    /// list's sort order — not a stored index (an older-history prepend
+    /// during the grace window would shift indices).
+    envelope: MessageEnvelope,
+}
+
+#[cfg(feature = "hydrate")]
+thread_local! {
+    /// The ONE in-flight undoable delete (staging a second flushes the first,
+    /// so a delete is never lost). WASM is single-threaded, so a thread-local
+    /// IS the global, and take/check operations are race-free.
+    static PENDING_DELETE: std::cell::RefCell<Option<PendingMsgDelete>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Take the pending entry iff it is still the one keyed `key` (i.e. not
+/// already undone, flushed, or replaced).
+#[cfg(feature = "hydrate")]
+fn take_pending_if(key: u64) -> Option<PendingMsgDelete> {
+    PENDING_DELETE.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.as_ref().is_some_and(|e| e.key == key) {
+            p.take()
+        } else {
+            None
+        }
+    })
+}
+
+/// The message id currently hidden by a pending undoable delete, if any.
+/// [`sync_messages`] and [`ingest`] filter it out of server responses — the
+/// server still HAS the row until the delayed DELETE fires, and a reconcile
+/// must not resurrect a row the user just deleted.
+#[cfg(feature = "hydrate")]
+fn pending_delete_mid() -> Option<String> {
+    PENDING_DELETE.with(|p| p.borrow().as_ref().map(|e| e.mid.clone()))
+}
+
+/// Delete one of the caller's own messages — instantly in the UI, with a 6s
+/// regret window (UX evolution #11): the row is hidden optimistically, an
+/// undo toast drains the grace period, and only then does the real DELETE
+/// fire ([`send_pending_delete`]). Undo reinserts the untouched envelope —
+/// the DELETE was never sent. `s.msg.seen` deliberately KEEPS the id while
+/// hidden so the catch-up poll can't re-append the row; `s.msg.cursor` is
+/// left as-is (it was already advanced when the row first arrived, and
+/// deleting never rewinds the catch-up window).
+///
+/// Only `kind='user'` rows owned by the viewer ever reach here — both delete
+/// affordances flow from the shared `message_actions` predicate
+/// (`ui/shell/channel/mod.rs`), so immutable kinds (`roll`, `system`) have
+/// no delete button at all; the server 403s them regardless.
 #[cfg(feature = "hydrate")]
 pub fn delete_message(s: Shell, cid: String, mid: String) {
     s.composer.status.set(String::new());
-    spawn_local(async move {
-        match api::delete_message(&cid, &mid).await {
-            Ok(()) => {
-                s.msg.messages.update(|v| v.retain(|m| m.id != mid));
-                s.msg.seen.update(|h| {
-                    h.remove(&mid);
-                });
+    // A second delete flushes the first immediately (no lost deletes).
+    flush_pending_delete(s);
+    let envelope = s
+        .msg
+        .messages
+        .with_untracked(|v| v.iter().find(|m| m.id == mid).cloned());
+    let Some(envelope) = envelope else {
+        // Row not in the visible list (shouldn't happen — the affordances
+        // live on visible rows): nothing to hide or undo, delete directly.
+        spawn_local(async move {
+            if let Err(e) = api::delete_message(&cid, &mid).await {
+                super::toast::show_error_toast(s, api::humanize(&e));
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+        });
+        return;
+    };
+    s.msg.messages.update(|v| v.retain(|m| m.id != mid));
+    let key = PENDING_DELETE_KEY.with(|c| {
+        let k = c.get().wrapping_add(1);
+        c.set(k);
+        k
+    });
+    PENDING_DELETE.with(|p| {
+        *p.borrow_mut() = Some(PendingMsgDelete {
+            key,
+            cid,
+            mid,
+            envelope,
+        })
+    });
+    super::toast::show_undo_delete_toast(s, key, UNDO_DELETE_MS);
+    spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(UNDO_DELETE_MS).await;
+        // Still the same un-undone, un-flushed delete? Then commit it.
+        if let Some(p) = take_pending_if(key) {
+            send_pending_delete(s, p).await;
         }
+    });
+}
+
+#[cfg(feature = "hydrate")]
+thread_local! {
+    /// Monotonic counter minting [`PendingMsgDelete::key`]s.
+    static PENDING_DELETE_KEY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Fire the real DELETE for a taken pending entry. On success, tidy the
+/// dedupe set (mirrors the pre-undo delete path). On failure, HONEST STATE:
+/// resurface the hidden row (the server still has it) and say so in an error
+/// toast. `try_*` throughout — the commit timer can outlive the shell.
+#[cfg(feature = "hydrate")]
+async fn send_pending_delete(s: Shell, p: PendingMsgDelete) {
+    match api::delete_message(&p.cid, &p.mid).await {
+        Ok(()) => {
+            let _ = s.msg.seen.try_update(|h| {
+                h.remove(&p.mid);
+            });
+        }
+        Err(e) => {
+            let msg = api::humanize(&e);
+            resurface(s, p);
+            super::toast::show_error_toast(s, format!("Couldn't delete — {msg}"));
+        }
+    }
+}
+
+/// Put a hidden row back, untouched: re-add its id to `seen` (a full-page
+/// reconcile may have rebuilt the set without it — without this, `ingest`
+/// could append a duplicate) and reinsert the envelope in composite-cursor
+/// order — the list is sorted ASC by the strict `(sent_at, id)` tie-break,
+/// and `sent_at` is the fixed-digit lex-monotonic shape, so the String-tuple
+/// `partition_point` lands the row exactly where it was (skipped if a
+/// reconcile already brought it back). Only when the open channel still is
+/// the row's channel — after a flush-on-navigation failure the row simply
+/// reappears on the next channel open, since the server never deleted it.
+#[cfg(feature = "hydrate")]
+fn resurface(s: Shell, p: PendingMsgDelete) {
+    let open = s
+        .sel
+        .sel_channel
+        .try_get_untracked()
+        .flatten()
+        .map(|c| c.id);
+    if open.as_deref() != Some(p.cid.as_str()) {
+        return;
+    }
+    let _ = s.msg.seen.try_update(|h| {
+        h.insert(p.mid.clone());
+    });
+    let _ = s.msg.messages.try_update(|v| {
+        if v.iter().any(|m| m.id == p.mid) {
+            return;
+        }
+        let at = v.partition_point(|m| {
+            (m.sent_at.as_str(), m.id.as_str())
+                < (p.envelope.sent_at.as_str(), p.envelope.id.as_str())
+        });
+        v.insert(at, p.envelope);
+    });
+}
+
+/// Undo a pending delete (the toast's Undo): cancel the delayed DELETE — it
+/// was never sent — and resurface the row exactly as it was. No-op if the
+/// grace window already committed or a flush raced it.
+#[cfg(feature = "hydrate")]
+pub(super) fn undo_pending_delete(s: Shell, key: u64) {
+    if let Some(p) = take_pending_if(key) {
+        resurface(s, p);
+    }
+}
+
+/// Commit any pending undoable delete RIGHT NOW (detached): called on every
+/// navigation that invalidates the optimistic hide — channel switch
+/// (`super::channel::open_channel_at`), pane switches away from the channel,
+/// and logout (while the session cookie still authenticates the DELETE) — so
+/// a delete is never lost and a stale Undo never strands over another view.
+/// Also dismisses the entry's undo toast. Public to siblings.
+#[cfg(feature = "hydrate")]
+pub(super) fn flush_pending_delete(s: Shell) {
+    let Some(p) = PENDING_DELETE.with(|c| c.borrow_mut().take()) else {
+        return;
+    };
+    super::toast::dismiss_undo_toast(s, p.key);
+    spawn_local(async move {
+        send_pending_delete(s, p).await;
     });
 }
 
@@ -590,12 +769,13 @@ pub fn cancel_delete(s: Shell) {
 }
 
 /// Run the pending destructive action (the modal's "Delete"), then clear it.
+/// Message deletes no longer route here (instant + undo toast, UX evolution
+/// #11) — the modal covers the heavier channel/server/persona deletes only.
 #[cfg(feature = "hydrate")]
 pub fn confirm_delete(s: Shell) {
     let pending = s.modals.pending_delete.get_untracked();
     cancel_delete(s);
     match pending {
-        Some(PendingDelete::Message { cid, mid }) => delete_message(s, cid, mid),
         Some(PendingDelete::Channel { gid, cid }) => super::channel::delete_channel(s, gid, cid),
         Some(PendingDelete::Server { gid }) => super::guild::delete_server(s, gid),
         Some(PendingDelete::Persona { pid }) => super::persona::remove_persona(s, pid),
@@ -607,6 +787,10 @@ pub fn confirm_delete(s: Shell) {
 
 #[cfg(feature = "hydrate")]
 pub fn show_friends(s: Shell) {
+    // Leaving the channel pane flushes a pending undoable delete (UX
+    // evolution #11) — same rule as a channel switch. (Ditto the other pane
+    // switchers below; the wardrobe is an overlay, not navigation.)
+    flush_pending_delete(s);
     s.sync.pane.set(Pane::Friends);
     reload_friends(s);
 }
@@ -629,6 +813,7 @@ pub fn show_wardrobe(s: Shell) {
 /// create/delete), so this only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_emoji_manager(s: Shell) {
+    flush_pending_delete(s);
     s.sync.pane.set(Pane::Emoji);
 }
 
@@ -637,6 +822,7 @@ pub fn show_emoji_manager(s: Shell) {
 /// only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_members(s: Shell) {
+    flush_pending_delete(s);
     s.sync.pane.set(Pane::Members);
 }
 
@@ -808,9 +994,17 @@ pub(super) fn load_lore(s: Shell, cid: String) {
 /// Append messages new since the last call, deduped via `s.msg.seen`, and advance
 /// `s.msg.cursor` to the latest of them. Used by the initial channel open + the
 /// poll's catch-up branch + the post-send fetch. Public to siblings.
+///
+/// A row hidden by a pending undoable delete is skipped (belt-and-braces —
+/// the catch-up window is normally already past it, but a full-page rebuild
+/// of `seen` could otherwise let it re-append; see [`pending_delete_mid`]).
 #[cfg(feature = "hydrate")]
 pub(super) fn ingest(s: Shell, incoming: Vec<MessageEnvelope>) {
+    let pending = pending_delete_mid();
     for m in incoming {
+        if Some(m.id.as_str()) == pending.as_deref() {
+            continue;
+        }
         if s.msg.seen.with_untracked(|h| h.contains(&m.id)) {
             continue;
         }
@@ -1074,8 +1268,15 @@ fn unseen(s: Shell, msgs: &[MessageEnvelope]) -> Vec<MessageEnvelope> {
 /// edited, and deleted messages (including from other people), writing the
 /// signal only when something actually changed so an idle poll causes no
 /// re-render or scroll jump.
+///
+/// A row hidden by a pending undoable delete (UX evolution #11) is dropped
+/// from `fresh` first: the server still has it until the delayed DELETE
+/// fires, and the wholesale set below must not resurrect it mid-grace.
 #[cfg(feature = "hydrate")]
-fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
+fn sync_messages(s: Shell, mut fresh: Vec<MessageEnvelope>) {
+    if let Some(mid) = pending_delete_mid() {
+        fresh.retain(|m| m.id != mid);
+    }
     let changed = s.msg.messages.with_untracked(|cur| {
         cur.len() != fresh.len()
             || cur
@@ -1360,7 +1561,6 @@ pub fn cancel_delete(_s: Shell) {}
 pub fn confirm_delete(s: Shell) {
     // Mirrors the hydrate dispatch shape so the per-action stubs stay "used".
     match None::<PendingDelete> {
-        Some(PendingDelete::Message { cid, mid }) => delete_message(s, cid, mid),
         Some(PendingDelete::Channel { gid, cid }) => super::channel::delete_channel(s, gid, cid),
         Some(PendingDelete::Server { gid }) => super::guild::delete_server(s, gid),
         Some(PendingDelete::Persona { pid }) => super::persona::remove_persona(s, pid),

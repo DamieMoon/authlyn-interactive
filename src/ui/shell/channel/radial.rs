@@ -24,7 +24,7 @@
 
 use leptos::prelude::*;
 
-use super::super::{act, PendingDelete, Shell};
+use super::super::{act, Shell};
 use crate::protocol::MessageEnvelope;
 use crate::ui::icons::{IconCopy, IconEdit, IconReply, IconTrash};
 use crate::ui::AuthCtx;
@@ -351,7 +351,8 @@ fn clamp_to_viewport(x: f64, y: f64) -> (f64, f64) {
 /// it is worse: when `clamp_to_viewport` displaces the anchor away from the
 /// finger (press near an edge or the topbar) a chip can sit under the
 /// release point, and an unguarded click would activate it — worst case the
-/// delete chip, instantly if the user opted out of delete confirmations. So
+/// delete chip, which acts instantly (undoable for 6s since UX evolution
+/// #11, but a phantom delete is still wrong). So
 /// backdrop AND buttons share the one flag: only after a `pointerdown` the
 /// OPEN menu itself observed (a genuinely NEW tap, bubbling from a chip or
 /// landing on the backdrop) does a click act; the opening press never
@@ -441,27 +442,18 @@ pub(super) fn radial_menu(
                 let del_cid = st.cid.clone();
                 let del_mid = st.m.id.clone();
                 view! {
-                    <button class="radial-btn danger" role="menuitem" aria-label="delete message"
+                    <button class="radial-btn danger" role="menuitem"
+                        aria-label="delete message (undo for 6 seconds)"
                         on:click=move |_| {
                             if !armed.get_value() {
                                 return;
                             }
                             if let Some(cid) = del_cid.clone() {
-                                // Same confirm-unless-opted-out branch as the
-                                // hover 🗑 in meta.rs.
-                                if act::confirm_delete_message_enabled() {
-                                    act::ask_delete(
-                                        s,
-                                        "Delete this message? This cannot be undone."
-                                            .to_string(),
-                                        PendingDelete::Message {
-                                            cid,
-                                            mid: del_mid.clone(),
-                                        },
-                                    );
-                                } else {
-                                    act::delete_message(s, cid, del_mid.clone());
-                                }
+                                // Instant + undoable — the same evolved path
+                                // as the hover 🗑 in meta.rs (UX evolution
+                                // #11): a mis-tap is recoverable via the
+                                // toast, so no confirm modal interrupts.
+                                act::delete_message(s, cid, del_mid.clone());
                             }
                             radial.set(None);
                         }>

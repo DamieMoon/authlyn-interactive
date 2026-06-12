@@ -1,4 +1,4 @@
-//! Shell reactive state grouped into 9 sub-structs.
+//! Shell reactive state grouped into 10 sub-structs.
 //!
 //! `AppShell` (in `mod.rs`) constructs each sub-struct, calls
 //! `provide_context::<T>(t)` for each (mirroring the existing `EmojiResolver`
@@ -310,6 +310,46 @@ pub(crate) struct Trash {
     pub(crate) deleted_channels: RwSignal<Vec<ChannelSummary>>,
     pub(crate) deleted_messages: RwSignal<Vec<MessageEnvelope>>,
     pub(crate) show_msg_trash: RwSignal<bool>,
+}
+
+/// The app's toast primitive (UX evolution #11): one transient glass capsule
+/// at a time, anchored above the composer/tab bar. A new toast replaces the
+/// current one; each auto-dismisses on its own keyed timer (`act::toast`).
+#[derive(Clone, Copy)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Toasts {
+    /// The toast currently shown, or `None`. Written only by `act::toast`
+    /// (push / keyed dismiss); read by the `toast_host` view.
+    pub(crate) current: RwSignal<Option<Toast>>,
+}
+
+/// One transient toast. Client-only and ephemeral — never persisted or sent.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) struct Toast {
+    /// Generation key minted per toast so the detached auto-dismiss timer
+    /// (and an action-targeted dismiss) only ever clears its OWN toast — the
+    /// send-pulse pattern (`Composer::sent_gen`).
+    pub(crate) key: u64,
+    pub(crate) text: String,
+    /// Danger styling (failed delayed delete etc.); default toasts are calm.
+    pub(crate) error: bool,
+    /// The single optional action slot, described as data (the
+    /// [`super::PendingDelete`] convention — closures don't ride signals);
+    /// dispatched by `act::run_toast_action`.
+    pub(crate) action: Option<ToastAction>,
+    /// Lifetime in ms — drives both the auto-dismiss timer and the CSS
+    /// drain bar (`--toast-ms`).
+    pub(crate) duration_ms: u32,
+}
+
+/// A toast's action slot, as data.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) enum ToastAction {
+    /// "Undo" on the message-delete toast: cancel the pending (not yet sent)
+    /// DELETE keyed `pending` in `act::message` and resurface the hidden row.
+    UndoMessageDelete { pending: u64 },
 }
 
 /// Per-user preferences mirrored to localStorage.

@@ -22,6 +22,8 @@
 //!   automatic fallback.
 //! - [`persona`] — wardrobe ops: create/update/remove/leave/swap/share/avatar +
 //!   wear/unwear.
+//! - [`toast`] — the one-at-a-time toast capsule: push/keyed-dismiss + the
+//!   action dispatcher (UX evolution #11).
 //! - [`emoji`] — guild custom-emoji refresh/create/delete + image upload.
 //! - [`feedback`] — feedback submit/archive + context builder.
 //! - [`notify`] — Web Notifications + Web Push (the ~250-line reflection blob).
@@ -39,6 +41,7 @@ pub mod notify;
 pub mod persona;
 pub mod prefs;
 pub mod sync;
+pub mod toast;
 
 // Re-exports so the view code keeps calling `act::xxx` unchanged.
 pub use account::{admin_reset_password, change_password, logout, set_security_question};
@@ -71,6 +74,7 @@ pub use message::{
     swap_lore, toggle_mute,
 };
 pub use sync::start_sync;
+pub use toast::run_toast_action;
 // `load_older` is only reachable through a hydrate-gated branch in `channel`;
 // re-exporting it on ssr fires "unused import" because nothing calls it there.
 #[cfg(feature = "hydrate")]
@@ -97,7 +101,6 @@ pub use persona::{
 #[cfg(feature = "hydrate")]
 pub use persona::move_persona;
 pub use prefs::{
-    compose_preview_enabled, confirm_delete_message_enabled, eyecandy_enabled, ghost_quill_enabled,
-    rp_dialogue_style_enabled, set_compose_preview, set_confirm_delete_message, set_eyecandy,
-    set_ghost_quill, set_rp_dialogue_style,
+    compose_preview_enabled, eyecandy_enabled, ghost_quill_enabled, rp_dialogue_style_enabled,
+    set_compose_preview, set_eyecandy, set_ghost_quill, set_rp_dialogue_style,
 };

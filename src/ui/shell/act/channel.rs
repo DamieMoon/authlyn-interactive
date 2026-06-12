@@ -88,6 +88,11 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // Bumps the LongPress generation + closes the menu; no-op when no
     // ChannelPane is mounted.
     super::super::channel::disarm_radial();
+    // Undo-toast deletion (UX evolution #11): navigating commits any pending
+    // delete immediately — the delete must not be lost, and a stale Undo
+    // must not strand over the incoming channel's rows. Unconditional (even
+    // same-channel re-open): the message list is rebuilt below either way.
+    super::message::flush_pending_delete(s);
     let cid = ch.id.clone();
     let kind = ch.kind.clone();
     // Re-opening the channel you're already on (e.g. returning from the
