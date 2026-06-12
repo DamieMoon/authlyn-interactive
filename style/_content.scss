@@ -77,9 +77,10 @@
 		z-index: 5;
 		min-width: 0;
 
-		// Controls keep their size and never wrap their label (e.g. "Log out"
-		// breaking onto two lines on a ~390px phone); the username .muted span
-		// absorbs the squeeze via its ellipsis instead.
+		// Controls keep their size and never wrap their label on a ~390px
+		// phone; the username .muted span absorbs the squeeze via its
+		// ellipsis instead. ("Log out" moved into the account modal — mobile
+		// finding #50a — so the gear is the corner control now.)
 		> button {
 			flex: 0 0 auto;
 			white-space: nowrap;
@@ -912,6 +913,20 @@
 			// lacks `field-sizing` support — Chrome 123+ / Safari 17.4+ /
 			// Firefox 124+ all support it.
 			field-sizing: content;
+
+			// Mobile finding #50b: the placeholder must never wrap into a
+			// multi-line block on a narrow screen — keep it one line and let
+			// it ellipsize when the textarea is narrower than the hint. The
+			// string itself (shell/channel/mod.rs) is short enough to fit
+			// typical phones; this is the fluid guard for anything narrower.
+			// Firefox restricts ::placeholder to ::first-line properties and
+			// simply ignores these three — harmless there, the short string
+			// still fits.
+			&::placeholder {
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
 		}
 
 		// W4/T5: the effect-mode picker beside Send. Quiet while no effect is

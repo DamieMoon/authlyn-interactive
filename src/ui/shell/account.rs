@@ -376,6 +376,21 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     }
                 })}
 
+                // ---- Session ----
+                // The deliberate "Log out" home (mobile finding #50a). It used
+                // to sit in the topbar, one fat-finger from the ⚙/🔔 cluster
+                // in a phone's worst reach zone; bottom-of-settings is the
+                // canonical sign-out spot, and the section rule above keeps it
+                // clear of every other control. Full-width ≥44px target
+                // (`.account-logout`, _modal.scss).
+                <section class="account-section">
+                    <h3>"Session"</h3>
+                    <button class="danger account-logout"
+                        on:click=move |_| act::logout(auth)>
+                        "Log out"
+                    </button>
+                </section>
+
                 <p class="account-status">{move || s.composer.status.get()}</p>
 
                 // Feedback-archive confirm — opened by an inbox ✕; replaces

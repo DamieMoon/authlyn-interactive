@@ -667,11 +667,16 @@ fn AppShell() -> impl IntoView {
                     <span class="sync-chip" class:live=move || s.sync.sse_live.get()>
                         {move || if s.sync.sse_live.get() { "● LIVE" } else { "● POLLING" }}
                     </span>
+                    // "Log out" deliberately does NOT live here (mobile
+                    // finding #50a): a session-ending control one slip away
+                    // from the ⚙/🔔 cluster, in the hardest-to-reach corner
+                    // of a phone, was a fat-finger hazard. It now sits at the
+                    // bottom of the account modal (the canonical sign-out
+                    // spot), reached through this gear.
                     <button title="Account"
                         on:click=move |_| { s.composer.status.set(String::new()); account_open.set(true); }>
                         "⚙"
                     </button>
-                    <button on:click=move |_| act::logout(auth)>"Log out"</button>
                 </header>
                 {move || match s.sync.pane.get() {
                     Pane::Friends => view! { <FriendsPane/> }.into_any(),

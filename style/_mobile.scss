@@ -21,6 +21,55 @@
 		max-height: 50vh;
 	}
 
+	// Composer toolbar (mobile finding #50c): on phone widths the ~12 desktop-
+	// dense controls either crowded one row or wrapped into a second, and the
+	// row count JUMPED as the colour-MRU swatches came and went. One stable
+	// finger-scrollable row instead — never wraps, never crowds, and the
+	// vertical space above the soft keyboard stays constant. Fluid: overflow
+	// is whatever doesn't fit, at any width.
+	.content .composer .toolbar {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		align-items: center;
+		scrollbar-width: none; // Firefox; WebKit/Blink below
+	}
+
+	.content .composer .toolbar::-webkit-scrollbar {
+		display: none;
+	}
+
+	// Thumb-sized format buttons (the desktop 1.9rem squares are mouse
+	// targets): ≥44px per the owner's tap-target floor, flex: none so the
+	// nowrap row overflows into scroll instead of crushing them.
+	.content .composer .toolbar .fmt {
+		flex: none;
+		width: auto;
+		min-width: 2.75rem; // 44px
+		min-height: 2.75rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	// Quick-swatch circles: same mobile size as the persona-editor swatches
+	// (.swatch-pick below) so colour dots feel consistent app-wide.
+	.content .composer .toolbar .swatch {
+		flex: none;
+		width: 2.2rem;
+		height: 2.2rem;
+	}
+
+	// …and the ▼ full-palette popover (the toolbar's expansion surface) gets
+	// the same swatch size; its grid columns track the swatch width.
+	.content .composer .color-picker {
+		grid-template-columns: repeat(4, 2.2rem);
+	}
+
+	.content .composer .color-picker .swatch {
+		width: 2.2rem;
+		height: 2.2rem;
+	}
+
 	// ---- wardrobe / persona mobile overrides ----
 
 	// Modal: nearly full-width on narrow screens, with tighter padding so the

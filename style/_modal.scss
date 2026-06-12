@@ -323,6 +323,16 @@
 		}
 	}
 
+	// Session sign-out (mobile finding #50a): relocated here from the topbar.
+	// Full-width so there is nothing adjacent to fat-finger, and ≥44px tall
+	// (the owner's tap-target floor). The red comes from the global
+	// `button.danger` rule (_base.scss) — losing a session is destructive
+	// enough to read as such.
+	.account-logout {
+		width: 100%;
+		min-height: 2.75rem; // 44px
+	}
+
 	.account-status {
 		min-height: 1em;
 		margin: 0.25rem 0 0;

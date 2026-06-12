@@ -1416,7 +1416,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         #[cfg(not(feature = "hydrate"))]
                         let _ = &ev;
                     }
-                    placeholder="type a message — **bold**, *italic*, [red]color[/red]"
+                    // Short enough to FIT one line on a narrow phone (mobile
+                    // finding #50b — the old string's `[red]color[/red]` tail
+                    // wrapped it into an ugly two-line block); the
+                    // `::placeholder` nowrap/ellipsis guard in _content.scss
+                    // degrades anything narrower gracefully.
+                    placeholder="type a message — **bold**, *italic*"
                 ></textarea>
                 // `:`-autocomplete popover: matches for the trailing `:query`
                 // under the caret. Arrow/Enter/Tab navigate (handled in
