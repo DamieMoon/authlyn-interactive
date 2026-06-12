@@ -148,6 +148,14 @@ pub fn send_message(s: Shell) {
 /// may clear the flag.
 #[cfg(feature = "hydrate")]
 async fn after_send_success(s: Shell, cid: &str) {
+    // Re-entry NEW divider (review): posting — a send OR a roll — means the
+    // user has caught up, so the "where I left off" frontier is done
+    // (Discord parity: the divider clears on send, not only on channel
+    // switch). Guarded on still-being-in-the-channel so a slow POST resolving
+    // after a switch can't wipe the INCOMING channel's freshly set divider.
+    if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid) {
+        s.msg.new_divider.set(None);
+    }
     let gen = s.composer.sent_gen.get_value().wrapping_add(1);
     s.composer.sent_gen.set_value(gen);
     s.composer.sent.set(true);

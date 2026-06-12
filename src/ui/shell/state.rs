@@ -92,10 +92,12 @@ pub(crate) struct MessageView {
     /// when the channel was opened — the composite `(sent_at, id)` last-seen
     /// cursor from BEFORE the open advanced it. `Some` only when the opened
     /// page actually held rows past it; the list renders a virtual "NEW"
-    /// divider above the first such row (`act::reentry::first_unread_id`).
+    /// divider above the first such row (`act::reentry::first_past_baseline`).
     /// Render-time ornament ONLY: it never enters seen/cursor bookkeeping and
     /// never writes read state. Reset on every channel switch
-    /// (`act::channel::open_channel_at`).
+    /// (`act::channel::open_channel_at`) and cleared when the user posts —
+    /// send or roll — into the channel (Discord parity: writing means caught
+    /// up; `act::message::after_send_success`).
     pub(crate) new_divider: RwSignal<Option<(String, String)>>,
 }
 
@@ -310,8 +312,13 @@ pub(crate) struct Notify {
     /// Re-entry scroll memory (UX evolution #9): channel id → the message row
     /// id that was at the top of the viewport when the user last LEFT the
     /// channel (no entry = they left at the tail). Captured on switch-away,
-    /// consumed one-shot on the next open — deep-link and unread-jump win —
-    /// and persisted to localStorage like the drafts map (`act::reentry`).
+    /// consumed one-shot on the next open UNCONDITIONALLY — even when a
+    /// deep-link or the NEW-divider jump outranks it (review: a surviving
+    /// mark restored a stale position on a later open) — and persisted to
+    /// localStorage like the drafts map (`act::reentry`). Unbounded like that
+    /// drafts map (house pattern): entries for channels deleted or never
+    /// revisited linger as two small strings each — negligible, and every
+    /// revisit self-prunes its own entry via the unconditional consume.
     /// Client-only; never sent to the server and never feeds `last_seen` /
     /// read state.
     pub(crate) scroll_marks: RwSignal<HashMap<String, String>>,

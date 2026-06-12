@@ -1,7 +1,7 @@
 //! Re-entry aids (UX evolution #9): the unread-frontier "NEW" divider, the
 //! date-separator labels, and per-channel scroll memory.
 //!
-//! Pure decision fns ([`first_unread_id`], [`utc_date_label`]) compile in both
+//! Pure decision fns ([`first_past_baseline`], [`utc_date_label`]) compile in both
 //! graphs and unit-test under ssr; the localStorage / DOM pieces follow the
 //! house hydrate-real + ssr-stub pairing (the `compose_colors` pattern).
 //! Nothing here ever WRITES read state: the divider only READS the prior
@@ -28,14 +28,17 @@ use leptos::prelude::*;
 /// the message-anchor lookups (sentinel discipline, the skeleton-row rule).
 pub(crate) const NEW_DIVIDER_ANCHOR: &str = "new-divider";
 
-/// Id of the first message strictly past the `prior` last-seen cursor — the
-/// row the NEW divider renders above (and L-4's unread-jump target). Strict
+/// Id of the first message strictly past the `prior` last-seen BASELINE — the
+/// row the NEW divider renders above (and L-4's unread-jump target). Named
+/// for the baseline, NOT "first_unread": the pane-local `first_unread_id`
+/// signal in `channel/mod.rs` is a different frontier (session appends while
+/// scrolled up) and the two must never be conflated (review). Strict
 /// composite `(sent_at, id)` tuple compare matching the server cursor's
 /// tie-break exactly: `sent_at` is the fixed-9-digit lex-monotonic RFC 3339
 /// shape, so String ordering is correct — the same rule `hydrate_last_seen`
 /// relies on. The list is composite-ordered ASC and never re-sorted
 /// client-side, so the first match IS the frontier. Pure; unit-tested below.
-pub(crate) fn first_unread_id(
+pub(crate) fn first_past_baseline(
     msgs: &[MessageEnvelope],
     prior: &(String, String),
 ) -> Option<String> {
@@ -130,9 +133,13 @@ fn save_mark(s: Shell, cid: &str, mid: Option<String>) {
 /// the OUTGOING channel. At/near the tail clears the mark (re-entry should
 /// land at the tail again); otherwise the mark is the topmost REAL message
 /// row (`msg-` dom ids only — skeletons/ghosts/dividers excluded by the
-/// selector) still visible in the viewport. No-op when no message list is
-/// mounted (a sheet pick from another pane keeps the previous mark) or when
-/// it measures zero (detached mid-teardown).
+/// selector) still visible in the viewport. Row-id granularity is deliberate
+/// (the proposal said "id + pixel offset"): restore rides the proven
+/// `anchor_to`/`scroll_into_view` path, and stored pixel offsets are exactly
+/// the hardcoded-pixel math the fluid-geometry rule forbids — a viewport or
+/// font change between visits would make them lie. No-op when no message
+/// list is mounted (a sheet pick from another pane keeps the previous mark)
+/// or when it measures zero (detached mid-teardown).
 #[cfg(feature = "hydrate")]
 pub(crate) fn capture_scroll_mark(s: Shell) {
     use wasm_bindgen::JsCast;
@@ -186,12 +193,16 @@ pub(crate) fn capture_scroll_mark(s: Shell) {
     }
 }
 
-/// The saved re-entry anchor for `cid`, CONSUMED (one-shot): returns the
-/// remembered row id only when that row is on the just-loaded page, and
+/// The saved re-entry anchor for `cid`, CONSUMED (one-shot per OPEN): returns
+/// the remembered row id only when that row is on the just-loaded page, and
 /// removes the entry either way — a consumed mark is re-captured fresh on the
 /// next switch-away, and a missing row (fell off the newest page) prunes
-/// itself instead of returning a dead anchor. Caller precedence: deep-link
-/// and unread-jump win before this is consulted (`open_channel_at`).
+/// itself instead of returning a dead anchor. The caller MUST call this
+/// unconditionally on every open and use the value only when no deep-link /
+/// NEW-divider jump outranks it (`open_channel_at`) — consulting it lazily
+/// from the precedence chain let a mark outlive the open it was saved for
+/// and restore a stale position days later (review). Must run AFTER the
+/// page's `ingest` (it validates against `messages`).
 #[cfg(feature = "hydrate")]
 pub(crate) fn take_restore_anchor(s: Shell, cid: &str) -> Option<String> {
     let saved = s
@@ -238,18 +249,18 @@ mod tests {
     }
 
     #[test]
-    fn first_unread_id_finds_the_first_row_strictly_past_the_baseline() {
+    fn first_past_baseline_finds_the_first_row_strictly_past_it() {
         let msgs = vec![
             env("aaa", "2026-06-10T08:00:00.000000000Z"),
             env("bbb", "2026-06-11T09:00:00.000000000Z"),
             env("ccc", "2026-06-11T10:00:00.000000000Z"),
         ];
         let prior = cur("2026-06-10T08:00:00.000000000Z", "aaa");
-        assert_eq!(first_unread_id(&msgs, &prior), Some("bbb".to_string()));
+        assert_eq!(first_past_baseline(&msgs, &prior), Some("bbb".to_string()));
     }
 
     #[test]
-    fn first_unread_id_breaks_sent_at_ties_strictly_on_id() {
+    fn first_past_baseline_breaks_sent_at_ties_strictly_on_id() {
         // Two rows share the baseline's sent_at: the id-equal row is READ
         // (not strictly past), the id-greater row is the frontier — the
         // composite cursor's strict tie-break, no off-by-one duplicates.
@@ -258,20 +269,20 @@ mod tests {
             env("bbb", "2026-06-11T09:00:00.000000000Z"),
         ];
         let prior = cur("2026-06-11T09:00:00.000000000Z", "aaa");
-        assert_eq!(first_unread_id(&msgs, &prior), Some("bbb".to_string()));
+        assert_eq!(first_past_baseline(&msgs, &prior), Some("bbb".to_string()));
     }
 
     #[test]
-    fn first_unread_id_returns_none_when_nothing_is_past_the_baseline() {
+    fn first_past_baseline_returns_none_when_nothing_is_past_it() {
         let msgs = vec![
             env("aaa", "2026-06-10T08:00:00.000000000Z"),
             env("bbb", "2026-06-11T09:00:00.000000000Z"),
         ];
         // Baseline AT the newest row: fully read, no divider.
         let prior = cur("2026-06-11T09:00:00.000000000Z", "bbb");
-        assert_eq!(first_unread_id(&msgs, &prior), None);
+        assert_eq!(first_past_baseline(&msgs, &prior), None);
         // …and on an empty page.
-        assert_eq!(first_unread_id(&[], &prior), None);
+        assert_eq!(first_past_baseline(&[], &prior), None);
     }
 
     #[test]

@@ -236,32 +236,41 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 // Re-entry (UX evolution #9): the unread frontier. `prior_seen`
                 // was captured BEFORE the page load advanced the mark; when
                 // rows strictly past it exist (the composite tie-break lives
-                // in `reentry::first_unread_id`), stash it as the NEW-divider
+                // in `reentry::first_past_baseline`), stash it as the NEW-divider
                 // baseline — a render-time ornament only: it never enters
                 // seen/cursor bookkeeping and only READS the read-state path
                 // (mark_read / set_last_seen semantics are untouched).
                 let first_unread = prior_seen.as_ref().and_then(|prior| {
                     s.msg
                         .messages
-                        .with_untracked(|msgs| super::reentry::first_unread_id(msgs, prior))
+                        .with_untracked(|msgs| super::reentry::first_past_baseline(msgs, prior))
                 });
                 if first_unread.is_some() {
                     s.msg.new_divider.set(prior_seen.clone());
                 }
+                // The saved scroll mark is consumed UNCONDITIONALLY, one-shot
+                // per OPEN — never lazily inside the precedence chain (review):
+                // a mark left un-eaten because a deep-link or the NEW-divider
+                // jump won here would survive to a LATER open and yank the
+                // user back to a days-old position they have long since read
+                // past (leave mid-history → return with unread → read to tail
+                // → close the PWA → reopen). Eager + last-slot keeps the
+                // precedence identical while making "one-shot on the next
+                // open" literally true.
+                let restored = super::reentry::take_restore_anchor(s, &cid);
                 // Jump precedence: an explicit deep-link anchor wins; else
                 // land AT the NEW divider, so the frontier is marked, not
                 // inferred (L-4's jump used to target the first unread row
                 // itself, leaving the marker-less boundary to be guessed);
-                // else restore the remembered scroll anchor (one-shot — see
-                // `take_restore_anchor`). No mark = the default tail
-                // behaviour, untouched.
+                // else restore the remembered scroll anchor consumed above.
+                // No mark = the default tail behaviour, untouched.
                 let jump = anchor
                     .or_else(|| {
                         first_unread
                             .is_some()
                             .then(|| super::reentry::NEW_DIVIDER_ANCHOR.to_string())
                     })
-                    .or_else(|| super::reentry::take_restore_anchor(s, &cid));
+                    .or(restored);
                 if let Some(mid) = jump {
                     s.msg.anchor_to.set(Some(mid));
                 }

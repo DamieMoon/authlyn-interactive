@@ -751,14 +751,21 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // first row strictly past the unread baseline captured at
                     // channel open; `prev_date` threads the running local-date
                     // label so a separator lands wherever consecutive rows
-                    // cross midnight. Neither divider is a message: no `msg-`
+                    // cross midnight. `prev_date` starting `None` means the
+                    // FIRST loaded row always gets a label — deliberately: it
+                    // names the day the loaded window opens on (the unloaded
+                    // row above may share the date), and a backfill reruns
+                    // this whole grouping so it self-corrects to true
+                    // crossings as history loads (review; standard chat
+                    // behaviour — suppressing it would leave the window's top
+                    // dateless). Neither divider is a message: no `msg-`
                     // dom id, never in seen/cursor bookkeeping (sentinel
                     // discipline) — see `new_divider_row`/`date_divider_row`.
                     let new_before = s
                         .msg
                         .new_divider
                         .get()
-                        .and_then(|baseline| act::reentry::first_unread_id(&msgs, &baseline));
+                        .and_then(|baseline| act::reentry::first_past_baseline(&msgs, &baseline));
                     let mut prev_date: Option<String> = None;
                     msgs.into_iter().map(|m| {
                         let date = act::reentry::date_label(&m.sent_at);
