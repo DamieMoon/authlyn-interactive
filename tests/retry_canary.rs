@@ -138,6 +138,100 @@ async fn is_write_conflict_matches_real_surrealdb_conflict() {
     );
 }
 
+/// Pin the ACCEPTED false-positive class of [`is_write_conflict`] plus the
+/// M-33 tightening of its third marker, against the live server.
+///
+/// On SurrealDB 3.1.x, ANY aborted multi-statement transaction rewrites the
+/// result rows of its non-failing statements to the generic sibling text
+/// `"The query was not executed due to a failed transaction"`; the root-cause
+/// error sits only on the FAILING statement's row, and the COMMIT row carries
+/// the one distinguishing text (`"Cannot COMMIT: Transaction conflict: … can
+/// be retried"` for a genuine MVCC conflict vs `"Cannot COMMIT: the
+/// transaction was aborted due to a prior error"` here). The SDK's
+/// `Response::check()` surfaces the FIRST error by statement index — the
+/// generic sibling — so at the matcher's layer a permanently-failing
+/// transaction is byte-identical to a genuine commit-time write conflict, and
+/// `is_write_conflict` MUST keep matching the generic sentence or the 3.1.3
+/// genuine-conflict path loses its retry (the rename the positive canary
+/// caught). The accepted cost is bounded: a permanently-failing transaction is
+/// re-run 4 extra times (~50–126 ms) before its error surfaces, and every
+/// current consumer's transaction is idempotent (DELETE+CREATE shaped).
+///
+/// If the FIRST assertion ever goes red, SurrealDB started surfacing a
+/// distinguishable text — narrow `is_write_conflict` in `src/server/retry.rs`
+/// and retire the accepted-false-positive note there alongside this canary.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn aborted_transaction_sibling_text_is_indistinguishable_from_a_write_conflict() {
+    let arena = arena().await;
+
+    // Throwaway SCHEMAFULL table whose `v` field will reject a string.
+    arena
+        .db
+        .query(
+            "DEFINE TABLE IF NOT EXISTS abort_canary SCHEMAFULL; \
+             DEFINE FIELD IF NOT EXISTS v ON abort_canary TYPE int;",
+        )
+        .await
+        .expect("define abort table")
+        .check()
+        .expect("define abort table check");
+
+    // A permanently-failing transaction shaped like the real consumers
+    // (read_state's DELETE+CREATE): a fine statement FIRST, then the failing
+    // one. Result rows: BEGIN (ok), CREATE ok (rewritten to the generic
+    // sibling text), CREATE bad (the real coerce error), COMMIT ("aborted due
+    // to a prior error"). `check()` surfaces the FIRST error — the sibling.
+    let res = arena
+        .db
+        .query(
+            "BEGIN TRANSACTION; \
+             CREATE abort_canary:ok SET v = 1; \
+             CREATE abort_canary:bad SET v = 'not an int'; \
+             COMMIT TRANSACTION;",
+        )
+        .await
+        .expect("send query")
+        .check();
+    let err = match res {
+        Ok(_) => panic!(
+            "a type-coercion failure inside a transaction no longer aborts it — SurrealDB \
+             semantics changed; the canary can no longer guard the matcher. Investigate."
+        ),
+        Err(e) => e,
+    };
+
+    let text = err.to_string().to_ascii_lowercase();
+    assert!(
+        text.contains("the query was not executed due to a failed transaction"),
+        "check() no longer surfaces the generic sibling text for an aborted transaction \
+         (got: '{err}'). SurrealDB's texts became distinguishable — narrow \
+         is_write_conflict in src/server/retry.rs and update this canary."
+    );
+    assert!(
+        is_write_conflict(&err),
+        "the ACCEPTED false-positive class disappeared: a permanently-failing transaction \
+         no longer matches is_write_conflict (got: '{err}'). If SurrealDB renamed the \
+         generic abort text, the 3.1.3 genuine-conflict path lost its retry too — fix \
+         both together (see is_write_conflict_matches_real_surrealdb_conflict)."
+    );
+    assert!(
+        !is_unique_violation(&err),
+        "is_unique_violation must stay disjoint from the generic abort text: '{err}'"
+    );
+
+    // M-33 tightening: the third marker is the FULL generic sentence, so an
+    // arbitrary error that merely mentions "failed transaction" (e.g. a THROWN
+    // message echoing user data) must NOT trip the retry loop.
+    let loose = surrealdb::Error::thrown("user note: failed transaction".to_string());
+    assert!(
+        !is_write_conflict(&loose),
+        "is_write_conflict over-matches an error that merely mentions 'failed \
+         transaction' (got: '{loose}') — the third marker must be the full generic \
+         sentence, not a loose substring."
+    );
+}
+
 /// Pin [`is_unique_violation`] against a REAL SurrealDB UNIQUE-index violation,
 /// and confirm [`is_write_conflict`] does NOT also fire on it (else the retry
 /// loop would retry an unretryable error and 500 instead of mapping to 409).

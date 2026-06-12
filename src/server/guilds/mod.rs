@@ -248,7 +248,17 @@ pub async fn create_guild(
     match persist_create_guild(&state, &account.0, &name).await {
         Ok(id) => {
             tracing::Span::current().record("guild", tracing::field::display(&id));
-            state.emit(SyncEvent::ListsChanged);
+            // Review M-31: at creation the caller is the ONLY member, so no
+            // other account's lists or visibility can change — target the
+            // actor (their other devices) like `set_rail_order` above, never
+            // the global lane (N connections × a visibility reload + three
+            // client refetches for an event nobody else can observe). The
+            // targeted lane reloads the recipient's visible set on
+            // ListsChanged (events.rs), so the new guild's channel events
+            // reach their pre-existing streams. Contrast invite/kick/
+            // channel-create, which genuinely change ANOTHER party's lists
+            // and stay broadcast.
+            state.emit_for(vec![account.0.clone()], SyncEvent::ListsChanged);
             (StatusCode::CREATED, Json(GuildSummary { id, name })).into_response()
         }
         Err(e) => {

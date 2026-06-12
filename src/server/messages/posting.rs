@@ -61,20 +61,11 @@ pub async fn post_message(
     if attachments.len() > MAX_ATTACHMENTS {
         return error_response(StatusCode::BAD_REQUEST, "too many attachments");
     }
-    // Reject unknown media ids so a row never stores a dangling attachment.
-    match all_media_exist(&state, &attachments).await {
-        Ok(true) => {}
-        Ok(false) => return error_response(StatusCode::BAD_REQUEST, "unknown attachment"),
-        Err(e) => {
-            tracing::error!(error = %e, "attachment existence check failed");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-        }
-    }
 
     // Delivery effect (W4/T5): absent / empty-after-trim means "no effect"
     // (mirroring `reply_to_id`); anything else must be in the known set, else
     // 400 — server-validated like every other body field, never trusted to
-    // the DB ASSERT.
+    // the DB ASSERT. Pure body validation (no DB), so it may precede the gate.
     let effect = match req.effect.as_deref().map(str::trim) {
         Some(e) if !e.is_empty() => {
             if MESSAGE_EFFECTS.contains(&e) {
@@ -86,21 +77,12 @@ pub async fn post_message(
         _ => None,
     };
 
-    // Reply target (L-3): the parent must exist, live in THIS channel, and not be
-    // soft-deleted — else 400. Validated before any write so a reply never stores
-    // a dangling / cross-channel / deleted-parent link. NONE when not a reply.
-    let reply_to = match req.reply_to_id.as_deref().map(str::trim) {
-        Some(rid) if !rid.is_empty() => match reply_target_valid(&state, &cid, rid).await {
-            Ok(true) => Some(rid.to_string()),
-            Ok(false) => return error_response(StatusCode::BAD_REQUEST, "invalid reply target"),
-            Err(e) => {
-                tracing::error!(error = %e, "reply target check failed");
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-            }
-        },
-        _ => None,
-    };
-
+    // Membership gate BEFORE any DB-probing validation (review M-26): the
+    // privacy-404 invariant requires a non-member to see the identical 404 no
+    // matter what they probe with. `reply_target_valid` / `all_media_exist`
+    // answer with a 400 that depends on whether the probed row exists, so
+    // running either first hands a non-member a 400-vs-404 existence oracle on
+    // (cid, rid) / media ids. Only pure body checks may precede this gate.
     let access = match channel_access(&state, &cid, &account.0).await {
         Ok(a) => a,
         Err(e) => {
@@ -121,6 +103,31 @@ pub async fn post_message(
         AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
             return error_response(StatusCode::NOT_FOUND, "channel not found");
         }
+    };
+
+    // Reject unknown media ids so a row never stores a dangling attachment.
+    match all_media_exist(&state, &attachments).await {
+        Ok(true) => {}
+        Ok(false) => return error_response(StatusCode::BAD_REQUEST, "unknown attachment"),
+        Err(e) => {
+            tracing::error!(error = %e, "attachment existence check failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    }
+
+    // Reply target (L-3): the parent must exist, live in THIS channel, and not be
+    // soft-deleted — else 400. Validated before any write so a reply never stores
+    // a dangling / cross-channel / deleted-parent link. NONE when not a reply.
+    let reply_to = match req.reply_to_id.as_deref().map(str::trim) {
+        Some(rid) if !rid.is_empty() => match reply_target_valid(&state, &cid, rid).await {
+            Ok(true) => Some(rid.to_string()),
+            Ok(false) => return error_response(StatusCode::BAD_REQUEST, "invalid reply target"),
+            Err(e) => {
+                tracing::error!(error = %e, "reply target check failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        },
+        _ => None,
     };
     let active_persona = match resolve_send_persona(
         &state,
