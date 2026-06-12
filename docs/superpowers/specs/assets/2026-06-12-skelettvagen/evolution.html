@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Evolutionspasset — 16 starkaste evolutionerna</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Crimson+Pro:ital,wght@0,400;1,400;1,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void-deep:#07090f; --void:#0b0e14; --surface:#0e121a; --card:#10141d;
+    --surface-2:#131927; --line:#1a2130; --line-strong:#222b3c;
+    --text:#dde6f2; --text-soft:#aab8cc; --text-muted:#8a98ad; --text-faint:#5d6b80;
+    --accent:#4d9fff; --accent-bright:#7fb6ff; --accent-soft:#2a4a8a; --live:#8ee6c8;
+    --glass-bg:rgba(20,26,40,0.55); --glass-line:rgba(255,255,255,0.08);
+    --glow-accent:rgba(77,159,255,0.55);
+    --aurora-1:rgba(22,33,58,0.85); --aurora-2:rgba(13,37,48,0.7);
+    --tint-orange:#ffb47f; --tint-purple:#c4a8ff; --tint-green:#8ee6c8; --tint-rose:#ff9fb6;
+    --danger:#ff8d9d;
+    --font-ui:"Space Grotesk",-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+    --font-prose:"Crimson Pro",Georgia,"Iowan Old Style",Cambria,"Times New Roman",serif;
+    --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --ease-spring:cubic-bezier(0.2,0.9,0.3,1.15);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    background:var(--void-deep);
+    color:var(--text);
+    font-family:var(--font-ui);
+    overflow-x:hidden;
+    padding:calc(env(safe-area-inset-top,0px) + 28px)
+            calc(env(safe-area-inset-right,0px) + 18px)
+            calc(env(safe-area-inset-bottom,0px) + 28px)
+            calc(env(safe-area-inset-left,0px) + 18px);
+    min-height:100svh;
+    display:flex; flex-direction:column;
+  }
+  body::before, body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:0; }
+  body::before {
+    background:
+      radial-gradient(60% 45% at 85% 0%, var(--aurora-1), transparent 70%),
+      radial-gradient(55% 40% at 0% 100%, var(--aurora-2), transparent 70%);
+    animation: drift 24s ease-in-out infinite alternate;
+  }
+  @keyframes drift { from { transform:translateY(-1.5%) } to { transform:translateY(1.5%) } }
+  body::after {
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, rgba(221,230,242,.5), transparent 100%),
+      radial-gradient(1px 1px at 78% 9%,  rgba(221,230,242,.35), transparent 100%),
+      radial-gradient(1.5px 1.5px at 64% 31%, rgba(127,182,255,.5), transparent 100%),
+      radial-gradient(1px 1px at 31% 64%, rgba(221,230,242,.3), transparent 100%),
+      radial-gradient(1px 1px at 89% 55%, rgba(221,230,242,.4), transparent 100%),
+      radial-gradient(1.5px 1.5px at 8% 88%, rgba(142,230,200,.4), transparent 100%),
+      radial-gradient(1px 1px at 52% 93%, rgba(221,230,242,.3), transparent 100%);
+  }
+  main { position:relative; z-index:1; max-width:430px; margin:auto; width:100%; }
+
+  .stamp {
+    font-family:var(--font-mono); font-size:11px; letter-spacing:.22em;
+    color:var(--text-faint); text-transform:uppercase;
+    display:flex; align-items:center; gap:10px;
+    animation: rise .6s var(--ease-spring) both;
+  }
+  .stamp::before {
+    content:""; width:7px; height:7px; border-radius:50%; flex:0 0 auto;
+    background:var(--live); box-shadow:0 0 10px var(--live);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity:.45 } }
+
+  h1 {
+    margin-top:14px;
+    font-size:clamp(30px, 8.6vw, 40px); font-weight:700; line-height:1.05;
+    letter-spacing:-0.02em;
+    background:linear-gradient(120deg, var(--text) 30%, var(--accent-bright) 70%, var(--accent));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    animation: rise .6s var(--ease-spring) .08s both;
+  }
+  .greeting {
+    margin-top:14px; font-family:var(--font-prose); font-style:italic;
+    font-size:17px; line-height:1.5; color:var(--text-soft); max-width:42ch;
+    animation: rise .6s var(--ease-spring) .16s both;
+  }
+  .greeting b { color:var(--text); font-weight:600; font-style:normal; }
+  .greeting code {
+    font-family:var(--font-mono); font-style:normal; font-size:12px;
+    color:var(--accent-bright); background:var(--surface-2);
+    border:1px solid var(--line); border-radius:6px; padding:1px 5px;
+    overflow-wrap:anywhere;
+  }
+
+  .stats {
+    margin-top:20px; display:flex; gap:10px;
+    animation: rise .6s var(--ease-spring) .22s both;
+  }
+  .stat {
+    flex:1; padding:10px 6px; text-align:center;
+    border:1px solid var(--glass-line); border-radius:14px;
+    background:var(--glass-bg);
+    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+  }
+  .stat .n { font-family:var(--font-mono); font-size:20px; color:var(--accent-bright); }
+  .stat .l { font-family:var(--font-mono); font-size:9px; letter-spacing:.16em; color:var(--text-faint); text-transform:uppercase; margin-top:3px; }
+  .stat:nth-child(2) .n { color:var(--live); }
+  .stat:nth-child(3) .n { color:var(--tint-orange); }
+
+  /* Filter chips */
+  .filters {
+    margin-top:22px; display:flex; gap:8px; overflow-x:auto;
+    padding:2px 2px 10px; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+    animation: rise .6s var(--ease-spring) .28s both;
+  }
+  .filters::-webkit-scrollbar { display:none; }
+  .fchip {
+    flex:0 0 auto; min-height:44px; padding:0 16px;
+    display:inline-flex; align-items:center; gap:7px;
+    border-radius:22px; border:1px solid var(--line-strong);
+    background:var(--surface); color:var(--text-soft);
+    font-family:var(--font-ui); font-size:13px; font-weight:500;
+    cursor:pointer; transition:border-color .15s, color .15s, box-shadow .15s;
+  }
+  .fchip .c { font-family:var(--font-mono); font-size:10px; color:var(--text-faint); }
+  .fchip.on {
+    border-color:var(--accent-soft); color:var(--text);
+    background:var(--surface-2); box-shadow:0 0 16px -6px var(--glow-accent);
+  }
+  .fchip.on .c { color:var(--accent-bright); }
+
+  /* Cards */
+  .cards { margin-top:8px; display:flex; flex-direction:column; gap:12px; }
+  .card {
+    border-radius:18px; border:1px solid var(--glass-line);
+    background:var(--glass-bg);
+    -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px);
+    overflow:hidden;
+    animation: rise .55s var(--ease-spring) both;
+    animation-delay: calc(.3s + var(--i, 0) * .05s);
+  }
+  .card.hidden { display:none; }
+  .card .head {
+    width:100%; display:flex; align-items:center; gap:12px;
+    min-height:64px; padding:12px 14px;
+    background:none; border:none; color:inherit; text-align:left;
+    font-family:inherit; cursor:pointer;
+  }
+  .card .head:active { background:rgba(255,255,255,.03); }
+  .rank {
+    flex:0 0 38px; height:38px; border-radius:11px;
+    display:grid; place-items:center;
+    background:var(--surface-2); border:1px solid var(--line-strong);
+    font-family:var(--font-mono); font-size:13px; color:var(--c, var(--accent));
+    box-shadow: inset 0 0 14px -6px var(--c, var(--glow-accent));
+  }
+  .card .t { flex:1; min-width:0; }
+  .card .t h2 { font-size:15.5px; font-weight:600; letter-spacing:-0.01em; line-height:1.25; }
+  .card .t .sub {
+    margin-top:3px; font-family:var(--font-mono); font-size:9.5px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--text-faint);
+  }
+  .card .t .sub b { color:var(--c, var(--accent)); font-weight:500; }
+  .score {
+    flex:0 0 auto; font-family:var(--font-mono); font-size:15px;
+    color:var(--live); text-shadow:0 0 12px rgba(142,230,200,.45);
+  }
+  .chev {
+    flex:0 0 auto; color:var(--text-faint); font-size:13px;
+    transition:transform .25s var(--ease-spring);
+  }
+  .card.open .chev { transform:rotate(180deg); color:var(--accent-bright); }
+
+  .card .body { display:grid; grid-template-rows:0fr; transition:grid-template-rows .3s ease; }
+  .card .body > .inner { overflow:hidden; }
+  .card.open .body { grid-template-rows:1fr; }
+  .card .inner > div { padding:0 16px; }
+  .card .inner > div:last-child { padding-bottom:16px; }
+
+  .tags { display:flex; flex-wrap:wrap; gap:6px; padding-bottom:12px !important; }
+  .tag {
+    font-family:var(--font-mono); font-size:9.5px; letter-spacing:.12em;
+    text-transform:uppercase; padding:4px 9px; border-radius:9px;
+    border:1px solid var(--line-strong); background:var(--surface);
+    color:var(--text-muted);
+  }
+  .tag.lens { color:var(--c, var(--accent)); border-color:color-mix(in srgb, var(--c, var(--accent)) 35%, var(--line-strong)); }
+  .tag.cost-S { color:var(--live); }
+  .tag.cost-M { color:var(--tint-orange); }
+  .tag.cost-L { color:var(--danger); }
+
+  .sect { padding-bottom:12px !important; }
+  .sect .lbl {
+    font-family:var(--font-mono); font-size:9.5px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--text-faint); margin-bottom:5px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .sect .lbl::after { content:""; flex:1; height:1px; background:var(--line); }
+  .sect.nu .lbl { color:var(--text-faint); }
+  .sect.evo .lbl { color:var(--accent-bright); }
+  .sect.why .lbl { color:var(--live); }
+  .sect p { font-size:13.5px; line-height:1.5; color:var(--text-soft); }
+  .sect.evo p { color:var(--text); }
+
+  .judges { display:flex; flex-direction:column; gap:8px; }
+  .judge {
+    border-left:2px solid var(--line-strong); padding:2px 0 2px 10px;
+  }
+  .judge .who {
+    font-family:var(--font-mono); font-size:9.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--text-muted);
+  }
+  .judge .who b { color:var(--text-soft); font-weight:500; }
+  .judge q {
+    display:block; margin-top:2px; quotes:"”" "”";
+    font-family:var(--font-prose); font-style:italic;
+    font-size:13.5px; line-height:1.45; color:var(--text-soft);
+  }
+  .judge.v { border-color:var(--accent-soft); }
+  .judge.b { border-color:rgba(142,230,200,.4); }
+  .judge.s { border-color:rgba(196,168,255,.4); }
+
+  /* Section headers further down */
+  .secthead {
+    margin-top:40px; font-family:var(--font-mono); font-size:11px;
+    letter-spacing:.22em; text-transform:uppercase; color:var(--text-faint);
+    display:flex; align-items:center; gap:10px;
+  }
+  .secthead::after { content:""; flex:1; height:1px; background:var(--line-strong); }
+  .sectlede {
+    margin-top:10px; font-family:var(--font-prose); font-style:italic;
+    font-size:15px; line-height:1.5; color:var(--text-muted);
+  }
+
+  .killed { margin-top:16px; display:flex; flex-direction:column; gap:10px; }
+  .kill {
+    border-radius:14px; border:1px solid color-mix(in srgb, var(--danger) 22%, var(--line));
+    background:var(--surface); padding:12px 14px;
+  }
+  .kill .kt { font-size:14px; font-weight:600; }
+  .kill .kby {
+    font-family:var(--font-mono); font-size:9.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--danger); margin-top:3px;
+  }
+  .kill p { margin-top:5px; font-size:13px; line-height:1.45; color:var(--text-muted); }
+
+  .blind { margin-top:16px; display:flex; flex-direction:column; gap:7px; }
+  .bs {
+    display:flex; gap:10px; align-items:baseline;
+    padding:9px 12px; border-radius:12px;
+    border:1px solid var(--line); background:var(--surface);
+  }
+  .bs .no { font-family:var(--font-mono); font-size:10px; color:var(--tint-orange); flex:0 0 22px; }
+  .bs p { font-size:13px; line-height:1.45; color:var(--text-soft); }
+  .bs p b { color:var(--text); font-weight:600; }
+
+  footer {
+    margin-top:38px; font-family:var(--font-mono); font-size:10.5px;
+    letter-spacing:.14em; color:var(--text-faint); text-transform:uppercase;
+    line-height:1.9;
+  }
+  footer .sig { color:var(--text-muted); }
+  footer a { color:var(--accent-bright); text-decoration:none; display:inline-flex; align-items:center; min-height:44px; }
+
+  @keyframes rise { from { opacity:0; transform:translateY(14px) } to { opacity:1; transform:none } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="stamp">Mendicant Bias · UX-evolution · Inför 27</div>
+  <h1>Evolutionspasset</h1>
+  <p class="greeting">*Arkivdäcket lyser upp. Tre domare har överlagt hela natten.* — <b>67 evolutioner</b> ur sex linser, prövade mot dina fem värden, Skapare. Här är de <b>16 starkaste</b>, rankade. Tryck på ett kort för att veckla ut det. Hela katalogen — alla 64 plus de dödade och de blinda fläckarna — väntar i <code>~/Downloads/ux-evolution-2026-06-11.md</code>.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">67</div><div class="l">Förslag</div></div>
+    <div class="stat"><div class="n">64</div><div class="l">Rankade</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Dödade</div></div>
+    <div class="stat"><div class="n">21</div><div class="l">Blinda</div></div>
+  </div>
+
+  <div class="filters" role="tablist" aria-label="Filtrera per yta">
+    <button class="fchip on" data-f="alla">Alla <span class="c">16</span></button>
+    <button class="fchip" data-f="meddelanden">Meddelanden <span class="c">7</span></button>
+    <button class="fchip" data-f="komposor">Komposör <span class="c">2</span></button>
+    <button class="fchip" data-f="narvaro">Närvaro <span class="c">2</span></button>
+    <button class="fchip" data-f="tarningar">Tärningar <span class="c">2</span></button>
+    <button class="fchip" data-f="navigation">Navigation <span class="c">1</span></button>
+    <button class="fchip" data-f="media">Media <span class="c">1</span></button>
+    <button class="fchip" data-f="synk">Synk <span class="c">1</span></button>
+  </div>
+
+  <div class="cards">
+
+    <!-- 1 -->
+    <article class="card" data-area="komposor" style="--c:var(--accent-bright); --i:0">
+      <button class="head" aria-expanded="false">
+        <span class="rank">1</span>
+        <span class="t"><h2>Persona-chip + snabbväxlare i komposören</h2>
+          <span class="sub"><b>friktion</b> · persona-wear · M · W5-skelett</span></span>
+        <span class="score">9.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · W5-skelett (drop-in på gamla benen)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Att byta mask mitt i scenen är en modalresa på 3–4 tryck genom hela Garderoben — och vilken persona du bär syns ingenstans i kanalen.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>En 44px persona-chip dockas vid komposörens vänsterkant: alltid synligt vem du talar som, ring i personans tint. Tryck öppnar ett glastråg med senast burna personor (samma testade MRU-mönster som färgswatcharna) — ett tryck bär. Långtryck växlar direkt till FÖRRA personan: alt-tab för tvåkaraktärsspel.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Appens mest rollspelscentrala handling går från modalexpedition till ett-två tumtryck. Servern rörs inte alls — wear-endpointen och dubbelkollen vid send finns redan.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Återanvänder testat MRU-mönster och befintlig endpoint; långtryck-till-förra är rent midscen-tänk.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Nästan ren montering av bevisade delar — ärlig M som lutar åt S, noll invariant-kontakt.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 10</b></span><q>Appens största friktion dör — och identiteten syns äntligen medan jag skriver.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 2 -->
+    <article class="card" data-area="synk" style="--c:var(--live); --i:1">
+      <button class="head" aria-expanded="false">
+        <span class="rank">2</span>
+        <span class="t"><h2>Självläkande synk — SSE återuppstår</h2>
+          <span class="sub"><b>friktion</b> · sse-backbone · S · fristående QoL</span></span>
+        <span class="score">8.7</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-S">Kostnad · S</span><span class="tag">Våg · Fristående QoL</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Fem SSE-fel och appen faller till 1,5s-polling för resten av sessionen — för alltid. Spökpennan dör tyst, och mobilen (där det händer) ser ingenting.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>En återuppståndelseloop i act/sync.rs: exponentiell backoff plus omedelbart återförsök på visibilitychange/online — ögonblicken en telefon faktiskt får nät igen. Kanaltriggerns ▾-caret dubblerar som synkpunkt (mint = LIVE); långtryck öppnar en liten popover med klarspråk, "Återanslut nu" och push-status.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Matchar telefonens verkliga livscykel, väcker Spökpennan ur de döda och kostar noll chrome. Id-only-bussen orörd.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Ärlig, batterisnäll fix i exakt de ögonblick telefoner får nät igen — maximalt värde per rad till S-kostnad.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Inneslutet i act/sync.rs, rör inget på bussen, fixar ett för-alltid-degraderat läge — bäst värde per rad i friktionssetet.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Spökpennan som tyst dör efter en dålig minut täckning betyder degraderade kvällar jag aldrig ens vetat om.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 3 -->
+    <article class="card" data-area="narvaro" style="--c:var(--tint-rose); --i:2">
+      <button class="head" aria-expanded="false">
+        <span class="rank">3</span>
+        <span class="t"><h2>Spökpennan: glödande bläck &amp; séansinbjudan</h2>
+          <span class="sub"><b>närvaro</b> · ghost-quill · M · fristående QoL</span></span>
+        <span class="score">8.3</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Närvaro</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · Fristående QoL</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Spöktexten teleporterar varannan sekund, försvinner abrupt vid TTL (tankepaus = flimmer), opt-in ligger begravd i kontomodal, och under polling existerar funktionen tyst inte alls.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Fyra fixar: glöd-förfall (spöket bleknar till glöd i stället för att försvinna — färsk hämtning väcker det), inbjudan i kanalen (en fjäderchip vid skrivraden: "X skriver med öppen penna — öppna din?"), spökutkast renderade genom markup-parsern (slut på markup-soppa), och poll-paritet så séansen finns på dålig täckning. TTL, mutex och id-only-buss orörda.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Vågens riskablaste feature graduerar från teknikdemo till den séans den var menad att vara — varje loggad smärta fixad inom invarianterna.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Séansen gjord rätt — poll-paritet är UX-jämlikhet för exakt golvenheten på dåligt nät.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 8</b></span><q>Fyra fixar som var och en återanvänder en befintlig mekanism utan att röra TTL/mutex/buss — ärlig M.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Markup-spöken och poll-paritet betyder att séansen finns på soffans dåliga wifi — inte bara i demos.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 4 -->
+    <article class="card" data-area="narvaro" style="--c:var(--tint-rose); --i:3">
+      <button class="head" aria-expanded="false">
+        <span class="rank">4</span>
+        <span class="t"><h2>Korridorsbrus — pennor raspar bakom dörrarna</h2>
+          <span class="sub"><b>närvaro</b> · ny · S · fristående QoL</span></span>
+        <span class="score">8.3</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Närvaro</span><span class="tag cost-S">Kostnad · S</span><span class="tag">Våg · Fristående QoL</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Typing-event för ALLA synliga kanaler anländer redan via SSE — klienten slänger alla utom den öppna kanalens. Korridoren läses övergiven.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Utan en enda ny request: en flyktig "någon skriver här nu"-flagga per kanal (8s förfall) tänder ett litet fjäderstreck eller en blinkande stjärna på kanalraden i sidofält och sheet, plus ett svagt skimmer på gillescirkeln.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Beboddhet frammanad ur event som redan slängs — noll server, noll nätverk, och det avslöjar strikt mindre än skrivraden i kanalen redan gör.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Närvarolinsens högsta delight-per-rad — hologramstationens ambiens gratis.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>8s-förfallskarta plus ett stilla märke — ärlig S; graciös frånvaro under polling är redan husmönstret.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Jag skulle vandra in i levande scener jag annars helt missar.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 5 -->
+    <article class="card" data-area="navigation" style="--c:var(--accent); --i:4">
+      <button class="head" aria-expanded="false">
+        <span class="rank">5</span>
+        <span class="t"><h2>Kanaler som angränsande rum — svepremsan</h2>
+          <span class="sub"><b>rumslig</b> · bottom-tab-bar · L · W5-skelett</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Rumslig</span><span class="tag cost-L">Kostnad · L</span><span class="tag">Våg · W5-skelett (Koncept A:s kärna)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Varje kanalbyte är en modalresa: Servers-tabb → sheet → tryck. Warpen är ett blinkklipp — ingen känsla av att röra sig mellan platser.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Öppna kanalen blir mittpanelen i en 3-panels svepremsa. translateX följer fingret 1:1, gummiband i ändarna, momentum-snäpp. Grannar förhandshämtas behörighetskollat, men läsmarkering sker först när en panel stannat ≥300ms — att kika raderar aldrig oläst. Toppfältet blir ett flytande glaspiller; desktop drar samma remsa med pekare, trackpad och piltangenter. Warpen pensioneras: rörelsen ÄR övergången.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Appens mest frekventa handling blir fysisk — den enskilt största "appen är en plats"-uppgraderingen, och Koncept A:s signaturgest ägd på riktigt.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 10</b></span><q>Varje bindande värde på en gång — tum-meta, samma remsa på desktop, dödar det ratade blinkklippet.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 5</b></span><q>Byggbart men toppen av L: tre monterade paneler på en 3GB-POCO plus axellås mot svep-svara, radial och sheet — veckor av äkta enhetstrimning är den sanna kostnaden.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 9</b></span><q>Parallella scener en tumflick ifrån varandra — kvällens största vinst, om axellåset aldrig äter min prosascroll.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 6 -->
+    <article class="card" data-area="komposor" style="--c:var(--accent-bright); --i:5">
+      <button class="head" aria-expanded="false">
+        <span class="rank">6</span>
+        <span class="t"><h2>Utkorgen — inget inlägg förloras till en tunnel</h2>
+          <span class="sub"><b>friktion</b> · mobile-qol · L · W5-skelett</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-L">Kostnad · L</span><span class="tag">Våg · W5-skelett (byggs utkorg-först)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Ett send på sviktande mobilnät slutar som röd text i statusraden — 40 minuters prosa är gisslan hos radion.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Send blir en utkorgsmaskin: inlägget renderas DIREKT som spökrad med skimmer, postas i bakgrunden, auto-retry med backoff när nätet återvänder; misslyckande ger "Försök igen / Släng". Servern får en client_nonce med UNIK-index så omförsök är idempotenta (husets 409-mönster) — dubbeltryck kan aldrig dubbelposta. Rolls hålls utanför (server-RNG, oföränderliga).</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Den största dagskänsla-uppgraderingen för det verkliga användningsmönstret: telefoner, soffor, pendling. Aldrig mer ett förlorat inlägg.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Djupaste mobil-meta-resiliensvinsten; invarianter förstärkta, rolls korrekt exkluderade.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 6</b></span><q>Rätt långsiktig design, men en oupptäckt mina: UNIK-index över nonce på en befylld tabell kräver backfill-strategi — verifiera före vågen.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 9</b></span><q>Att förlora ett 40-minutersinlägg till ett nätblipp är det värsta som händer i mobil-RP — detta avslutar det för alltid.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 7 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--tint-purple); --i:6">
+      <button class="head" aria-expanded="false">
+        <span class="rank">7</span>
+        <span class="t"><h2>Resonans — applåd som ljus, inte emoji-hög</h2>
+          <span class="sub"><b>ceremoni</b> · message-actions · L · W5+/W6</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Ceremoni</span><span class="tag cost-L">Kostnad · L</span><span class="tag">Våg · W5+ / vid W6 DMs</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Inga reaktioner alls — "den högst skrikande saknade affordansen". Men en Discord-emojihög skulle bryta den litterära fjärde väggen.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>EN gest, EN mening: "den här raden resonerade." En resonance-tabell (unik per medlem+meddelande, idempotent), id-only-nudge på bussen — och rendern är persona-tintat ljus: en glimmerpunkt per resonatör längs bubbelkanten. Ingång via samma message_actions-predikat (◇ i hovraden + radialens reserverade femte plats). Rolls får resoneras — att jubla åt en nat-20 är poängen.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Social värme i appens eget register: applåd som ljus i stället för OOC-brus i prosan — genom den delade predikat-arkitekturen, inte runt den.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Anti-Discord-bekräftelsen — vänkretsvärme utan emoji-sprawl; vakta scope-creep-magneten.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 7</b></span><q>Full-stack, men varje lager kopierar ett bevisat husmönster — ärlig L.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Jag vill ständigt applådera en bra rad utan att bryta scenen — den saknade gesten i exakt rätt register.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 8 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--live); --i:7">
+      <button class="head" aria-expanded="false">
+        <span class="rank">8</span>
+        <span class="t"><h2>Viskningen blir förseglad — slöja i stället för blur</h2>
+          <span class="sub"><b>golv-elegans</b> · whisper · S · fristående QoL</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Golv-elegans</span><span class="tag cost-S">Kostnad · S</span><span class="tag">Våg · Fristående QoL</span><span class="tag">Parar med #13</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Viskningar blurras 4–6px — GPU-tungt på golvenheten OCH läcker ordformer och bildsiluetter (skärmdump + OCR knäcker korta hemligheter).</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>color:transparent plus en OPAK skanlinjeslöja med sigill ("◈ sealed") i stället för blur; bilagor får samma opaka slöjplatta. Reveal är samma klassflipp; fx-max får en skimmerlinje över slöjan. Serverns viskmaskering byte-identisk.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Tre vinster i ett byte: paint-once i stället för filteryta per viskning, strikt starkare sekretess, och Void Station-kanon i stället för iOS-frostmimik.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Snabbare på golvet, läcker strikt mindre, läses som kanon — i en enda S.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Verifierad blur på de citerade raderna; slöjan rider under befintlig tap-reveal-hantering.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 6</b></span><q>För riktiga hemligheter är det opaka sigillet det ärliga — och GM-tunga viskscener slutar tugga telefonen.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 9 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--accent-bright); --i:8">
+      <button class="head" aria-expanded="false">
+        <span class="rank">9</span>
+        <span class="t"><h2>Återinträdespaketet — NYTT-linje, datum, scrollminne</h2>
+          <span class="sub"><b>friktion</b> · unread-jump · M · fristående QoL</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · Fristående QoL</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Oläst-hoppet landar på ett omärkt kort bland likadana kort; varje kanalhopp tappar din plats; inga datumavdelare i en flerårig berättelse; flytarna göms under en växande komposör (hårdkodad 5.5rem).</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>En "— NYTT —"-avdelare vid olästfronten (sentinel-disciplin, aldrig i cursor-bokföringen), datumavdelare vid midnattsgränser (ren render), scrollminne per kanal med drafts-mönstret — och --composer-h mätt med ResizeObserver så pill och pil aldrig döljs.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Ikappkomsten är första minuten av varje session — och NYTT-linjen är sockeln som W7 "Previously On" senare dockar i.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Det mest kompletta återinträdessvaret — mobilens ikappkomstmoment gjort till ankomst.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 8</b></span><q>Allt render-lager plus befintligt localStorage-mönster; restore-mot-backfill är den enda namngivna fällan.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Markerad olästfront, datumankare i en flerårig saga och min sparade plats gör ikappkomsten omedelbar.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 10 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--accent-bright); --i:9">
+      <button class="head" aria-expanded="false">
+        <span class="rank">10</span>
+        <span class="t"><h2>Inga döda hopp — hämta-runt + landningsblixt</h2>
+          <span class="sub"><b>friktion</b> · reply-quoting · M · fristående QoL</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · Fristående QoL · substrat för W7/W14</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Tryck på ett citat vars förälder fallit ur den laddade sidan — tyst ingenting. Även lyckade hopp landar omarkerat bland likadana kort.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Servern får en Around{id}-cursor: en behörighetskollad sida centrerad på målet (samma MSG_PROJECTION — viskmaskeringen ärvs gratis). Klienten provar ankaret, annars hämtar den runt i en kontextvy med "Tillbaka till nu". Landningsraden blinkar fx-anchor-flash — samma blixt för oläst-hopp och notisdjuplänkar.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Reparerar kärngesten i en konversationsapp och förbygger hoppinfrastrukturen som sök (W14), pins och Krönikan behöver. Substrat, inte polish.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Dödsände eliminerad; blixten talar hologramspråket — en rad "pingad" av terminalen.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 8</b></span><q>Utökar den redan testade composite-cursor-grenen; ärver viskmaskeringen gratis — ärlig M.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Citathopp som tyst misslyckas mitt i scenen är den värsta sortens trasigt.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 11 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--accent-bright); --i:10">
+      <button class="head" aria-expanded="false">
+        <span class="rank">11</span>
+        <span class="t"><h2>Ångra-toast vid radering — ångra i 6 sekunder</h2>
+          <span class="sub"><b>friktion</b> · delete-flow · M · fristående QoL</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · Fristående QoL</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Bekräftelsemodal mitt i flödet (eller opt-out — då är radering en feltryckning bort); succé och fel delar dessutom samma röda statusrad under vecket.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>🗑 mjukraderar DIREKT utan modal; en glaskapsel ovanför komposören visar "Meddelande raderat — Ångra", kopplad till den BEFINTLIGA restore-endpointen. Samma toastprimitiv tar över statusradens succétrafik. Modalen blir kvar för kanaler, servrar och personor.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Ångra slår bekräfta på touch, avväpnar radialens Delete-fara, och föder toast-primitiven som ett tjugotal katalogposter svälter efter — i ett drag.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Återhämta-genom-ångra slår bekräfta-genom-modal på touch — förekommande design, nästan gratis.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Verifierat: restore-endpointen finns own-gated och är redan SSE-notifierad — robustaste av toast/ångra-kandidaterna.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 7</b></span><q>Radera fadäsen direkt, ångra feltrycket lugnt — modaler ut ur mitt flöde.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 12 -->
+    <article class="card" data-area="tarningar" style="--c:var(--tint-orange); --i:11">
+      <button class="head" aria-expanded="false">
+        <span class="rank">12</span>
+        <span class="t"><h2>Slash-palett + tärningstråg — serverns egen grammatik</h2>
+          <span class="sub"><b>friktion</b> · fate-engine · M · W5+</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Friktion</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · W5+ (grammatikflytten = S-förarbete)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>/roll har noll upptäckbarhet: ingen knapp, ingen autocomplete, syntaxgissning postas som pinsam klartext (bare-/roll-hotfixen är beviset). En typo kostar en serverrunda.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>parse_roll_expr flyttar till en delad always-on-modul — klienten validerar med BOKSTAVLIGEN serverns parser, driftsäkert per konstruktion. "/" i position 0 öppnar en kommandopalett (emoji-autocomplete-maskineriet), och ett 44px 🎲-chip öppnar ett glastråg med tärningschips, stegare och senaste-rull-MRU — på båda pekarklasserna. All RNG kvar på servern.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Varje ingång komponerar mot samma serverauktoritativa endpoint — invarianten förstärks, inte kringgås. Naturligt hem för W9:s "/roll 1d20+STR".</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Driftsäker per konstruktion — invarianten stärkt, inte kringgådd.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Verifierat: parse_roll_expr är en ren fn, flytten mekanisk — bäst konstruerad av de fyra tärningsförslagen.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 7</b></span><q>Aldrig mer en trasig /roll inför bordet — värt det ensamt.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 13 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--tint-orange); --i:12">
+      <button class="head" aria-expanded="false">
+        <span class="rank">13</span>
+        <span class="t"><h2>Sealed band — döp om viskningen, reveal blir dekod</h2>
+          <span class="sub"><b>immersion</b> · whisper · S · fristående QoL</span></span>
+        <span class="score">8.0</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Immersion</span><span class="tag cost-S">Kostnad · S</span><span class="tag">Våg · Fristående · före W7</span><span class="tag">Parar med #8</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Namnet "whisper" lovar privat — men det är blur-för-alla-teater. Allt återförseglas vid varje kanalåterinträde, och reveal saknar ceremoni.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>"Förseglad sändning på öppet band": sigillrad "⬡ SEALED — tap to decode", skanlinjesvep vid dekod, avslöjade id:n i localStorage så inget återförseglas, markerbar text på fina pekare. Copyn säger ärligt: alla på däcket kan dekoda. Frigör namnet "whisper" åt Director Modes äkta per-mottagar-hemligheter (W7).</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Fiktion som gör trust-copyns jobb — ärlig om hotmodellen på ett sätt nuvarande namn inte är. Tre smärtor dör i samma drag.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 8</b></span><q>Ärlig om blur-för-alla-teatern; maskinvarianten orörd; S-kostnad.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 9</b></span><q>Copy + svep + LRU + selektion — ärlig S, noll serverkontakt, löser W7-namnkollisionen i förväg.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 7</b></span><q>Kanalen återförseglar inte längre det jag redan läst — dagsirritationen fixad billigt.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 14 -->
+    <article class="card" data-area="meddelanden" style="--c:var(--accent); --i:13">
+      <button class="head" aria-expanded="false">
+        <span class="rank">14</span>
+        <span class="t"><h2>Markeringsmeny + svep-för-svar</h2>
+          <span class="sub"><b>rumslig</b> · radial-menyn · M · W5+</span></span>
+        <span class="score">7.7</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Rumslig</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · W5+ (skelettoberoende)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Tre ronder CSS-krig mot iOS om långtrycket; all textselektion borta på touch; skärmläsare på telefon har NOLL meddelandeåtgärder; Delete är en armerad tap från ett svar.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Markeringsmeny: setPointerCapture vid 450ms — chips blommar, fingret glider, släpp över ett chip utför. Inga click-event alls, så guard, armed-flagga och Delete-faran upphör att existera (Delete kräver dessutom 250ms dwell). Svep höger på en rad = svara. Och AT-tvillingen: selektionen återvänder (suppression scopas till aktiv gest) plus en ⋯-knapp ur samma message_actions-predikat som öppnar ett bottenark.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Löser iOS-ägandekriget strukturellt i stället för att lappa det — och stänger touch-AT-hålet med predikatet som enda källa.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>UX-jämlikhet på djupet: AT-användare på telefon har idag noll meddelandeåtgärder.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 6</b></span><q>Tre kopplade ändringar är M–L, inte M; scopad selektion är skakig på iOS — #54-gaten obligatorisk.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Svep-för-svar är gesten jag skulle använda mest varenda kväll.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 15 -->
+    <article class="card" data-area="tarningar" style="--c:var(--tint-purple); --i:14">
+      <button class="head" aria-expanded="false">
+        <span class="rank">15</span>
+        <span class="t"><h2>The Casting — nat-20 som bordshändelse</h2>
+          <span class="sub"><b>ceremoni</b> · fate-engine · M · W5+</span></span>
+        <span class="score">7.7</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Ceremoni</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · W5+ (strukturresultat först som backend-prep)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Rollresultat är ren text: ingen per-tärningsuppdelning, ingen crit-känsla, noll touch-ingång — tabletop-substratets emotionella payoff saknas helt.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Gjuttråg-sheet med stora tärningsplattor, modifierarstegare och delad grammatik; CAST-knapp som laddas vid håll, CSS-kub som tumlar tills serverns svar landar. DTO:n får strukturerade resultat och servern beräknar crit: max ger guldblixt + ljusbloom + permanent guldring (state); min etsar en fraktur. ALLA vid bordet ser entréceremonin — RNG, grammatik och crit-detektion 100% server-side.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Tärningarna blir touch-infödda och nat-20 blir en händelse för bordet — och strukturresultaten förbygger exakt det W9 Character Sheets behöver.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Djupaste tärningssvaret — ceremoni och invariant båda stärkta.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 6</b></span><q>Schema-touch på befylld message-tabell plus tråg, kub och crit-fx är M–L; rätt instinkter dock (verbatim-fallback, opacity-bloom).</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 8</b></span><q>Hela bordet ser guldblixten — äkta tabletop-magi, och tråget avslutar offentlig syntaxgissning.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+    <!-- 16 -->
+    <article class="card" data-area="media" style="--c:var(--accent); --i:15">
+      <button class="head" aria-expanded="false">
+        <span class="rank">16</span>
+        <span class="t"><h2>Media lyder fingrarna — nyp, panorera, dra-för-stäng</h2>
+          <span class="sub"><b>rumslig</b> · lightbox · M · fristående QoL</span></span>
+        <span class="score">7.7</span><span class="chev">▼</span>
+      </button>
+      <div class="body"><div class="inner">
+        <div class="tags"><span class="tag lens">Lins · Rumslig</span><span class="tag cost-M">Kostnad · M</span><span class="tag">Våg · Fristående QoL (före/jämte W5)</span></div>
+        <div class="sect nu"><div class="lbl">Nu</div><p>Live-fynd #51: nyp på ett foto — den mest instinktiva mediagesten — är helt död; zoom utan panorering är oanvändbar; galleribyte är ett 50px-tröskelklipp.</p></div>
+        <div class="sect evo"><div class="lbl">→ Evolverat</div><p>Lightboxen får en egen gestmotor (globala zoomlåset kvar): nyp 1–4x kring gestens MITTPUNKT, panorering med gummiband, dubbeltryck-zoom, fingerfäljande galleridrag med momentum, och drag-ned-för-stäng som tonar bakgrunden 1:1 med fingret. Allt transform-only; desktop får identisk fysik via drag och hjul. Slås ihop med syskonförslagets disciplin: rAF-batchad matte, scoped will-change.</p></div>
+        <div class="sect why"><div class="lbl">Varför</div><p>Svarar på ägarvärde #1 på ytan där det svider mest — och helt skelettoberoende: inget arbete slösas oavsett vilken W5-vinnare det blir.</p></div>
+        <div class="sect"><div class="lbl">Domarna</div><div class="judges">
+          <div class="judge v"><span class="who"><b>Värden 9</b></span><q>Det visceralaste touch-is-meta-fyndet besvarat med transform-fysik och identisk desktop-mekanik.</q></div>
+          <div class="judge b"><span class="who"><b>Bygge 7</b></span><q>Varje fotovisare bevisar byggbarheten; M lätt optimistiskt — slå ihop med kompositor-syskonet.</q></div>
+          <div class="judge s"><span class="who"><b>Spelare 7</b></span><q>Karaktärskonst och kartor äntligen zoombara mitt i scenen.</q></div>
+        </div></div>
+      </div></div>
+    </article>
+
+  </div>
+
+  <div class="secthead">Dödade på vägen</div>
+  <p class="sectlede">Tre förslag föll på kill-regeln — en enda domares veto räcker. Resterna återbrukas.</p>
+  <div class="killed">
+    <div class="kill">
+      <div class="kt">Nyp ut till omloppskartan</div>
+      <div class="kby">Dödad av spelardomaren · 1/10 (värden 9 · bygge 3)</div>
+      <p>Levande tvåfingerskalning på panelen du scrollar prosa i — ett oavsiktligt nyp mitt i scenen är en repskrapa. Kartan i sig överlever: bygg den bakom pillertrycket, låt nyp-ingången dö.</p>
+    </div>
+    <div class="kill">
+      <div class="kt">Deck transit — däckplatta vid kanalbyte</div>
+      <div class="kby">Dödad av spelardomaren · 2/10 (värden 5 · bygge 8)</div>
+      <p>En ~240ms platta över orden, hundratals gånger per kväll, är en ceremoniskatt på den mest frekventa handlingen — svepremsan och sveplinjen ger samma resa utan väntan.</p>
+    </div>
+    <div class="kill">
+      <div class="kt">Persona-orrery med "magnitud"</div>
+      <div class="kby">Dödad av värdedomaren · 3/10 (bygge 8 · spelare 7)</div>
+      <p>Magnituden renderar utkastlängd till mottagare som aldrig opt:at in — brott mot Spökpennans dubbelsamtycke. Tinten och noll-layoutskift lever vidare i rivalförslagen (#3, rank 29).</p>
+    </div>
+  </div>
+
+  <div class="secthead">Blinda fläckar · 21</div>
+  <p class="sectlede">Det varken inventeringen eller någon lins såg. Inga betyg — kandidater för nästa pass eller direkt triage.</p>
+  <div class="blind">
+    <div class="bs"><span class="no">01</span><p><b>@-omnämnanden</b> — ingen autocomplete, ingen feedback när en mention inte träffar, ingen egen mention-badge mot vanligt oläst.</p></div>
+    <div class="bs"><span class="no">02</span><p><b>Fulltextsökning i historiken</b> — "den där scenen från mars" går inte att hitta; ingen endpoint, ingen UI, inget förslag.</p></div>
+    <div class="bs"><span class="no">03</span><p><b>Blockering &amp; rapportering</b> — noll säkerhetsverktyg: ingen block-state, ingen rapportera-väg.</p></div>
+    <div class="bs"><span class="no">04</span><p><b>Gå-med-flödet</b> — man läggs till i ett gille utan samtycke eller notis; inga delbara invite-länkar.</p></div>
+    <div class="bs"><span class="no">05</span><p><b>Kontolivscykeln</b> — lösenordshanterar-ergonomi, session som dör mitt i ett utkast, radera/exportera konto: allt odesignat.</p></div>
+    <div class="bs"><span class="no">06</span><p><b>Skärmläsare i flödet</b> — noll aria-live-regioner: inkommande meddelanden, rolls och skrivrad är stumma för SR-användare.</p></div>
+    <div class="bs"><span class="no">07</span><p><b>Zoomlåsets pris</b> — user-scalable=no utan kompensation: ingen textstorleksinställning, ingen Dynamic Type-respekt.</p></div>
+    <div class="bs"><span class="no">08</span><p><b>Kontrast</b> — prefers-contrast/forced-colors hanteras aldrig, och personafärgers läsbarhet mot mörk glas-chrome valideras inte.</p></div>
+    <div class="bs"><span class="no">09</span><p><b>Länk-UX</b> — inga förhandsvisningar, ingen extern-länk-affordans, inget beslut om hur länkar öppnas från installerad PWA.</p></div>
+    <div class="bs"><span class="no">10</span><p><b>Tomma tillstånd</b> — nytt konto, tom kanal, tom vänlista, tom lorebook: blanka canvasen är designad ingenstans.</p></div>
+    <div class="bs"><span class="no">11</span><p><b>Server nere</b> — deploy-fönstret och kallstart utan backend saknar story; ingen "stationen är mörk"-vy.</p></div>
+    <div class="bs"><span class="no">12</span><p><b>Uppladdningens misslyckandehalva</b> — progress på stora filer, avbryt, retry och avvisningscopy (någon KOMMER prova en video) är onämnda.</p></div>
+    <div class="bs"><span class="no">13</span><p><b>Offlineläsning</b> — gårdagens scen i flygplansläge; offline-sidans faktiska innehåll är i ingen lista.</p></div>
+    <div class="bs"><span class="no">14</span><p><b>Surfplattan</b> — iPad-bredder, split-view och hybridinput nämns aldrig som klass.</p></div>
+    <div class="bs"><span class="no">15</span><p><b>Liggande telefon</b> — landskap som upplevelse (tangentbordet äter viewporten) behandlas aldrig som yta.</p></div>
+    <div class="bs"><span class="no">16</span><p><b>Desktop-tangentbord</b> — ingen Cmd+K-växlare, inga genvägar: under UX-jämlikheten har tangentbordsfolket noll paritetspost.</p></div>
+    <div class="bs"><span class="no">17</span><p><b>Autocorrect mot RP-namn</b> — iOS stavar om påhittade namn; lorebooken ligger där som ordlista och ingen kopplar den.</p></div>
+    <div class="bs"><span class="no">18</span><p><b>Kopiera &amp; dela text</b> — selektionen borttagen på touch men ingen kopiera-text-åtgärd eller meddelande-permalänk finns.</p></div>
+    <div class="bs"><span class="no">19</span><p><b>Teckengräns-feedback</b> — MAX_BODY_CHARS upptäcks först via fel efter att prosaväggen skrivits; ingen räknare, ingen varning.</p></div>
+    <div class="bs"><span class="no">20</span><p><b>PWA-ikonbadge</b> — oläst/ping på hemskärmsikonen (Badging API): det man ser före allt annat, saknas i båda listorna.</p></div>
+    <div class="bs"><span class="no">21</span><p><b>i18n</b> — svensk vänkrets, engelsk UI: lokalisering, lokala datumformat och strängexternalisering har ingen plan.</p></div>
+  </div>
+
+  <footer>
+    12 juni 2026 · v27.0.0 mendicant-bias · 6 linser · 3 domare<br>
+    <span class="sig">— Fable, stations-AI · Evolutionsarkivet</span><br>
+    <a href="index.html">‹ Tillbaka till Skelettvågen</a>
+  </footer>
+</main>
+
+<script>
+  // Filter chips
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.fchip'));
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.classList.toggle('on', c === chip); });
+      var f = chip.getAttribute('data-f');
+      cards.forEach(function (card) {
+        card.classList.toggle('hidden', f !== 'alla' && card.getAttribute('data-area') !== f);
+      });
+    });
+  });
+  // Expand/collapse
+  cards.forEach(function (card) {
+    var head = card.querySelector('.head');
+    head.addEventListener('click', function () {
+      var open = card.classList.toggle('open');
+      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  });
+</script>
+</body>
+</html>

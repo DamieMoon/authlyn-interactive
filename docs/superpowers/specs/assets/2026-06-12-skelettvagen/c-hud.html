@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07090f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>KONCEPT C · HOLOTERMINAL — Försöksdäck 27</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+<style>
+/* ============ Void Station tokens (from style/_tokens.scss) ============ */
+:root{
+  --void-deep:#07090f; --void:#0b0e14; --surface:#0e121a; --card:#10141d;
+  --surface-2:#131927; --line:#1a2130; --line-strong:#222b3c; --input-bg:#0a0d13;
+  --text:#dde6f2; --text-soft:#aab8cc; --text-muted:#8a98ad; --text-faint:#5d6b80;
+  --accent:#4d9fff; --accent-bright:#7fb6ff; --accent-soft:#2a4a8a; --live:#8ee6c8;
+  --danger:#e8707b;
+  --glass-bg:rgba(20,26,40,0.55); --glass-line:rgba(255,255,255,0.08);
+  --glass-highlight:rgba(255,255,255,0.09);
+  --glow-accent:rgba(77,159,255,0.55); --unread-glow:rgba(77,159,255,0.7);
+  --pinged-glow:rgba(255,180,127,0.8); --mention-bg:rgba(77,159,255,0.14);
+  --overlay:rgba(14,18,26,0.9); --scrim:rgba(4,6,10,0.6);
+  --aurora-1:rgba(22,33,58,0.85); --aurora-2:rgba(13,37,48,0.7);
+  --tint-orange:#ffb47f; --tint-green:#8ee6c8; --tint-blue:#7fb6ff; --tint-purple:#c4a8ff;
+  --font-ui:"Space Grotesk",-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --font-prose:"Crimson Pro",Georgia,"Iowan Old Style",Cambria,"Times New Roman",serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --ease-page:cubic-bezier(0.4,0,0.2,1); --ease-spring:cubic-bezier(0.2,0.9,0.3,1.15);
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  position:fixed;inset:0;width:100%;overflow:hidden;
+  background:var(--void-deep);color:var(--text);font-family:var(--font-ui);
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  overscroll-behavior:none;
+}
+button{font-family:var(--font-ui);color:inherit;background:none;border:none;cursor:pointer}
+
+/* ============ Deep space backdrop: aurora + 3 parallax star layers ============ */
+#space{position:fixed;inset:0;z-index:0;overflow:hidden;
+  background:
+    radial-gradient(120vw 80vh at 85% -10%, var(--aurora-1), transparent 60%),
+    radial-gradient(110vw 80vh at 0% 110%, var(--aurora-2), transparent 60%),
+    var(--void-deep);}
+.starlayer{position:absolute;inset:-70px;background-repeat:repeat;will-change:transform}
+#st1{background-image:
+  radial-gradient(1px 1px at 22px 34px, rgba(221,230,242,.55), transparent 55%),
+  radial-gradient(1px 1px at 130px 90px, rgba(221,230,242,.35), transparent 55%),
+  radial-gradient(1px 1px at 200px 180px, rgba(127,182,255,.4), transparent 55%),
+  radial-gradient(1px 1px at 70px 210px, rgba(221,230,242,.3), transparent 55%);
+  background-size:260px 260px}
+#st2{background-image:
+  radial-gradient(1.5px 1.5px at 60px 50px, rgba(221,230,242,.7), transparent 55%),
+  radial-gradient(1px 1px at 170px 140px, rgba(142,230,200,.5), transparent 55%),
+  radial-gradient(1.5px 1.5px at 240px 40px, rgba(127,182,255,.55), transparent 55%);
+  background-size:300px 300px}
+#st3{background-image:
+  radial-gradient(2px 2px at 100px 100px, rgba(221,230,242,.85), transparent 55%),
+  radial-gradient(2px 2px at 280px 220px, rgba(127,182,255,.7), transparent 55%);
+  background-size:380px 380px}
+/* faint CRT scanline + vignette over everything except panels */
+#crt{position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(255,255,255,.018) 0 1px, transparent 1px 4px),
+    radial-gradient(130% 100% at 50% 50%, transparent 60%, rgba(4,6,10,.55) 100%)}
+
+/* ============ The stream: the ONLY persistent surface ============ */
+#stream{position:absolute;inset:0;z-index:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  max-width:600px;margin:0 auto;
+  padding:calc(var(--sat) + 64px) 16px calc(var(--sab) + 116px)}
+#stream::-webkit-scrollbar{display:none}
+.msg{display:flex;gap:10px;margin:22px 0;max-width:88%;will-change:transform}
+.msg.own{margin-left:auto;flex-direction:row-reverse;max-width:84%}
+.avatar{flex:none;width:34px;height:34px;border-radius:50%;margin-top:18px;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:14px;color:var(--void-deep);
+  background:radial-gradient(circle at 30% 25%, var(--ac,#7fb6ff), color-mix(in srgb, var(--ac,#7fb6ff) 55%, #07090f));
+  box-shadow:0 0 14px color-mix(in srgb, var(--ac,#7fb6ff) 45%, transparent), inset 0 0 0 1px rgba(255,255,255,.25)}
+.stack{min-width:0;display:flex;flex-direction:column}
+.msg.own .stack{align-items:flex-end}
+.meta{display:flex;align-items:baseline;gap:8px;margin:0 4px 4px;font-size:11.5px}
+.name{font-weight:700;letter-spacing:.08em;color:var(--text-soft)}
+.msg.own .name{color:var(--accent-bright)}
+.time{font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint)}
+.fxtag{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.14em;
+  padding:2px 6px;border-radius:4px;border:1px solid var(--line-strong);color:var(--text-faint)}
+.bubble{position:relative;border-radius:16px;padding:11px 15px;
+  background:rgba(16,20,29,.78);border:1px solid var(--glass-line);
+  box-shadow:0 10px 30px rgba(0,0,0,.45), 0 0 0 1px rgba(77,159,255,.05)}
+.bubble::after{content:"";position:absolute;left:14px;right:14px;bottom:-1px;height:1px;
+  background:linear-gradient(90deg, transparent, rgba(77,159,255,.35), transparent)}
+.msg.own .bubble{background:linear-gradient(180deg, rgba(77,159,255,.17), rgba(42,74,138,.20));
+  border-color:rgba(77,159,255,.34)}
+.prose{font-family:var(--font-prose);font-size:17.5px;line-height:1.45;color:var(--text)}
+.prose em{font-style:italic;color:var(--accent-bright)}
+.msg.own .prose em{color:#b9d6ff}
+.sysline{margin:26px auto;text-align:center;font-family:var(--font-mono);font-size:10px;
+  letter-spacing:.12em;color:var(--text-faint);will-change:transform}
+
+/* WHISPER — blurred until tapped */
+.whisper .bubble{cursor:pointer}
+.whisper .prose{filter:blur(7px);opacity:.65;transition:filter .45s var(--ease-page), opacity .45s}
+.whisper.revealed .prose{filter:blur(0);opacity:1}
+.whisper .fxtag{color:var(--tint-purple);border-color:rgba(196,168,255,.35)}
+.whisperhint{display:block;margin-top:6px;font-family:var(--font-mono);font-size:9px;
+  letter-spacing:.1em;color:var(--text-faint);transition:opacity .3s}
+.whisper.revealed .whisperhint{opacity:0;height:0;margin:0;overflow:hidden}
+
+/* SHOUT — warm tint + shake */
+.shout .bubble{background:linear-gradient(180deg, rgba(255,180,127,.13), rgba(255,140,90,.07));
+  border-color:rgba(255,180,127,.42);
+  box-shadow:0 10px 30px rgba(0,0,0,.45), 0 0 26px rgba(255,180,127,.18);cursor:pointer}
+.shout .bubble::after{background:linear-gradient(90deg, transparent, var(--pinged-glow), transparent)}
+.shout .fxtag{color:var(--tint-orange);border-color:rgba(255,180,127,.4)}
+.shout .prose em{color:var(--tint-orange)}
+.shout .bubble.shaking{animation:shake .5s var(--ease-page)}
+@keyframes shake{
+  10%,90%{transform:translateX(-2px)} 20%,80%{transform:translateX(3px)}
+  30%,50%,70%{transform:translateX(-4px)} 40%,60%{transform:translateX(4px)}}
+
+/* SPELL — glow pulse + spark dots (transform/opacity only) */
+.spell .bubble{border-color:rgba(127,182,255,.4);overflow:visible}
+.spell .glowring{content:"";position:absolute;inset:-2px;border-radius:18px;pointer-events:none;
+  box-shadow:0 0 24px var(--glow-accent), inset 0 0 18px rgba(77,159,255,.18);
+  animation:spellpulse 2.6s ease-in-out infinite}
+@keyframes spellpulse{0%,100%{opacity:.35}50%{opacity:1}}
+.spell .fxtag{color:var(--accent-bright);border-color:rgba(127,182,255,.4)}
+.spark{position:absolute;width:5px;height:5px;border-radius:50%;pointer-events:none;
+  background:var(--accent-bright);box-shadow:0 0 8px var(--glow-accent)}
+.spark.k2{background:var(--live);box-shadow:0 0 8px rgba(142,230,200,.6)}
+.spark.s1{top:-7px;right:18px;animation:sparkf 2.8s ease-in-out infinite}
+.spark.s2{bottom:-6px;left:24px;animation:sparkf 3.4s ease-in-out .6s infinite}
+.spark.s3{top:38%;right:-8px;animation:sparkf 3s ease-in-out 1.2s infinite}
+@keyframes sparkf{0%,100%{transform:translate(0,0) scale(.6);opacity:.25}
+  50%{transform:translate(3px,-7px) scale(1);opacity:1}}
+
+/* ROLL chip — fate engine */
+.rollrow{margin:24px auto;text-align:center;max-width:88%;will-change:transform}
+.rollmeta{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.14em;color:var(--text-faint);margin-bottom:7px}
+.rollchip{display:inline-block;font-family:var(--font-mono);font-size:13.5px;color:var(--accent-bright);
+  padding:11px 18px;border-radius:999px;border:1px solid var(--accent-soft);
+  background:rgba(77,159,255,.08);
+  box-shadow:0 0 20px rgba(77,159,255,.2), inset 0 0 12px rgba(77,159,255,.06)}
+.rollcap{margin-top:6px;font-family:var(--font-prose);font-style:italic;font-size:14px;color:var(--text-muted)}
+
+/* GHOST QUILL — dashed live-draft row */
+.ghost{margin:20px 0 8px;padding:10px 14px;max-width:80%;border-radius:14px;
+  border:1px dashed rgba(77,159,255,.35);color:var(--text-muted);
+  font-family:var(--font-prose);font-style:italic;font-size:15px;
+  animation:ghostbreathe 3s ease-in-out infinite;will-change:transform}
+.ghost .gname{font-family:var(--font-ui);font-style:normal;font-weight:700;
+  font-size:11px;letter-spacing:.08em;color:var(--text-soft)}
+@keyframes ghostbreathe{0%,100%{opacity:.55}50%{opacity:.9}}
+
+/* TYPING constellation — orbiting stars */
+.typing{display:flex;align-items:center;gap:12px;margin:14px 2px 0;will-change:transform}
+.orbit{position:relative;width:30px;height:30px;flex:none}
+.tstar{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;
+  background:var(--accent-bright);box-shadow:0 0 7px var(--glow-accent)}
+.tstar.t1{animation:orb1 2.2s linear infinite}
+.tstar.t2{background:var(--live);box-shadow:0 0 7px rgba(142,230,200,.6);animation:orb2 3.1s linear infinite}
+.tstar.t3{animation:orb3 4.1s linear infinite}
+@keyframes orb1{from{transform:rotate(0deg) translateX(6px)}to{transform:rotate(360deg) translateX(6px)}}
+@keyframes orb2{from{transform:rotate(120deg) translateX(10px)}to{transform:rotate(-240deg) translateX(10px)}}
+@keyframes orb3{from{transform:rotate(240deg) translateX(13px)}to{transform:rotate(600deg) translateX(13px)}}
+.tlabel{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--text-faint)}
+
+/* ============ Edge zones (gesture catchers) + affordances ============ */
+.zone{position:fixed;z-index:6;touch-action:none}
+#zoneL{left:0;width:26px;top:calc(var(--sat) + 54px);bottom:150px}
+#zoneR{right:0;width:26px;top:calc(var(--sat) + 54px);bottom:150px}
+#zoneT{top:0;left:0;right:0;height:calc(var(--sat) + 34px)}
+#zoneB{bottom:0;left:0;right:0;height:calc(var(--sab) + 62px)}
+.ehint{position:fixed;z-index:2;width:3px;height:110px;top:46%;border-radius:3px;pointer-events:none;
+  background:linear-gradient(180deg, transparent, var(--glow-accent), transparent);
+  animation:epulse 3.6s ease-in-out infinite}
+.ehint.l{left:3px}.ehint.r{right:3px;animation-delay:1.8s}
+@keyframes epulse{0%,100%{opacity:.16}50%{opacity:.6}}
+#glyph{position:fixed;z-index:6;left:50%;bottom:calc(var(--sab) + 10px);transform:translateX(-50%);
+  pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:2px;
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.3em;color:var(--text-faint);
+  animation:epulse 4s ease-in-out infinite}
+#glyph .chev{font-size:14px;letter-spacing:0;color:var(--accent-bright);
+  text-shadow:0 0 10px var(--glow-accent)}
+
+/* concept label + faint channel ident (top, non-interactive) */
+#label{position:fixed;z-index:3;top:calc(var(--sat) + 8px);left:0;right:0;text-align:center;pointer-events:none}
+#label b{display:inline-block;font-family:var(--font-mono);font-weight:400;font-size:9px;
+  letter-spacing:.32em;color:var(--accent-bright);text-shadow:0 0 12px var(--glow-accent);
+  padding:4px 12px;border:1px solid rgba(77,159,255,.22);border-radius:999px;
+  background:rgba(11,14,20,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#label span{display:block;margin-top:4px;font-family:var(--font-mono);font-size:8.5px;
+  letter-spacing:.18em;color:var(--text-faint)}
+
+/* ============ Hologram panels (summoned light) ============ */
+#scrim{position:fixed;inset:0;z-index:10;background:var(--scrim);
+  opacity:var(--p,0);pointer-events:none;transition:opacity .26s var(--ease-page)}
+#scrim.dragging{transition:none}
+#scrim.show{pointer-events:auto}
+.holo{position:fixed;z-index:11;color:var(--text);
+  background:linear-gradient(165deg, rgba(20,26,40,.72), rgba(14,18,26,.66));
+  backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);
+  border:1px solid var(--glass-line);
+  box-shadow:0 0 0 1px rgba(77,159,255,.12), 0 0 38px rgba(77,159,255,.12), 0 28px 70px rgba(0,0,0,.65);
+  opacity:min(1, calc(var(--p,0) * 2.2));
+  transition:transform .32s var(--ease-spring), opacity .24s var(--ease-page);
+  pointer-events:none;touch-action:none;overflow:hidden}
+.holo.dragging{transition:none}
+.holo.open{pointer-events:auto}
+/* scanline texture on every hologram */
+.holo::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(to bottom, rgba(255,255,255,.03) 0 1px, transparent 1px 3px)}
+/* materialization: flicker + sweep, re-triggered on each commit */
+.holo.mat{animation:holoflicker .42s steps(1,end)}
+@keyframes holoflicker{0%{opacity:.25}12%{opacity:.95}22%{opacity:.5}34%{opacity:1}48%{opacity:.8}60%{opacity:1}100%{opacity:1}}
+.holo .sweepline{position:absolute;left:0;right:0;top:0;height:2px;opacity:0;pointer-events:none;
+  background:linear-gradient(90deg, transparent, var(--accent-bright), transparent);
+  box-shadow:0 0 16px var(--glow-accent)}
+.holo.mat .sweepline{animation:panesweep .5s var(--ease-page)}
+@keyframes panesweep{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(70vh)}}
+
+/* LEFT — channel rig */
+#rail{left:0;top:0;bottom:0;width:min(78vw,300px);
+  border-left:none;border-radius:0 20px 20px 0;
+  clip-path:polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+  padding:calc(var(--sat) + 20px) 14px calc(var(--sab) + 20px);
+  transform:translateX(calc(-104% + var(--p,0) * 104%))}
+#rail .srv{display:flex;align-items:center;gap:10px;margin:2px 6px 18px}
+#rail .srv .mono{width:40px;height:40px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center;
+  font-weight:700;color:var(--void-deep);background:radial-gradient(circle at 30% 25%, var(--accent-bright), var(--accent-soft));
+  box-shadow:0 0 16px var(--glow-accent)}
+#rail .srv .nm{font-weight:700;letter-spacing:.06em;font-size:14px}
+#rail .srv .sub{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:.12em}
+.sect{font-family:var(--font-mono);font-size:9px;letter-spacing:.22em;color:var(--text-faint);margin:14px 8px 6px}
+.chan{display:flex;align-items:center;gap:8px;width:100%;min-height:46px;padding:0 12px;
+  border-radius:12px;font-size:14.5px;color:var(--text-soft);text-align:left}
+.chan .hash{color:var(--text-faint);font-family:var(--font-mono)}
+.chan .dot{margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 8px var(--unread-glow)}
+.chan.active{background:var(--mention-bg);color:var(--text);
+  box-shadow:inset 0 0 0 1px rgba(77,159,255,.3), 0 0 14px rgba(77,159,255,.1)}
+.chan:active{background:var(--surface-2)}
+
+/* RIGHT — crew & personas */
+#crew{right:0;top:0;bottom:0;width:min(78vw,300px);
+  border-radius:20px 0 0 20px;
+  clip-path:polygon(22px 0, 100% 0, 100% 100%, 0 100%, 0 22px);
+  padding:calc(var(--sat) + 20px) 14px calc(var(--sab) + 20px);
+  transform:translateX(calc(104% - var(--p,0) * 104%))}
+.crewrow{display:flex;align-items:center;gap:11px;width:100%;min-height:50px;padding:4px 10px;border-radius:12px;text-align:left}
+.crewrow:active{background:var(--surface-2)}
+.crewrow .avatar{margin:0;width:32px;height:32px;font-size:13px}
+.crewrow .cn{font-size:14px;font-weight:500}
+.crewrow .cs{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:.08em}
+.crewrow .on{margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--live);
+  box-shadow:0 0 8px rgba(142,230,200,.7)}
+.crewrow .off{margin-left:auto;width:8px;height:8px;border-radius:50%;border:1px solid var(--line-strong)}
+.pchip{display:flex;align-items:center;gap:8px;min-height:46px;width:100%;padding:0 12px;border-radius:12px;
+  font-size:14px;color:var(--text-soft)}
+.pchip.active{background:var(--mention-bg);color:var(--text);
+  box-shadow:inset 0 0 0 1px rgba(77,159,255,.3)}
+.pchip .quill{font-size:15px}
+
+/* TOP — station HUD */
+#hud{top:0;left:0;right:0;border-radius:0 0 22px 22px;
+  padding:calc(var(--sat) + 16px) 18px 18px;
+  transform:translateY(calc(-104% + var(--p,0) * 104%))}
+.hudrow1{display:flex;align-items:center;gap:12px}
+.livechip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);
+  font-size:10px;letter-spacing:.2em;color:var(--live);
+  padding:5px 10px;border-radius:999px;border:1px solid rgba(142,230,200,.35);
+  background:rgba(142,230,200,.07);box-shadow:0 0 14px rgba(142,230,200,.15)}
+.livechip i{width:7px;height:7px;border-radius:50%;background:var(--live);
+  box-shadow:0 0 8px rgba(142,230,200,.8);animation:livepulse 2s ease-in-out infinite}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.35}}
+.hudsrv{font-weight:700;letter-spacing:.1em;font-size:13px}
+.hudlat{margin-left:auto;font-family:var(--font-mono);font-size:9.5px;color:var(--text-faint)}
+.hudunreads{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.uchip{font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);
+  padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(10,13,19,.5)}
+.uchip b{color:var(--accent-bright);text-shadow:0 0 8px var(--glow-accent)}
+.hudfoot{margin-top:14px;font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;color:var(--text-faint)}
+
+/* BOTTOM — the console */
+#console{left:0;right:0;bottom:0;border-radius:22px 22px 0 0;
+  clip-path:polygon(0 26px, 26px 0, calc(100% - 26px) 0, 100% 26px, 100% 100%, 0 100%);
+  padding:12px 16px calc(var(--sab) + 14px);max-width:600px;margin:0 auto;
+  transform:translateY(calc(104% - var(--p,0) * 104%))}
+#console .grip{width:44px;height:4px;border-radius:2px;margin:0 auto 10px;
+  background:var(--line-strong);box-shadow:0 0 8px rgba(77,159,255,.25)}
+.persona-line{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;
+  color:var(--text-faint);margin:0 4px 10px}
+.persona-line b{color:var(--accent-bright);font-weight:400}
+#replyChip[hidden]{display:none}
+#replyChip{display:flex;align-items:center;gap:8px;margin:0 2px 10px;padding:8px 12px;
+  border-radius:10px;border:1px dashed rgba(77,159,255,.4);background:rgba(77,159,255,.06);
+  font-family:var(--font-prose);font-style:italic;font-size:13px;color:var(--text-muted)}
+#replyChip b{font-family:var(--font-ui);font-style:normal;font-size:10.5px;letter-spacing:.08em;color:var(--accent-bright)}
+#replyChip button{margin-left:auto;min-width:32px;min-height:32px;color:var(--text-faint);font-size:14px}
+.fxrow{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;scrollbar-width:none}
+.fxrow::-webkit-scrollbar{display:none}
+.fx{flex:none;min-height:44px;padding:0 16px;border-radius:999px;font-size:12.5px;letter-spacing:.04em;
+  color:var(--text-muted);border:1px solid var(--line-strong);background:rgba(10,13,19,.5);
+  transition:box-shadow .2s, color .2s, border-color .2s}
+.fx[aria-pressed="true"]{color:var(--accent-bright);border-color:rgba(77,159,255,.5);
+  box-shadow:0 0 14px rgba(77,159,255,.25), inset 0 0 8px rgba(77,159,255,.08)}
+.fx.dice{font-size:17px;padding:0 14px}
+.fxrow.pulsing .fx{animation:fxpulse 1s ease-in-out 2}
+@keyframes fxpulse{50%{box-shadow:0 0 18px var(--glow-accent)}}
+.inrow{display:flex;gap:10px;align-items:stretch}
+#input{flex:1;min-height:48px;padding:0 16px;border-radius:14px;font-size:16px;
+  font-family:var(--font-prose);color:var(--text);background:var(--input-bg);
+  border:1px solid var(--line-strong);outline:none;
+  -webkit-user-select:text;user-select:text}
+#input::placeholder{color:var(--text-faint);font-style:italic}
+#input:focus{border-color:rgba(77,159,255,.5);box-shadow:0 0 16px rgba(77,159,255,.18)}
+#sendBtn{flex:none;min-width:52px;min-height:48px;border-radius:14px;font-size:20px;
+  color:var(--void-deep);font-weight:700;
+  background:radial-gradient(circle at 30% 25%, var(--accent-bright), var(--accent));
+  box-shadow:0 0 18px var(--glow-accent)}
+#sendBtn:active{transform:scale(.94)}
+
+/* ============ Radial command hologram ============ */
+#radialWrap{position:fixed;inset:0;z-index:20;display:none}
+#radialWrap.show{display:block}
+#radialWrap .rscrim{position:absolute;inset:0;background:rgba(4,6,10,.45);
+  opacity:0;transition:opacity .2s}
+#radialWrap.show .rscrim{opacity:1}
+#radial{position:absolute;width:0;height:0}
+.rcore{position:absolute;left:-5px;top:-5px;width:10px;height:10px;border-radius:50%;
+  background:var(--accent-bright);box-shadow:0 0 16px var(--glow-accent);
+  animation:livepulse 1.6s ease-in-out infinite}
+.ritem{position:absolute;left:-30px;top:-30px;width:60px;height:60px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  background:var(--glass-bg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(77,159,255,.35);
+  box-shadow:0 0 20px rgba(77,159,255,.25), 0 10px 26px rgba(0,0,0,.5);
+  font-size:19px;opacity:0;
+  transform:rotate(var(--ang)) translateX(0px) rotate(calc(-1 * var(--ang))) scale(.3);
+  transition:transform .27s var(--ease-spring), opacity .16s;transition-delay:var(--d,0ms)}
+.ritem span{font-size:8px;font-family:var(--font-mono);letter-spacing:.06em;color:var(--text-soft)}
+#radialWrap.show .ritem{opacity:1;
+  transform:rotate(var(--ang)) translateX(88px) rotate(calc(-1 * var(--ang))) scale(1)}
+.ritem:active{box-shadow:0 0 28px var(--glow-accent)}
+
+/* ============ Help: "?" + gesture hints ============ */
+#helpBtn{position:fixed;z-index:8;right:14px;bottom:calc(var(--sab) + 84px);
+  width:44px;height:44px;border-radius:50%;font-size:17px;color:var(--text-muted);
+  background:var(--glass-bg);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--glass-line);box-shadow:0 0 14px rgba(77,159,255,.12)}
+#hints{position:fixed;inset:0;z-index:30;display:none;background:rgba(4,6,10,.78);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#hints.show{display:block}
+.hint{position:absolute;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;
+  color:var(--accent-bright);text-shadow:0 0 12px var(--glow-accent);
+  padding:10px 14px;border:1px dashed rgba(77,159,255,.4);border-radius:12px;
+  background:rgba(11,14,20,.6)}
+.hint.hl{left:12px;top:38%}
+.hint.hr{right:12px;top:52%}
+.hint.ht{left:50%;top:calc(var(--sat) + 52px);transform:translateX(-50%)}
+.hint.hb{left:50%;bottom:calc(var(--sab) + 76px);transform:translateX(-50%)}
+.hint.hc{left:50%;top:44%;transform:translate(-50%,-50%);text-align:center;
+  border-style:solid;color:var(--text);line-height:1.8}
+.hint.hc small{display:block;color:var(--text-faint);font-size:9px}
+.hintfoot{position:absolute;left:0;right:0;bottom:calc(var(--sab) + 22px);text-align:center;
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.2em;color:var(--text-faint)}
+
+/* ============ Toast ============ */
+#toast{position:fixed;z-index:35;left:50%;bottom:calc(var(--sab) + 120px);
+  transform:translate(-50%,10px);opacity:0;pointer-events:none;
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;color:var(--accent-bright);
+  padding:10px 16px;border-radius:999px;border:1px solid rgba(77,159,255,.3);
+  background:var(--overlay);box-shadow:0 0 18px rgba(77,159,255,.2);
+  transition:opacity .22s, transform .22s var(--ease-spring)}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ============ Boot materialization (~600ms, tap to skip) ============ */
+#boot{position:fixed;inset:0;z-index:60;background:var(--void-deep);
+  display:flex;align-items:center;justify-content:center;
+  animation:bootout .22s var(--ease-page) .64s forwards}
+#boot .sweep{position:absolute;left:0;right:0;top:0;height:3px;
+  background:linear-gradient(90deg, transparent, var(--accent-bright), transparent);
+  box-shadow:0 0 26px var(--glow-accent);
+  animation:bootsweep .6s var(--ease-page) forwards}
+#boot .bl{font-family:var(--font-mono);font-size:10px;letter-spacing:.34em;color:var(--text-faint);
+  animation:holoflicker .6s steps(1,end)}
+@keyframes bootsweep{from{transform:translateY(0)}to{transform:translateY(100vh)}}
+@keyframes bootout{to{opacity:0;visibility:hidden}}
+#stream,#space{animation:appin .7s steps(1,end)}
+@keyframes appin{0%{opacity:0}14%{opacity:.5}24%{opacity:.15}38%{opacity:.8}52%{opacity:.4}66%{opacity:1}100%{opacity:1}}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+
+<div id="space" aria-hidden="true">
+  <div class="starlayer" id="st1"></div>
+  <div class="starlayer" id="st2"></div>
+  <div class="starlayer" id="st3"></div>
+</div>
+<div id="crt" aria-hidden="true"></div>
+
+<div id="label" aria-hidden="true">
+  <b>KONCEPT C · HOLOTERMINAL</b>
+  <span id="chanIdent">#general · försöksdäck 27</span>
+</div>
+<div class="ehint l" aria-hidden="true"></div>
+<div class="ehint r" aria-hidden="true"></div>
+<div id="glyph" aria-hidden="true"><span class="chev">⌃</span>KONSOL</div>
+
+<!-- ================= THE STREAM ================= -->
+<main id="stream">
+  <div class="sysline" data-depth="0.02">── förbindelse upprättad · försöksdäck 27 · #general ──</div>
+
+  <article class="msg left" data-depth="0.035">
+    <div class="avatar" style="--ac:var(--tint-green)">F</div>
+    <div class="stack">
+      <header class="meta"><span class="name">FABLE</span><span class="time">21:02</span></header>
+      <div class="bubble"><p class="prose"><em>Stationens ljus dämpas till en mjuk puls och hologrammen vaknar ett efter ett.</em> Välkommen tillbaka till Försöksdäck&nbsp;27, kommendör. Alla system nominella.</p></div>
+    </div>
+  </article>
+
+  <article class="msg left" data-depth="0.055">
+    <div class="avatar" style="--ac:var(--tint-purple)">G</div>
+    <div class="stack">
+      <header class="meta"><span class="name">GottZ</span><span class="time">21:03</span></header>
+      <div class="bubble"><p class="prose">halloj! är hologrammen nya? det känns som att golvet svävar 👀</p></div>
+    </div>
+  </article>
+
+  <article class="msg own" data-depth="0.04">
+    <div class="stack">
+      <header class="meta"><span class="name">MAKANT BIAS</span><span class="time">21:04</span></header>
+      <div class="bubble"><p class="prose">Det är för att det gör det. <em>lutar sig mot ett räcke av rent ljus</em> Ikväll testar vi allting.</p></div>
+    </div>
+  </article>
+
+  <article class="msg left shout" data-depth="0.06">
+    <div class="avatar" style="--ac:var(--tint-orange)">F</div>
+    <div class="stack">
+      <header class="meta"><span class="name">FABLE</span><span class="fxtag">SHOUT</span><span class="time">21:06</span></header>
+      <div class="bubble" id="shoutBubble"><p class="prose">VARNING: ANOMALI I SEKTION 7. <em>en siren av ren ton sveper genom däcket</em> ALLA HÄNDER TILL STATIONERNA!</p></div>
+    </div>
+  </article>
+
+  <article class="msg own whisper" data-depth="0.03">
+    <div class="stack">
+      <header class="meta"><span class="name">MAKANT BIAS</span><span class="fxtag">VISKNING</span><span class="time">21:07</span></header>
+      <div class="bubble">
+        <p class="prose"><em>viskar</em> Det är ingen anomali. Det är min födelsedagspresent till däcket. Säg inget till FABLE.</p>
+        <span class="whisperhint">⌁ viskning — tryck för att höra</span>
+      </div>
+    </div>
+  </article>
+
+  <div class="rollrow" data-depth="0.045">
+    <div class="rollmeta">MAKANT BIAS · ÖDESMOTORN</div>
+    <span class="rollchip">🎲 2d20+3 → [5,7]+3 = 15</span>
+    <div class="rollcap">ödet avgör: smyga förbi GottZ</div>
+  </div>
+
+  <article class="msg left spell" data-depth="0.05">
+    <div class="avatar" style="--ac:var(--tint-blue)">F</div>
+    <div class="stack">
+      <header class="meta"><span class="name">FABLE</span><span class="fxtag">BESVÄRJELSE</span><span class="time">21:09</span></header>
+      <div class="bubble">
+        <i class="glowring" aria-hidden="true"></i>
+        <i class="spark s1" aria-hidden="true"></i>
+        <i class="spark s2 k2" aria-hidden="true"></i>
+        <i class="spark s3" aria-hidden="true"></i>
+        <p class="prose"><em>väver ett skimmer av partiklar över kanalen</em> Må däcket hålla er flytande i natt. ✦</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="msg left" data-depth="0.025">
+    <div class="avatar" style="--ac:var(--tint-purple)">G</div>
+    <div class="stack">
+      <header class="meta"><span class="name">GottZ</span><span class="time">21:10</span></header>
+      <div class="bubble"><p class="prose">ok det där var faktiskt riktigt snyggt</p></div>
+    </div>
+  </article>
+
+  <!-- live rows (ghost quill + typing) stay pinned last -->
+  <div id="liveRows">
+    <div class="ghost" data-depth="0.03"><span class="gname">MAKANT BIAS</span> ✒️ <em>skriver något hemligt…</em></div>
+    <div class="typing" data-depth="0.02">
+      <div class="orbit"><i class="tstar t1"></i><i class="tstar t2"></i><i class="tstar t3"></i></div>
+      <span class="tlabel">FABLE väver ett svar…</span>
+    </div>
+  </div>
+</main>
+
+<!-- ================= EDGE ZONES ================= -->
+<div class="zone" id="zoneL"></div>
+<div class="zone" id="zoneR"></div>
+<div class="zone" id="zoneT"></div>
+<div class="zone" id="zoneB"></div>
+
+<div id="scrim"></div>
+
+<!-- ================= HOLOGRAM: CHANNEL RIG (left) ================= -->
+<aside class="holo" id="rail">
+  <i class="sweepline" aria-hidden="true"></i>
+  <div class="srv">
+    <div class="mono">27</div>
+    <div><div class="nm">FÖRSÖKSDÄCK 27</div><div class="sub">MENDICANT BIAS · TESTDECK</div></div>
+  </div>
+  <div class="sect">TEXTKANALER</div>
+  <button class="chan active" data-chan="general"><span class="hash">#</span>general</button>
+  <button class="chan" data-chan="maskinrum"><span class="hash">#</span>maskinrum<i class="dot"></i></button>
+  <button class="chan" data-chan="observationsdäck"><span class="hash">#</span>observationsdäck<i class="dot"></i></button>
+  <button class="chan" data-chan="holodäck-3"><span class="hash">#</span>holodäck-3</button>
+  <div class="sect">MOTORER</div>
+  <button class="chan" data-chan="ödesmotorn"><span class="hash">⚙</span>ödesmotorn</button>
+</aside>
+
+<!-- ================= HOLOGRAM: CREW & PERSONAS (right) ================= -->
+<aside class="holo" id="crew">
+  <i class="sweepline" aria-hidden="true"></i>
+  <div class="sect">NÄRVARANDE — 3</div>
+  <div class="crewrow"><div class="avatar" style="--ac:var(--tint-green)">F</div>
+    <div><div class="cn">FABLE</div><div class="cs">STATIONS-AI · VÄVER</div></div><i class="on"></i></div>
+  <div class="crewrow"><div class="avatar" style="--ac:var(--tint-blue)">M</div>
+    <div><div class="cn">MAKANT BIAS</div><div class="cs">DU · KOMMENDÖR</div></div><i class="on"></i></div>
+  <div class="crewrow"><div class="avatar" style="--ac:var(--tint-purple)">G</div>
+    <div><div class="cn">GottZ</div><div class="cs">BESÖKARE</div></div><i class="on"></i></div>
+  <div class="crewrow" style="opacity:.45"><div class="avatar" style="--ac:#9aa7bd">O</div>
+    <div><div class="cn">Offensive Bias</div><div class="cs">URKOPPLAD</div></div><i class="off"></i></div>
+  <div class="sect">DIN PERSONA HÄR</div>
+  <button class="pchip active" data-persona="MAKANT BIAS"><span class="quill">✒️</span>MAKANT BIAS</button>
+  <button class="pchip" data-persona="Damien"><span class="quill">○</span>Damien — utan mask</button>
+</aside>
+
+<!-- ================= HOLOGRAM: STATION HUD (top) ================= -->
+<section class="holo" id="hud">
+  <i class="sweepline" aria-hidden="true"></i>
+  <div class="hudrow1">
+    <span class="livechip"><i></i>LIVE</span>
+    <span class="hudsrv">FÖRSÖKSDÄCK 27</span>
+    <span class="hudlat">SSE · 38 ms</span>
+  </div>
+  <div class="hudunreads">
+    <span class="uchip">#maskinrum <b>2</b></span>
+    <span class="uchip">#observationsdäck <b>1</b></span>
+    <span class="uchip">#general 0</span>
+  </div>
+  <div class="hudfoot">STATION: FENRIR · DRIFT: NOMINELL · 2026-06-11 21:14</div>
+</section>
+
+<!-- ================= HOLOGRAM: THE CONSOLE (bottom) ================= -->
+<section class="holo" id="console">
+  <i class="sweepline" aria-hidden="true"></i>
+  <div class="grip" aria-hidden="true"></div>
+  <div class="persona-line">SÄNDER SOM <b>MAKANT BIAS</b> · <span id="consoleChan">#general</span></div>
+  <div id="replyChip" hidden><b>↩ SVAR</b><span id="replyText"></span><button id="replyX" aria-label="ta bort svar">✕</button></div>
+  <div class="fxrow" id="fxRow">
+    <button class="fx" data-fx="" aria-pressed="true">ren signal</button>
+    <button class="fx" data-fx="whisper" aria-pressed="false">viskning</button>
+    <button class="fx" data-fx="shout" aria-pressed="false">shout</button>
+    <button class="fx" data-fx="spell" aria-pressed="false">besvärjelse</button>
+    <button class="fx dice" id="diceBtn" aria-label="slå tärning">🎲</button>
+  </div>
+  <div class="inrow">
+    <input id="input" placeholder="Tala till däcket…" autocomplete="off" enterkeyhint="send">
+    <button id="sendBtn" aria-label="sänd">⌁</button>
+  </div>
+</section>
+
+<!-- ================= RADIAL COMMAND HOLOGRAM ================= -->
+<div id="radialWrap">
+  <div class="rscrim"></div>
+  <div id="radial">
+    <i class="rcore" aria-hidden="true"></i>
+    <button class="ritem" data-act="reply" style="--ang:-90deg;--d:0ms">↩<span>SVARA</span></button>
+    <button class="ritem" data-act="fx" style="--ang:0deg;--d:40ms">✦<span>EFFEKT</span></button>
+    <button class="ritem" data-act="roll" style="--ang:90deg;--d:80ms">🎲<span>TÄRNING</span></button>
+    <button class="ritem" data-act="copy" style="--ang:180deg;--d:120ms">⧉<span>KOPIERA</span></button>
+  </div>
+</div>
+
+<!-- ================= HELP ================= -->
+<button id="helpBtn" aria-label="gesthjälp">?</button>
+<div id="hints">
+  <div class="hint hl">⟶ kanalrigg</div>
+  <div class="hint hr">besättning ⟵</div>
+  <div class="hint ht">⟱ dra ner: stationsstatus</div>
+  <div class="hint hb">⟰ dra upp: konsolen</div>
+  <div class="hint hc">HÅLL FINGRET PÅ STRÖMMEN<small>= kommandoring vid fingret</small><small>luta telefonen = djup-parallax</small><small>tryck viskningen för att höra den</small></div>
+  <div class="hintfoot">TRYCK VAR SOM HELST FÖR ATT STÄNGA</div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<!-- ================= BOOT ================= -->
+<div id="boot"><i class="sweep" aria-hidden="true"></i><div class="bl">FÖRSÖKSDÄCK 27 · MATERIALISERAR…</div></div>
+
+<script>
+(function(){
+"use strict";
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const stream = $('#stream');
+
+/* ---------------- boot: skippable materialization ---------------- */
+const boot = $('#boot');
+function killBoot(){ if (boot.parentNode) boot.remove(); }
+setTimeout(killBoot, 950);
+boot.addEventListener('pointerdown', killBoot);
+
+/* ---------------- toast ---------------- */
+const toastEl = $('#toast'); let toastT = 0;
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => toastEl.classList.remove('show'), 1700);
+}
+
+/* ---------------- tilt: deviceorientation (iOS perm) or pointer fallback ---------------- */
+let ttx = 0, tty = 0, tcx = 0, tcy = 0, hasGyro = false;
+function onOrient(e){
+  if (e.gamma == null) return;
+  hasGyro = true;
+  ttx = clamp(e.gamma / 28, -1, 1);
+  tty = clamp((e.beta - 42) / 28, -1, 1);
+}
+let permAsked = false;
+function askGyro(){
+  if (permAsked) return; permAsked = true;
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === 'function'){
+    D.requestPermission().then(s => { if (s === 'granted') addEventListener('deviceorientation', onOrient); }).catch(()=>{});
+  } else if (D){
+    addEventListener('deviceorientation', onOrient);
+  }
+}
+document.addEventListener('pointerdown', askGyro, { once:true });
+document.addEventListener('pointermove', e => {
+  if (hasGyro || e.pointerType !== 'mouse') return;
+  ttx = (e.clientX / innerWidth  - .5) * 2;
+  tty = (e.clientY / innerHeight - .5) * 2;
+}, { passive:true });
+
+/* ---------------- parallax loop: stars + per-message depth ---------------- */
+let depthCache = [];
+function rescan(){
+  depthCache = $$('#stream [data-depth]').map(el => ({ el, d: +el.dataset.depth || 0.03 }));
+}
+rescan();
+const st1 = $('#st1'), st2 = $('#st2'), st3 = $('#st3');
+function loop(){
+  tcx += (ttx - tcx) * 0.07;
+  tcy += (tty - tcy) * 0.07;
+  st1.style.transform = `translate3d(${tcx*8}px,  ${tcy*6}px,  0)`;
+  st2.style.transform = `translate3d(${tcx*16}px, ${tcy*12}px, 0)`;
+  st3.style.transform = `translate3d(${tcx*28}px, ${tcy*20}px, 0)`;
+  const vc = stream.clientHeight / 2, top = stream.scrollTop;
+  for (const it of depthCache){
+    const c  = it.el.offsetTop - top + it.el.offsetHeight / 2;
+    if (c < -300 || c > stream.clientHeight + 300){ continue; }
+    const dy = (vc - c) * it.d * 0.9 + tcy * it.d * 200;
+    const dx = tcx * it.d * 300;
+    it.el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------------- hologram panel engine ---------------- */
+const scrim = $('#scrim');
+const PANELS = {};
+let current = null, drag = null;
+function defPanel(name, el, zone, axis, from){ PANELS[name] = { name, el, zone, axis, from }; }
+defPanel('rail',    $('#rail'),    $('#zoneL'), 'x', -1);
+defPanel('crew',    $('#crew'),    $('#zoneR'), 'x',  1);
+defPanel('console', $('#console'), $('#zoneB'), 'y',  1);
+defPanel('hud',     $('#hud'),     $('#zoneT'), 'y', -1);
+
+function panelSize(p){ return p.axis === 'x' ? p.el.offsetWidth : p.el.offsetHeight; }
+function setP(p, v, dragging){
+  p.el.classList.toggle('dragging', !!dragging);
+  scrim.classList.toggle('dragging', !!dragging);
+  p.el.style.setProperty('--p', v);
+  scrim.style.setProperty('--p', v * 0.85);
+}
+function openPanel(p){
+  const was = p.el.classList.contains('open');
+  current = p;
+  setP(p, 1, false);
+  p.el.classList.add('open');
+  scrim.classList.add('show');
+  if (!was){ p.el.classList.remove('mat'); void p.el.offsetWidth; p.el.classList.add('mat'); }
+}
+function closePanel(p){
+  if (current === p) current = null;
+  setP(p, 0, false);
+  p.el.classList.remove('open','mat');
+  scrim.classList.remove('show');
+  if (p.name === 'console') $('#input').blur();
+}
+function closeAll(){ if (current) closePanel(current); }
+scrim.addEventListener('click', closeAll);
+
+function beginDrag(p, e, mode){
+  if (mode === 'open' && current) return;
+  if (mode === 'close' && current !== p) return;
+  drag = { p, mode, sx:e.clientX, sy:e.clientY, sz:panelSize(p),
+           p0: mode === 'close' ? 1 : 0, lastP: mode === 'close' ? 1 : 0,
+           lastT: e.timeStamp, v:0, moved:false };
+}
+function dragMove(e){
+  if (!drag) return;
+  const d = drag.p.axis === 'x' ? e.clientX - drag.sx : e.clientY - drag.sy;
+  if (Math.abs(d) > 7) drag.moved = true;
+  if (!drag.moved) return;
+  cancelLP();
+  let prog = clamp(drag.p0 + (d * -drag.p.from) / drag.sz, 0, 1);
+  const dt = Math.max(1, e.timeStamp - drag.lastT);
+  drag.v = (prog - drag.lastP) / dt;
+  drag.lastT = e.timeStamp; drag.lastP = prog;
+  setP(drag.p, prog, true);
+}
+function dragEnd(){
+  if (!drag) return;
+  const { p, mode, lastP:prog, v, moved } = drag; drag = null;
+  if (!moved){
+    if (mode === 'open') openPanel(p);          // tap on an edge/glyph = summon
+    else { p.el.classList.remove('dragging'); } // tap inside an open panel = let clicks be
+    return;
+  }
+  let open;
+  if (v >  0.0014) open = true;
+  else if (v < -0.0014) open = false;
+  else open = prog > (mode === 'open' ? 0.4 : 0.5);  // release past 40% commits
+  open ? openPanel(p) : closePanel(p);
+}
+addEventListener('pointermove', dragMove, { passive:true });
+addEventListener('pointerup', dragEnd);
+addEventListener('pointercancel', dragEnd);
+
+for (const k in PANELS){
+  const p = PANELS[k];
+  p.zone.addEventListener('pointerdown', e => beginDrag(p, e, 'open'));
+  p.el.addEventListener('pointerdown',  e => beginDrag(p, e, 'close'));
+}
+
+/* ---------------- long-press → radial command hologram ---------------- */
+const rwrap = $('#radialWrap'), radial = $('#radial');
+let lpTimer = 0, lpMsg = null, suppressClick = false;
+function cancelLP(){ clearTimeout(lpTimer); lpTimer = 0; }
+stream.addEventListener('pointerdown', e => {
+  if (e.button && e.button !== 0) return;
+  const sx = e.clientX, sy = e.clientY;
+  lpMsg = e.target.closest('.msg, .rollrow');
+  cancelLP();
+  lpTimer = setTimeout(() => showRadial(sx, sy), 430);
+  const mv = ev => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 9) cancelLP(); };
+  const up = () => { cancelLP(); removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+  addEventListener('pointermove', mv, { passive:true });
+  addEventListener('pointerup', up);
+});
+stream.addEventListener('scroll', cancelLP, { passive:true });
+stream.addEventListener('contextmenu', e => { e.preventDefault(); showRadial(e.clientX, e.clientY); });
+function showRadial(x, y){
+  if (current || rwrap.classList.contains('show')) return;
+  const cx = clamp(x, 112, innerWidth - 112);
+  const cy = clamp(y, 160, innerHeight - 170);
+  radial.style.left = cx + 'px';
+  radial.style.top  = cy + 'px';
+  rwrap.classList.add('show');
+  suppressClick = true;
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+function hideRadial(){ rwrap.classList.remove('show'); }
+document.addEventListener('click', e => {
+  if (suppressClick){ suppressClick = false; e.stopPropagation(); e.preventDefault(); }
+}, true);
+rwrap.querySelector('.rscrim').addEventListener('click', hideRadial);
+
+function msgSnippet(el){
+  if (!el) return '…';
+  if (el.classList.contains('whisper')) return '(viskning)';   // whisper mask invariant
+  if (el.classList.contains('rollrow')) return el.querySelector('.rollchip').textContent;
+  const p = el.querySelector('.prose');
+  const t = p ? p.textContent.trim() : '…';
+  return t.length > 64 ? t.slice(0, 64) + '…' : t;
+}
+function msgAuthor(el){
+  if (!el) return 'DÄCKET';
+  if (el.classList.contains('rollrow')) return 'ÖDESMOTORN';
+  const n = el.querySelector('.name');
+  return n ? n.textContent : (el.classList.contains('own') ? 'MAKANT BIAS' : 'DÄCKET');
+}
+rwrap.addEventListener('click', e => {
+  const b = e.target.closest('.ritem'); if (!b) return;
+  const act = b.dataset.act; hideRadial();
+  if (act === 'reply'){
+    $('#replyText').textContent = msgAuthor(lpMsg) + ' — ' + msgSnippet(lpMsg);
+    $('#replyChip').hidden = false;
+    openPanel(PANELS.console); $('#input').focus();
+    toast('SVAR RIKTAT');
+  } else if (act === 'copy'){
+    const t = msgSnippet(lpMsg);
+    if (navigator.clipboard) navigator.clipboard.writeText(t).catch(()=>{});
+    toast('KOPIERAT TILL BUFFERT');
+  } else if (act === 'fx'){
+    openPanel(PANELS.console);
+    const row = $('#fxRow');
+    row.classList.remove('pulsing'); void row.offsetWidth; row.classList.add('pulsing');
+    toast('VÄLJ EFFEKT I KONSOLEN');
+  } else if (act === 'roll'){
+    appendRoll(); toast('ÖDESMOTORN KASTAR…');
+  }
+});
+
+/* ---------------- whisper reveal + shout shake ---------------- */
+stream.addEventListener('click', e => {
+  const w = e.target.closest('.whisper');
+  if (w){ w.classList.toggle('revealed'); return; }
+  const s = e.target.closest('.shout');
+  if (s){
+    const b = s.querySelector('.bubble');
+    b.classList.remove('shaking'); void b.offsetWidth; b.classList.add('shaking');
+  }
+});
+setTimeout(() => {
+  const b = $('#shoutBubble');
+  if (b){ b.classList.add('shaking'); setTimeout(() => b.classList.remove('shaking'), 600); }
+}, 1500);
+
+/* ---------------- console: effects, send, dice ---------------- */
+let curFx = '';
+const liveRows = $('#liveRows'), input = $('#input');
+$('#fxRow').addEventListener('click', e => {
+  const b = e.target.closest('.fx'); if (!b || b.id === 'diceBtn') return;
+  $$('#fxRow .fx').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  curFx = b.dataset.fx || '';
+});
+$('#replyX').addEventListener('click', () => { $('#replyChip').hidden = true; });
+
+function nowHM(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function proseHTML(text){
+  // *action* → <em>action</em>, everything else text-escaped
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return text.split(/\*(.+?)\*/g).map((part, i) =>
+    i % 2 ? '<em>' + esc(part) + '</em>' : esc(part)).join('');
+}
+function el(html){
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+function scrollBottom(){
+  requestAnimationFrame(() => stream.scrollTo({ top: stream.scrollHeight, behavior:'smooth' }));
+}
+function sendMessage(){
+  const text = input.value.trim();
+  if (!text) return;
+  const fx = curFx;
+  const depths = [0.03, 0.05, 0.04, 0.06];
+  const depth = depths[(Math.random() * depths.length) | 0];
+  const fxClass = fx ? ' ' + (fx === 'whisper' ? 'whisper' : fx) : '';
+  const tag = fx === 'whisper' ? '<span class="fxtag">VISKNING</span>'
+            : fx === 'shout'   ? '<span class="fxtag">SHOUT</span>'
+            : fx === 'spell'   ? '<span class="fxtag">BESVÄRJELSE</span>' : '';
+  const replyOn = !$('#replyChip').hidden;
+  const quote = replyOn
+    ? '<div style="font-family:var(--font-prose);font-style:italic;font-size:12.5px;color:var(--text-faint);border-left:2px solid var(--accent-soft);padding-left:8px;margin-bottom:6px">' +
+      proseHTML($('#replyText').textContent) + '</div>' : '';
+  const spell = fx === 'spell'
+    ? '<i class="glowring" aria-hidden="true"></i><i class="spark s1"></i><i class="spark s2 k2"></i><i class="spark s3"></i>' : '';
+  const hint = fx === 'whisper' ? '<span class="whisperhint">⌁ viskning — tryck för att höra</span>' : '';
+  const node = el(
+    `<article class="msg own${fxClass}" data-depth="${depth}">
+       <div class="stack">
+         <header class="meta"><span class="name">MAKANT BIAS</span>${tag}<span class="time">${nowHM()}</span></header>
+         <div class="bubble">${spell}${quote}<p class="prose">${proseHTML(text)}</p>${hint}</div>
+       </div>
+     </article>`);
+  stream.insertBefore(node, liveRows);
+  rescan();
+  input.value = '';
+  $('#replyChip').hidden = true;
+  scrollBottom();
+  if (fx === 'shout'){
+    const b = node.querySelector('.bubble');
+    setTimeout(() => { b.classList.add('shaking'); setTimeout(() => b.classList.remove('shaking'), 600); }, 350);
+  }
+}
+$('#sendBtn').addEventListener('click', sendMessage);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+function appendRoll(){
+  const a = 1 + Math.floor(Math.random() * 20);
+  const b = 1 + Math.floor(Math.random() * 20);
+  const node = el(
+    `<div class="rollrow" data-depth="0.045">
+       <div class="rollmeta">MAKANT BIAS · ÖDESMOTORN</div>
+       <span class="rollchip">🎲 2d20+3 → [${a},${b}]+3 = ${a + b + 3}</span>
+       <div class="rollcap">ödet talar — resultatet är orubbligt</div>
+     </div>`);
+  stream.insertBefore(node, liveRows);
+  rescan();
+  scrollBottom();
+}
+$('#diceBtn').addEventListener('click', appendRoll);
+
+/* ---------------- rail / crew interactions ---------------- */
+$('#rail').addEventListener('click', e => {
+  const b = e.target.closest('.chan'); if (!b) return;
+  $$('#rail .chan').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  const d = b.querySelector('.dot'); if (d) d.remove();
+  const name = '#' + b.dataset.chan;
+  $('#chanIdent').textContent = name + ' · försöksdäck 27';
+  $('#consoleChan').textContent = name;
+  closePanel(PANELS.rail);
+  toast('KANAL: ' + name.toUpperCase());
+});
+$('#crew').addEventListener('click', e => {
+  const p = e.target.closest('.pchip'); if (!p) return;
+  $$('#crew .pchip').forEach(x => x.classList.remove('active'));
+  p.classList.add('active');
+  toast('PERSONA: ' + p.dataset.persona.toUpperCase());
+});
+
+/* ---------------- help overlay ---------------- */
+const hints = $('#hints');
+$('#helpBtn').addEventListener('click', () => hints.classList.add('show'));
+hints.addEventListener('click', () => hints.classList.remove('show'));
+
+/* keep stream pinned at the latest transmission on load */
+stream.scrollTop = stream.scrollHeight;
+})();
+</script>
+</body>
+</html>

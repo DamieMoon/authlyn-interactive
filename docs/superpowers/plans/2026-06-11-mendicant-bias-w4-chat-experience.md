@@ -133,4 +133,4 @@ ARCHITECTURAL CONSTRAINT (hard): the SSE bus stays id-only — draft TEXT never 
 4. Ghost Quill either landed (opt-in, id-only bus intact via the fetch endpoint) or deferred to a later wave with an explicit note + owner sign-off.
 5. Full gate green incl. `--release`; visual smoke delivered; markup parser UNTOUCHED (panic-free invariant intact); SSE bus still carries no content.
 
-**Next plan:** W5 (Eye-candy tier — the full `.fx-max` effect set: shader nebula, holographic depth, scene light, hologram materialization, per-server accent) against the post-W4 tree.
+**Next plan:** ~~W5 (Eye-candy tier)~~ — superseded 2026-06-12 by the owner's Skelettvågen ruling: **W5 = Skelettvågen** (three user-selectable UI skeletons replace the W3 shell; spec §12 as amended 2026-06-12 is authoritative). The eye-candy material moved to W5's #48 delta backbone + W12 Cinema & senses.
