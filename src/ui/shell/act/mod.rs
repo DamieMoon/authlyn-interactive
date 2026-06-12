@@ -11,6 +11,9 @@
 //!   create/rename/delete/swap/restore.
 //! - [`compose_colors`] — composer quick-swap color-swatch history
 //!   (move-to-front/dedup/cap + localStorage load/save).
+//! - [`hum`] — corridor-hum bookkeeping: ephemeral per-channel live-activity
+//!   marks derived from already-received SSE events (pure generation fns +
+//!   the hydrate-only decay timer).
 //! - [`message`] — message read/write: send/edit/delete, the 3-cursor pagination
 //!   loop, sync/ingest/unseen, the background poll, mute/last-seen, lore +
 //!   friends + member ops + the destructive-action confirm dispatcher.
@@ -30,6 +33,7 @@ pub mod compose_colors;
 pub mod emoji;
 pub mod feedback;
 pub mod guild;
+pub mod hum;
 pub mod message;
 pub mod notify;
 pub mod persona;

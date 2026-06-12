@@ -81,6 +81,37 @@
 				text-shadow: none;
 				vertical-align: middle;
 			}
+
+			// Corridor hum (UX evolution #4): a single mint twinkle while
+			// someone is typing / just posted in this channel RIGHT NOW,
+			// set purely from already-received id-only SSE events
+			// (act/hum.rs — zero added requests; the poll fallback simply
+			// never lights it). Vocabulary: mint = live-right-now (the sync
+			// chip, the typing constellation's middle star), distinct from
+			// blue = unread and orange = pinged. One mark per row, never a
+			// count — the same quiet visual weight as the glow vocabulary
+			// (the evolution judges' distraction cap). fx-twinkle animates
+			// standalone scale + opacity whose resting values are the
+			// defaults, so the reduced-motion kill (_motion.scss) leaves a
+			// static dot that still appears/disappears: state survives,
+			// motion dies.
+			.channel-hum {
+				display: inline-block;
+				width: 5px;
+				height: 5px;
+				margin-left: 0.4rem;
+				border-radius: 50%;
+				background: var(--live);
+				box-shadow: 0 0 4px var(--live);
+				vertical-align: middle;
+				animation: fx-twinkle 1.4s ease-in-out infinite;
+
+				// Eye-candy tier: a stronger hum glow (the typing-star
+				// escalation).
+				.app.fx-max & {
+					box-shadow: 0 0 9px var(--live);
+				}
+			}
 		}
 
 		.rename-input {

@@ -279,6 +279,16 @@ pub(crate) struct Notify {
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.
     pub(crate) last_seen: RwSignal<HashMap<String, (String, String)>>,
+    /// Corridor hum (UX evolution #4): channels where someone is active
+    /// RIGHT NOW (typing ping / just-created message), keyed channel id →
+    /// arming generation (see `act::hum`). Written ONLY from already-received
+    /// id-only SSE events — zero added fetches, and the poll fallback never
+    /// populates it (graceful absence, like Ghost Quill) — and self-decays
+    /// ~8s after the last event, mirroring the typing TTL. Drives the
+    /// `.channel-hum` twinkle on channel rows in BOTH the desktop sidebar
+    /// and the mobile sheet (shared `ChannelList`). Cosmetic, client-only;
+    /// never sent or persisted.
+    pub(crate) humming: RwSignal<HashMap<String, u64>>,
     /// True once a Web Push subscription has been successfully registered with
     /// the server this session. While true, the poll-loop suppresses its own
     /// client `Notification` (server push already delivers it — see

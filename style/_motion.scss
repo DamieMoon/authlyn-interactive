@@ -235,10 +235,16 @@
 // `.roll-die` glyph consume fx- keyframes (fx-roll-in / fx-die-tumble) but
 // carry no "fx-" in the class string. Killed, the chip simply sits at its
 // resting state — the glass styling is state, not motion.
+// The corridor-hum row dot (`.channel-hum`, _sidebar.scss) is explicit for
+// the same reason: it consumes fx-twinkle with no "fx-" in the class
+// string. Killed, the dot sits static at full opacity and still
+// appears/disappears with its ~8s decay — presence is state; only the
+// twinkle is motion.
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
 	.typing-indicator .star,
+	.channel-hum,
 	.composer .send.sent,
 	.radial-menu,
 	.app.fx-max .content.fx-switching::after,

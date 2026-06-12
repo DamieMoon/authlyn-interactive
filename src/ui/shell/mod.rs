@@ -195,6 +195,7 @@ fn AppShell() -> impl IntoView {
         unread_count: RwSignal::new(HashMap::new()),
         unread_guilds: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
+        humming: RwSignal::new(HashMap::new()),
         web_push_enabled: RwSignal::new(false),
     };
     provide_context(notify);
@@ -1040,6 +1041,23 @@ fn ChannelRow(
                         let label = if n > 99 { "99+".to_string() } else { n.to_string() };
                         view! { <span class="channel-badge">{label}</span> }.into_any()
                     };
+                    // Corridor hum (UX evolution #4): a single quiet twinkle
+                    // while someone is typing / just posted in this channel
+                    // RIGHT NOW, derived from already-received id-only SSE
+                    // events (`act::hum` — zero added fetches; decays ~8s
+                    // after the last event). Suppressed on the ACTIVE row:
+                    // the open channel announces the same fact louder via
+                    // the typing line, and self-activity always lands there.
+                    // One mark, never a count (the evolution judges' cap);
+                    // aria-hidden — ambient decoration, not information AT
+                    // needs announced on every flicker.
+                    let hum_cid = cid.clone();
+                    let hum = move || {
+                        let live = s.notify.humming.get().contains_key(&hum_cid)
+                            && s.sel.sel_channel.get().map(|c| c.id).as_deref()
+                                != Some(hum_cid.as_str());
+                        live.then(|| view! { <span class="channel-hum" aria-hidden="true"></span> })
+                    };
                     let start_cid = cid.clone();
                     let start_name = name0.clone();
                     view! {
@@ -1053,6 +1071,7 @@ fn ChannelRow(
                             }>
                             {sigil}{name0.clone()}
                             {badge}
+                            {hum}
                         </button>
                         <Show when=is_owner fallback=|| ()>
                             // Reorder (L-5): ↑/↓ swap a neighbour, ⤒/⤓ bring to
