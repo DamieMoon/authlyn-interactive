@@ -125,6 +125,13 @@ pub struct NativeState {
     pub more_history: State<bool>,
     pub seen: State<HashSet<String>>,
     pub typing: State<Vec<String>>,
+    /// Ids of whisper messages the viewer has deliberately revealed (W4 effect
+    /// contract — the native mirror of the web pane's `revealed` set). A
+    /// whisper body renders as the fixed `(whisper)` placeholder until its id
+    /// is in here; pressing the row toggles it. Cleared on channel switch and
+    /// logout so a re-entered channel starts veiled again (web parity: the
+    /// pane's component-local set resets on remount).
+    pub revealed: State<HashSet<String>>,
 
     /// Bumped on every channel switch; a poll/fetch tagged with a stale epoch
     /// must not ingest into the freshly-switched channel (the web's switch guard).
@@ -260,6 +267,7 @@ pub fn use_native_state() -> NativeState {
         more_history: use_state(|| true),
         seen: use_state(HashSet::new),
         typing: use_state(Vec::new),
+        revealed: use_state(HashSet::new),
         epoch: use_state(|| 0u64),
         compose: use_state(String::new),
         editing: use_state(|| None),

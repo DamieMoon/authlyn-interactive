@@ -1105,23 +1105,42 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
     let me_id = state.me.read().as_ref().map(|me| me.account_id.clone());
     let mine = me_id.as_deref() == Some(m.author_id.as_str());
     let editing = state.editing.read().as_deref() == Some(m.id.as_str());
+    // Kind/effect presentation (M-28/M-34, web parity). `kind` is assigned by
+    // the SERVER (user sends are forced to 'user'; rolls/system broadcasts are
+    // server-authored), so the badge + chip below are non-forgeable: a typed
+    // body can contain a 🎲 glyph but can never reach the meta row or the chip
+    // styling. The effect value is server-validated against MESSAGE_EFFECTS,
+    // so only the literal "whisper" can ever trigger the veil branch.
+    let is_roll = m.kind == "roll";
+    let is_system = m.kind == "system";
+    let is_whisper = m.effect.as_deref() == Some("whisper");
+    // Whisper veil: hidden until this message's id is in `state.revealed`.
+    let veiled = is_whisper && !state.revealed.read().contains(m.id.as_str());
 
-    // Meta row: name · time · (edit/del for your own messages).
-    let mut meta = rect()
-        .horizontal()
-        .spacing(6.)
-        .child(
-            label()
-                .color(theme::INK_SOFT)
-                .font_weight(FontWeight::SEMI_BOLD)
-                .text(who.clone()),
-        )
-        .child(
-            label()
-                .color(theme::INK_MUTED)
-                .font_size(theme::FS_META)
-                .text(short_time(&m.sent_at)),
-        );
+    // Meta row: name · (kind badge) · time · (edit/del for your own messages).
+    let mut meta = rect().horizontal().spacing(6.).child(
+        label()
+            .color(theme::INK_SOFT)
+            .font_weight(FontWeight::SEMI_BOLD)
+            .text(who.clone()),
+    );
+    // Non-forgeable kind badge (web parity: `.system-badge` / the roll chip's
+    // die glyph): driven only by the server-controlled `kind`.
+    if is_roll {
+        meta = meta.child(kind_badge(
+            "\u{1f3b2} ROLL",
+            theme::PARCHMENT_DEEP,
+            theme::GOLD,
+        ));
+    } else if is_system {
+        meta = meta.child(kind_badge("SYSTEM", theme::INK_SOFT, theme::AVATAR_TILE));
+    }
+    meta = meta.child(
+        label()
+            .color(theme::INK_MUTED)
+            .font_size(theme::FS_META)
+            .text(short_time(&m.sent_at)),
+    );
     // Only kind='user' is mutable — system broadcasts and kind='roll' results
     // reject edit/delete server-side (403, forge-proof rolls), so offering the
     // buttons would be a dead-end affordance (mirrors the web's
@@ -1155,7 +1174,8 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
             );
     }
 
-    // Body: inline edit input when editing, else the rendered markup.
+    // Body: inline edit input when editing; else the kind/effect-aware view —
+    // a verbatim roll chip, a veiled/revealed whisper, or the rendered markup.
     let content: Element = if editing {
         let sid = m.id.clone();
         rect()
@@ -1173,6 +1193,61 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
                     .child("cancel"),
             )
             .into()
+    } else if is_roll {
+        // Fate Engine result chip (web parity: `.roll-chip`): the die glyph +
+        // the server-generated result text rendered VERBATIM — never
+        // markup-parsed, the body is the server's formatted outcome, not user
+        // markup. The distinct gold-on-card chip pairs with the meta-row
+        // 🎲 ROLL badge to make a genuine roll legible at a glance.
+        rect()
+            .horizontal()
+            .spacing(6.)
+            .padding((6., 10.))
+            .corner_radius(theme::RADIUS)
+            .background(theme::VELLUM_2)
+            .child(
+                label()
+                    .color(theme::GOLD_WARM)
+                    .font_weight(FontWeight::SEMI_BOLD)
+                    .text(format!("\u{1f3b2} {}", m.body)),
+            )
+            .into()
+    } else if veiled {
+        // Whisper veil (M-28): mask the body behind the fixed `(whisper)`
+        // placeholder — the same placeholder the server uses on every other
+        // body-preview surface (reply quotes, push) — until the viewer
+        // deliberately reveals it. Freya has no CSS blur, so native masks
+        // instead of blurring; pressing inserts the id into `state.revealed`.
+        let mid = m.id.clone();
+        rect()
+            .horizontal()
+            .spacing(6.)
+            .padding((4., 8.))
+            .corner_radius(theme::RADIUS_SM)
+            .background(theme::INPUT_BG)
+            .on_press(move |_| {
+                state.revealed.write_unchecked().insert(mid.clone());
+            })
+            .child(label().color(theme::INK_MUTED).text("(whisper)"))
+            .child(
+                label()
+                    .color(theme::INK_MUTED)
+                    .font_size(theme::FS_META)
+                    .text("tap to reveal"),
+            )
+            .into()
+    } else if is_whisper {
+        // Revealed whisper: the body renders normally but stays pressable so
+        // the viewer can veil it again (the web's per-message toggle on
+        // `.text`).
+        let mid = m.id.clone();
+        rect()
+            .width(Size::fill())
+            .on_press(move |_| {
+                state.revealed.write_unchecked().remove(&mid);
+            })
+            .child(render_body(&m.body))
+            .into()
     } else {
         render_body(&m.body)
     };
@@ -1184,13 +1259,16 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
         .child(meta)
         .child(content);
 
-    // Image attachments below the body.
+    // Image attachments below the body. Suppressed while the whisper veil is
+    // up (the native analogue of the web's `.atts-veil` blur — attachments are
+    // part of the whispered content and must not leak around the placeholder);
+    // they appear once the viewer reveals the message.
     let images: Vec<&crate::protocol::Attachment> = m
         .attachments
         .iter()
         .filter(|a| a.mime.starts_with("image/"))
         .collect();
-    if !images.is_empty() && !modal_open {
+    if !images.is_empty() && !modal_open && !veiled {
         let mut grid = rect().horizontal().spacing(6.).padding((4., 0.));
         for a in images {
             grid = grid.child(RemoteImage {
@@ -1203,14 +1281,21 @@ fn message_row(state: NativeState, m: &MessageEnvelope, modal_open: bool) -> Ele
         body_col = body_col.child(grid);
     }
 
-    rect()
+    let mut row = rect()
         .horizontal()
         .width(Size::fill())
         .spacing(8.)
         .padding((4., 8.))
         .child(avatar(m, &who, modal_open))
-        .child(body_col)
-        .into()
+        .child(body_col);
+    // System broadcasts get a raised full-width tint (web parity: the
+    // `.msg.system` banner) on top of the meta-row SYSTEM badge.
+    if is_system {
+        row = row
+            .background(theme::VELLUM)
+            .corner_radius(theme::RADIUS_SM);
+    }
+    row.into()
 }
 
 /// Persona avatar over the authed session, else a monogram tile.
@@ -1235,6 +1320,26 @@ fn avatar(m: &MessageEnvelope, who: &str, suppress_image: bool) -> Element {
             .child(monogram(who))
             .into(),
     }
+}
+
+/// A small meta-row pill marking a non-user message kind (`🎲 ROLL` /
+/// `SYSTEM`) — the native analogue of the web's `.system-badge` and roll-chip
+/// glyph. Rendered ONLY from the server-controlled `MessageEnvelope.kind`
+/// (user sends are forced to `kind='user'` server-side), so body text can
+/// never imitate it: the body renders in the content area below, not here.
+fn kind_badge(text: &str, fg: theme::Rgb, bg: theme::Rgb) -> Element {
+    rect()
+        .corner_radius(theme::RADIUS_SM)
+        .padding((1., 6.))
+        .background(bg)
+        .color(fg)
+        .child(
+            label()
+                .font_size(theme::FS_META)
+                .font_weight(FontWeight::BOLD)
+                .text(text.to_string()),
+        )
+        .into()
 }
 
 // --- small pure helpers (ports of avatar.rs / channel/avatar.rs) ---

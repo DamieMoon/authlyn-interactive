@@ -90,6 +90,7 @@ pub fn logout(state: NativeState) {
         *state.sel_channel.write_unchecked() = None;
         *state.messages.write_unchecked() = Vec::new();
         *state.seen.write_unchecked() = HashSet::new();
+        *state.revealed.write_unchecked() = HashSet::new();
         *state.personas.write_unchecked() = Vec::new();
         *state.active_persona.write_unchecked() = None;
         *state.auth_user.write_unchecked() = String::new();
@@ -248,6 +249,7 @@ async fn open_channel_inner(state: NativeState, ch: ChannelSummary) {
     *state.loading_older.write_unchecked() = false;
     *state.more_history.write_unchecked() = true;
     *state.seen.write_unchecked() = HashSet::new();
+    *state.revealed.write_unchecked() = HashSet::new();
     *state.typing.write_unchecked() = Vec::new();
     *state.persona_menu.write_unchecked() = false;
     *state.active_persona.write_unchecked() = None;
