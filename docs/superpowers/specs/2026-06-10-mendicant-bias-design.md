@@ -1,6 +1,7 @@
 # Mendicant Bias — full redesign + re-architecture (master spec)
 
 **Date:** 2026-06-10 (catalogue locked same day after four creative passes)
+**Amended:** 2026-06-12 — two owner rulings from the first live W4 device sessions written in as binding design laws (mobile-first, UX-equality; see "Design laws") plus a real-device iOS gate added to every wave's verification requirements (§13). Finding #54.
 **Status:** Approved design — full catalogue locked by owner; implementation plan pending
 **Codename:** `mendicant-bias` (bump `[package.metadata.release].codename` at release)
 **Version:** **27.0.0** — this release retires CalVer (`YYYY.M.D`). The owner's call: a release of this scope deserves a major, 26.x ends here, and 27.0.0 ships the day the owner turns 27. SemVer from here on; update the project CLAUDE.md Versioning line at release.
@@ -18,6 +19,16 @@ The app remains what it is: a Discord-style roleplay chat (Leptos 0.8 full-stack
 
 - **All codebase documentation in English** (existing convention: CLAUDE.md, `//!` headers, doc-comments, commit messages, this spec).
 - **All UI copy in English** (existing convention — current views use "username", "password", "your answer"). The Swedish concept names throughout the brainstorm were working aliases; the catalogue below fixes **canonical English product names** with the Swedish alias in parentheses for traceability to `lens-concepts-48.json` and the mockups.
+
+## Design laws (binding — written into the spec 2026-06-12)
+
+Two owner rulings from the first live W4 device sessions (2026-06-11) are design LAW for every wave, current and future. They are not preferences to weigh against other concerns; a design that violates them is wrong even if it ships. Their verification teeth live in §13.
+
+### Mobile-first: PWA/touch is the meta experience
+The installed PWA on a phone is the PRIMARY experience; desktop is the gracefully-degraded adaptation — never broken, but never the surface that dictates design. The real user group will never use the app on a computer. Every wave plan from W5 on is authored mobile-first: design the touch/PWA experience first, then adapt it to desktop. The evidence that sealed the ruling: every real bug found in the first live iPhone-PWA session was desktop furniture leaking into mobile (`draggable` rows hijacking taps, the text-selection callout beating the radial long-press) — none were missing mobile features. The truth lives on the phone.
+
+### UX-equality: the same UX is a right, not a hardware perk
+No device-class gating, ever. Visual/feature tiers (`.fx-max`) are USER toggles available to everyone — never device-detected, never auto-disabled; informing the user (a battery note) is fine, deciding for them is not. Performance work targets the FLOOR device (the friend group's POCO C3, Android 10): make the same beauty cheap enough to run everywhere, never give weaker devices less. Internal adaptive quality (e.g. render-resolution scaling) is acceptable only as an honest implementation detail that keeps the design and feature set identical for all. The law extends to GEOMETRY: nothing is iPhone-scoped — layouts and gestures scale fluidly to any screen size, aspect, and DPI (`clamp()`/percentages/`dvh`; no hardcoded 375-math), verified across the friend-group device matrix (§13), never against a single reference device.
 
 ## 1. Visual design: "Void Station × Liquid Glass"
 
@@ -252,5 +263,6 @@ Dependency edges, test-first details, and per-wave schema definitions belong to 
 - All 144 existing integration tests pass (`cargo test --features ssr`, live local SurrealDB, per-worker namespaces); new integration tests per wave named in commit `Tests:` lines.
 - Priority new suites: SSE delivery + membership filtering; `/unread`; DM privacy-404 + groups; vault opacity/authz/version conflict; `channel.guild` relaxation schema-apply guard; guild-icon permission gating; bot gateway rate limits + badge integrity; dice-server validation; scene/export correctness.
 - `cargo fmt --all`; clippy clean on `ssr`, `hydrate` (wasm32), `freya`; `cargo build --bin authlyn-native --features freya` still succeeds.
-- Playwright (headed, M2 dev machine): mobile-viewport flows (login → send → sheet switch → DM → vault unlock → atlas → roll) + desktop screenshots; WebKit needs the documented cookie injection.
+- Playwright (headed, M2 dev machine): mobile-viewport flows (login → send → sheet switch → DM → vault unlock → atlas → roll) + desktop screenshots; WebKit needs the documented cookie injection. Headless/emulated smoke is NECESSARY but NOT SUFFICIENT — it never closes a wave on its own (next bullet).
+- **Real-device iOS gate (binding, added 2026-06-12):** every wave's final verification task (the "Wn verification gate + visual smoke" convention the wave plans follow) must include a real-device iOS PWA pass on the owner's iPhone 13 mini (iOS 26.5) whenever the wave touches touch interaction. Origin (finding #54): the W4 headless smoke ran a Chromium Android profile and missed EVERY real iOS touch bug — the `-webkit-touch-callout` selection beating the radial long-press, `draggable` DnD hijacking taps, the `user-scalable` lightbox zoom. Headless browsers lie about exactly these surfaces. Geometry/DPI verification sweeps the friend-group device matrix per the UX-equality law: POCO C3 360×800 (performance floor), iPhone SE 2022 375×667 (shortest), iPhone 13 mini 375×812 (notch reference), Nothing Phone 2 412×892 (widest).
 - **No prod experiments** — all work on branch `mendicant-bias`; push to `main` only after explicit owner approval. Post-migration, CLAUDE.md's deploy section must be retargeted to novahome before the first deploy lands there.
