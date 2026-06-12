@@ -450,6 +450,16 @@ pub struct ListMessagesResponse {
 pub struct TypingPingRequest {
     #[serde(default)]
     pub draft: Option<String>,
+    /// The composer's currently ARMED delivery effect (review M-01) — the
+    /// same W4/T5 vocabulary as `SendMessageRequest.effect` (`whisper` /
+    /// `shout` / `spell`). The server masks a whisper-armed `draft` to the
+    /// fixed `(whisper)` placeholder BEFORE storing it, so the spoiler text
+    /// of a message that will land hidden-until-tapped never streams live to
+    /// the very audience it's veiled from. Absent (today's client) keeps the
+    /// plaintext behavior unchanged; non-whisper / unknown values are
+    /// IGNORED rather than rejected — a mid-typing ping must never 400.
+    #[serde(default)]
+    pub effect: Option<String>,
 }
 
 /// One live co-writer draft from `GET /channels/{cid}/typing-drafts`
@@ -459,7 +469,9 @@ pub struct TypingPingRequest {
 /// names: the author's worn persona in this channel first, else their
 /// account display name / username. Draft text rides ONLY this
 /// permission-checked fetch — the receiving client opts in by fetching, the
-/// sender opted in by attaching the draft to its ping.
+/// sender opted in by attaching the draft to its ping. A whisper-armed
+/// draft arrives as the fixed `(whisper)` placeholder, never the spoiler
+/// text (review M-01 — masked server-side at store time).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypingDraftEntry {
     pub account_id: String,

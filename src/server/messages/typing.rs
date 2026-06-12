@@ -13,6 +13,14 @@
 //! - **Absent or empty `draft` CLEARS the stored entry** — a sender toggling
 //!   the pref off (or deleting their text) stops ghosting at the very next
 //!   ping, and the pre-W4/T7 bare ping keeps working unchanged.
+//! - **Whisper-armed drafts are MASKED at store time** (review M-01): when
+//!   the ping carries `effect: "whisper"` (the composer's armed W4/T5
+//!   delivery effect), the stored draft is the fixed [`WHISPER_DRAFT_MASK`]
+//!   placeholder — the spoiler text of a message that will land
+//!   hidden-until-tapped never even enters the in-memory map, so no read
+//!   path can leak it. Non-whisper / unknown effects are ignored, never
+//!   rejected (a mid-typing ping must not start failing); an absent effect
+//!   keeps the pre-M-01 plaintext behavior byte-for-byte.
 //! - **Over-cap drafts are TRUNCATED on a char boundary** (never rejected):
 //!   a ping firing mid-typing must not start failing because the composer
 //!   grew past [`MAX_DRAFT_CHARS`].
@@ -43,6 +51,13 @@ pub(super) const TYPING_TTL: std::time::Duration = std::time::Duration::from_sec
 /// beats rejection here.
 const MAX_DRAFT_CHARS: usize = 2000;
 
+/// The fixed whisper stand-in (review M-01) — must stay byte-identical to
+/// the reply-quote mask in `reading.rs` MSG_PROJECTION and the push mask in
+/// `push.rs` `notification_body`, so every body-preview surface shows one
+/// consistent placeholder (the W4 "extend the mask to any NEW body-preview
+/// surface" invariant).
+const WHISPER_DRAFT_MASK: &str = "(whisper)";
+
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/typing  — ephemeral "I am typing" ping (#19, W4/T7)
 // ---------------------------------------------------------------------------
@@ -56,8 +71,11 @@ const MAX_DRAFT_CHARS: usize = 2000;
 /// The body is OPTIONAL (W4/T7 Ghost Quill): a bare POST is the classic ping;
 /// a JSON body may carry `draft` — the sender's current compose text — which
 /// is stored (truncated to [`MAX_DRAFT_CHARS`]) for other members to fetch
-/// via [`typing_drafts`]. Absent/empty `draft` clears the stored entry. A
-/// malformed JSON body (when one IS sent) is the usual typed 400.
+/// via [`typing_drafts`]. Absent/empty `draft` clears the stored entry. When
+/// the body also carries `effect: "whisper"` (the composer's armed delivery
+/// effect, review M-01), the stored draft is masked to the fixed
+/// [`WHISPER_DRAFT_MASK`] placeholder — see the module header. A malformed
+/// JSON body (when one IS sent) is the usual typed 400.
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
 pub async fn typing_ping(
     State(state): State<AppState>,
@@ -66,8 +84,9 @@ pub async fn typing_ping(
     payload: Result<Option<Json<TypingPingRequest>>, JsonRejection>,
 ) -> Response {
     // `Ok(None)` = no body / no Content-Type: the wire-compatible bare ping.
-    let draft = match payload {
-        Ok(body) => body.and_then(|Json(req)| req.draft),
+    let (draft, effect) = match payload {
+        Ok(Some(Json(req))) => (req.draft, req.effect),
+        Ok(None) => (None, None),
         Err(rej) => return json_rejection_response(rej),
     };
 
@@ -105,7 +124,18 @@ pub async fn typing_ping(
         let key = (cid.clone(), account.0.clone());
         match draft {
             Some(text) if !text.is_empty() => {
-                drafts.insert(key, (truncate_chars(text, MAX_DRAFT_CHARS), now));
+                // Whisper-armed (review M-01): the draft IS the spoiler the
+                // hidden-until-tapped effect protects — mask it BEFORE the
+                // store so the plaintext never sits in the map at all. The
+                // `.trim()` mirrors the send path's effect normalization
+                // (`posting.rs`); only `whisper` masks — shout/spell carry
+                // no secret and unknown values are ignored, never rejected.
+                let stored = if effect.as_deref().map(str::trim) == Some("whisper") {
+                    WHISPER_DRAFT_MASK.to_string()
+                } else {
+                    truncate_chars(text, MAX_DRAFT_CHARS)
+                };
+                drafts.insert(key, (stored, now));
             }
             // Absent or empty: the sender's pref is off / nothing typed —
             // clear immediately so toggling off stops ghosting at once.
@@ -195,10 +225,12 @@ pub async fn typing_drafts(
 }
 
 /// Drop the author's stored draft for this channel (W4/T7 clear-on-send).
-/// Called from the success paths of `post_message` and `roll_message` —
-/// without it a ghost row would linger beside the just-landed real message
-/// for up to the TTL. Lock discipline as everywhere: lock → remove → drop,
-/// no `.await` in scope.
+/// Called from the success paths of `post_message`, `roll_message`, and —
+/// since review M-02 — `edit_message` (the compose box holds the edit text
+/// during an edit, so a landed edit must drop the entry too) — without it a
+/// ghost row would linger beside the just-landed real message for up to the
+/// TTL. Lock discipline as everywhere: lock → remove → drop, no `.await` in
+/// scope.
 pub(super) fn clear_draft(state: &AppState, cid: &str, account: &str) {
     let mut drafts = state
         .typing_drafts

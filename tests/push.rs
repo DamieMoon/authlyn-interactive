@@ -1,6 +1,12 @@
 //! Wave-1 SAFETY-NET: Web Push subscription CRUD characterization
-//! (`src/server/push.rs`). Subscription lifecycle ONLY — `notify_new_message`
-//! needs a live push service and is out of scope (audit 019e6c08 / task brief).
+//! (`src/server/push.rs`). The full `notify_new_message` send needs a live
+//! push service and stays out of scope (audit 019e6c08 / task brief), but the
+//! payload's ROW READ (`load_notification_info`) is pure DB and pinned here
+//! (review M-42): the `effect` column must survive the SQL projection from a
+//! real whisper row through to the masked notification body — an
+//! `Option<String>` that silently decodes to `None` when the projection line
+//! is dropped would put whisper plaintext on OS lock screens while the
+//! in-module formatter unit tests stayed green.
 //!
 //! Locks current behavior:
 //!   - subscribe with a complete subscription → 204; re-subscribing the same
@@ -233,6 +239,105 @@ async fn subscribe_requires_auth() {
     )
     .await;
     assert_eq!(st, StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// notification payload row read (review M-42)
+// ---------------------------------------------------------------------------
+
+/// Register an owner, create a guild, and return `(cookie, default_text_cid)`.
+#[cfg(feature = "ssr")]
+async fn owner_with_text_channel(router: &axum::Router) -> (String, String) {
+    let owner = common::register_account(router, "Owner", "password123").await;
+    let (st, _, guild) = common::send(
+        router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "Guild" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (st, _, detail) = common::send(
+        router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+    (owner, cid)
+}
+
+/// Review M-42: the effect-column PLUMBING from a real DB row to the push
+/// body. The pure formatter (`notification_body`) is unit-tested in-module,
+/// but those tests hand it an effect the real path may no longer supply —
+/// this one posts a whisper over HTTP and reads the row back through the
+/// EXACT SQL projection `notify_inner` uses, pinning that `effect` decodes
+/// as `Some("whisper")` and that the composed body is the fixed mask.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn push_payload_row_read_carries_the_effect_column_from_a_real_whisper_row() {
+    let a = common::arena().await;
+    let (owner, cid) = owner_with_text_channel(&a.router).await;
+
+    // A whispered message lands via the real HTTP send path.
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "the hidden secret", "effect": "whisper" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "whispered post: {body:?}");
+    let mid = body["id"].as_str().unwrap().to_string();
+
+    let info = authlyn_interactive::server::push::load_notification_info(&a.state, &mid)
+        .await
+        .expect("notification row read")
+        .expect("the just-posted message must resolve");
+    assert_eq!(
+        info.effect.as_deref(),
+        Some("whisper"),
+        "the effect column must survive the SQL projection — None here means \
+         the projection line was dropped/misspelled and every whisper rides \
+         push payloads in plaintext"
+    );
+    let pushed = info.notification_body();
+    assert!(
+        !pushed.contains("hidden secret"),
+        "whispered text must never reach the push body, got {pushed:?}"
+    );
+    assert_eq!(pushed, "(whisper)", "masked with the fixed placeholder");
+
+    // Contrast: a plain message decodes effect=None and passes through.
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "hello there" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let plain_mid = body["id"].as_str().unwrap().to_string();
+    let plain = authlyn_interactive::server::push::load_notification_info(&a.state, &plain_mid)
+        .await
+        .expect("notification row read")
+        .expect("plain message resolves");
+    assert_eq!(plain.effect, None, "no effect on a plain message");
+    assert_eq!(plain.notification_body(), "hello there");
+
+    // A vanished message (deleted between persist and notify) is the
+    // documented Ok(None) early-out, never an error.
+    let gone = authlyn_interactive::server::push::load_notification_info(&a.state, "nosuchmsg")
+        .await
+        .expect("unknown id is not a query error");
+    assert!(gone.is_none(), "unknown message resolves to None");
 }
 
 #[cfg(feature = "ssr")]

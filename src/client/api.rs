@@ -371,7 +371,10 @@ pub async fn post_typing(cid: &str, draft: Option<String>) -> Result<(), ApiErro
         Some(draft) => {
             post_json_empty(
                 &format!("/channels/{cid}/typing"),
-                &TypingPingRequest { draft: Some(draft) },
+                &TypingPingRequest {
+                    draft: Some(draft),
+                    effect: None,
+                },
             )
             .await
         }

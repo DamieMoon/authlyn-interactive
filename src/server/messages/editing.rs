@@ -69,6 +69,12 @@ pub async fn edit_message(
     .await;
     match result {
         Ok(()) => {
+            // During an edit the compose box holds the EDIT text, and today's
+            // client pings it as a Ghost Quill draft — so the landed edit must
+            // drop the stored entry exactly like clear-on-send (`posting.rs`)
+            // and clear-on-roll (`rolling.rs`), or a stale ghost row lingers
+            // beside the just-edited message for up to the TTL (review M-02).
+            super::typing::clear_draft(&state, &cid, &account.0);
             state.emit(crate::protocol::SyncEvent::MessageEdited {
                 channel_id: cid.clone(),
                 message_id: mid.clone(),

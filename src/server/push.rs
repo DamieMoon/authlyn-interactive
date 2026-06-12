@@ -267,36 +267,55 @@ pub fn notify_new_message(state: AppState, message_id: String, author: String) {
     });
 }
 
-async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::Result<()> {
-    let Some(sender) = state.push.clone() else {
-        return Ok(());
-    };
+/// Everything a new-message notification needs from the fresh message row:
+/// its channel (id + name), guild, sender display (persona snapshot, else the
+/// author's nickname), body, delivery effect, avatar, and ping targets.
+/// `pub` so the integration suite can pin the effect-column plumbing from a
+/// REAL DB row through to the masked body (tests/push.rs, review M-42) —
+/// `notify_inner` itself is fire-and-forget behind a live push service and
+/// has no end-to-end test.
+#[derive(SurrealValue)]
+pub struct NotificationInfo {
+    pub channel_key: String,
+    pub channel_name: String,
+    pub guild_key: String,
+    pub sender_name: String,
+    pub body: String,
+    /// The message author's persona avatar media id (snapshot ?? live
+    /// fallback, same null-safe pattern as `reading.rs` MSG_PROJECTION); the
+    /// SW maps it to `/media/{id}` as the notification's large image. `None`
+    /// when the persona has no avatar — the SW then omits the image.
+    pub sender_avatar_id: Option<String>,
+    /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None`. Read
+    /// so a whispered body can be masked before it rides the push payload
+    /// (see [`Self::notification_body`]) — the same spoiler-leak guard as the
+    /// reply-quote mask in `reading.rs` MSG_PROJECTION.
+    pub effect: Option<String>,
+    /// Account-id keys this message `@`-mentions (L-4) — used to set a
+    /// per-recipient `pinged` flag on the push payload so a future SW can
+    /// style a ping differently. Empty when the message pings nobody.
+    pub pinged_keys: Vec<String>,
+}
 
-    // One query resolves everything the notification needs from the fresh row:
-    // its channel (id + name), guild, sender display (persona snapshot, else the
-    // author's nickname), and body.
-    #[derive(SurrealValue)]
-    struct MsgInfo {
-        channel_key: String,
-        channel_name: String,
-        guild_key: String,
-        sender_name: String,
-        body: String,
-        // The message author's persona avatar media id (snapshot ?? live
-        // fallback, same null-safe pattern as `reading.rs` MSG_PROJECTION); the
-        // SW maps it to `/media/{id}` as the notification's large image. `None`
-        // when the persona has no avatar — the SW then omits the image.
-        sender_avatar_id: Option<String>,
-        /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None`. Read
-        /// so a whispered body can be masked before it rides the push payload
-        /// (see [`notification_body`]) — the same spoiler-leak guard as the
-        /// reply-quote mask in `reading.rs` MSG_PROJECTION.
-        effect: Option<String>,
-        /// Account-id keys this message `@`-mentions (L-4) — used to set a
-        /// per-recipient `pinged` flag on the push payload so a future SW can
-        /// style a ping differently. Empty when the message pings nobody.
-        pinged_keys: Vec<String>,
+impl NotificationInfo {
+    /// The payload body for THIS row: the whisper mask keyed on the row's own
+    /// `effect` column, then the snippet rules — the exact composition
+    /// [`notify_inner`] sends, exposed as a method so the integration pin
+    /// (review M-42) exercises the same effect→body thread-through.
+    pub fn notification_body(&self) -> String {
+        notification_body(&self.body, self.effect.as_deref())
     }
+}
+
+/// Resolve the notification payload fields for one message row, or `None`
+/// when the message vanished (e.g. deleted between persist and notify). One
+/// parameterized query; this is [`notify_inner`]'s row read, split out so the
+/// `effect` projection → decode → mask seam is integration-testable without a
+/// live push service (review M-42).
+pub async fn load_notification_info(
+    state: &AppState,
+    mid: &str,
+) -> surrealdb::Result<Option<NotificationInfo>> {
     let mut resp = state
         .db
         .query(
@@ -316,7 +335,15 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         .bind(("mid", mid.to_string()))
         .await?
         .check()?;
-    let Some(info) = resp.take::<Option<MsgInfo>>(0)? else {
+    resp.take::<Option<NotificationInfo>>(0)
+}
+
+async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::Result<()> {
+    let Some(sender) = state.push.clone() else {
+        return Ok(());
+    };
+
+    let Some(info) = load_notification_info(state, mid).await? else {
         // Message vanished (e.g. deleted between persist and here) — nothing to do.
         return Ok(());
     };
@@ -361,7 +388,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // The persona avatar `image` (when present) is the same for everyone but is
     // added to each per-recipient payload below.
     let title = format!("{} in #{}", info.sender_name, info.channel_name);
-    let body = notification_body(&info.body, info.effect.as_deref());
+    let body = info.notification_body();
 
     let mut dead: Vec<String> = Vec::new();
     for sub in &subs {
