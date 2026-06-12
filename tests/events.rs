@@ -1,8 +1,11 @@
-//! W1 SSE bus: GET /events delivery, privacy filtering, and auth gating.
+//! W1 SSE bus: GET /events delivery, privacy filtering, auth gating, and the
+//! mid-stream REVOCATION direction (session logout/reset, kick/leave/guild
+//! soft-delete, targeted visibility reloads — reviews M-05/M-07/M-14/M-43).
 #![cfg(feature = "ssr")]
 
 mod common;
 
+use authlyn_interactive::protocol::SyncEvent;
 use axum::http::{Method, StatusCode};
 use serde_json::json;
 use std::time::Duration;
@@ -522,4 +525,437 @@ async fn channel_creation_emits_lists_changed_and_membership_set_refreshes() {
     };
     assert_eq!(ev["type"], "message_created");
     assert_eq!(ev["channel_id"], new_cid.as_str());
+}
+
+// ---------------------------------------------------------------------------
+// Mid-stream revocation (reviews M-05, M-07, M-14, M-43)
+// ---------------------------------------------------------------------------
+
+/// Fixture for the visibility-revocation family: `owner_name` owns a guild,
+/// `member_name` is invited into it AND owns a guild of their own (for the
+/// aliveness proofs), and the member holds an open `/events` stream that has
+/// already PROVEN delivery from the owner's channel. Returns
+/// `(owner_cookie, owner_gid, owner_cid, member_cookie, member_account_id,
+/// member_own_cid, member_stream_body)`.
+#[allow(clippy::type_complexity)]
+async fn member_with_proven_stream(
+    router: &axum::Router,
+    owner_name: &str,
+    member_name: &str,
+) -> (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    axum::body::Body,
+) {
+    let (owner, gid, cid) = owner_with_channel(router, owner_name).await;
+    let (member, _member_gid, member_cid) = owner_with_channel(router, member_name).await;
+    let (st, _, me) = common::send(router, Method::GET, "/auth/me", Some(&member), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let member_id = me["account_id"].as_str().unwrap().to_string();
+
+    // Invite BEFORE the stream opens so the connection's INITIAL visible set
+    // already includes the owner's channel (no grow-side lists_changed frame
+    // left in the stream to confuse the drain steps below).
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": member_name })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    let (st, _h, mut body) = common::open_sse(router, "/events", Some(&member)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Pre-revocation delivery proof: silence later cannot be blamed on a
+    // stream that never worked.
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "pre-revocation proof" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => {
+            assert_eq!(v["type"], "message_created");
+            assert_eq!(v["channel_id"], cid.as_str());
+        }
+        other => panic!("member should receive events before revocation, got {other:?}"),
+    }
+
+    (owner, gid, cid, member, member_id, member_cid, body)
+}
+
+/// After a revocation, the stream must go SILENT for the revoked guild
+/// (Timeout — not Closed, the connection itself stays up) yet still deliver
+/// the member's own guild's events (aliveness: the silence is a filter, not a
+/// dead stream).
+async fn assert_silent_for_guild_but_alive(
+    router: &axum::Router,
+    body: &mut axum::body::Body,
+    owner: &str,
+    revoked_cid: &str,
+    member: &str,
+    member_cid: &str,
+) {
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{revoked_cid}/messages"),
+        Some(owner),
+        Some(&json!({ "body": "post-revocation — must not be delivered" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        other => panic!("a revoked member must go silent for the guild, got {other:?}"),
+    }
+
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{member_cid}/messages"),
+        Some(member),
+        Some(&json!({ "body": "proof of life" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => {
+            assert_eq!(v["type"], "message_created");
+            assert_eq!(v["channel_id"], member_cid);
+        }
+        other => panic!("aliveness event should arrive, got {other:?}"),
+    }
+}
+
+/// Reviews M-07/M-14 — the SHRINK direction of the per-connection visibility
+/// filter: kicking a member must stop their ALREADY-OPEN stream from
+/// receiving the guild's channel events.
+#[tokio::test]
+async fn kicked_member_stops_receiving_channel_events_mid_stream() {
+    let a = common::arena().await;
+    let (owner, gid, cid, member, member_id, member_cid, mut body) =
+        member_with_proven_stream(&a.router, "KickOwner", "KickedAlice").await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}/members/{member_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    // Drain the broadcast lists_changed the kick emits — it is what triggers
+    // the per-connection visibility reload.
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed"),
+        other => panic!("expected the kick's lists_changed, got {other:?}"),
+    }
+
+    assert_silent_for_guild_but_alive(&a.router, &mut body, &owner, &cid, &member, &member_cid)
+        .await;
+}
+
+/// Reviews M-07/M-14: same shrink direction, but the member revokes
+/// THEMSELVES (self-leave is the `aid == caller` arm of the same endpoint).
+#[tokio::test]
+async fn member_who_leaves_a_guild_stops_receiving_its_events_mid_stream() {
+    let a = common::arena().await;
+    let (owner, gid, cid, member, member_id, member_cid, mut body) =
+        member_with_proven_stream(&a.router, "LeaveOwner", "LeavingAlice").await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}/members/{member_id}"),
+        Some(&member),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed"),
+        other => panic!("expected the leave's lists_changed, got {other:?}"),
+    }
+
+    assert_silent_for_guild_but_alive(&a.router, &mut body, &owner, &cid, &member, &member_cid)
+        .await;
+}
+
+/// Reviews M-07/M-14: guild soft-delete must silence members' open streams
+/// for its channels. HTTP can no longer post into the dead guild (soft-delete
+/// gates every mutation), so a stray bus emission is simulated directly on
+/// the router's `AppState` — this pins that the PER-CONNECTION filter (not
+/// merely the absence of emitters) excludes a soft-deleted guild's channels
+/// after the reload.
+#[tokio::test]
+async fn guild_soft_delete_silences_open_member_streams() {
+    let a = common::arena().await;
+    let (owner, gid, cid, member, _member_id, member_cid, mut body) =
+        member_with_proven_stream(&a.router, "SoftDeleteOwner", "SoftDeleteAlice").await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed"),
+        other => panic!("expected the delete's lists_changed, got {other:?}"),
+    }
+
+    // A stray emission for the dead guild's channel must be filtered out…
+    a.state.emit(SyncEvent::MessageCreated {
+        channel_id: cid.clone(),
+    });
+    match common::next_sse_data(&mut body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        other => panic!("a deleted guild's events must be filtered, got {other:?}"),
+    }
+    // …while the member's own guild still delivers.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{member_cid}/messages"),
+        Some(&member),
+        Some(&json!({ "body": "proof of life" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => {
+            assert_eq!(v["type"], "message_created");
+            assert_eq!(v["channel_id"], member_cid.as_str());
+        }
+        other => panic!("aliveness event should arrive, got {other:?}"),
+    }
+}
+
+/// Review M-43: the TARGETED-lane `lists_changed` reload guard (review fix
+/// d5c0d33). No production path emits a visibility-SHIFTING targeted
+/// lists_changed yet (rail reorder targets the actor but shifts nothing), so
+/// the future flow it protects is simulated: membership lands via a direct DB
+/// write (no broadcast emit — what an invite-accept flow on the targeted lane
+/// would look like), then the targeted nudge fires on the router's own
+/// `AppState` (see `Arena::state`).
+#[tokio::test]
+async fn targeted_lists_changed_reloads_the_connections_visibility_set() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = owner_with_channel(&a.router, "TargetedOwner").await;
+    let member = common::register_account(&a.router, "TargetedMember", "password123").await;
+    let (st, _, me) = common::send(&a.router, Method::GET, "/auth/me", Some(&member), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let member_id = me["account_id"].as_str().unwrap().to_string();
+
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&member)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Membership lands WITHOUT any bus emission…
+    a.db.query(
+        "CREATE guild_member SET
+            guild   = type::record('guild', $gid),
+            account = type::record('account', $aid),
+            role    = 'member';",
+    )
+    .bind(("gid", gid.clone()))
+    .bind(("aid", member_id.clone()))
+    .await
+    .expect("grant membership")
+    .check()
+    .expect("grant membership check");
+
+    // …so the connection's visibility snapshot predates the grant: the
+    // guild's events are still filtered out.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "pre-nudge — snapshot is stale" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        other => panic!("the stale snapshot should still filter, got {other:?}"),
+    }
+
+    // The targeted nudge must both DELIVER and reload this connection's set…
+    a.state
+        .emit_for(vec![member_id.clone()], SyncEvent::ListsChanged);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed"),
+        other => panic!("expected the targeted lists_changed, got {other:?}"),
+    }
+
+    // …after which the guild's events flow to the pre-existing connection.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "post-nudge — visible now" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => {
+            assert_eq!(v["type"], "message_created");
+            assert_eq!(v["channel_id"], cid.as_str());
+        }
+        other => panic!("the reloaded set should now deliver, got {other:?}"),
+    }
+}
+
+/// Review M-05: identity must hold for the LIFETIME of the stream, not just
+/// at connect. Logging a session out must END its live `/events` stream
+/// instead of letting it keep draining the account's realtime metadata.
+#[tokio::test]
+async fn logging_out_a_session_ends_its_live_events_stream() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "RevokedOwner").await;
+    // A second session on the same account — the device that stays logged in
+    // and keeps generating events after the first session is revoked.
+    let (st, second, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/login",
+        None,
+        Some(&json!({ "username": "RevokedOwner", "password": "password123" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let second = second.expect("login must set a session cookie");
+
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Pre-revocation delivery proof.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&second),
+        Some(&json!({ "body": "before the logout" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "message_created"),
+        other => panic!("stream should deliver before the logout, got {other:?}"),
+    }
+
+    // Revoke the STREAM'S OWN session (the second one stays valid).
+    let (st, _, _) =
+        common::send(&a.router, Method::POST, "/auth/logout", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The next event must not be delivered: the stream ENDS (Closed — a
+    // fail-closed kill, so the reconnect re-authenticates and 401s).
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&second),
+        Some(&json!({ "body": "after the logout" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Closed => {}
+        other => panic!("a logged-out session must not keep a live stream, got {other:?}"),
+    }
+}
+
+/// Review M-05, the attacker-lockout flow: a self-service password reset
+/// deletes EVERY session for the account (`delete_sessions_for_account`) —
+/// a live `/events` stream held on a stolen cookie must die with them.
+#[tokio::test]
+async fn password_reset_lockout_kills_every_live_events_stream_for_the_account() {
+    let a = common::arena().await;
+    let (stolen, _gid, cid) = owner_with_channel(&a.router, "ResetVictim").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/security-question",
+        Some(&stolen),
+        Some(&json!({ "question": "first ship?", "answer": "Forward Unto Dawn" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The "stolen" cookie holds a live, working stream…
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&stolen)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&stolen),
+        Some(&json!({ "body": "before the lockout" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "message_created"),
+        other => panic!("stream should deliver before the lockout, got {other:?}"),
+    }
+
+    // …the victim locks the holder out via the PUBLIC reset flow (no cookie).
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/reset/confirm",
+        None,
+        Some(&json!({
+            "username": "ResetVictim",
+            "answer": "forward unto dawn",
+            "new_password": "freshpassword456",
+        })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The victim resumes on a fresh session and posts…
+    let (st, fresh, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/auth/login",
+        None,
+        Some(&json!({ "username": "ResetVictim", "password": "freshpassword456" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let fresh = fresh.expect("login must set a session cookie");
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&fresh),
+        Some(&json!({ "body": "after the lockout" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    // …and the locked-out stream is dead, not delivering.
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Closed => {}
+        other => panic!("a locked-out session must not keep a live stream, got {other:?}"),
+    }
 }
