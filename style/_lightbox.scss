@@ -1,14 +1,20 @@
 @use "tokens" as *;
 
-// Near-fullscreen image viewer with same-message gallery nav + CSS-transform
-// zoom. `touch-action: none` (also added by Wave 0 P-1 — keep deduped on merge)
-// + preventDefault on pointer events stops the browser back-swipe / page-scroll
-// from firing while swiping between gallery images.
+// Near-fullscreen image viewer with same-message gallery nav and its own
+// pointer gesture engine (pinch / pan / double-tap / drag-down-to-dismiss —
+// the app viewport is deliberately user-scalable=no, so the lightbox owns its
+// gestures; see src/ui/shell/channel/lightbox.rs). `touch-action: none` +
+// preventDefault on pointerdown keep the browser's back-swipe / page-scroll /
+// native pinch out of the engine's way.
+//
+// Performance contract (evolution rank 38): the gesture mutates ONLY the
+// image's transform (translate3d + scale) and the backdrop's opacity — both
+// compositor-cheap on floor devices. `will-change` is scoped to `.gesturing`
+// (set on pointerdown, cleared on settle) so no permanent layer is kept.
 .lightbox {
 	position: fixed;
 	inset: 0;
 	z-index: 50;
-	background: rgba(0, 0, 0, 0.85);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -17,23 +23,58 @@
 	// lightbox can't trigger zoom/ghosting in the standalone PWA.
 	touch-action: none;
 
+	// The dim veil, split out of the container so drag-dismiss can thin it
+	// 1:1 with the finger (inline opacity) without fading the controls.
+	.lightbox-backdrop {
+		position: absolute;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.85);
+		transition: opacity 0.18s ease-out;
+	}
+
 	.lightbox-img {
+		// Above the absolutely-positioned backdrop (DOM order then decides;
+		// the <video> entry carries no transform, so it needs this too).
+		position: relative;
 		max-width: 95vw;
 		max-height: 95vh;
 		object-fit: contain;
 		border-radius: 6px;
-		// Zoom is a CSS transform driven by the inline `scale()` style; animate
-		// the step so +/- feels smooth. No drag-to-pan in v1 (centres only).
-		transition: transform 0.12s ease-out;
+		// The transform is the inline `translate3d(..) scale(..)` driven by
+		// the gesture engine / zoom buttons. The transition smooths SNAPS
+		// (double-tap, wheel ticks, snap-back, button zoom) — while fingers
+		// are down `.gesturing` switches it off so the image tracks 1:1.
+		transition: transform 0.18s ease-out;
 		transform-origin: center center;
+		cursor: zoom-in; // double-tap/wheel zooms in…
+		user-select: none;
+		-webkit-user-select: none;
+
+		&.zoomed {
+			cursor: grab; // …and a zoomed image pans
+		}
+	}
+
+	// Scoped compositor hints: only while a gesture owns the image.
+	&.gesturing {
+		.lightbox-img {
+			transition: none;
+			will-change: transform;
+		}
+
+		.lightbox-backdrop {
+			transition: none;
+			will-change: opacity;
+		}
 	}
 
 	.lightbox-close {
 		position: absolute;
 		top: 1rem;
 		right: 1rem;
-		width: 2.4rem;
-		height: 2.4rem;
+		// >=44px touch target (owner floor for tap affordances).
+		width: 2.75rem;
+		height: 2.75rem;
 		border-radius: 50%;
 		border: none;
 		background: var(--overlay);
@@ -71,7 +112,8 @@
 		right: 1rem;
 	}
 
-	// Zoom control cluster, bottom-centre.
+	// Zoom control cluster, bottom-centre — the stationary 44px twins of the
+	// pinch/double-tap gestures (and the only zoom path with a keyboard).
 	.lightbox-zoom {
 		position: absolute;
 		bottom: 1rem;
@@ -81,8 +123,8 @@
 		gap: 0.4rem;
 
 		button {
-			width: 2.4rem;
-			height: 2.4rem;
+			width: 2.75rem;
+			height: 2.75rem;
 			border-radius: 50%;
 			border: none;
 			background: var(--overlay);

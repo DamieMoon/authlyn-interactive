@@ -362,7 +362,7 @@ pub(super) fn radial_menu(
     armed: StoredValue<bool>,
 ) -> impl IntoView {
     // Focus the menu on open so Escape lands on its own keydown without a
-    // global listener (mirrors the lightbox in mod.rs); focus also hands the
+    // global listener (mirrors lightbox.rs); focus also hands the
     // role="menu" container to AT.
     let menu_ref = NodeRef::<leptos::html::Div>::new();
     #[cfg(feature = "hydrate")]
