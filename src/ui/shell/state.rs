@@ -194,17 +194,21 @@ pub(crate) struct SyncState {
     /// Latch: true while a background sync driver is running — either the SSE
     /// EventSource (`act::sync::start_sync`) or the legacy poll loop
     /// (`act::message::start_poll`). Both entry points are idempotent through
-    /// it; the SSE driver releases it when giving up so the poll fallback can
-    /// take over.
+    /// it. Handover semantics (self-healing evolution): demoting to polling
+    /// releases-and-retakes it, while a resurrection probe promoting back to
+    /// SSE keeps it held (ownership transfers; the retired poll loop sees the
+    /// driver-generation bump and stops on its own).
     pub(crate) polling: RwSignal<bool>,
-    /// True while the SSE `EventSource` stream is connected: set on the
-    /// stream's `onopen` (alongside the consecutive-error reset — they fire
-    /// together) and cleared at the poll-fallback handoff and on the
-    /// constructor-failure path (`act::sync::start_sync`). Drives the topbar's
-    /// honest `● LIVE` / `● POLLING` chip — state.rs is shared across graphs,
-    /// but a bare `RwSignal<bool>` compiles everywhere; only the hydrate-real
-    /// sync driver ever WRITES it (ssr constructs it `false` and never reads
-    /// it, like every other signal here).
+    /// True while the SSE `EventSource` stream is connected: set on a
+    /// current-generation `onopen` (alongside the consecutive-error reset —
+    /// they fire together) and cleared on every stream error, at the
+    /// poll-fallback demotion, on the constructor-failure path, and when the
+    /// wake listener finds the stream terminally CLOSED after a frozen-PWA
+    /// resume (`act::sync`). Drives the topbar's honest `● LIVE` /
+    /// `● POLLING` chip — state.rs is shared across graphs, but a bare
+    /// `RwSignal<bool>` compiles everywhere; only the hydrate-real sync
+    /// driver ever WRITES it (ssr constructs it `false` and never reads it,
+    /// like every other signal here).
     pub(crate) sse_live: RwSignal<bool>,
     /// The signed-in account's id, mirrored from `AuthCtx` so background tasks
     /// (e.g. the notification poll) can filter out the user's OWN messages

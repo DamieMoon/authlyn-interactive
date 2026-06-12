@@ -1288,18 +1288,28 @@ pub(super) async fn refresh_ghost_drafts(s: Shell) {
 /// The background sync loop (single instance, guarded by `s.sync.polling`).
 /// Every tick it refreshes the open channel's messages; every ~6s it also
 /// refreshes the lists. The AUTOMATIC FALLBACK behind the SSE driver
-/// ([`super::sync::start_sync`]): it runs only when EventSource is missing or
-/// gave up for the session.
+/// ([`super::sync::start_sync`]): it runs when EventSource is missing or
+/// demoted — and since the self-healing evolution it self-terminates when
+/// the driver generation moves on, i.e. when a resurrection probe got
+/// promoted back to SSE. On that handover the `polling` latch stays held
+/// (ownership transfers to the promoted driver rather than being released),
+/// so belt-and-braces callers like channel-open keep no-opping.
 #[cfg(feature = "hydrate")]
 pub(super) fn start_poll(s: Shell) {
     if s.sync.polling.get_untracked() {
         return;
     }
     s.sync.polling.set(true);
+    let gen = super::sync::current_gen();
     spawn_local(async move {
         let mut tick: u32 = 0;
         loop {
             gloo_timers::future::TimeoutFuture::new(1500).await;
+            if super::sync::current_gen() != gen {
+                // A promoted SSE driver owns sync now: stop fetching. Checked
+                // BEFORE the fetches so a retired loop costs zero requests.
+                break;
+            }
             tick = tick.wrapping_add(1);
             if tick.is_multiple_of(4) {
                 refresh_lists(s);
