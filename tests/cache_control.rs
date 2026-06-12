@@ -119,8 +119,9 @@ async fn media_route_group_is_not_no_store() {
     assert_eq!(st, StatusCode::OK);
     assert_eq!(
         cc.as_deref(),
-        Some("public, max-age=31536000, immutable"),
-        "media responses carry their own immutable Cache-Control, never the \
-         JSON group's no-store (separate route group)"
+        Some("private, max-age=31536000, immutable"),
+        "media responses carry their own immutable-but-PRIVATE Cache-Control \
+         (session-gated, so never `public` — review M-29), never the JSON \
+         group's no-store (separate route group)"
     );
 }

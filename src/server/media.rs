@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use rand::RngCore;
@@ -221,6 +221,7 @@ pub async fn download_media(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<MediaQuery>,
+    headers: HeaderMap,
     account: AuthAccount,
 ) -> Response {
     let _ = &account; // any authenticated account may fetch any blob (phase 1)
@@ -251,15 +252,31 @@ pub async fn download_media(
 
     // Thumbnail fast path: `?w=N` on an image blob serves a cached/just-built
     // JPEG downscaled to ≤N px wide. The cache file lives next to the original
-    // (`{id}.w{N}.v2.jpg`), keyed on the clamped width, so each size is built once.
-    // The `v2` tag is a cache-buster: it bumps when the thumbnail PIPELINE changes
-    // (v2 = Lanczos3 + JPEG q85) so existing soft thumbnails regenerate sharp
-    // without a manual cache wipe. Old `{id}.w{N}.jpg` files are left orphaned
+    // (`{id}.w{N}.{V}.jpg`), keyed on the clamped width, so each size is built
+    // once. The version tag ([`THUMB_PIPELINE_VERSION`]) is a cache-buster: it
+    // bumps when the thumbnail PIPELINE changes so existing soft thumbnails
+    // regenerate sharp without a manual cache wipe — on disk via the filename,
+    // and in BROWSERS via the matching ETag + revalidating [`THUMB_CACHE`]
+    // policy (the URL never encodes the version, so it alone cannot bust a
+    // client cache; review M-25). Old `{id}.w{N}.jpg` files are left orphaned
     // (harmless small JPEGs; a future sweep can remove the un-versioned ones).
     if let Some(w) = q.w {
         let w = w.clamp(THUMB_MIN_W, THUMB_MAX_W);
         if row.mime.starts_with("image/") {
-            let thumb_path = state.media_dir.join(format!("{id}.w{w}.v2.jpg"));
+            // Conditional GET: the thumbnail validator is the pipeline
+            // version, independent of the bytes, so a still-current client is
+            // answered with a body-less 304 before any disk read. A bumped
+            // version fails the match and the fresh bytes are served below.
+            if headers
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(if_none_match_matches_thumb)
+            {
+                return thumb_not_modified();
+            }
+            let thumb_path = state
+                .media_dir
+                .join(format!("{id}.w{w}.{THUMB_PIPELINE_VERSION}.jpg"));
             if let Ok(cached) = fs::read(&thumb_path).await {
                 return jpeg_response(cached);
             }
@@ -293,13 +310,74 @@ pub async fn download_media(
 const THUMB_MIN_W: u32 = 16;
 const THUMB_MAX_W: u32 = 512;
 
-/// Cache-Control for every SUCCESSFUL media response. Media ids are
-/// server-minted random 16-byte ids ([`random_media_id`]) and blobs are never
-/// replaced in place, so a media URL's bytes are immutable by construction —
-/// a year of `immutable` caching is safe and kills PWA avatar/attachment
-/// refetch chatter. Error paths (404/500 via `error_response`) deliberately
-/// carry NO Cache-Control: a 404 today could be a real blob tomorrow.
-const IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+/// Cache-Control for successful ORIGINAL-blob responses (inline image or
+/// attachment download). Media ids are server-minted random 16-byte ids
+/// ([`random_media_id`]) and blobs are never replaced in place, so an original
+/// URL's bytes are immutable by construction — a year of `immutable` caching
+/// is safe and kills PWA avatar/attachment refetch chatter. `private`, NEVER
+/// `public`: /media is session-gated, and `public` is the one directive that
+/// licenses SHARED caches (reverse proxy/CDN) to store a credentialed response
+/// and re-serve it to unauthenticated requesters — any caching intermediary
+/// ever placed in front of the server would silently bypass the auth gate
+/// (review M-29). Browser and service-worker caches are private caches, so the
+/// chatter-killing goal is untouched. Error paths (404/500 via
+/// `error_response`) deliberately carry NO Cache-Control: a 404 today could be
+/// a real blob tomorrow. Thumbnails are NOT immutable — see [`THUMB_CACHE`].
+const IMMUTABLE_CACHE: &str = "private, max-age=31536000, immutable";
+
+/// Cache-Control for THUMBNAIL (`?w=`) responses. Unlike originals, thumbnail
+/// bytes are NOT immutable: they change whenever [`THUMB_PIPELINE_VERSION`]
+/// bumps while the URL (`/media/{id}?w=N`) stays the same, so `immutable`
+/// would pin the pre-bump rendering in browsers for up to a year (review
+/// M-25). Instead: `private` (same M-29 rationale as [`IMMUTABLE_CACHE`]), one
+/// day of freshness, then a conditional refetch that the pipeline-version ETag
+/// ([`thumb_etag`]) answers with a body-less 304 — a pipeline bump reaches
+/// already-cached clients within a day at the cost of one header-only round
+/// trip per thumbnail URL per day.
+const THUMB_CACHE: &str = "private, max-age=86400";
+
+/// Thumbnail PIPELINE version (`v2` = Lanczos3 + JPEG q85). Bump when
+/// [`make_thumb`]'s output changes (filter, quality, format). It keys BOTH
+/// cache-busting layers in one place: the on-disk cache filename
+/// (`{id}.w{N}.{V}.jpg`), so the server rebuilds, AND the thumbnail ETag, so
+/// already-cached browsers revalidate into the new bytes within a day (review
+/// M-25). The exact tag is pinned by
+/// `tests/media.rs::thumbnails_revalidate_via_pipeline_version_etag_instead_of_immutable`
+/// — update it in lockstep.
+const THUMB_PIPELINE_VERSION: &str = "v2";
+
+/// Strong ETag for thumbnail responses: the pipeline version, quoted. For a
+/// fixed `/media/{id}?w=N` URL the bytes are a pure function of the pipeline
+/// version (the original behind it is immutable by construction), so the
+/// version alone is a valid strong validator.
+fn thumb_etag() -> String {
+    format!("\"{THUMB_PIPELINE_VERSION}\"")
+}
+
+/// True if an `If-None-Match` header value matches the current thumbnail ETag.
+/// RFC 9110 §13.1.2 weak comparison: a `W/` prefix on the client's copy still
+/// matches, and `*` matches any extant representation.
+fn if_none_match_matches_thumb(if_none_match: &str) -> bool {
+    let current = thumb_etag();
+    if_none_match
+        .split(',')
+        .map(str::trim)
+        .any(|tag| tag == "*" || tag.strip_prefix("W/").unwrap_or(tag) == current)
+}
+
+/// Body-less 304 for a still-current thumbnail. Re-stamps `Cache-Control` and
+/// `ETag` so the client's stored response gets a fresh freshness lifetime
+/// (RFC 9110 §15.4.5 — a 304's header fields update the cached response).
+fn thumb_not_modified() -> Response {
+    (
+        StatusCode::NOT_MODIFIED,
+        [
+            (header::ETAG, thumb_etag()),
+            (header::CACHE_CONTROL, THUMB_CACHE.to_string()),
+        ],
+    )
+        .into_response()
+}
 
 /// Serve raw blob bytes. Always sends `X-Content-Type-Options: nosniff` so the
 /// browser cannot sniff stored bytes into active content. Inline-safe raster
@@ -331,12 +409,16 @@ fn serve_original(bytes: Vec<u8>, mime: String) -> Response {
     }
 }
 
+/// 200 thumbnail JPEG: nosniff + the revalidating [`THUMB_CACHE`] policy and
+/// the pipeline-version ETag — NOT the originals' immutable year, because
+/// these bytes change on a [`THUMB_PIPELINE_VERSION`] bump (review M-25).
 fn jpeg_response(bytes: Vec<u8>) -> Response {
     (
         [
-            (header::CONTENT_TYPE, "image/jpeg"),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::CACHE_CONTROL, IMMUTABLE_CACHE),
+            (header::CONTENT_TYPE, "image/jpeg".to_string()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+            (header::CACHE_CONTROL, THUMB_CACHE.to_string()),
+            (header::ETAG, thumb_etag()),
         ],
         bytes,
     )
@@ -351,8 +433,9 @@ fn jpeg_response(bytes: Vec<u8>) -> Response {
 /// Uses Lanczos3 resampling (not bilinear `Triangle`) + JPEG quality 85: avatars
 /// and cards looked soft/low-res with the default bilinear filter + default
 /// quality (~75), especially on hi-DPR displays. Thumbnails are cached on disk
-/// (`{id}.w{N}.jpg`, built once per width), so the sharper filter costs nothing
-/// after the first build.
+/// (`{id}.w{N}.{V}.jpg`, built once per width per pipeline version), so the
+/// sharper filter costs nothing after the first build. Output changes here
+/// require a [`THUMB_PIPELINE_VERSION`] bump (disk + browser cache-bust).
 fn make_thumb(bytes: &[u8], max_w: u32) -> Result<Vec<u8>, image::ImageError> {
     use std::io::Cursor;
     let img = image::load_from_memory(bytes)?;

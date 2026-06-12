@@ -148,6 +148,29 @@ async fn get_media_full(
     (status, headers, bytes)
 }
 
+/// GET `/media/{path}` with a cookie AND an `If-None-Match` header; returns
+/// (status, headers, body bytes) for conditional-revalidation assertions.
+#[cfg(feature = "ssr")]
+async fn get_media_conditional(
+    router: &axum::Router,
+    cookie: &str,
+    path_and_query: &str,
+    if_none_match: &str,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/media/{path_and_query}"))
+        .header(header::COOKIE, cookie)
+        .header(header::IF_NONE_MATCH, if_none_match)
+        .body(Body::empty())
+        .unwrap();
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let headers = res.headers().clone();
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap().to_vec();
+    (status, headers, bytes)
+}
+
 // ---------------------------------------------------------------------------
 // MIME round-trip + the documented per-blob non-ACL
 // ---------------------------------------------------------------------------
@@ -545,15 +568,20 @@ async fn served_image_carries_nosniff() {
 }
 
 // ---------------------------------------------------------------------------
-// Immutable Cache-Control (Task 9): media ids are server-minted random 16-byte
-// ids and blobs are never replaced in place, so every successful media
-// response is immutable by construction — safe to cache for a year.
+// Cache-Control (Task 9 + review M-25/M-29): ORIGINAL blobs are immutable by
+// construction (server-minted random ids, never replaced in place) but the
+// route is session-gated, so the policy must be `private` — `public` would
+// license a shared cache (reverse proxy/CDN) to re-serve a credentialed
+// response to unauthenticated requesters, bypassing the auth gate (M-29).
+// THUMBNAILS are NOT immutable: their bytes change when the pipeline version
+// bumps while the URL stays `/media/{id}?w=N`, so they revalidate via a
+// pipeline-version ETag instead (M-25).
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn media_responses_are_immutably_cacheable() {
-    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+async fn original_media_responses_are_privately_immutably_cacheable() {
+    const PRIVATE_IMMUTABLE: &str = "private, max-age=31536000, immutable";
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;
 
@@ -567,21 +595,9 @@ async fn media_responses_are_immutably_cacheable() {
             .expect("media must carry Cache-Control")
             .to_str()
             .unwrap(),
-        IMMUTABLE,
-        "inline image responses are immutably cacheable"
-    );
-
-    // Thumbnail arm (`?w=` → jpeg_response).
-    let (status, headers, _) = get_media_full(&a.router, &owner, &format!("{id}?w=64")).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        headers
-            .get(header::CACHE_CONTROL)
-            .expect("thumbnail must carry Cache-Control")
-            .to_str()
-            .unwrap(),
-        IMMUTABLE,
-        "thumbnail responses are immutably cacheable"
+        PRIVATE_IMMUTABLE,
+        "inline image responses are immutably cacheable, but PRIVATE — never \
+         `public` on a session-gated route (review M-29)"
     );
 
     // Attachment arm (serve_original, octet-stream download).
@@ -594,8 +610,8 @@ async fn media_responses_are_immutably_cacheable() {
             .expect("attachment must carry Cache-Control")
             .to_str()
             .unwrap(),
-        IMMUTABLE,
-        "attachment downloads are immutably cacheable"
+        PRIVATE_IMMUTABLE,
+        "attachment downloads are immutably cacheable, but private (review M-29)"
     );
 
     // Error paths must NOT be cached: a 404 today could be a real blob
@@ -607,6 +623,144 @@ async fn media_responses_are_immutably_cacheable() {
         headers.get(header::CACHE_CONTROL).is_none(),
         "media 404 must stay uncached"
     );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn no_media_response_is_cache_control_public() {
+    // The M-29 invariant across ALL success arms (inline / thumbnail /
+    // attachment): /media is session-gated, so no response may carry the one
+    // directive (`public`) that authorizes SHARED caches to store and re-serve
+    // it with the auth bypassed.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let png_id = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+    let pdf_id = upload_image(&a.router, &owner, "application/pdf", b"%PDF-1.4\n").await;
+
+    for path in [png_id.clone(), format!("{png_id}?w=64"), pdf_id] {
+        let (status, headers, _) = get_media_full(&a.router, &owner, &path).await;
+        assert_eq!(status, StatusCode::OK, "{path} should serve");
+        let cc = headers
+            .get(header::CACHE_CONTROL)
+            .expect("every successful media response carries Cache-Control")
+            .to_str()
+            .unwrap();
+        assert!(
+            !cc.contains("public"),
+            "session-gated media response {path} must never be `public` \
+             (shared caches would re-serve it unauthenticated, review M-29); got {cc:?}"
+        );
+        assert!(
+            cc.contains("private"),
+            "session-gated media response {path} should be explicitly `private`; got {cc:?}"
+        );
+    }
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn thumbnails_revalidate_via_pipeline_version_etag_instead_of_immutable() {
+    // M-25: thumbnail bytes change when the pipeline version bumps (v1 → v2
+    // was Lanczos3 + q85) while the URL stays `/media/{id}?w=N`. `immutable`
+    // would therefore pin the OLD rendering in browsers for a year — the disk
+    // `v2` cache-buster only regenerates the server copy. Thumbnails instead
+    // get a short private freshness window plus a strong ETag carrying the
+    // pipeline version, so a bump reaches already-cached clients within a day.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let id = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+
+    let (status, headers, bytes) = get_media_full(&a.router, &owner, &format!("{id}?w=64")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(&bytes[..2], &[0xFF, 0xD8], "thumbnail is a real JPEG");
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .expect("thumbnail must carry Cache-Control")
+            .to_str()
+            .unwrap(),
+        "private, max-age=86400",
+        "thumbnails revalidate after a day instead of being pinned immutable \
+         for a year (review M-25)"
+    );
+    // The ETag IS the pipeline version (in lockstep with the on-disk
+    // `{id}.w{N}.v2.jpg` cache key) — bumping the pipeline must update BOTH,
+    // and this assertion is the reminder.
+    assert_eq!(
+        headers
+            .get(header::ETAG)
+            .expect("thumbnail must carry an ETag for cheap revalidation")
+            .to_str()
+            .unwrap(),
+        "\"v2\"",
+        "thumbnail ETag is the pipeline version (matches the disk cache key)"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn thumbnail_if_none_match_gets_304_until_the_pipeline_version_bumps() {
+    // The revalidation round trip M-25 buys: a client whose cached thumbnail
+    // is still pipeline-current is answered with a body-less 304 (header-only,
+    // re-stamping Cache-Control + ETag per RFC 9110 §15.4.5), while a client
+    // holding a PRE-BUMP rendering (stale ETag) gets fresh 200 bytes.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let id = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+
+    // Build + capture the current validator.
+    let (status, headers, _) = get_media_full(&a.router, &owner, &format!("{id}?w=64")).await;
+    assert_eq!(status, StatusCode::OK);
+    let etag = headers
+        .get(header::ETAG)
+        .expect("thumbnail carries an ETag")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    // Strong match → 304, no body, freshness re-stamped.
+    let (status, headers, body) =
+        get_media_conditional(&a.router, &owner, &format!("{id}?w=64"), &etag).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_MODIFIED,
+        "a pipeline-current If-None-Match revalidates to 304"
+    );
+    assert!(body.is_empty(), "304 must be body-less");
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        Some("private, max-age=86400"),
+        "304 re-stamps Cache-Control so the cached thumbnail's freshness restarts"
+    );
+    assert_eq!(
+        headers.get(header::ETAG).and_then(|v| v.to_str().ok()),
+        Some(etag.as_str()),
+        "304 carries the current ETag"
+    );
+
+    // Weak-form client copy still matches (RFC 9110 weak comparison).
+    let (status, _, body) = get_media_conditional(
+        &a.router,
+        &owner,
+        &format!("{id}?w=64"),
+        &format!("W/{etag}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED, "W/ prefixed ETag matches");
+    assert!(body.is_empty());
+
+    // A PRE-BUMP validator (older pipeline version) misses → fresh 200 bytes.
+    let (status, _, bytes) =
+        get_media_conditional(&a.router, &owner, &format!("{id}?w=64"), "\"v1\"").await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a stale (pre-bump) ETag must NOT 304 — the client needs the new bytes"
+    );
+    assert_eq!(&bytes[..2], &[0xFF, 0xD8], "fresh JPEG served on ETag miss");
 }
 
 #[cfg(feature = "ssr")]
