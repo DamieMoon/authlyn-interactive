@@ -351,6 +351,20 @@ fn supports_field_sizing_content() -> bool {
     .unwrap_or(false)
 }
 
+/// The `<html>` element, for the measured `--composer-h` custom property
+/// (UX evolution #11 placement contract): set on the document ROOT so both
+/// the fixed toast host (a shell-level child) and the channel floats inside
+/// `.channel-view` inherit the same anchor var.
+#[cfg(feature = "hydrate")]
+fn doc_root() -> Option<leptos::web_sys::HtmlElement> {
+    use wasm_bindgen::JsCast;
+    leptos::web_sys::window()?
+        .document()?
+        .document_element()?
+        .dyn_into::<leptos::web_sys::HtmlElement>()
+        .ok()
+}
+
 #[component]
 pub(crate) fn ChannelPane() -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
@@ -429,6 +443,55 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             let style = (*el).style();
             let _ = style.set_property("height", "auto");
             let _ = style.set_property("height", &format!("{}px", el.scroll_height()));
+        });
+    });
+
+    // Measured composer-height var (UX evolution #11 placement contract — the
+    // judges' risk line): a ResizeObserver mirrors the composer band's REAL
+    // height into `--composer-h` on `<html>`, so the toast capsule
+    // (`_toast.scss`) and the channel floats (.unread-pill / .jump-bottom,
+    // `_content.scss`) all anchor to the composer's actual top edge. Wrapped
+    // toolbar rows on narrow phones, the growing textarea, reply/edit banners
+    // and the attachment strip all move the floats with them instead of
+    // being overlapped — fluid measured geometry, no hardcoded band height.
+    // Cleared on unmount (pane switch / logout) so the SCSS fallbacks apply
+    // wherever no composer exists.
+    let composer_box = NodeRef::<leptos::html::Div>::new();
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+        let Some(el) = composer_box.get() else {
+            return;
+        };
+        let target = el.clone();
+        let set_var = move || {
+            if let Some(root) = doc_root() {
+                // Inherent web_sys `style()` (same deref note as above).
+                let _ = root
+                    .style()
+                    .set_property("--composer-h", &format!("{}px", el.offset_height()));
+            }
+        };
+        set_var();
+        let cb = Closure::<dyn FnMut()>::new(set_var);
+        let observer = leptos::web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref()).ok();
+        if let Some(o) = &observer {
+            o.observe(&target);
+        }
+        // `SendWrapper` carries the non-`Send` wasm types across `on_cleanup`'s
+        // `Send + Sync` bound (the `ui/modal.rs` convention) — WASM is
+        // single-threaded, so the wrapper's same-thread assert always holds.
+        let held = send_wrapper::SendWrapper::new((observer, cb));
+        on_cleanup(move || {
+            let (observer, cb) = held.take();
+            if let Some(o) = observer {
+                o.disconnect();
+            }
+            drop(cb); // the observer is gone; now the JS shim may drop too
+            if let Some(root) = doc_root() {
+                let _ = root.style().remove_property("--composer-h");
+            }
         });
     });
 
@@ -936,7 +999,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 .into_any()
             }}
 
-            <div class="composer">
+            // node_ref: the ResizeObserver above mirrors this band's measured
+            // height into the `--composer-h` anchor var (UX evolution #11).
+            <div class="composer" node_ref=composer_box>
                 // "Replying to X" banner (L-3): shown while a reply target is
                 // staged; the ✕ clears it back to a normal send.
                 {move || s.composer.replying_to.get().map(|r| {

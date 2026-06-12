@@ -13,7 +13,9 @@ use super::super::Shell;
 
 use super::super::state::ToastAction;
 #[cfg(feature = "hydrate")]
-use super::super::state::{Toast, Toasts};
+use super::super::state::{Toast, ToastTone, Toasts};
+#[cfg(feature = "hydrate")]
+use crate::protocol::MessageEnvelope;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 #[cfg(feature = "hydrate")]
@@ -22,6 +24,11 @@ use leptos::task::spawn_local;
 /// Lifetime of an error toast (no action slot to linger for).
 #[cfg(feature = "hydrate")]
 const ERROR_TOAST_MS: u32 = 6000;
+
+/// Lifetime of a success toast ("Copied", "invited X") — shorter than the
+/// error/undo ones: pure confirmation, nothing to act on or study.
+#[cfg(feature = "hydrate")]
+const SUCCESS_TOAST_MS: u32 = 3200;
 
 #[cfg(feature = "hydrate")]
 thread_local! {
@@ -32,7 +39,7 @@ thread_local! {
 /// Show `toast`-shaped content, replacing any current toast, and detach its
 /// keyed auto-dismiss timer. The single funnel every public helper uses.
 #[cfg(feature = "hydrate")]
-fn push(s: Shell, text: String, error: bool, action: Option<ToastAction>, duration_ms: u32) {
+fn push(s: Shell, text: String, tone: ToastTone, action: Option<ToastAction>, duration_ms: u32) {
     let key = TOAST_KEY.with(|c| {
         let k = c.get().wrapping_add(1);
         c.set(k);
@@ -41,7 +48,7 @@ fn push(s: Shell, text: String, error: bool, action: Option<ToastAction>, durati
     s.toasts.current.set(Some(Toast {
         key,
         text,
-        error,
+        tone,
         action,
         duration_ms,
     }));
@@ -65,39 +72,46 @@ fn dismiss_if_current(toasts: Toasts, key: u64) {
     }
 }
 
-/// The undo toast for an optimistically-hidden message delete: "Message
-/// deleted" + an Undo action wired to the pending entry keyed `pending` in
-/// `super::message`. `duration_ms` is the SAME grace window driving the
-/// delayed DELETE, so the drain bar tells the truth.
+/// The undo toast after a COMMITTED soft-delete: "Message deleted" + an Undo
+/// action wired to the existing POST `.../restore`
+/// (`act::message::undo_message_delete`). The delete already happened, so
+/// the toast expiring (or being replaced by a newer toast) loses nothing —
+/// the trash pane can still restore until the 1h purge. `envelope` is the
+/// hidden row's snapshot for the in-place reinsert on Undo.
 #[cfg(feature = "hydrate")]
-pub(super) fn show_undo_delete_toast(s: Shell, pending: u64, duration_ms: u32) {
+pub(super) fn show_undo_delete_toast(
+    s: Shell,
+    cid: String,
+    mid: String,
+    envelope: MessageEnvelope,
+    duration_ms: u32,
+) {
     push(
         s,
         "Message deleted".to_string(),
-        false,
-        Some(ToastAction::UndoMessageDelete { pending }),
+        ToastTone::Info,
+        Some(ToastAction::UndoMessageDelete {
+            cid,
+            mid,
+            envelope: Box::new(envelope),
+        }),
         duration_ms,
     );
 }
 
-/// An error toast (danger styling, no action). Honest-state surface for the
-/// delayed delete's failure path.
+/// An error toast (danger styling, no action). Honest-state surface for a
+/// failed delete or restore.
 #[cfg(feature = "hydrate")]
 pub(super) fn show_error_toast(s: Shell, text: String) {
-    push(s, text, true, None, ERROR_TOAST_MS);
+    push(s, text, ToastTone::Danger, None, ERROR_TOAST_MS);
 }
 
-/// Dismiss the undo toast bound to pending-delete `pending`, if it is the
-/// current toast — called when the pending delete is flushed early so a dead
-/// Undo button never lingers.
+/// A success toast (UX evolution #11, second clause): absorbs the status
+/// line's success traffic ("Copied", "invited X") in success styling, so the
+/// red status `<p>` carries errors only.
 #[cfg(feature = "hydrate")]
-pub(super) fn dismiss_undo_toast(s: Shell, pending: u64) {
-    let matches = s.toasts.current.try_get_untracked().flatten().is_some_and(
-        |t| matches!(t.action, Some(ToastAction::UndoMessageDelete { pending: p }) if p == pending),
-    );
-    if matches {
-        let _ = s.toasts.current.try_set(None);
-    }
+pub(super) fn show_success_toast(s: Shell, text: String) {
+    push(s, text, ToastTone::Success, None, SUCCESS_TOAST_MS);
 }
 
 /// Dispatch a toast's action slot (the capsule button), then dismiss the
@@ -105,8 +119,8 @@ pub(super) fn dismiss_undo_toast(s: Shell, pending: u64) {
 #[cfg(feature = "hydrate")]
 pub fn run_toast_action(s: Shell, action: ToastAction, toast_key: u64) {
     match action {
-        ToastAction::UndoMessageDelete { pending } => {
-            super::message::undo_pending_delete(s, pending)
+        ToastAction::UndoMessageDelete { cid, mid, envelope } => {
+            super::message::undo_message_delete(s, cid, mid, *envelope)
         }
     }
     dismiss_if_current(s.toasts, toast_key);

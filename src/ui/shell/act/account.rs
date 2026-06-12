@@ -1,6 +1,7 @@
 //! Account-management actions: logout + password / security-question /
-//! admin-reset. All four are `Shell`-driven (writing status on error);
-//! `logout` additionally takes the auth context to clear the session user.
+//! admin-reset. The mutators are `Shell`-driven (writing status on error);
+//! `logout` keeps the `Shell` parameter for signature symmetry but only
+//! needs the auth context to clear the session user.
 
 use crate::ui::AuthCtx;
 
@@ -14,11 +15,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 #[cfg(feature = "hydrate")]
-pub fn logout(s: Shell, auth: AuthCtx) {
-    // Logout is navigation-away: commit any pending undoable message delete
-    // NOW, while the session cookie still authenticates the DELETE (UX
-    // evolution #11) — afterwards it would 401 and the delete would be lost.
-    super::message::flush_pending_delete(s);
+pub fn logout(_s: Shell, auth: AuthCtx) {
     let nav = leptos_router::hooks::use_navigate();
     spawn_local(async move {
         let _ = api::logout().await;

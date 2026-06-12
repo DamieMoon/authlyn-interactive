@@ -324,7 +324,9 @@ pub(crate) struct Toasts {
 }
 
 /// One transient toast. Client-only and ephemeral — never persisted or sent.
-#[derive(Clone, Debug, PartialEq)]
+/// (No `PartialEq`: `ToastAction` carries a full `MessageEnvelope` snapshot,
+/// and nothing ever compares whole toasts — keyed dismiss compares `key`.)
+#[derive(Clone, Debug)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct Toast {
     /// Generation key minted per toast so the detached auto-dismiss timer
@@ -332,8 +334,8 @@ pub(crate) struct Toast {
     /// send-pulse pattern (`Composer::sent_gen`).
     pub(crate) key: u64,
     pub(crate) text: String,
-    /// Danger styling (failed delayed delete etc.); default toasts are calm.
-    pub(crate) error: bool,
+    /// Visual register — `_toast.scss` styles the variants.
+    pub(crate) tone: ToastTone,
     /// The single optional action slot, described as data (the
     /// [`super::PendingDelete`] convention — closures don't ride signals);
     /// dispatched by `act::run_toast_action`.
@@ -343,13 +345,34 @@ pub(crate) struct Toast {
     pub(crate) duration_ms: u32,
 }
 
+/// A toast's visual register (UX evolution #11).
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) enum ToastTone {
+    /// Calm default chrome (the undo toast).
+    Info,
+    /// Mint confirmation ("Copied", "invited X") — the status line's success
+    /// traffic absorbed in success styling, leaving the red `<p>` for errors.
+    Success,
+    /// Danger styling (failed delete / restore).
+    Danger,
+}
+
 /// A toast's action slot, as data.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) enum ToastAction {
-    /// "Undo" on the message-delete toast: cancel the pending (not yet sent)
-    /// DELETE keyed `pending` in `act::message` and resurface the hidden row.
-    UndoMessageDelete { pending: u64 },
+    /// "Undo" on the message-delete toast: POST the EXISTING own-gated
+    /// `/channels/{cid}/messages/{mid}/restore` — the soft-delete already
+    /// committed on tap (review blocker fix: a client-delayed DELETE inverts
+    /// the failure mode) — then resurface the snapshot `envelope` in place
+    /// (`act::message::undo_message_delete`). Self-contained: no client-side
+    /// pending registry exists, so a replaced/expired toast strands nothing.
+    UndoMessageDelete {
+        cid: String,
+        mid: String,
+        envelope: Box<crate::protocol::MessageEnvelope>,
+    },
 }
 
 /// Per-user preferences mirrored to localStorage.

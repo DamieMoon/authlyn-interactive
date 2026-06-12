@@ -630,11 +630,15 @@
 
 	// Floating round button that jumps the message list to the latest message.
 	// Shown only while the user has scrolled up past the threshold; anchored to
-	// the bottom-right of .channel-view, sitting just above the composer.
+	// the bottom-right of .channel-view, just above the composer band via the
+	// MEASURED --composer-h var (set on <html> by the channel pane's
+	// ResizeObserver, shell/channel/mod.rs — the UX evolution #11 placement
+	// contract shared with .unread-pill and the toast capsule, _toast.scss).
+	// The 4.6rem fallback reproduces the old fixed 5.5rem geometry.
 	.jump-bottom {
 		position: absolute;
 		right: 1rem;
-		bottom: 5.5rem;
+		bottom: calc(var(--composer-h, 4.6rem) + 0.9rem);
 		z-index: 5;
 		width: 2.4rem;
 		height: 2.4rem;
@@ -656,11 +660,12 @@
 
 	// Unread notifier pill: appears centered above the composer when messages
 	// arrive while the user is scrolled up. Click jumps to the earliest unread.
+	// Same measured --composer-h anchor as .jump-bottom above.
 	.unread-pill {
 		position: absolute;
 		left: 50%;
 		transform: translateX(-50%);
-		bottom: 5.5rem;
+		bottom: calc(var(--composer-h, 4.6rem) + 0.9rem);
 		z-index: 5;
 		padding: 0.35rem 0.9rem;
 		border-radius: 1rem;

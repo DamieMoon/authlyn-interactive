@@ -49,8 +49,11 @@ js-sys = { version = "0.3", optional = true }
 # SSE sync consumer (`GET /events` stream + its onmessage payloads). DomRect
 # backs the radial menu's topbar-bottom measurement (W4/T4 audit,
 # `getBoundingClientRect` in shell/channel/radial.rs) — no leptos-family
-# crate enables it, so it must be listed here. Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent"] }
+# crate enables it, so it must be listed here. ResizeObserver backs the
+# measured `--composer-h` placement var (UX evolution #11): the composer
+# band's height mirrored onto <html> so the toast capsule and channel floats
+# anchor to it (shell/channel/mod.rs). Hydrate-only; feature-unified.
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device

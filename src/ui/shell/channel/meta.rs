@@ -102,9 +102,9 @@ pub(super) fn message_meta(
                             on:click=move |_| {
                                 if let Some(cid) = del_cid.clone() {
                                     // Instant + undoable (UX evolution #11):
-                                    // the row hides at once, an undo toast
-                                    // drains 6s, then the real DELETE fires —
-                                    // no confirm modal in the flow anymore.
+                                    // the soft-DELETE fires at once, and the
+                                    // undo toast offers POST .../restore for
+                                    // 6s — no confirm modal in the flow.
                                     act::delete_message(s, cid, del_mid.clone());
                                 }
                             }>"🗑"</button>

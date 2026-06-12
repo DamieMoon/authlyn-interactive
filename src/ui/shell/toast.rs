@@ -11,7 +11,7 @@
 
 use leptos::prelude::*;
 
-use super::state::ToastAction;
+use super::state::{ToastAction, ToastTone};
 use super::{act, Shell};
 
 /// Render the toast layer. The capsule is recreated whenever
@@ -36,7 +36,9 @@ pub(super) fn toast_host(s: Shell) -> impl IntoView {
                     }
                 });
                 view! {
-                    <div class="toast" class:error=t.error
+                    <div class="toast"
+                        class:error=matches!(t.tone, ToastTone::Danger)
+                        class:success=matches!(t.tone, ToastTone::Success)
                         style=("--toast-ms", format!("{}ms", t.duration_ms))>
                         <span class="toast-text">{t.text}</span>
                         {action_btn}
