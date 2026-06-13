@@ -330,6 +330,27 @@ fn clamp_to_viewport(x: f64, y: f64) -> (f64, f64) {
     )
 }
 
+/// Is this `click` pointer-made — and therefore subject to the `armed`
+/// manufactured-click guard below? Keyboard activation (Enter/Space on a
+/// focused `role="menuitem"` button) and AT-synthesized activations dispatch
+/// a click with `detail == 0` and NO preceding pointerdown — exactly the
+/// shape the guard would otherwise swallow silently (review M-47) — while
+/// the manufactured touch-compat click the guard exists for is always
+/// pointer-born (`detail >= 1`; it trails a real pointerup). Letting
+/// zero-detail clicks through keeps the menu keyboard/AT-operable without
+/// weakening the phantom-tap protection at all.
+fn pointer_made(ev: &leptos::ev::MouseEvent) -> bool {
+    #[cfg(feature = "hydrate")]
+    {
+        ev.detail() > 0
+    }
+    #[cfg(not(feature = "hydrate"))]
+    {
+        let _ = ev;
+        true // events never fire server-side; this only needs to typecheck
+    }
+}
+
 /// Render the radial menu while `radial` is `Some`: a full-screen scrim
 /// backdrop plus a zero-size anchor `<div role="menu">` fixed at the
 /// (clamped) press point whose buttons fan out on an upward arc via per-slot
@@ -357,6 +378,8 @@ fn clamp_to_viewport(x: f64, y: f64) -> (f64, f64) {
 /// OPEN menu itself observed (a genuinely NEW tap, bubbling from a chip or
 /// landing on the backdrop) does a click act; the opening press never
 /// pointer-downs on the overlay, so its manufactured click is ignored.
+/// Keyboard/AT activation (`detail == 0`) bypasses the guard — it cannot be
+/// manufactured by a touch press; see [`pointer_made`] (review M-47).
 pub(super) fn radial_menu(
     s: Shell,
     radial: RwSignal<Option<RadialState>>,
@@ -393,8 +416,8 @@ pub(super) fn radial_menu(
                 let reply_m = st.m.clone();
                 view! {
                     <button class="radial-btn" role="menuitem" aria-label="reply"
-                        on:click=move |_| {
-                            if !armed.get_value() {
+                        on:click=move |ev| {
+                            if !armed.get_value() && pointer_made(&ev) {
                                 return;
                             }
                             act::start_reply(s, reply_m.clone());
@@ -408,8 +431,8 @@ pub(super) fn radial_menu(
                 let copy_body = st.m.body.clone();
                 view! {
                     <button class="radial-btn" role="menuitem" aria-label="copy message text"
-                        on:click=move |_| {
-                            if !armed.get_value() {
+                        on:click=move |ev| {
+                            if !armed.get_value() && pointer_made(&ev) {
                                 return;
                             }
                             act::copy_message_body(s, copy_body.clone());
@@ -425,8 +448,8 @@ pub(super) fn radial_menu(
                 let edit_body = st.m.body.clone();
                 view! {
                     <button class="radial-btn" role="menuitem" aria-label="edit message"
-                        on:click=move |_| {
-                            if !armed.get_value() {
+                        on:click=move |ev| {
+                            if !armed.get_value() && pointer_made(&ev) {
                                 return;
                             }
                             if let Some(cid) = edit_cid.clone() {
@@ -444,8 +467,8 @@ pub(super) fn radial_menu(
                 view! {
                     <button class="radial-btn danger" role="menuitem"
                         aria-label="delete message (undo for 6 seconds)"
-                        on:click=move |_| {
-                            if !armed.get_value() {
+                        on:click=move |ev| {
+                            if !armed.get_value() && pointer_made(&ev) {
                                 return;
                             }
                             if let Some(cid) = del_cid.clone() {

@@ -367,9 +367,30 @@ fn AppShell() -> impl IntoView {
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
 
+    // Bottom-tab active predicates (review M-48): each tab binds BOTH its
+    // `class:active` and its `aria-current` to the same closure, so the
+    // visual state and the AT-exposed state can never drift. Before this the
+    // active tab was conveyed by color/glow alone — invisible to a screen
+    // reader (and a WCAG 1.4.1 use-of-color gap).
+    let chat_tab_active = move || {
+        matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook)
+            && !s.sync.sheet_open.get()
+            && !s.sync.wardrobe_open.get()
+    };
+    let servers_tab_active = move || s.sync.sheet_open.get();
+    let friends_tab_active = move || {
+        s.sync.pane.get() == Pane::Friends
+            && !s.sync.sheet_open.get()
+            && !s.sync.wardrobe_open.get()
+    };
+    let personas_tab_active = move || s.sync.wardrobe_open.get();
+
     view! {
         <div class="app" class:dialogue-style=move || s.prefs.dialogue_style.get() class:fx-max=move || s.prefs.eyecandy.get()>
-            <nav class="rail">
+            // aria-label: an unlabeled <nav> landmark is just "navigation"
+            // to AT; name it so the rail and the bottom tabs are tellable
+            // apart (review M-48 evidence).
+            <nav class="rail" aria-label="Servers">
                 <button class="rail-home" title="Friends"
                     on:click=move |_| act::show_friends(s)>"@"</button>
                 <RailGuilds/>
@@ -713,10 +734,10 @@ fn AppShell() -> impl IntoView {
             // only, not load-bearing: while the sheet is open its backdrop
             // covers the tab bar, so a tab can't normally be tapped while
             // it's up.
-            <nav class="bottom-tabs">
+            <nav class="bottom-tabs" aria-label="Primary">
                 <button class="tab"
-                    class:active=move || matches!(s.sync.pane.get(), Pane::Channel | Pane::Lorebook)
-                        && !s.sync.sheet_open.get() && !s.sync.wardrobe_open.get()
+                    class:active=chat_tab_active
+                    aria-current=move || chat_tab_active().then_some("page")
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
                         act::show_current_channel(s);
@@ -724,19 +745,25 @@ fn AppShell() -> impl IntoView {
                     <IconChat class="tab-icon"/>
                     <span class="tab-label">"Chat"</span>
                     // Aggregate unread dot: any guild has a channel with
-                    // messages past the user's last-seen mark.
+                    // messages past the user's last-seen mark. The dot is
+                    // pixels-only, so it carries a clipped sr-only text twin
+                    // (review M-48) — AT reads "Chat, unread messages".
                     {move || (!s.notify.unread_guilds.get().is_empty())
-                        .then(|| view! { <span class="tab-dot"></span> })}
+                        .then(|| view! {
+                            <span class="tab-dot" aria-hidden="true"></span>
+                            <span class="sr-only">"unread messages"</span>
+                        })}
                 </button>
                 <button class="tab"
-                    class:active=move || s.sync.sheet_open.get()
+                    class:active=servers_tab_active
+                    aria-current=move || servers_tab_active().then_some("page")
                     on:click=move |_| s.sync.sheet_open.set(true)>
                     <IconServers class="tab-icon"/>
                     <span class="tab-label">"Servers"</span>
                 </button>
                 <button class="tab"
-                    class:active=move || s.sync.pane.get() == Pane::Friends
-                        && !s.sync.sheet_open.get() && !s.sync.wardrobe_open.get()
+                    class:active=friends_tab_active
+                    aria-current=move || friends_tab_active().then_some("page")
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
                         act::show_friends(s);
@@ -745,7 +772,8 @@ fn AppShell() -> impl IntoView {
                     <span class="tab-label">"Friends"</span>
                 </button>
                 <button class="tab"
-                    class:active=move || s.sync.wardrobe_open.get()
+                    class:active=personas_tab_active
+                    aria-current=move || personas_tab_active().then_some("page")
                     on:click=move |_| {
                         s.sync.sheet_open.set(false);
                         act::show_wardrobe(s);
@@ -756,32 +784,10 @@ fn AppShell() -> impl IntoView {
             </nav>
 
             // Channel-switch bottom sheet (W3/T5): a glass sheet over its own
-            // scrim, mobile-only via CSS. Reuses the SAME RailGuilds /
-            // ChannelList components the desktop columns render. Tapping the
-            // backdrop dismisses; tapping a channel row switches AND
-            // dismisses (wired in ChannelRow). Tapping a guild keeps the
-            // sheet open so a channel can be picked next — select-only via
-            // RailGuilds' `in_sheet`: it loads the channel list WITHOUT
-            // auto-opening (and mark-read-ing) a channel. The DM "Direct"
-            // slot lands in W6; drag-down-to-close is a later polish — the
-            // backdrop tap is the W3 dismissal floor.
-            {move || s.sync.sheet_open.get().then(|| view! {
-                <div class="sheet-backdrop" on:click=move |_| s.sync.sheet_open.set(false)></div>
-                <div class="channel-sheet" role="dialog" aria-label="Switch channel">
-                    <div class="sheet-handle" aria-hidden="true"></div>
-                    <div class="sheet-guilds">
-                        <RailGuilds in_sheet=true/>
-                    </div>
-                    <div class="sheet-channels">
-                        <Show when=move || s.sel.sel_server.get().is_some()
-                            fallback=|| view! {
-                                <p class="muted pad">"Pick a server above."</p>
-                            }>
-                            <ChannelList in_sheet=true/>
-                        </Show>
-                    </div>
-                </div>
-            })}
+            // scrim, mobile-only via CSS — see [`ChannelSheet`] for the
+            // markup and its dialog behavior (focus-in, Escape, Tab wrap,
+            // focus restore; review M-24).
+            {move || s.sync.sheet_open.get().then(|| view! { <ChannelSheet/> })}
 
             {move || if account_open.get() {
                 view! { <AccountModal s=s open=account_open/> }.into_any()
@@ -830,6 +836,161 @@ fn AppShell() -> impl IntoView {
             {toast_host(s)}
         </div>
     }
+}
+
+/// The channel-switch bottom sheet (W3/T5), upgraded to a REAL dialog
+/// (review M-24): the original markup announced `role="dialog"` to AT with
+/// no focus management, no Escape, no `aria-modal`, and pointer-only
+/// dismissal. Parity here mirrors the shared [`Modal`] (`modal.rs`): focus
+/// moves into the sheet on open, Escape closes, Tab/Shift+Tab wrap within
+/// it, and focus restores to the trigger (the Servers tab or the topbar
+/// channel-name trigger) on close — WCAG 2.4.3. It stays bespoke rather
+/// than `Modal`-wrapped because its backdrop and card are SIBLINGS with
+/// their own classes + slide-up animation (`_nav.scss`); Modal's
+/// `.modal-backdrop > .modal` structure would change the visuals.
+///
+/// Initial focus lands on the sheet container itself (`tabindex="-1"`), not
+/// the first focusable like Modal — the first focusable is a guild circle,
+/// and focusing it would spotlight one server as if chosen; the focused
+/// container announces the dialog name and puts the next Tab on the first
+/// guild.
+///
+/// Content behavior is unchanged: it reuses the SAME RailGuilds /
+/// ChannelList components the desktop columns render. Tapping the backdrop
+/// dismisses; tapping a channel row switches AND dismisses (wired in
+/// ChannelRow). Tapping a guild keeps the sheet open so a channel can be
+/// picked next — select-only via RailGuilds' `in_sheet`: it loads the
+/// channel list WITHOUT auto-opening (and mark-read-ing) a channel. The DM
+/// "Direct" slot lands in W6; drag-down-to-close is a later polish — the
+/// backdrop tap (now joined by Escape) is the dismissal floor.
+#[component]
+fn ChannelSheet() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    let sheet_ref = NodeRef::<leptos::html::Div>::new();
+    let close = move || s.sync.sheet_open.set(false);
+
+    // Focus-in on mount + capture the previously-focused element for the
+    // restore on cleanup — the same SendWrapper pattern as modal.rs (the
+    // wasm types are not `Send`).
+    #[cfg(feature = "hydrate")]
+    {
+        use wasm_bindgen::JsCast;
+        let trigger: StoredValue<Option<send_wrapper::SendWrapper<web_sys::HtmlElement>>> =
+            StoredValue::new(None);
+        Effect::new(move |_| {
+            if let Some(sheet) = sheet_ref.get() {
+                let sheet_el: &web_sys::Element = sheet.as_ref();
+                let prev = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.active_element())
+                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+                    .filter(|el| !sheet_el.contains(Some(el.as_ref())));
+                if let Some(el) = prev {
+                    trigger.set_value(Some(send_wrapper::SendWrapper::new(el)));
+                }
+                let _ = (*sheet).focus();
+            }
+        });
+        on_cleanup(move || {
+            if let Some(wrap) = trigger.try_get_value().flatten() {
+                let _ = wrap.focus();
+            }
+        });
+    }
+
+    let on_keydown = move |ev: leptos::ev::KeyboardEvent| {
+        #[cfg(feature = "hydrate")]
+        {
+            use wasm_bindgen::JsCast;
+            match ev.key().as_str() {
+                "Escape" => {
+                    ev.prevent_default();
+                    ev.stop_propagation();
+                    close();
+                }
+                // Wrap Tab/Shift+Tab within the sheet (modal.rs parity), so
+                // a keyboard user can't tab out into the scrimmed page.
+                "Tab" => {
+                    let Some(sheet) = sheet_ref.get() else {
+                        return;
+                    };
+                    let focusables = sheet_focusables(sheet.as_ref());
+                    if focusables.is_empty() {
+                        return;
+                    }
+                    let active = web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.active_element())
+                        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok());
+                    let idx = active
+                        .as_ref()
+                        .and_then(|a| focusables.iter().position(|el| el == a));
+                    let last = focusables.len() - 1;
+                    let (wrap, target) = if ev.shift_key() {
+                        (idx == Some(0) || idx.is_none(), last)
+                    } else {
+                        (idx == Some(last), 0)
+                    };
+                    if wrap {
+                        ev.prevent_default();
+                        let _ = focusables[target].focus();
+                    }
+                }
+                _ => {}
+            }
+        }
+        #[cfg(not(feature = "hydrate"))]
+        let _ = &ev;
+    };
+
+    view! {
+        <div class="sheet-backdrop" on:click=move |_| close()></div>
+        <div class="channel-sheet" role="dialog" aria-modal="true"
+            aria-label="Switch channel" tabindex="-1"
+            node_ref=sheet_ref on:keydown=on_keydown>
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <div class="sheet-guilds">
+                <RailGuilds in_sheet=true/>
+            </div>
+            <div class="sheet-channels">
+                <Show when=move || s.sel.sel_server.get().is_some()
+                    fallback=|| view! {
+                        <p class="muted pad">"Pick a server above."</p>
+                    }>
+                    <ChannelList in_sheet=true/>
+                </Show>
+            </div>
+        </div>
+    }
+}
+
+/// Focusable-descendant collection for the sheet's Tab wrap — mirrors
+/// `modal.rs`'s private `collect_focusables` (same selector); fold the two
+/// together if a third bespoke dialog ever needs it. One addition over the
+/// modal twin: the sheet CSS-hides the desktop management chrome
+/// (`.row-edit`, reorder arrows — `_nav.scss`), and `display: none`
+/// elements can't take focus, so they are filtered out (`offsetParent` is
+/// null for them) or the wrap would target a dead slot.
+#[cfg(feature = "hydrate")]
+fn sheet_focusables(sheet: &web_sys::Element) -> Vec<web_sys::HtmlElement> {
+    use wasm_bindgen::JsCast;
+    const FOCUSABLE_SEL: &str = "a[href], button:not([disabled]), input:not([disabled]), \
+                                 textarea:not([disabled]), select:not([disabled]), \
+                                 [tabindex]:not([tabindex=\"-1\"])";
+    let Ok(list) = sheet.query_selector_all(FOCUSABLE_SEL) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(list.length() as usize);
+    for i in 0..list.length() {
+        if let Some(node) = list.item(i) {
+            if let Ok(el) = node.dyn_into::<web_sys::HtmlElement>() {
+                if el.offset_parent().is_some() {
+                    out.push(el);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The guild-circle list (W3/T5 extraction): active ring, per-guild unread
