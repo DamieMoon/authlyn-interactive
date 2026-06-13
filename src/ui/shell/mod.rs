@@ -1318,4 +1318,4 @@ fn ChannelRow(
 // view stays focused on layout and each action cluster lives in its own file.
 // ---------------------------------------------------------------------------
 
-mod act;
+pub mod act;

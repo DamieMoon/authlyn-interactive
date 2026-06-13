@@ -10,6 +10,68 @@
 #[cfg(feature = "hydrate")]
 use gloo_storage::{LocalStorage, Storage};
 
+// ---- W5/P1 structural UI skeleton pref ----
+//
+// W5/P1: the three structural UI skeletons (spec §1). `sk-`-prefixed in code
+// (.app.sk-*, _sk_*.scss, sk_*/mod.rs); the stored pref value is the bare id
+// WITHOUT the `sk-` prefix (orbit/deck/hud). NO silent default — a pref-less
+// device gets the onboarding ceremony, except the localStorage-unavailable
+// fallback which boots orbit for the session.
+pub const SKELETON_IDS: &[&str] = &["orbit", "deck", "hud"];
+/// The session fallback when localStorage cannot persist (private mode etc.).
+pub const SKELETON_FALLBACK: &str = "orbit";
+
+/// Validate a stored/selected skeleton id; unknown ids are rejected so a
+/// stale or corrupt localStorage value can never apply a bogus root class.
+pub fn is_valid_skeleton(id: &str) -> bool {
+    SKELETON_IDS.contains(&id)
+}
+
+#[cfg(feature = "hydrate")]
+const KEY_SKELETON: &str = "authlyn.skeleton";
+
+/// The persisted skeleton id, if any AND valid. `None` means pref-less →
+/// the caller runs the onboarding ceremony (no silent default).
+#[cfg(feature = "hydrate")]
+pub fn skeleton_pref() -> Option<String> {
+    LocalStorage::get::<String>(KEY_SKELETON)
+        .ok()
+        .filter(|id| is_valid_skeleton(id))
+}
+
+/// Persist the chosen skeleton id. Returns false if the write failed
+/// (localStorage unavailable) so the caller can fall back to a session-only
+/// `orbit` without claiming it was saved.
+#[cfg(feature = "hydrate")]
+pub fn set_skeleton(id: &str) -> bool {
+    if !is_valid_skeleton(id) {
+        return false;
+    }
+    LocalStorage::set(KEY_SKELETON, id).is_ok()
+}
+
+/// Remove the stored skeleton pref (used by the ceremony's writability probe
+/// to leave no committed value — see Task 1.3, "no silent default").
+#[cfg(feature = "hydrate")]
+pub fn clear_skeleton() {
+    LocalStorage::delete(KEY_SKELETON);
+}
+
+/// The throwaway probe key the ceremony uses to detect localStorage
+/// writability WITHOUT touching authlyn.skeleton (Open Question #3).
+#[cfg(feature = "hydrate")]
+const KEY_PREF_PROBE: &str = "_authlyn_pref_test";
+
+/// True if localStorage can be written. Sets then deletes a throwaway key so
+/// it never leaves a side effect on the real skeleton pref. A failed write
+/// (private mode / quota / disabled) returns false → session fallback.
+#[cfg(feature = "hydrate")]
+pub fn local_storage_writable() -> bool {
+    let ok = LocalStorage::set(KEY_PREF_PROBE, "1").is_ok();
+    LocalStorage::delete(KEY_PREF_PROBE);
+    ok
+}
+
 // ---- composer live-preview toggle ----
 //
 // localStorage key for the composer's live formatting-preview toggle. "1" =
@@ -131,3 +193,18 @@ pub fn ghost_quill_enabled() -> bool {
 
 #[cfg(not(feature = "hydrate"))]
 pub fn set_ghost_quill(_on: bool) {}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn skeleton_pref() -> Option<String> {
+    None
+}
+#[cfg(not(feature = "hydrate"))]
+pub fn set_skeleton(_id: &str) -> bool {
+    false
+}
+#[cfg(not(feature = "hydrate"))]
+pub fn clear_skeleton() {}
+#[cfg(not(feature = "hydrate"))]
+pub fn local_storage_writable() -> bool {
+    false
+}

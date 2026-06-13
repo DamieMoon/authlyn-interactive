@@ -30,6 +30,18 @@
 //! - [`emoji`] — guild custom-emoji refresh/create/delete + image upload.
 //! - [`feedback`] — feedback submit/archive + context builder.
 //! - [`notify`] — Web Notifications + Web Push (the ~250-line reflection blob).
+//!
+//! W5/P1: this module is `pub` (was `mod act`) so the theme-switch guards in
+//! `tests/skeleton_switch.rs` can reach the skeleton-pref helpers at the stable
+//! path `ui::shell::act::*` (the plan's public test path). Most action fns take
+//! the crate-internal `Shell` (a `pub(crate)` type), so lifting the module to
+//! `pub` makes `private_interfaces` fire on every `act::*(s: Shell)` signature.
+//! That is lint noise, not a real leak: `Shell`/`PendingDelete`/`ToastAction`
+//! stay `pub(crate)`, so no external crate can ever name them or call these fns
+//! with a real argument — only same-workspace integration tests reach the pref
+//! helpers, which take no `Shell`. Allow it module-wide rather than churn ~86
+//! signatures or widen `Shell` to `pub`.
+#![allow(private_interfaces)]
 
 pub mod account;
 pub mod admin;
@@ -106,8 +118,10 @@ pub use persona::{
 #[cfg(feature = "hydrate")]
 pub use persona::move_persona;
 pub use prefs::{
-    compose_preview_enabled, eyecandy_enabled, ghost_quill_enabled, rp_dialogue_style_enabled,
-    set_compose_preview, set_eyecandy, set_ghost_quill, set_rp_dialogue_style,
+    clear_skeleton, compose_preview_enabled, eyecandy_enabled, ghost_quill_enabled,
+    is_valid_skeleton, local_storage_writable, rp_dialogue_style_enabled, set_compose_preview,
+    set_eyecandy, set_ghost_quill, set_rp_dialogue_style, set_skeleton, skeleton_pref,
+    SKELETON_FALLBACK, SKELETON_IDS,
 };
 // W5/P0 #19 Visual Haptics. `vh` is the hydrate-real fire helper (no ssr stub —
 // the ssr graph never animates a DOM element) and `Vh` is its kind argument, so
