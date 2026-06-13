@@ -39,10 +39,14 @@ pub(super) fn toast_host(s: Shell) -> impl IntoView {
                 let hovered = RwSignal::new(false);
                 let focused = RwSignal::new(false);
                 let update_held = move || {
-                    act::toast::set_toast_held(
-                        key,
-                        hovered.get_untracked() || focused.get_untracked(),
-                    );
+                    // Dismissal detaches the node mid-gesture, so blur /
+                    // pointerleave can fire AFTER this render's scope (and
+                    // the latches) are disposed — a dead toast is simply not
+                    // held (review M-52 follow-up; panic repro: undo-click
+                    // with focus on the action button).
+                    let held = hovered.try_get_untracked().unwrap_or(false)
+                        || focused.try_get_untracked().unwrap_or(false);
+                    act::toast::set_toast_held(key, held);
                 };
                 let action_btn = t.action.map(|a| {
                     // Labels live with the variants — the action is data
