@@ -6,8 +6,11 @@
 //   - Crimson Pro (prose, 400 + 600, Latin subset) — message text /
 //     composer / lorebook / persona descriptions via --font-prose
 //
-// Subset woff2 files in public/fonts/ are ~13–19 KB each (≈64 KB total,
-// gzip-immutable cached); re-hosting is allowed under the SIL OFL.
+// Subset woff2 files in public/fonts/ are ~13–19 KB each (≈64 KB total).
+// Caching is the service worker's job, not HTTP headers: the static-file
+// fallback sends no Cache-Control, and sw.js serves /fonts/ cache-first
+// from its versioned runtime cache, busted per release via CACHE_VERSION
+// (see public/sw.js). Re-hosting is allowed under the SIL OFL.
 //
 // `font-display: swap` so the first paint uses the system fallback chain
 // (sans for chrome, Georgia/Cambria for prose) and re-renders when the

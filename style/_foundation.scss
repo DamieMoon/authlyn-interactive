@@ -21,6 +21,25 @@
 		-webkit-backdrop-filter: blur(14px) saturate(1.4);
 		backdrop-filter: blur(14px) saturate(1.4);
 	}
+
+	// A11y parity with the reduced-motion kill lists (_motion.scss): a user
+	// who asked the OS for Reduce Transparency gets the same opaque fallback
+	// even where backdrop-filter IS supported. Placed after the @supports
+	// upgrade so these win the cascade at equal specificity (review M-51).
+	@media (prefers-reduced-transparency: reduce) {
+		background: var(--surface);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+
+	// Forced-colors (Windows High Contrast) forces background-color to
+	// Canvas anyway; drop the blur with it so the chrome is plain opaque
+	// system color instead of a frosted pane over forced-color content.
+	@media (forced-colors: active) {
+		background: Canvas;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
 }
 
 .glass {
@@ -53,8 +72,18 @@
 
 // Appearance tier: .fx-max escalates ambience. W2 ships the scaffolding +
 // the first demonstrative effects; W5/W11 add the full Eye-candy set here.
+//
+// steps(36), not ease-in-out: this layer is the literal BACKDROP of the
+// always-blurred glass topbar/tab bar (neither bar ever has content
+// scrolling beneath it — the aurora is all their blur samples), so a
+// smoothly-drifting backdrop forces a blur(14px) re-evaluation every
+// compositor frame, forever, even while the app idles (battery rule,
+// review M-40). Quantized to 36 steps over 9s the value only changes
+// 4x/s (~95% fewer idle re-blurs), and each jump is sub-perceptual:
+// ≤0.34px translate, ≤~1.6px scale drift at a desktop edge, 0.004
+// opacity — invisible on gradients this soft.
 .app.fx-max::before {
-	animation: aurora-drift 9s ease-in-out infinite alternate;
+	animation: aurora-drift 9s steps(36) infinite alternate;
 }
 .app.fx-max .rail-guild.active {
 	// layered: keep the active ring under the glow — review W2/T3
