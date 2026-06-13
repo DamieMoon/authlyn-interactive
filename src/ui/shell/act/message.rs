@@ -8,8 +8,8 @@
 //!   [`load_deleted_messages`].
 //! - Background sync primitives: [`start_poll`] (the SSE fallback loop),
 //!   [`refresh_open_channel`], [`refresh_lists`], [`refresh_unread`],
-//!   [`sync_messages`], [`ingest`], [`unseen`] — driven by [`super::sync`]
-//!   (the SSE driver that owns `start_sync`).
+//!   [`sync_messages`], [`reconcile_newest_window`], [`ingest`], [`unseen`]
+//!   — driven by [`super::sync`] (the SSE driver that owns `start_sync`).
 //! - Three-cursor pagination: [`load_older`] using `cursor` / `oldest` /
 //!   `last_seen` with the `seen` HashSet dedupe across all paths.
 //! - Mute + last-seen marks: [`load_muted`], [`toggle_mute`],
@@ -32,6 +32,10 @@ use super::super::Pane;
 #[cfg(feature = "hydrate")]
 use crate::client::api;
 #[cfg(feature = "hydrate")]
+use crate::protocol::MessageEnvelope;
+// The pure newest-window reconcile core (review M-08) + its tests compile in
+// the test graph too; complement the hydrate-gated import above.
+#[cfg(all(not(feature = "hydrate"), test))]
 use crate::protocol::MessageEnvelope;
 #[cfg(feature = "hydrate")]
 use gloo_storage::{LocalStorage, Storage};
@@ -170,6 +174,17 @@ async fn after_send_success(s: Shell, cid: &str) {
     });
     let cur = s.msg.cursor.get_untracked();
     if let Ok(l) = api::list_messages(cid, cur.as_ref()).await {
+        // Stale-guard (review M-06): the user may have switched channels
+        // while the send POST + this catch-up fetch were in flight — the
+        // divider clear above already guards this race, but `ingest` would
+        // still append the OUTGOING channel's rows (the just-sent message
+        // included) onto the INCOMING channel's list and clobber its
+        // cursor/last-seen. Same discipline as `refresh_open_channel`
+        // (feedback gwiif7xy) — and load-bearing under SSE, where no poll
+        // tick reconciles a quiet channel afterwards.
+        if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() != Some(cid) {
+            return;
+        }
         ingest(s, l.messages);
         // FB10a: advance this channel's last-seen to the new
         // cursor so `refresh_unread` doesn't glow the channel
@@ -373,6 +388,21 @@ fn forget_retry_file(key: u64) {
     });
 }
 
+/// The composer reply banner's parent snippet: the first 100 chars of the
+/// body — except a whispered parent, which shows the fixed `(whisper)`
+/// placeholder instead (review M-27). The banner is a body-preview surface,
+/// so the W4 whisper-mask invariant applies: it must match what the
+/// persisted quote will show (`MSG_PROJECTION`'s mask,
+/// `server/messages/reading.rs`), never leak the still-veiled spoiler text
+/// through the reply button. Pure; unit-tested below.
+#[cfg(any(feature = "hydrate", test))]
+fn reply_banner_snippet(body: &str, effect: Option<&str>) -> String {
+    if effect == Some("whisper") {
+        return "(whisper)".to_string();
+    }
+    body.chars().take(100).collect()
+}
+
 /// Begin replying to message `m` (L-3): stash a [`ReplyPreview`] built from the
 /// row so the composer banner shows the parent author + snippet, and so the
 /// next send carries `reply_to_id`. Single-level — replying to a reply quotes
@@ -383,7 +413,7 @@ pub fn start_reply(s: Shell, m: MessageEnvelope) {
         .persona_name
         .clone()
         .unwrap_or_else(|| m.author_display.clone());
-    let snippet: String = m.body.chars().take(100).collect();
+    let snippet: String = reply_banner_snippet(&m.body, m.effect.as_deref());
     s.composer
         .replying_to
         .set(Some(crate::protocol::ReplyPreview {
@@ -613,8 +643,11 @@ fn resurface(s: Shell, cid: &str, envelope: MessageEnvelope) {
 
 /// Undo a just-committed delete (the toast's Undo): POST the EXISTING
 /// own-gated `/channels/{cid}/messages/{mid}/restore`
-/// (`server/messages/editing.rs` — already SSE-notified as a new arrival for
-/// every other client), then resurface the snapshot envelope in place. The
+/// (`server/messages/editing.rs` — SSE-notified as a new arrival, which
+/// other clients pick up via [`sync_messages`] or the newest-window
+/// reconcile as long as the row sits on their newest page; deeper paged-in
+/// history re-syncs on their next channel open), then resurface the
+/// snapshot envelope in place. The
 /// resurface no-ops if the user navigated away meanwhile — the restored row
 /// reappears via the next channel open's fetch. On failure (the channel was
 /// deleted meanwhile, the 1h purge won, network): honest-state error toast;
@@ -720,6 +753,12 @@ pub fn confirm_delete(s: Shell) {
 
 #[cfg(feature = "hydrate")]
 pub fn show_friends(s: Shell) {
+    // Re-entry scroll memory (review M-36): leaving the channel via the
+    // bottom tabs unmounts ChannelPane just like a channel switch does —
+    // capture the reading position FIRST, while the DOM still shows it
+    // (no-op when no message list is mounted). `show_current_channel`
+    // consumes the mark on the way back.
+    super::reentry::capture_scroll_mark(s);
     s.sync.pane.set(Pane::Friends);
     reload_friends(s);
 }
@@ -742,6 +781,9 @@ pub fn show_wardrobe(s: Shell) {
 /// create/delete), so this only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_emoji_manager(s: Shell) {
+    // Re-entry scroll memory (review M-36): same ChannelPane-unmounting
+    // transition as `show_friends` — capture before the pane flips.
+    super::reentry::capture_scroll_mark(s);
     s.sync.pane.set(Pane::Emoji);
 }
 
@@ -750,6 +792,9 @@ pub fn show_emoji_manager(s: Shell) {
 /// only flips the pane.
 #[cfg(feature = "hydrate")]
 pub fn show_members(s: Shell) {
+    // Re-entry scroll memory (review M-36): same ChannelPane-unmounting
+    // transition as `show_friends` — capture before the pane flips.
+    super::reentry::capture_scroll_mark(s);
     s.sync.pane.set(Pane::Members);
 }
 
@@ -1008,6 +1053,18 @@ pub fn hydrate_last_seen(s: Shell) {
 /// so a racing older POST is harmless. Idempotent. Public to siblings.
 #[cfg(feature = "hydrate")]
 pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
+    // Visibility gate (review M-04): a hidden tab is not a reader. Under SSE
+    // a background tab keeps receiving events at full network rate (unlike
+    // the poll-era setTimeout, which browsers throttle/freeze when hidden),
+    // so marking here would wipe the unread glow on every other device for
+    // messages no human saw — the same cross-device class W3 ruled a bug for
+    // the sheet flow (reentry.rs's "standing warning"). Skip the local map
+    // AND the server POST; the foregrounding wake() pass re-marks via
+    // `refresh_unread`'s open-channel prelude the moment the tab is actually
+    // visible.
+    if super::sync::document_hidden() {
+        return;
+    }
     let advanced = s
         .notify
         .last_seen
@@ -1045,6 +1102,10 @@ pub(super) fn refresh_unread(s: Shell) {
     let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
     if let Some(ref oc) = open {
         if let Some(cur) = s.msg.cursor.get_untracked() {
+            // `set_last_seen` self-gates on document visibility (review
+            // M-04): from a hidden tab this is a no-op, and THIS call —
+            // re-reached from wake()'s refresh on foregrounding — is what
+            // catches the deferred read-mark back up.
             set_last_seen(s, oc, cur);
         }
         // The open channel is always considered seen: clear its unread glow,
@@ -1318,7 +1379,10 @@ pub fn load_older(s: Shell) {
 
 /// One reconcile pass over the OPEN channel's messages + typing names: the
 /// short-channel branch reconciles the whole page (reflects edits/deletes),
-/// the long-history branch appends past the cursor. No-op off the Channel
+/// the long-history branch reconciles the newest-page WINDOW when the local
+/// tail reaches into it (review M-08 — others' edits/deletes/restores now
+/// land in channels past one page too), falling back to the append-only
+/// cursor catch-up when the gap exceeds a page. No-op off the Channel
 /// pane or with no channel selected. Extracted from the poll tick so the SSE
 /// driver ([`super::sync`]) can run it per event; the poll loop still runs it
 /// every 1.5s as the fallback cadence.
@@ -1343,13 +1407,43 @@ pub(super) async fn refresh_open_channel(s: Shell) {
             super::notify::notify_messages(s, &ch, &fresh);
             super::notify::dismiss_open_channel_notifs(&ch, &fresh);
         }
-        Ok(_) => {
-            // Long history: page 1 isn't the whole channel, so only
-            // append new messages past the cursor.
+        Ok(l) => {
+            // Long history: page 1 is only the newest MESSAGES_PAGE_LIMIT
+            // rows. Stale-guard first, same as the short branch (feedback
+            // gwiif7xy).
+            if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                return;
+            }
             let cur = s.msg.cursor.get_untracked();
-            if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
-                // Stale-guard: drop this pass's data if the channel
-                // changed while the fetch was in flight (feedback
+            // Does the local tail reach into the fetched window? Composite
+            // `(sent_at, id)` compare against the page's first row — the
+            // page is ASC, so that row is the window start.
+            let connected = match (cur.as_ref(), l.messages.first()) {
+                (Some(c), Some(w)) => {
+                    (c.0.as_str(), c.1.as_str()) >= (w.sent_at.as_str(), w.id.as_str())
+                }
+                _ => false,
+            };
+            if connected {
+                // The page is the server's complete truth for everything at
+                // or after its first row, so it can express OTHER PEOPLE's
+                // edits, soft-deletes, and restores there — reconcile the
+                // window (review M-08) instead of the old append-past-the-
+                // cursor, which could never remove or rewrite a row (the SSE
+                // message_edited/message_deleted events were dead letters
+                // beyond one page). New arrivals necessarily live inside the
+                // newest page when the tail connects, so the second catch-up
+                // fetch is skipped as well.
+                let fresh = unseen(s, &l.messages);
+                s.msg.typing.set(l.typing);
+                reconcile_newest_window(s, l.messages);
+                super::notify::notify_messages(s, &ch, &fresh);
+                super::notify::dismiss_open_channel_notifs(&ch, &fresh);
+            } else if let Ok(l) = api::list_messages(&ch.id, cur.as_ref()).await {
+                // Disconnected tail (nothing loaded yet, or more than a full
+                // page arrived since): catch up past the cursor exactly as
+                // before — appending here can never strand a mid-list gap.
+                // Stale-guard again after the second await (feedback
                 // gwiif7xy).
                 if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
                     return;
@@ -1362,6 +1456,128 @@ pub(super) async fn refresh_open_channel(s: Shell) {
             }
         }
         Err(_) => {}
+    }
+}
+
+/// What one newest-page reconcile pass must do (review M-08). Within the
+/// WINDOW — everything at/after the page's first row — the page is the
+/// server's full truth, so:
+/// - a local row missing from it was soft-DELETED → `removed`;
+/// - a local row whose content differs was EDITED → `patched` (compared on
+///   body + persona_name, the same fields [`sync_messages`] diffs);
+/// - a page row this client has never seen is NEW or RESTORED → `inserts`
+///   (`seen`-gated exactly like [`ingest`], so an optimistically-hidden
+///   in-flight delete is never re-inserted).
+///
+/// Local rows OLDER than the window (paged-in history) are out of the page's
+/// reach and left untouched — they re-sync on the next channel open. Pure;
+/// unit-tested below.
+#[cfg(any(feature = "hydrate", test))]
+struct WindowPlan {
+    /// Ids of in-window local rows the server no longer returns.
+    removed: Vec<String>,
+    /// Fresh envelopes for in-window local rows whose content changed.
+    patched: Vec<MessageEnvelope>,
+    /// Never-seen page rows, in page (ASC composite-cursor) order.
+    inserts: Vec<MessageEnvelope>,
+}
+
+/// Pure decision core of [`reconcile_newest_window`]; see [`WindowPlan`].
+#[cfg(any(feature = "hydrate", test))]
+fn plan_window_reconcile(
+    local: &[MessageEnvelope],
+    page: &[MessageEnvelope],
+    seen: &std::collections::HashSet<String>,
+) -> WindowPlan {
+    let mut plan = WindowPlan {
+        removed: Vec::new(),
+        patched: Vec::new(),
+        inserts: Vec::new(),
+    };
+    let Some(first) = page.first() else {
+        return plan; // empty page: nothing the window can claim
+    };
+    let w = (first.sent_at.as_str(), first.id.as_str());
+    let by_id: std::collections::HashMap<&str, &MessageEnvelope> =
+        page.iter().map(|m| (m.id.as_str(), m)).collect();
+    for m in local {
+        if (m.sent_at.as_str(), m.id.as_str()) < w {
+            continue; // older than the window: out of the page's reach
+        }
+        match by_id.get(m.id.as_str()) {
+            None => plan.removed.push(m.id.clone()),
+            Some(f) => {
+                if f.body != m.body || f.persona_name != m.persona_name {
+                    plan.patched.push((*f).clone());
+                }
+            }
+        }
+    }
+    plan.inserts = page
+        .iter()
+        .filter(|m| !seen.contains(&m.id))
+        .cloned()
+        .collect();
+    plan
+}
+
+/// Apply a [`plan_window_reconcile`] pass to the open channel's signals.
+/// Inserts land at their composite-cursor position (the `resurface`
+/// partition rule), so a restored row reappears exactly where it was;
+/// `seen` tracks removals/inserts so a later restore isn't dedupe-blocked
+/// and a re-fetch can't duplicate; the cursor only ever ADVANCES (max), so
+/// an old restored row can never rewind the catch-up frontier. Every signal
+/// is written only when something actually changed: Typing events route
+/// through [`refresh_open_channel`] every ~2s while someone types, and an
+/// unconditional write would re-render the whole list per ping.
+#[cfg(feature = "hydrate")]
+fn reconcile_newest_window(s: Shell, page: Vec<MessageEnvelope>) {
+    let plan = s.msg.messages.with_untracked(|local| {
+        s.msg
+            .seen
+            .with_untracked(|seen| plan_window_reconcile(local, &page, seen))
+    });
+    if plan.removed.is_empty() && plan.patched.is_empty() && plan.inserts.is_empty() {
+        return; // idle pass: no write, no re-render
+    }
+    s.msg.messages.update(|v| {
+        if !plan.removed.is_empty() {
+            v.retain(|m| !plan.removed.contains(&m.id));
+        }
+        for f in &plan.patched {
+            if let Some(m) = v.iter_mut().find(|m| m.id == f.id) {
+                *m = f.clone();
+            }
+        }
+        for m in &plan.inserts {
+            if v.iter().any(|x| x.id == m.id) {
+                continue; // belt-and-braces against a racing reinsert
+            }
+            let at = v.partition_point(|x| {
+                (x.sent_at.as_str(), x.id.as_str()) < (m.sent_at.as_str(), m.id.as_str())
+            });
+            v.insert(at, m.clone());
+        }
+    });
+    if !plan.removed.is_empty() || !plan.inserts.is_empty() {
+        s.msg.seen.update(|h| {
+            for id in &plan.removed {
+                h.remove(id);
+            }
+            for m in &plan.inserts {
+                h.insert(m.id.clone());
+            }
+        });
+    }
+    if let Some(newest) = plan.inserts.last() {
+        let nc = (newest.sent_at.clone(), newest.id.clone());
+        let advanced = s
+            .msg
+            .cursor
+            .with_untracked(|c| c.as_ref().map(|c| nc > *c).unwrap_or(true));
+        if advanced {
+            s.msg.cursor.set(Some(nc));
+        }
     }
 }
 
@@ -1527,3 +1743,140 @@ pub fn toggle_mute(_s: Shell, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_older(_s: Shell) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal envelope with just the fields the fns under test read
+    /// (composite cursor + body); everything else is inert filler — the
+    /// `reentry` test helper's shape.
+    fn env(id: &str, sent_at: &str, body: &str) -> MessageEnvelope {
+        MessageEnvelope {
+            id: id.into(),
+            author_id: "account:a".into(),
+            author_name: "a".into(),
+            author_display: "A".into(),
+            persona_id: None,
+            persona_name: None,
+            persona_description: None,
+            persona_color: None,
+            persona_avatar_id: None,
+            body: body.into(),
+            attachments: Vec::new(),
+            tier: "default".into(),
+            sent_at: sent_at.into(),
+            reply_to: None,
+            is_pinged: false,
+            kind: "user".into(),
+            effect: None,
+        }
+    }
+
+    fn seen_of(msgs: &[MessageEnvelope]) -> std::collections::HashSet<String> {
+        msgs.iter().map(|m| m.id.clone()).collect()
+    }
+
+    const T1: &str = "2026-06-12T08:00:00.000000000Z";
+    const T2: &str = "2026-06-12T09:00:00.000000000Z";
+    const T3: &str = "2026-06-12T10:00:00.000000000Z";
+    const T4: &str = "2026-06-12T11:00:00.000000000Z";
+
+    #[test]
+    fn plan_window_reconcile_removes_only_in_window_rows_the_server_dropped() {
+        // Local holds z (OLDER than the page window), a, b; the server's
+        // newest page starts at a and no longer returns b (soft-deleted).
+        // b must be removed; z is out of the page's reach and must survive.
+        let local = vec![
+            env("z", T1, "old history"),
+            env("a", T2, "x"),
+            env("b", T3, "x"),
+        ];
+        let page = vec![env("a", T2, "x"), env("c", T4, "x")];
+        let plan = plan_window_reconcile(&local, &page, &seen_of(&local));
+        assert_eq!(plan.removed, vec!["b".to_string()]);
+        assert!(plan.patched.is_empty());
+        // c is genuinely new (not in seen) — it lands as an insert.
+        assert_eq!(
+            plan.inserts
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c"]
+        );
+    }
+
+    #[test]
+    fn plan_window_reconcile_patches_an_edited_in_window_row() {
+        let local = vec![env("a", T2, "before"), env("b", T3, "same")];
+        let page = vec![env("a", T2, "after"), env("b", T3, "same")];
+        let plan = plan_window_reconcile(&local, &page, &seen_of(&local));
+        assert!(plan.removed.is_empty());
+        assert_eq!(plan.patched.len(), 1);
+        assert_eq!(plan.patched[0].id, "a");
+        assert_eq!(plan.patched[0].body, "after");
+        assert!(plan.inserts.is_empty(), "an unchanged page is a no-op");
+    }
+
+    #[test]
+    fn plan_window_reconcile_never_resurrects_an_optimistically_hidden_row() {
+        // The undo-delete flow hides a row from `messages` while keeping its
+        // id in `seen` (the in-flight DELETE guard) — the server still
+        // returns it until the DELETE commits. It must NOT be re-inserted.
+        let local = vec![env("a", T2, "x")];
+        let page = vec![env("a", T2, "x"), env("hidden", T3, "x")];
+        let mut seen = seen_of(&local);
+        seen.insert("hidden".to_string());
+        let plan = plan_window_reconcile(&local, &page, &seen);
+        assert!(plan.inserts.is_empty());
+        assert!(plan.removed.is_empty());
+        assert!(plan.patched.is_empty());
+    }
+
+    #[test]
+    fn plan_window_reconcile_inserts_a_restored_row_behind_the_local_tail() {
+        // Cross-client restore: the row was reconciled away on delete (gone
+        // from messages AND seen), then restored server-side — it reappears
+        // in the page OLDER than the local tail and must come back.
+        let local = vec![env("a", T2, "x"), env("c", T4, "x")];
+        let page = vec![
+            env("a", T2, "x"),
+            env("restored", T3, "x"),
+            env("c", T4, "x"),
+        ];
+        let plan = plan_window_reconcile(&local, &page, &seen_of(&local));
+        assert_eq!(
+            plan.inserts
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["restored"]
+        );
+        assert!(plan.removed.is_empty());
+    }
+
+    #[test]
+    fn plan_window_reconcile_is_inert_on_an_empty_page() {
+        let local = vec![env("a", T2, "x")];
+        let plan = plan_window_reconcile(&local, &[], &seen_of(&local));
+        assert!(plan.removed.is_empty() && plan.patched.is_empty() && plan.inserts.is_empty());
+    }
+
+    #[test]
+    fn reply_banner_snippet_masks_a_whispered_parent_with_the_fixed_placeholder() {
+        // W4 whisper-mask invariant (review M-27): the composer reply banner
+        // is a body-preview surface — it must show the SAME fixed
+        // placeholder the persisted quote will show, never the spoiler text.
+        assert_eq!(
+            reply_banner_snippet("the hidden secret", Some("whisper")),
+            "(whisper)"
+        );
+    }
+
+    #[test]
+    fn reply_banner_snippet_truncates_normal_bodies_to_100_chars() {
+        let long: String = "x".repeat(150);
+        assert_eq!(reply_banner_snippet(&long, None).chars().count(), 100);
+        assert_eq!(reply_banner_snippet("short", Some("shout")), "short");
+    }
+}

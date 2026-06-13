@@ -39,7 +39,21 @@ pub fn show_current_channel(s: Shell) {
     use super::super::Pane;
     match s.sel.sel_channel.get_untracked() {
         Some(ch) if ch.kind == "lorebook" => s.sync.pane.set(Pane::Lorebook),
-        Some(_) => s.sync.pane.set(Pane::Channel),
+        Some(ch) => {
+            // Re-entry scroll memory (review M-36): this path remounts
+            // ChannelPane over RETAINED state, so `open_channel_at`'s
+            // restore chain never runs — and the remounted pane's fresh
+            // `last_dist = 0` follow branch would yank the reader to the
+            // tail. Consume the mark captured on tab-leave (one-shot,
+            // validated against the retained list — the same
+            // `take_restore_anchor` contract as a real open) and hand it to
+            // the remount's anchor effect. No mark (left at the tail, or
+            // already consumed) keeps the default tail landing.
+            if let Some(mid) = super::reentry::take_restore_anchor(s, &ch.id) {
+                s.msg.anchor_to.set(Some(mid));
+            }
+            s.sync.pane.set(Pane::Channel);
+        }
         None => s.sync.sheet_open.set(true),
     }
 }
