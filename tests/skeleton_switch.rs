@@ -25,3 +25,17 @@ fn fallback_is_a_valid_id() {
     assert!(is_valid_skeleton(SKELETON_FALLBACK));
     assert_eq!(SKELETON_FALLBACK, "orbit");
 }
+
+// W5/P1 (Task 1.3): pin the no-silent-default surface the ceremony depends on.
+use authlyn_interactive::ui::shell::act::{local_storage_writable, skeleton_pref};
+
+#[test]
+fn ssr_stubs_signal_no_pref_and_no_storage() {
+    // On the server there is no localStorage: skeleton_pref() is None (so the
+    // ceremony would show on a writable client) and local_storage_writable()
+    // is false (so the server never claims a writable store). This pins the
+    // surface the ceremony's no-silent-default branch depends on; the live
+    // writable→None / non-writable→orbit behavior is a Phase-7 device check.
+    assert_eq!(skeleton_pref(), None);
+    assert!(!local_storage_writable());
+}

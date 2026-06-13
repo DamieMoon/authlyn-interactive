@@ -19,6 +19,7 @@
 @use "wardrobe";
 @use "markup";
 @use "modal";
+@use "ceremony"; // W5/P1 onboarding ceremony — skeleton-neutral, after modal layer
 @use "msg_who";
 @use "mobile";
 @use "nav"; // hybrid mobile nav (W3/T5) — after mobile so its @media wins

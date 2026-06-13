@@ -27,6 +27,7 @@ use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
 mod account;
+mod ceremony;
 mod channel;
 mod emoji_manager;
 mod friends;
@@ -250,6 +251,29 @@ fn AppShell() -> impl IntoView {
     // Make the aggregate available to pane components (W6/C8) so they can drop
     // their `s: Shell` prop in favour of `use_context::<Shell>()`.
     provide_context(s);
+
+    // W5/P1 ceremony resolve: on first authenticated mount, if there's no stored
+    // skeleton pref, decide between (a) showing the ceremony (localStorage works)
+    // or (b) the silent session-only `orbit` fallback (localStorage unavailable —
+    // spec §1). Writability is detected with a DEDICATED throwaway probe key
+    // (_authlyn_pref_test, set+delete) so we never write authlyn.skeleton here —
+    // keeping the "no silent default" promise: a writable device that hasn't
+    // chosen stays None and sees the ceremony; only a non-writable device falls
+    // back to a session-only orbit without ceremony. (Open Question #3: the owner
+    // may prefer a cleaner detection.)
+    Effect::new(move |_| {
+        if s.prefs.skeleton.get_untracked().is_none() {
+            if act::local_storage_writable() {
+                // We CAN persist → genuine pref-less device. skeleton stays None,
+                // so the ceremony renders. No value is written until a real choice.
+            } else {
+                // localStorage unavailable: session-only fallback, no ceremony.
+                s.prefs
+                    .skeleton
+                    .set(Some(act::SKELETON_FALLBACK.to_string()));
+            }
+        }
+    });
 
     // Keep `s.sync.me` in sync with the auth context (it resolves async after mount).
     Effect::new(move |_| {
@@ -851,6 +875,14 @@ fn AppShell() -> impl IntoView {
             // undo-able message delete; the host renders empty (and eats no
             // taps) while no toast is up.
             {toast_host(s)}
+
+            // W5/P1 onboarding ceremony — the no-silent-default three-way
+            // skeleton chooser. Shows only while `skeleton` is None; the
+            // resolve Effect above sets the session-only orbit fallback (and
+            // dismisses this) when localStorage cannot persist.
+            <Show when=move || s.prefs.skeleton.get().is_none()>
+                <ceremony::SkeletonCeremony s=s/>
+            </Show>
         </div>
     }
 }
