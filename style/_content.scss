@@ -107,7 +107,12 @@
 			font-family: var(--font-mono);
 			font-size: 0.68rem;
 			letter-spacing: 0.05em;
-			color: var(--text-faint);
+			// --text-muted, not --text-faint: POLLING is the state that TELLS
+			// the user real-time sync degraded, and at ~11px --text-faint is
+			// ~3.5:1 on the topbar — below the 4.5:1 WCAG AA bar. --text-muted
+			// is ~6.4:1 on --surface and stays visually "dimmed" next to the
+			// mint .live state (review M-50).
+			color: var(--text-muted);
 			user-select: none;
 
 			&.live {
@@ -197,8 +202,27 @@
 					-webkit-touch-callout: none;
 				}
 
-				.msg-actions {
-					display: none;
+				// A11y (review M-23): `display: none` here made every message
+				// action (reply/copy/edit/delete) pointer-gesture-only on
+				// touch devices — the buttons fell out of the tab order AND
+				// the accessibility tree, locking out iPad + hardware
+				// keyboard, switch access, and other AT (UX-equality law:
+				// same actions on every input class). Instead, collapse the
+				// row to a clipped 1px box: the buttons stay focusable, and
+				// tabbing into one restores the real row — the same
+				// :focus-within reveal desktop uses (the opacity rule above
+				// already matches, no media gate). Finger users never see
+				// it: clip-path removes the clipped box from hit-testing,
+				// so the long-press radial stays the only pointer surface.
+				.msg-actions:not(:focus-within) {
+					position: absolute;
+					width: 1px;
+					height: 1px;
+					margin: 0;
+					padding: 0;
+					overflow: hidden;
+					clip-path: inset(50%);
+					white-space: nowrap;
 				}
 			}
 
@@ -501,13 +525,29 @@
 				padding: 0.3rem 0.65rem;
 				border: 1px solid var(--accent-soft);
 				border-radius: 0.6rem;
-				// Glass: a translucent wash over whatever sits behind,
-				// frosted by the backdrop blur (graceful on engines
-				// without it — the wash alone still reads as a chip).
+				// Translucent wash only at the standard tier: this chip lives
+				// INSIDE the scrolling list, so a backdrop-filter here moves
+				// against its backdrop and re-blurs every scroll frame —
+				// glass is for CHROME (_foundation.scss battery rule; review
+				// M-39). The wash over the opaque .msg card still reads as a
+				// chip on its own — the mixin's own fallback philosophy.
 				background: color-mix(in srgb, var(--card) 55%, transparent);
-				backdrop-filter: blur(8px);
-				-webkit-backdrop-filter: blur(8px);
 				box-shadow: 0 0 10px var(--glow-accent);
+
+				// Eye-candy tier opts back into the true frosted glass —
+				// except under Reduce Transparency, which outranks the
+				// eyecandy pref (same parity rule as the glass mixin,
+				// review M-51): the standard-tier wash already reads as a
+				// chip without the blur.
+				.app.fx-max & {
+					backdrop-filter: blur(8px);
+					-webkit-backdrop-filter: blur(8px);
+
+					@media (prefers-reduced-transparency: reduce) {
+						backdrop-filter: none;
+						-webkit-backdrop-filter: none;
+					}
+				}
 			}
 
 			.roll-die {
@@ -547,6 +587,25 @@
 			transition: filter var(--dur-quick) var(--ease-quick);
 			user-select: none;
 			-webkit-user-select: none;
+		}
+
+		// A11y disclosure (review M-22): the veil spans are real keyboard
+		// stops (role=button, tabindex=0 — channel/mod.rs), so give them the
+		// project's keyboard-focus ring (the _modal.scss convention):
+		// :focus-visible only, so taps/clicks don't paint rings.
+		.msg.effect-whisper .text:focus-visible,
+		.msg.effect-whisper .atts-veil:focus-visible {
+			outline: 2px solid var(--accent-bright);
+			outline-offset: 2px;
+			border-radius: 0.25rem;
+		}
+
+		// Ghost Quill rows carrying the server-masked `(whisper)` placeholder
+		// (review M-01) reuse the veil's blur via `effect-whisper`, but offer
+		// no reveal — there is nothing behind the placeholder — so don't
+		// advertise tappability.
+		.msg.msg-ghost.effect-whisper .text {
+			cursor: default;
 		}
 
 		.msg.effect-whisper.revealed .text {

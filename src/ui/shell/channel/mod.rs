@@ -239,7 +239,17 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
     let mid_restore = m.id.clone();
     let who = display_name(&m);
     let when = format_local_time(&m.sent_at);
-    let body_preview: String = m.body.chars().take(120).collect();
+    // Whisper mask (review M-03): the trash panel is a body-preview surface,
+    // so a deleted whisper renders the fixed `(whisper)` placeholder — the
+    // same semantics as the reply-quote snippet mask (reading.rs
+    // MSG_PROJECTION) and the push `notification_body` — never the spoiler
+    // text, which a one-tap delete would otherwise EXPOSE flat to every
+    // member for the whole pre-purge window.
+    let body_preview: String = if m.effect.as_deref() == Some("whisper") {
+        "(whisper)".to_string()
+    } else {
+        m.body.chars().take(120).collect()
+    };
     // Only the message's own author can restore it (mirrors server-side require_own_message).
     let is_mine = auth_id.as_deref() == Some(m.author_id.as_str());
     view! {
@@ -850,16 +860,93 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             }
                             .into_any()
                         } else if is_whisper {
+                            // A11y disclosure (review M-22): the veil is a real
+                            // toggle — focusable, Enter/Space operated,
+                            // `aria-expanded` announcing the collapsed state —
+                            // and while
+                            // hidden the body sits OUTSIDE the a11y tree and
+                            // tab order (`aria-hidden` + `inert`: CSS blur is
+                            // invisible to screen readers, and render_body can
+                            // emit focusable links), so AT users get the same
+                            // choose-when-to-see contract as sighted ones.
+                            // Keydown only toggles when the veil ITSELF is the
+                            // target: once revealed, Enter on an inner link
+                            // must navigate, not re-hide the whisper. The
+                            // click path mirrors that (review): a click that
+                            // originated inside an anchor must navigate, not
+                            // re-veil mid-navigation — but a bare
+                            // target==current_target guard would kill
+                            // click-to-re-hide (revealed prose clicks land on
+                            // inner spans), so we suppress on `closest("a")`
+                            // only. Once revealed, the wrapper also SHEDS its
+                            // button semantics (role/aria-expanded/title go
+                            // None): ARIA button is children-presentational
+                            // and forbids interactive descendants, so keeping
+                            // it would let conforming AT flatten the revealed
+                            // body and its links. tabindex stays so keyboard
+                            // focus is never dumped; re-hide remains an
+                            // unannounced convenience (click / Enter on the
+                            // wrapper itself).
                             let mid = m.id.clone();
+                            let toggle = move || {
+                                revealed.update(|r| {
+                                    if !r.insert(mid.clone()) {
+                                        r.remove(&mid);
+                                    }
+                                })
+                            };
+                            let toggle_kbd = toggle.clone();
+                            let toggle_click = toggle.clone();
+                            let open = {
+                                let mid = m.id.clone();
+                                move || revealed.with(|r| r.contains(&mid))
+                            };
+                            let open_label = open.clone();
+                            let open_hidden = open.clone();
+                            let open_inert = open.clone();
+                            let open_role = open.clone();
+                            let open_title = open.clone();
                             view! {
                                 <span class="text"
-                                    title="whispered — tap to reveal"
-                                    on:click=move |_| revealed.update(|r| {
-                                        if !r.insert(mid.clone()) {
-                                            r.remove(&mid);
+                                    role=move || (!open_role()).then_some("button")
+                                    tabindex="0"
+                                    title=move || (!open_title())
+                                        .then_some("whispered — tap to reveal")
+                                    aria-expanded=move || (!open()).then_some("false")
+                                    aria-label=move || (!open_label())
+                                        .then_some("whispered message — activate to reveal")
+                                    on:click=move |ev| {
+                                        #[cfg(feature = "hydrate")]
+                                        {
+                                            use leptos::wasm_bindgen::JsCast;
+                                            if let Some(el) = ev.target().and_then(|t| {
+                                                t.dyn_into::<leptos::web_sys::Element>().ok()
+                                            }) {
+                                                if el.closest("a").ok().flatten().is_some() {
+                                                    return;
+                                                }
+                                            }
                                         }
-                                    })>
-                                    {render_body(&body)}
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = &ev;
+                                        toggle_click()
+                                    }
+                                    on:keydown=move |ev| {
+                                        #[cfg(feature = "hydrate")]
+                                        if matches!(ev.key().as_str(), "Enter" | " " | "Spacebar")
+                                            && ev.target() == ev.current_target()
+                                        {
+                                            ev.prevent_default();
+                                            toggle_kbd();
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = (&ev, &toggle_kbd);
+                                    }>
+                                    <span
+                                        aria-hidden=move || (!open_hidden()).then_some("true")
+                                        inert=move || (!open_inert()).then_some("")>
+                                        {render_body(&body)}
+                                    </span>
                                 </span>
                             }
                             .into_any()
@@ -878,14 +965,71 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         let atts_view = (!atts.is_empty()).then(|| {
                             let grid = attachment_grid(atts.clone(), lightbox);
                             if is_whisper {
+                                // Same disclosure treatment as the text veil
+                                // (review M-22), minus the toggle — reveal is
+                                // insert-only by design (comment above). While
+                                // hidden the grid is additionally `inert`: CSS
+                                // `pointer-events:none` never removed a
+                                // `<video controls>` from the TAB order, so a
+                                // keyboard user could focus and play a still-
+                                // veiled whisper video they could never
+                                // reveal. After reveal the wrapper SHEDS its
+                                // button semantics (role/aria-expanded/title
+                                // go None — review): a permanent button whose
+                                // activation does nothing forever, wrapping
+                                // interactive media controls, is worse than no
+                                // role (ARIA button is children-presentational
+                                // and forbids interactive descendants).
+                                // tabindex stays so keyboard activation never
+                                // dumps focus; its keydown no-ops once
+                                // revealed so Enter/Space on inner media
+                                // controls keep their native behavior.
                                 let mid = m.id.clone();
+                                let reveal = move || {
+                                    revealed.update(|r| {
+                                        r.insert(mid.clone());
+                                    })
+                                };
+                                let reveal_kbd = reveal.clone();
+                                let open = {
+                                    let mid = m.id.clone();
+                                    move || revealed.with(|r| r.contains(&mid))
+                                };
+                                let open_label = open.clone();
+                                let open_hidden = open.clone();
+                                let open_inert = open.clone();
+                                let open_kbd = open.clone();
+                                let open_role = open.clone();
+                                let open_title = open.clone();
                                 view! {
                                     <div class="atts-veil"
-                                        title="whispered — tap to reveal"
-                                        on:click=move |_| revealed.update(|r| {
-                                            r.insert(mid.clone());
-                                        })>
-                                        {grid}
+                                        role=move || (!open_role()).then_some("button")
+                                        tabindex="0"
+                                        title=move || (!open_title())
+                                            .then_some("whispered — tap to reveal")
+                                        aria-expanded=move || (!open()).then_some("false")
+                                        aria-label=move || (!open_label())
+                                            .then_some("whispered media — activate to reveal")
+                                        on:click=move |_| reveal()
+                                        on:keydown=move |ev| {
+                                            #[cfg(feature = "hydrate")]
+                                            if !open_kbd()
+                                                && matches!(
+                                                    ev.key().as_str(),
+                                                    "Enter" | " " | "Spacebar"
+                                                )
+                                            {
+                                                ev.prevent_default();
+                                                reveal_kbd();
+                                            }
+                                            #[cfg(not(feature = "hydrate"))]
+                                            let _ = (&ev, &reveal_kbd, &open_kbd);
+                                        }>
+                                        <div
+                                            aria-hidden=move || (!open_hidden()).then_some("true")
+                                            inert=move || (!open_inert()).then_some("")>
+                                            {grid}
+                                        </div>
                                     </div>
                                 }
                                 .into_any()
@@ -968,8 +1112,22 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 // animation, so nothing to kill for reduced motion.
                 {move || s.prefs.ghost_quill.get().then(|| {
                     s.msg.ghost_drafts.get().into_iter().map(|g| {
+                        // Whisper-armed drafts arrive as the fixed `(whisper)`
+                        // placeholder — masked SERVER-side at store time
+                        // (review M-01, typing.rs WHISPER_DRAFT_MASK) — so a
+                        // row carrying exactly that placeholder gets the same
+                        // veiled presentation as a whispered message
+                        // (`effect-whisper` blur) instead of bare text. No
+                        // reveal handler on purpose: there is no hidden text
+                        // behind it, the placeholder IS the payload.
+                        let veiled = g.draft == "(whisper)";
+                        let li_class = if veiled {
+                            "msg msg-ghost effect-whisper"
+                        } else {
+                            "msg msg-ghost"
+                        };
                         view! {
-                            <li class="msg msg-ghost">
+                            <li class=li_class>
                                 <div class="meta">
                                     <span class="who">{g.display_name} " ✒️"</span>
                                 </div>
@@ -1429,18 +1587,27 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             // Ghost Quill (W4/T7): with the SENDER's pref on, the
                             // ping carries the compose text as `draft` (empty text
                             // included — the server clears the entry on it); with
-                            // the pref off it stays the classic bare ping.
+                            // the pref off it stays the classic bare ping. While
+                            // EDITING (review M-02) the compose box holds an
+                            // already-persisted message body, not a draft — never
+                            // attach it (mirrors save_draft's guard in
+                            // act/channel.rs); the bare ping also clears any
+                            // draft the server still holds for this caller. The
+                            // armed delivery effect rides along (review M-01) so
+                            // the server pre-masks a whisper-armed draft to the
+                            // fixed `(whisper)` placeholder at store time.
                             let now = js_sys::Date::now();
                             if now - last_typing_ping.get_value() >= 2000.0 {
                                 if let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) {
                                     last_typing_ping.set_value(now);
-                                    let draft = s
-                                        .prefs
-                                        .ghost_quill
-                                        .get_untracked()
-                                        .then(|| value.clone());
+                                    let editing =
+                                        s.composer.editing.get_untracked().is_some();
+                                    let draft = (!editing
+                                        && s.prefs.ghost_quill.get_untracked())
+                                    .then(|| value.clone());
+                                    let effect = s.composer.effect_mode.get_untracked();
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::post_typing(&cid, draft).await;
+                                        let _ = api::post_typing(&cid, draft, effect).await;
                                     });
                                 }
                             }
@@ -1672,5 +1839,61 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             // opened by the delegated <ul> pointer handlers above.
             {radial::radial_menu(s, radial, radial_armed)}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_actions;
+
+    /// `message_actions` is THE shared kind predicate (CLAUDE.md W4
+    /// invariant: "never re-branch kind checks per surface"), consumed by
+    /// both the hover row (meta.rs) and the touch radial (radial.rs) — so
+    /// its cells are pinned table-driven over kind × mine (review M-44).
+    /// The load-bearing ones: roll+mine must NEVER offer edit/delete (the
+    /// server 403s both — a drift here yields dead-end buttons, the exact
+    /// bug 778cfdd fixed in the native client), system offers nothing at
+    /// all, and unknown/future kinds get reply+copy but never edit/delete.
+    #[test]
+    fn message_actions_offers_nothing_mutable_outside_kind_user() {
+        // (kind, mine) -> (reply, copy, edit, delete)
+        let table: &[(&str, bool, [bool; 4])] = &[
+            // user: the ONLY mutable kind, and only for its owner.
+            ("user", true, [true, true, true, true]),
+            ("user", false, [true, true, false, false]),
+            // system (Nova DOT): nothing — immutable, not repliable,
+            // matching its actionless meta row exactly.
+            ("system", true, [false, false, false, false]),
+            ("system", false, [false, false, false, false]),
+            // roll (Fate Engine): immutable even for its author — the
+            // server 403s both edit and delete (editing.rs, cheating-proof).
+            ("roll", true, [true, true, false, false]),
+            ("roll", false, [true, true, false, false]),
+            // unknown/future kinds: forward-compat reply+copy, NEVER
+            // edit/delete — not even for the owner.
+            ("poll", true, [true, true, false, false]),
+            ("poll", false, [true, true, false, false]),
+            ("", true, [true, true, false, false]),
+        ];
+        for &(kind, mine, [reply, copy, edit, delete]) in table {
+            let a = message_actions(kind, mine);
+            assert_eq!(a.reply, reply, "reply for kind={kind:?} mine={mine}");
+            assert_eq!(a.copy, copy, "copy for kind={kind:?} mine={mine}");
+            assert_eq!(a.edit, edit, "edit for kind={kind:?} mine={mine}");
+            assert_eq!(a.delete, delete, "delete for kind={kind:?} mine={mine}");
+        }
+    }
+
+    /// `count()` picks the radial's arc spread (n2/n4) and zero means
+    /// "never arm the radial" (radial.rs) — pin the per-kind counts.
+    #[test]
+    fn message_actions_count_drives_the_radial_arms() {
+        assert_eq!(message_actions("user", true).count(), 4);
+        assert_eq!(message_actions("user", false).count(), 2);
+        assert_eq!(message_actions("roll", true).count(), 2);
+        assert_eq!(message_actions("roll", false).count(), 2);
+        assert_eq!(message_actions("system", true).count(), 0);
+        assert_eq!(message_actions("system", false).count(), 0);
+        assert_eq!(message_actions("future-kind", true).count(), 2);
     }
 }

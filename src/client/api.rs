@@ -365,15 +365,24 @@ pub async fn roll(
 /// (W4/T7): `Some(compose text)` only when the SENDER's own pref is on
 /// (the server stores it ephemerally for other members to fetch);
 /// `None` sends the classic body-less ping, which also clears any draft
-/// the server still holds for this caller.
-pub async fn post_typing(cid: &str, draft: Option<String>) -> Result<(), ApiError> {
+/// the server still holds for this caller. `effect` is the composer's
+/// currently ARMED delivery effect (review M-01) — the server pre-masks a
+/// whisper-armed draft to the fixed `(whisper)` placeholder BEFORE storing
+/// it, so spoiler text never streams live to the audience it will land
+/// veiled from. Only meaningful alongside a `draft`; the bare ping has no
+/// body to mask.
+pub async fn post_typing(
+    cid: &str,
+    draft: Option<String>,
+    effect: Option<String>,
+) -> Result<(), ApiError> {
     match draft {
         Some(draft) => {
             post_json_empty(
                 &format!("/channels/{cid}/typing"),
                 &TypingPingRequest {
                     draft: Some(draft),
-                    effect: None,
+                    effect,
                 },
             )
             .await
