@@ -222,6 +222,11 @@ fn AppShell() -> impl IntoView {
         eyecandy: RwSignal::new(act::eyecandy_enabled()),
         ghost_quill: RwSignal::new(act::ghost_quill_enabled()),
         haptic_vibrate: RwSignal::new(act::haptic_vibrate_enabled()),
+        // W5/P1: read the stored pref; None ⇒ ceremony decides (T1.3). The
+        // ceremony Effect (T1.3) sets this; we do NOT default here (no silent
+        // default). The localStorage-unavailable fallback is applied by the
+        // ceremony Effect, not here.
+        skeleton: RwSignal::new(act::skeleton_pref()),
     };
     provide_context(prefs);
 
@@ -388,7 +393,13 @@ fn AppShell() -> impl IntoView {
     let personas_tab_active = move || s.sync.wardrobe_open.get();
 
     view! {
-        <div class="app" class:dialogue-style=move || s.prefs.dialogue_style.get() class:fx-max=move || s.prefs.eyecandy.get()>
+        <div class="app"
+            class:dialogue-style=move || s.prefs.dialogue_style.get()
+            class:fx-max=move || s.prefs.eyecandy.get()
+            class:sk-orbit=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
+            class:sk-deck=move || s.prefs.skeleton.get().as_deref() == Some("deck")
+            class:sk-hud=move || s.prefs.skeleton.get().as_deref() == Some("hud")
+        >
             // aria-label: an unlabeled <nav> landmark is just "navigation"
             // to AT; name it so the rail and the bottom tabs are tellable
             // apart (review M-48 evidence).

@@ -420,4 +420,9 @@ pub(crate) struct Prefs {
     /// supported (Android). Default OFF; visual feedback is always primary.
     /// Persisted to localStorage as authlyn.haptic_vibrate.
     pub(crate) haptic_vibrate: RwSignal<bool>,
+    /// W5/P1: the selected structural UI skeleton id (orbit/deck/hud). Drives
+    /// the `.app.sk-*` root class. `None` until the ceremony resolves (pref-less
+    /// first run); the render treats `None` as "no sk-* class yet" while the
+    /// ceremony modal is up. Persisted to localStorage as authlyn.skeleton.
+    pub(crate) skeleton: RwSignal<Option<String>>,
 }
