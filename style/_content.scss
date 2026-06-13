@@ -713,8 +713,26 @@
 				height: 5px;
 			}
 
+			// W5/P0 #43: the fx-max spell glow breathes via a static-glow
+			// `::before` + opacity keyframe (was relying on fx-glow-pulse
+			// animating box-shadow — a paint property). The row keeps a
+			// stronger STATIC halo (state, stays under reduced-motion); the
+			// breathe rides the keyframe's opacity. The row's own
+			// `::before`/`::after` carry the spark dots, so the breathing halo
+			// takes the `.text` child's free `::before` (the `.text` span is
+			// already `position: relative` for the fx-max third spark on
+			// `.text::after`; reduced-motion kills it in _motion.scss).
 			.app.fx-max & {
-				box-shadow: 0 0 18px var(--glow-accent);
+				box-shadow: 0 0 18px var(--glow-accent); // MAX glow, STATIC
+			}
+
+			.app.fx-max & .text::before {
+				content: "";
+				position: absolute;
+				inset: -0.25rem;
+				border-radius: inherit;
+				pointer-events: none;
+				box-shadow: 0 0 18px var(--glow-accent); // MAX glow, STATIC
 				animation: fx-glow-pulse 2.4s ease-in-out infinite;
 			}
 
@@ -1111,7 +1129,19 @@
 
 			// One glow pulse on a successful send — act::send_message flips
 			// `.sent` for ~400ms (matching the duration here).
-			&.sent {
+			// W5/P0 #43 pre-rendered-glow pattern: the send-confirm pulse no
+			// longer animates box-shadow. A `::after` carries the MAX glow
+			// statically; the keyframe only breathes its opacity. Identical
+			// look, composite-only cost. (`.send` already owns `::before` for
+			// the charge ring and is `position: relative`, so the glow takes
+			// `::after`; reduced-motion kills it in _motion.scss.)
+			&.sent::after {
+				content: "";
+				position: absolute;
+				inset: 0;
+				border-radius: inherit;
+				pointer-events: none;
+				box-shadow: 0 0 16px var(--glow-accent); // MAX glow, STATIC
 				animation: fx-glow-pulse 0.4s ease-out 1;
 			}
 

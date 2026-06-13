@@ -1,5 +1,14 @@
-// Motion library (W2): shared keyframes + the reduced-motion kill switch.
-// Components reference these names; .fx-max layers more in W5/W11.
+// Motion library (W2; W5/P0 #43 doctrine). Shared keyframes + the
+// reduced-motion kill switch. DOCTRINE: @keyframes may animate ONLY
+// transform/translate/rotate/scale/opacity — never box-shadow,
+// background-position, filter, width/height, top/left (all force layout or
+// paint per frame; lethal on the POCO C3 floor). HOUSE TECHNIQUE
+// "pre-rendered glow": carry the MAX box-shadow STATICALLY on a `::before`/
+// `::after`, pulse only its opacity (see fx-glow-pulse + .composer
+// .send.sent::after + .msg.effect-spell .text::before). Enforced by
+// tests/style_lint.rs (authoritative, brace-aware) + .githooks/pre-commit
+// (fast gate). .fx-max layers more in W5/W11 — every new keyframe is born
+// composite-cheap by this rule.
 
 @keyframes aurora-drift {
 	from {
@@ -23,13 +32,17 @@
 	}
 }
 
+// W5/P0 #43: a glow PULSE must animate opacity, never box-shadow (a paint
+// property → per-frame repaint on the floor device). Each consumer carries
+// the MAX glow STATICALLY on a `::before`; this keyframe just breathes its
+// opacity 0.3 → 1 → 0.3. House technique: "pre-rendered glow" — see header.
 @keyframes fx-glow-pulse {
 	0%,
 	100% {
-		box-shadow: 0 0 6px var(--glow-accent);
+		opacity: 0.3;
 	}
 	50% {
-		box-shadow: 0 0 16px var(--glow-accent);
+		opacity: 1;
 	}
 }
 
@@ -213,15 +226,21 @@
 // effect — no motion.
 // `.typing-indicator .star`, `.composer .send.sent`, and `.radial-menu`
 // are listed explicitly: they consume fx- keyframes (fx-orbit / fx-twinkle,
-// the send pulse's fx-glow-pulse, and the radial menu's fx-blossom) but
-// their class names carry no "fx-", so the attribute selector below would
-// miss them. With the blossom killed the radial menu still appears — the
-// keyframe only animates standalone scale/rotate/opacity, whose resting
-// values are the defaults. (The send button's charge RING
-// is exempt on purpose — it's a static fill bound to typed length, state
-// rather than motion.) The warp-streak ::after is also explicit: the
-// attribute selector matches the .fx-switching ELEMENT, but its
-// `animation: none` doesn't reach the pseudo-element carrying fx-warp.
+// the radial menu's fx-blossom) but their class names carry no "fx-", so the
+// attribute selector below would miss them. With the blossom killed the
+// radial menu still appears — the keyframe only animates standalone
+// scale/rotate/opacity, whose resting values are the defaults. (The send
+// button's charge RING is exempt on purpose — it's a static fill bound to
+// typed length, state rather than motion.)
+// W5/P0 #43 pre-rendered-glow: the send-confirm pulse and the fx-max spell
+// glow now breathe their OPACITY on pseudo-elements (the MAX box-shadow is
+// static there — fx-glow-pulse no longer animates box-shadow). The
+// element-level kill above can't reach pseudo-elements, so
+// `.composer .send.sent::after` and `.msg.effect-spell .text::before` are
+// listed explicitly. Killed, the glow sits static at full presence (state).
+// The warp-streak ::after is also explicit: the attribute selector matches
+// the .fx-switching ELEMENT, but its `animation: none` doesn't reach the
+// pseudo-element carrying fx-warp.
 // (The STD .fx-switching dip is transition-based — _content.scss carries
 // its own reduced-motion guard.)
 // The W4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
@@ -246,6 +265,7 @@
 	.typing-indicator .star,
 	.channel-hum,
 	.composer .send.sent,
+	.composer .send.sent::after,
 	.radial-menu,
 	.app.fx-max .content.fx-switching::after,
 	.msg.effect-shout,
@@ -253,6 +273,7 @@
 	.msg.effect-spell::before,
 	.msg.effect-spell::after,
 	.msg.effect-spell .text::after,
+	.msg.effect-spell .text::before,
 	.msg.roll,
 	.msg.roll .roll-die,
 	[class*="fx-"] {

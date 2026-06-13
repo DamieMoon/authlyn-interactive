@@ -10,3 +10,21 @@ set -euo pipefail
 cargo fmt --all --check
 cargo clippy --features ssr --no-deps -- -D warnings
 cargo clippy --features hydrate --target wasm32-unknown-unknown --no-deps -- -D warnings
+
+# W5/P0 #43 motion doctrine: no paint/layout properties inside @keyframes.
+# Fast gate (the authoritative brace-aware check is tests/style_lint.rs). We
+# can't fully brace-parse in shell, so we scan every staged .scss file that
+# contains an @keyframes and flag a forbidden property in the 100 lines after
+# one. False positives are possible (a forbidden prop in a normal rule right
+# after a keyframes block); the Rust test is precise, so a flagged commit
+# should be confirmed against `cargo test --test style_lint`.
+staged_scss=$(git diff --cached --name-only --diff-filter=ACM | grep '\.scss$' || true)
+if [ -n "$staged_scss" ]; then
+	if echo "$staged_scss" \
+		| xargs -r grep -l '@keyframes' \
+		| xargs -r grep -A100 '@keyframes' \
+		| grep -E '^[[:space:]]+(box-shadow|background-position|filter:|width:|height:|top:|left:)' >/dev/null; then
+		echo "pre-commit: motion doctrine (#43) violation near @keyframes — confirm with 'cargo test --features ssr --test style_lint'" >&2
+		exit 1
+	fi
+fi
