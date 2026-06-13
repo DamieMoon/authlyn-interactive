@@ -30,6 +30,7 @@ mod account;
 mod channel;
 mod emoji_manager;
 mod friends;
+pub mod holopanel;
 mod lorebook;
 mod members;
 mod state;

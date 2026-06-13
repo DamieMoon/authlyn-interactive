@@ -1,0 +1,47 @@
+// W5/P0 #49 HoloPanel engine styling. The component sets --p (0..1 drag
+// progress); each edge derives its transform here. Scrim opacity tracks --p.
+// Reduced-motion: instant snap (no transition). Per-edge safe-area inset
+// ownership is declared here so consumers don't re-own it.
+.holopanel {
+	position: fixed;
+	z-index: 60;
+	transition: transform var(--dur-page) var(--ease-page);
+	@media (prefers-reduced-motion: reduce) {
+		transition: none; // instant snap
+	}
+}
+.holopanel--left {
+	top: 0;
+	bottom: 0;
+	left: 0;
+	padding-left: env(safe-area-inset-left, 0px); // OWNS left edge
+	transform: translateX(calc((var(--p) - 1) * 100%));
+}
+.holopanel--right {
+	top: 0;
+	bottom: 0;
+	right: 0;
+	padding-right: env(safe-area-inset-right, 0px); // OWNS right edge
+	transform: translateX(calc((1 - var(--p)) * 100%));
+}
+.holopanel--top {
+	left: 0;
+	right: 0;
+	top: 0;
+	padding-top: env(safe-area-inset-top, 0px); // OWNS top edge
+	transform: translateY(calc((var(--p) - 1) * 100%));
+}
+.holopanel--bottom {
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding-bottom: env(safe-area-inset-bottom, 0px); // OWNS bottom edge
+	transform: translateY(calc((1 - var(--p)) * 100%));
+}
+// Scrim: a sibling the consumer renders; opacity driven by --p via the
+// component (scrim_opacity()). Declared touch-action:none so dragging the
+// panel never pans the page underneath.
+.holopanel,
+.holopanel-scrim {
+	touch-action: none;
+}
