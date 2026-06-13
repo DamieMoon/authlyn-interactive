@@ -108,24 +108,18 @@
 	}
 }
 
-// Warp channel-switch streak (W4: the .fx-max escalation of the .content
-// dip — consumer in _foundation.scss). A thin bright gradient sweeps the
-// pane left→right via background-position on a 200%-wide background; the
-// percentages are inverted because background-position % aligns image-% to
-// container-% (150% parks the streak off-screen LEFT, -50% off-screen
-// RIGHT). Opacity is keyframed (base is 0) so a killed/finished animation
-// leaves NO static streak behind while .fx-switching is still up.
+// W5/P0 #54(c): warp streak sweeps a 20%-wide strip across the pane via
+// transform (composite-only), replacing the old background-position sweep.
 @keyframes fx-warp {
-	0% {
-		background-position: 150% 0;
+	from {
+		transform: translateX(-100%);
 		opacity: 0;
 	}
-	20%,
-	80% {
+	20% {
 		opacity: 1;
 	}
-	100% {
-		background-position: -50% 0;
+	to {
+		transform: translateX(500%);
 		opacity: 0;
 	}
 }
@@ -240,7 +234,9 @@
 // listed explicitly. Killed, the glow sits static at full presence (state).
 // The warp-streak ::after is also explicit: the attribute selector matches
 // the .fx-switching ELEMENT, but its `animation: none` doesn't reach the
-// pseudo-element carrying fx-warp.
+// pseudo-element carrying fx-warp. (W5/P0 #54: the streak rebased from
+// .content to .channel-view — the transformed pane — so this is now
+// `.channel-view.fx-switching::after`.)
 // (The STD .fx-switching dip is transition-based — _content.scss carries
 // its own reduced-motion guard.)
 // The W4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
@@ -267,7 +263,7 @@
 	.composer .send.sent,
 	.composer .send.sent::after,
 	.radial-menu,
-	.app.fx-max .content.fx-switching::after,
+	.app.fx-max .channel-view.fx-switching::after,
 	.msg.effect-shout,
 	.msg.effect-spell,
 	.msg.effect-spell::before,

@@ -238,8 +238,9 @@ pub(crate) struct SyncState {
     pub(crate) wardrobe_open: RwSignal<bool>,
     /// Set during a channel switch to play the warp transition (W4/T3):
     /// `act::open_channel_at` flips it true on entry and a detached ~180ms
-    /// timer clears it, driving the `.content.fx-switching` class. Cosmetic
-    /// and client-only; never sent or persisted.
+    /// timer clears it, driving the `.channel-view.fx-switching` class (rebased
+    /// off `.content` in W5/P0 #54). Cosmetic and client-only; never sent or
+    /// persisted.
     pub(crate) switching: RwSignal<bool>,
 }
 

@@ -633,11 +633,15 @@ fn AppShell() -> impl IntoView {
                 </Show>
             </aside>
 
-            // `fx-switching` plays the warp channel-switch transition (W4/T3):
-            // a brief dim+scale dip (and an .fx-max light streak) that covers
-            // the message-list swap. Bound on the pane wrapper only — the
-            // rail/sidebar must not warp.
-            <section class="content" class:fx-switching=move || s.sync.switching.get()>
+            // W5/P0 #54: `fx-switching` (the warp channel-switch dip — W4/T3)
+            // moved OFF this .content section onto the inner .channel-view
+            // wrapper (channel/mod.rs), so .content stays transform-free and
+            // never becomes a containing block for the body-portaled overlays
+            // (radial / lightbox / mobile emoji sheet). The signal is the same
+            // s.sync.switching; only the carrying element changed. NOTE: the
+            // warp dip is now scoped to the channel stream — the Lorebook pane
+            // (.lore-list, no .channel-view) no longer plays the visual dip.
+            <section class="content">
                 <header class="topbar">
                     // Mobile fast-switch (W3/T5, spec §2): tapping the channel
                     // name opens the channel sheet; the ▾ is the affordance.

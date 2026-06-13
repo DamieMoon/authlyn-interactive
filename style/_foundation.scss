@@ -46,6 +46,21 @@
 	@include glass;
 }
 
+// W5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and
+// the mobile emoji picker are no longer mounted inside ChannelPane's .content
+// — they are Leptos <Portal>s rendered to document.body (each inside its own
+// <Show>), so .content can stay transform-free and never traps them as a
+// containing block. Because they leave .content's box they OWN their z-index
+// at the document level and carry their OWN safe-area paddings (they no longer
+// inherit .content's `env(safe-area-inset-*)`). The layering, unchanged from
+// when they were nested (all class-based, all `position: fixed`, so the
+// selectors still match after the mount moved):
+//   - lightbox backdrop        z-index 50  (_lightbox.scss) — content chrome
+//   - radial dismiss backdrop  z-index 60  (_content.scss .radial-backdrop)
+//   - radial menu arc          z-index 61  (_content.scss .radial-menu)
+//   - mobile emoji sheet       above the composer (_content.scss / _nav.scss)
+// No specificity change was needed — only the DOM mount point moved.
+
 // Aurora ambience: two soft nebula tints behind everything. Static in
 // Standard; .fx-max (appearance tier) animates a slow drift. Painted on a
 // fixed pseudo-layer so the grid layout above is untouched.
@@ -93,26 +108,31 @@
 	box-shadow: 0 0 14px var(--glow-accent);
 }
 
-// Warp channel-switch streak (W4/T3): while act::open_channel_at holds
-// .fx-switching (~180ms), a thin light streak sweeps the content pane on top
-// of the STD dim+scale dip (_content.scss). The overlay covers the pane
-// exactly (inset: 0 against .content's position: relative) and the streak
-// moves via background-position (fx-warp, _motion.scss), so nothing paints
-// outside .content and no overflow clipping is needed. Base opacity 0 +
-// `forwards` keep it invisible before the sweep starts and after it ends —
-// even if the class outlives the animation by a frame.
-.app.fx-max .content.fx-switching::after {
+// W5/P0 #54(c)+#43: the fx-max warp streak is now a 20%-wide gradient strip
+// swept across the pane via transform: translateX (composite-only), under
+// overflow:hidden, instead of animating background-position. Lives on
+// .channel-view (the transformed pane) now that .content is transform-free.
+// Base opacity 0 + `forwards` keep it invisible before the sweep starts and
+// after it ends — even if the class outlives the animation by a frame.
+// (Open Question #5: the streak deliberately tints with the generic
+// --glow-accent; a destination per-server accent awaits guild.accent_color,
+// which does not exist in schema.surql today.)
+.app.fx-max .channel-view.fx-switching {
+	overflow: hidden;
+}
+.app.fx-max .channel-view.fx-switching::after {
 	content: "";
 	position: absolute;
-	inset: 0;
-	// Above the .topbar (z-index 5): the dip scales the whole pane, so the
-	// streak crosses the whole pane too. .fx-switching's transform makes
-	// .content a stacking context, keeping this below sibling overlays.
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 20%;
+	// Above the pane chrome: the dip scales the whole pane, so the strip
+	// crosses the whole pane too. .channel-view is its own positioned
+	// containing block (position: relative), keeping this below body overlays.
 	z-index: 6;
 	pointer-events: none;
-	opacity: 0;
-	background: linear-gradient(105deg, transparent 42%, var(--glow-accent) 50%, transparent 58%)
-		no-repeat;
-	background-size: 200% 100%;
+	background: linear-gradient(105deg, transparent 0%, var(--glow-accent) 50%, transparent 100%);
+	transform: translateX(-100%);
 	animation: fx-warp 180ms ease-out forwards;
 }

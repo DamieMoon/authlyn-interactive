@@ -6,9 +6,9 @@
 //! Pure file scan; no DB, runs in every feature graph.
 //!
 //! A narrow, documented `EXEMPT_KEYFRAMES` allowlist (by name) carves out the
-//! brief loading-placeholder shimmer loaders + the one TIME-BOXED pending
-//! offender (`fx-warp`, retrofitted in W5/P0 Task 0.2 — its exemption is
-//! removed there). See the const for the rationale.
+//! brief loading-placeholder shimmer loaders. (`fx-warp` was a TIME-BOXED
+//! exemption removed in W5/P0 Task 0.2 once its keyframe became transform-only.)
+//! See the const for the rationale.
 
 use std::fs;
 use std::path::Path;
@@ -36,12 +36,10 @@ const FORBIDDEN: &[&str] = &[
 /// the `sk-` prefix rule), NOT perpetual decorative `fx-` effects on the
 /// live interactive hot path, so they are intentionally carved out.
 ///
-/// `fx-warp` is a TIME-BOXED exemption: it still animates `background-position`
-/// in the current tree and is rewritten to a transform sweep in W5/P0 Task 0.2
-/// (#54, `fx-warp keyframe → translateX`). REMOVE `"fx-warp"` from this list in
-/// Task 0.2 once the keyframe is composite-only — at which point this guard
-/// enforces the doctrine on fx-warp too (Step 0.2.8's real assertion).
-const EXEMPT_KEYFRAMES: &[&str] = &["shimmer", "gallery-skeleton-shimmer", "fx-warp"];
+/// (`fx-warp` was a TIME-BOXED exemption — it animated `background-position`
+/// until W5/P0 Task 0.2 (#54) rewrote it to a `transform: translateX` sweep.
+/// Now composite-only, it is enforced by this guard like every other `fx-`.)
+const EXEMPT_KEYFRAMES: &[&str] = &["shimmer", "gallery-skeleton-shimmer"];
 
 /// Return every `@keyframes <name> { ... }` as `(name, body)`, brace-matched.
 fn keyframes_blocks(src: &str) -> Vec<(String, String)> {

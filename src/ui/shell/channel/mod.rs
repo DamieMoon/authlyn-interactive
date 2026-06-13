@@ -41,6 +41,10 @@ use meta::{message_meta, system_message_meta};
 use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
+// W5/P0 #54: the three former-fixed overlays (radial, lightbox, mobile emoji
+// sheet) mount to document.body via <Portal> so .content can stay
+// transform-free and never trap them as a containing block.
+use leptos::portal::Portal;
 
 #[cfg(feature = "hydrate")]
 use super::COMPOSER_MAX_ATTACHMENTS;
@@ -284,6 +288,28 @@ fn is_touch() -> bool {
         .unwrap_or(false)
 }
 
+/// True at the `≤768px` breakpoint where `_mobile_emoji.scss` turns the emoji
+/// picker into a `position: fixed` bottom sheet. W5/P0 #54 portals the picker
+/// to `document.body` ONLY in that case: a fixed sheet anchors to the viewport
+/// (so a body mount is correct and frees it from any pane transform), whereas
+/// the desktop popover is `position: absolute` anchored to the composer
+/// (`_content.scss`) and MUST stay in place. The exact CSS breakpoint is the
+/// gate (a one-shot read at open; a resize across it while open is a non-issue
+/// — the picker simply re-evaluates on the next open). On SSR it returns false
+/// (the in-place render), matching `is_touch`'s hydrate-only `match_media`; the
+/// client re-evaluates on hydrate.
+#[cfg(feature = "hydrate")]
+fn is_mobile_viewport() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.match_media("(max-width: 768px)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false)
+}
+#[cfg(not(feature = "hydrate"))]
+fn is_mobile_viewport() -> bool {
+    false
+}
+
 /// True on touch-primary devices (phones/tablets), where the on-screen
 /// keyboard's Enter must insert a newline rather than send — there's no
 /// Shift+Enter, so Enter-to-send would make multi-line messages impossible.
@@ -396,6 +422,75 @@ fn supports_field_sizing_content() -> bool {
         r.as_bool()
     })()
     .unwrap_or(false)
+}
+
+/// The composer emoji picker body (backdrop + searchable categorised grid),
+/// extracted (W5/P0 #54) so the open render can either keep it in place
+/// (desktop absolute popover) or wrap it in a body-level `<Portal>` (mobile
+/// fixed sheet) without duplicating the markup. Classes/handlers are unchanged
+/// from the former inline render; the buttons insert at the composer caret and
+/// close the picker. Returns `AnyView` so both mount branches share one type.
+fn emoji_sheet_view(
+    s: Shell,
+    composer_ref: NodeRef<leptos::html::Textarea>,
+    emoji_open: RwSignal<bool>,
+    emoji_query: RwSignal<String>,
+) -> AnyView {
+    view! {
+        <div class="emoji-backdrop" on:click=move |_| emoji_open.set(false)></div>
+        <div class="emoji-picker">
+            <input class="emoji-search" placeholder="search emoji"
+                prop:value=move || emoji_query.get()
+                on:input=move |ev| emoji_query.set(event_target_value(&ev))/>
+            <div class="emoji-grid">
+                {move || {
+                    let q = emoji_query.get().trim().to_lowercase();
+                    let custom = s.sel.guild_emoji.get();
+                    if q.is_empty() {
+                        // Server custom emoji first, then each unicode category.
+                        let server = (!custom.is_empty()).then(|| view! {
+                            <div class="emoji-cat">"Server"</div>
+                            <div class="emoji-cat-items">
+                                {custom.iter().cloned().map(|e| custom_emoji_btn(
+                                    s, composer_ref, emoji_open, e.name, e.media_id,
+                                )).collect_view()}
+                            </div>
+                        });
+                        let cats = GROUPS.iter().map(|label| {
+                            let items = data::by_group(label);
+                            view! {
+                                <div class="emoji-cat">{*label}</div>
+                                <div class="emoji-cat-items">
+                                    {items.into_iter().map(|e| unicode_emoji_btn(
+                                        s, composer_ref, emoji_open,
+                                        e.shortcode, e.glyph,
+                                    )).collect_view()}
+                                </div>
+                            }
+                        }).collect_view();
+                        view! { {server} {cats} }.into_any()
+                    } else {
+                        // Filtered: matching custom emoji, then unicode hits.
+                        let custom_hits = custom.into_iter()
+                            .filter(|e| e.name.to_lowercase().contains(&q))
+                            .map(|e| custom_emoji_btn(
+                                s, composer_ref, emoji_open, e.name, e.media_id,
+                            ))
+                            .collect_view();
+                        let std_hits = data::search(&q, 80).into_iter()
+                            .map(|e| unicode_emoji_btn(
+                                s, composer_ref, emoji_open, e.shortcode, e.glyph,
+                            ))
+                            .collect_view();
+                        view! {
+                            <div class="emoji-cat-items">{custom_hits}{std_hits}</div>
+                        }.into_any()
+                    }
+                }}
+            </div>
+        </div>
+    }
+    .into_any()
 }
 
 /// The `<html>` element, for the measured `--composer-h` custom property
@@ -702,7 +797,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     });
 
     view! {
-        <div class="channel-view">
+        // W5/P0 #54: the warp dip class moved off .content (mod.rs) onto this
+        // inner .channel-view wrapper so .content never gains a transform (and
+        // thus never becomes a containing block for the body-portaled overlays
+        // below). Driven by the same s.sync.switching signal as before.
+        <div class="channel-view" class:fx-switching=move || s.sync.switching.get()>
             <ul class="messages" node_ref=list_ref
                 // W4/T4 radial long-press: DELEGATED listeners — 5 on this
                 // <ul>, not 5 per row (this build has no tachys event
@@ -1423,59 +1522,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 // Emoji picker popover: a search box over a categorised grid of
                 // the open guild's custom emoji plus the standard-unicode set.
                 // A full-viewport backdrop closes it on an outside click.
-                {move || emoji_open.get().then(|| view! {
-                    <div class="emoji-backdrop" on:click=move |_| emoji_open.set(false)></div>
-                    <div class="emoji-picker">
-                        <input class="emoji-search" placeholder="search emoji"
-                            prop:value=move || emoji_query.get()
-                            on:input=move |ev| emoji_query.set(event_target_value(&ev))/>
-                        <div class="emoji-grid">
-                            {move || {
-                                let q = emoji_query.get().trim().to_lowercase();
-                                let custom = s.sel.guild_emoji.get();
-                                if q.is_empty() {
-                                    // Server custom emoji first, then each unicode category.
-                                    let server = (!custom.is_empty()).then(|| view! {
-                                        <div class="emoji-cat">"Server"</div>
-                                        <div class="emoji-cat-items">
-                                            {custom.iter().cloned().map(|e| custom_emoji_btn(
-                                                s, composer_ref, emoji_open, e.name, e.media_id,
-                                            )).collect_view()}
-                                        </div>
-                                    });
-                                    let cats = GROUPS.iter().map(|label| {
-                                        let items = data::by_group(label);
-                                        view! {
-                                            <div class="emoji-cat">{*label}</div>
-                                            <div class="emoji-cat-items">
-                                                {items.into_iter().map(|e| unicode_emoji_btn(
-                                                    s, composer_ref, emoji_open,
-                                                    e.shortcode, e.glyph,
-                                                )).collect_view()}
-                                            </div>
-                                        }
-                                    }).collect_view();
-                                    view! { {server} {cats} }.into_any()
-                                } else {
-                                    // Filtered: matching custom emoji, then unicode hits.
-                                    let custom_hits = custom.into_iter()
-                                        .filter(|e| e.name.to_lowercase().contains(&q))
-                                        .map(|e| custom_emoji_btn(
-                                            s, composer_ref, emoji_open, e.name, e.media_id,
-                                        ))
-                                        .collect_view();
-                                    let std_hits = data::search(&q, 80).into_iter()
-                                        .map(|e| unicode_emoji_btn(
-                                            s, composer_ref, emoji_open, e.shortcode, e.glyph,
-                                        ))
-                                        .collect_view();
-                                    view! {
-                                        <div class="emoji-cat-items">{custom_hits}{std_hits}</div>
-                                    }.into_any()
-                                }
-                            }}
-                        </div>
-                    </div>
+                // W5/P0 #54: at the mobile breakpoint the picker is a fixed
+                // bottom sheet (_mobile_emoji.scss) — body-portal it so it
+                // anchors to the viewport and never rides a pane transform. The
+                // desktop popover is absolute-anchored to the composer, so it
+                // stays in place (see is_mobile_viewport). The classes/handlers
+                // are identical in both branches; only the mount point differs.
+                {move || emoji_open.get().then(|| {
+                    if is_mobile_viewport() {
+                        // Portal's children must be a re-callable Fn (it remounts
+                        // on its own effect), so rebuild the sheet in the closure
+                        // rather than capturing a moved-once AnyView.
+                        view! {
+                            <Portal>
+                                {move || emoji_sheet_view(s, composer_ref, emoji_open, emoji_query)}
+                            </Portal>
+                        }.into_any()
+                    } else {
+                        emoji_sheet_view(s, composer_ref, emoji_open, emoji_query)
+                    }
                 })}
                 // Pending attachments: thumbnails of staged uploads, each with
                 // a per-item upload-progress overlay (F-8) + a remove button,
@@ -1832,12 +1897,21 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             // message: ◀/▶ buttons, Left/Right arrow keys, and pointer-swipe
             // step the gallery (clamped, no wrap); pinch/double-tap/wheel and
             // +/-/0 zoom-and-pan via a single CSS transform (see lightbox.rs).
-            {lightbox_view(lightbox, lb_tf)}
+            // W5/P0 #54: body-level <Portal> (was inside .content) so the dip's
+            // transform never traps this fixed overlay. The <Show> keeps the
+            // body mount alive only while open; lightbox_view's own
+            // focus-restore Effect + on_cleanup (M-49) survive the teardown.
+            <Show when=move || lightbox.get().is_some()>
+                <Portal>{lightbox_view(lightbox, lb_tf)}</Portal>
+            </Show>
 
             // W4/T4 radial long-press action menu (touch) — the glass arc of
             // reply/copy(/edit/delete) buttons blossoming at the press point,
             // opened by the delegated <ul> pointer handlers above.
-            {radial::radial_menu(s, radial, radial_armed)}
+            // W5/P0 #54: body-level <Portal> (same containing-block rationale).
+            <Show when=move || radial.get().is_some()>
+                <Portal>{radial::radial_menu(s, radial, radial_armed)}</Portal>
+            </Show>
         </div>
     }
 }

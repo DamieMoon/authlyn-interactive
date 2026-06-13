@@ -118,10 +118,12 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // commits. Only adopt the server's remembered persona when SWITCHING
     // to a different channel. Also gates the warp below.
     let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
-    // W4/T3: warp transition — flag the content pane as switching so
-    // `.content.fx-switching` plays the dip (and the .fx-max streak) over the
-    // message-list swap; this covers BOTH the lorebook and text branches
-    // below. Gated on an ACTUAL switch: a same-channel re-click replays
+    // W4/T3: warp transition — flag the content pane as switching so the dip
+    // (and the .fx-max streak) plays over the message-list swap. W5/P0 #54
+    // rebased the class from `.content` onto the inner `.channel-view` wrapper
+    // (channel/mod.rs) so .content stays transform-free; the warp dip is now
+    // scoped to the channel stream (the lorebook pane no longer dips).
+    // Gated on an ACTUAL switch: a same-channel re-click replays
     // nothing, while the initial session restore (no prior channel) keeps
     // its deliberate entry warp. A detached timer clears it after ~180ms
     // (matching the CSS timing); the spawned future doesn't run until this
