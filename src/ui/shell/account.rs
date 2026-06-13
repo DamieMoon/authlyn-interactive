@@ -226,6 +226,32 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Vibration feedback (where supported)"</span>
                     </label>
+                    // W5/P1 (Task 1.4): structural-skeleton picker. Mirrors the
+                    // eyecandy pref-row pattern; selecting persists
+                    // authlyn.skeleton (act::set_skeleton) AND updates the
+                    // Prefs.skeleton signal, flipping the `.app.sk-*` root class
+                    // live — no ceremony (this is an explicit re-choice, not a
+                    // first-run). Theme names are proper nouns; the rest is
+                    // English copy.
+                    <h4 class="pref-subhead">"Interface skeleton"</h4>
+                    <label class="pref-row">
+                        <input type="radio" name="skeleton" value="orbit"
+                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
+                            on:change=move |_| { act::set_skeleton("orbit"); s.prefs.skeleton.set(Some("orbit".to_string())); }/>
+                        <span>"Omloppsbana — spatial, swipe between worlds"</span>
+                    </label>
+                    <label class="pref-row">
+                        <input type="radio" name="skeleton" value="deck"
+                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("deck")
+                            on:change=move |_| { act::set_skeleton("deck"); s.prefs.skeleton.set(Some("deck".to_string())); }/>
+                        <span>"Kortdäck — layered deck scrub"</span>
+                    </label>
+                    <label class="pref-row">
+                        <input type="radio" name="skeleton" value="hud"
+                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("hud")
+                            on:change=move |_| { act::set_skeleton("hud"); s.prefs.skeleton.set(Some("hud".to_string())); }/>
+                        <span>"Holoterminal — zero-chrome, edge panels"</span>
+                    </label>
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>
