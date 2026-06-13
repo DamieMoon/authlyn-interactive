@@ -17,6 +17,10 @@
 **Branch:** continue on `mendicant-bias` (do NOT push to `main` — push to `main` is a live fenrir deploy; owner sign-off only).
 
 **WASM bundle budget baseline (record at P0 start, before any code; see Task 0.0):** run `cargo leptos build --release`, then record raw + gzip bytes of `target/site/pkg/authlyn-interactive.wasm`. This number is the W5 plan-header baseline; **the owner signs the budget ceiling (Open Question #1)**; the Phase-(7) gate re-measures with the same command. (Confirmed: that path is the wasm artifact in this tree.)
+  - **Recorded baseline (Task 0.0, clean `cargo leptos build --release` at branch HEAD `cb8e1b4`, before any Phase-0 code; macOS M2 Pro, wasm-opt `version_123` applied):**
+    - raw: **2,516,975 bytes** (≈ 2.40 MiB) — `wc -c target/site/pkg/authlyn-interactive.wasm`
+    - gzip: **929,709 bytes** (≈ 908 KiB) — `gzip -c target/site/pkg/authlyn-interactive.wasm | wc -c`
+    - **AWAITING OWNER:** sign the allowed growth ceiling over these numbers (Open Question #1) before the Phase-7 re-measure.
 
 ---
 
@@ -24,7 +28,7 @@
 
 These are flagged owner decisions surfaced during the adversarial plan review. Each step that touches one carries an inline pointer. They are NOT blockers for authoring; they are decisions to sign before the affected phase ships.
 
-1. **WASM bundle-budget ceiling.** Owner-signed, not yet a number. Task 0.0 records the baseline (raw + gzip bytes of `target/site/pkg/authlyn-interactive.wasm`). The owner must sign the allowed growth before Phase 7 re-measures. *(Touched by: Task 0.0, Phase-7 gate.)*
+1. **WASM bundle-budget ceiling.** Owner-signed, not yet a number. Task 0.0 records the baseline (raw + gzip bytes of `target/site/pkg/authlyn-interactive.wasm`) — **DONE**: raw **2,516,975 B** / gzip **929,709 B** at HEAD `cb8e1b4` (see plan header). The owner must still sign the allowed growth ceiling before Phase 7 re-measures. *(Touched by: Task 0.0, Phase-7 gate.)*
 2. **Standard-tier chrome look (etched glass).** The `--frost-noise` PNG and the `--frost-top` / `--frost-bottom` precomputed tints need an owner eyeball to confirm Standard-tier chrome reads ~90% identical to live blur. Concrete sample values ship in Task 0.3; flagged for an eyeball pass. *(Touched by: Task 0.3.)*
 3. **Ceremony localStorage-writability detection approach.** The plan uses a throwaway probe key (`_authlyn_pref_test`) set-then-deleted to detect writability WITHOUT touching `authlyn.skeleton`, preserving "no silent default". The owner may prefer a cleaner detection (e.g. a single try/catch on the real write). *(Touched by: Task 1.3.)*
 4. **Automated headed-Playwright switch-invariant guard, now vs Phase 7.** The §13 switch invariant (no SSE drop / no draft loss / no selection reset on skeleton switch) is pinned STRUCTURALLY in Task 1.6; the LIVE behavioral check is currently booked into the Phase-7 real-device gate. The owner may want it automated sooner via headed Playwright on the MacBook. *(Touched by: Task 1.6, Phase-7 gate.)*
@@ -52,8 +56,8 @@ These are flagged owner decisions surfaced during the adversarial plan review. E
 
 **Files:** none (records a number into this plan header + the eventual Phase-7 gate). **Open Question #1.**
 
-- [ ] **Step 0.0.1: Clean release build.** Run `cargo leptos build --release` from the repo root. Expect it to complete (server bin + `site/`).
-- [ ] **Step 0.0.2: Measure.** Run `wc -c target/site/pkg/authlyn-interactive.wasm` for raw bytes and `gzip -c target/site/pkg/authlyn-interactive.wasm | wc -c` for gzip bytes. Record BOTH numbers in this plan's header under "WASM bundle budget baseline" and flag for the owner to sign a ceiling (Open Question #1). No commit (measurement only).
+- [x] **Step 0.0.1: Clean release build.** Run `cargo leptos build --release` from the repo root. Expect it to complete (server bin + `site/`). *(Done — clean build completed: server bin + `site/`, wasm-opt applied.)*
+- [x] **Step 0.0.2: Measure.** Run `wc -c target/site/pkg/authlyn-interactive.wasm` for raw bytes and `gzip -c target/site/pkg/authlyn-interactive.wasm | wc -c` for gzip bytes. Record BOTH numbers in this plan's header under "WASM bundle budget baseline" and flag for the owner to sign a ceiling (Open Question #1). No commit (measurement only). *(Done — raw 2,516,975 B / gzip 929,709 B recorded in the plan header + Open Question #1; flagged AWAITING OWNER.)*
 
 ---
 
