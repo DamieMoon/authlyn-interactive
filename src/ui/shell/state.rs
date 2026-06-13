@@ -416,4 +416,8 @@ pub(crate) struct Prefs {
     /// ping AND fetching/rendering other members' ghost rows. Default OFF
     /// (privacy-respecting). Persisted to localStorage.
     pub(crate) ghost_quill: RwSignal<bool>,
+    /// W5/P0 #19: whether to mirror visual haptics to navigator.vibrate where
+    /// supported (Android). Default OFF; visual feedback is always primary.
+    /// Persisted to localStorage as authlyn.haptic_vibrate.
+    pub(crate) haptic_vibrate: RwSignal<bool>,
 }

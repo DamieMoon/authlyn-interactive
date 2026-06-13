@@ -221,6 +221,7 @@ fn AppShell() -> impl IntoView {
         dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
         eyecandy: RwSignal::new(act::eyecandy_enabled()),
         ghost_quill: RwSignal::new(act::ghost_quill_enabled()),
+        haptic_vibrate: RwSignal::new(act::haptic_vibrate_enabled()),
     };
     provide_context(prefs);
 

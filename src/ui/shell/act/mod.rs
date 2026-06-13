@@ -38,6 +38,7 @@ pub mod compose_colors;
 pub mod emoji;
 pub mod feedback;
 pub mod guild;
+pub mod haptics;
 pub mod hum;
 pub mod message;
 pub mod notify;
@@ -108,3 +109,13 @@ pub use prefs::{
     compose_preview_enabled, eyecandy_enabled, ghost_quill_enabled, rp_dialogue_style_enabled,
     set_compose_preview, set_eyecandy, set_ghost_quill, set_rp_dialogue_style,
 };
+// W5/P0 #19 Visual Haptics. `vh` is the hydrate-real fire helper (no ssr stub —
+// the ssr graph never animates a DOM element) and `Vh` is its kind argument, so
+// both are re-exported hydrate-only (like `move_channel` above — re-exporting on
+// ssr fires unused-import since nothing there fires a visual haptic). The
+// localStorage toggle helpers ARE ungated: `haptic_vibrate_enabled` seeds the
+// Prefs signal and `set_haptic_vibrate` backs the account toggle, both of which
+// compile in the ssr graph too.
+pub use haptics::{haptic_vibrate_enabled, set_haptic_vibrate};
+#[cfg(feature = "hydrate")]
+pub use haptics::{vh, Vh};

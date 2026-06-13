@@ -177,6 +177,18 @@ async fn after_send_success(s: Shell, cid: &str) {
     let gen = s.composer.sent_gen.get_value().wrapping_add(1);
     s.composer.sent_gen.set_value(gen);
     s.composer.sent.set(true);
+    // W5/P0 #19 Visual Haptics — first live consumer of the vocabulary: fire a
+    // `vh-thud` (weighty land) on the Send button as the send commits. This is
+    // REINFORCEMENT of the existing `.send.sent` glow pulse (above), not a
+    // replacement; the haptic class removes itself on animationend so a burst
+    // of sends re-fires. Resolve the button via the same `query_selector`
+    // lookup this module already uses for `.composer textarea`.
+    if let Some(el) = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.query_selector(".composer .send").ok().flatten())
+    {
+        super::vh(&el, super::Vh::Thud);
+    }
     spawn_local(async move {
         gloo_timers::future::TimeoutFuture::new(400).await;
         // Still the newest send? (try_*: the shell may have been

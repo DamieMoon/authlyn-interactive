@@ -214,6 +214,18 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Ghost Quill — share your in-progress drafts & see others' (live co-writing)"</span>
                     </label>
+                    // W5/P0 #19 Visual Haptics: the visual feedback is always
+                    // primary; this opt-in mirrors it to navigator.vibrate where
+                    // supported (Android — iOS PWAs have no vibrate). Default OFF.
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.prefs.haptic_vibrate.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.prefs.haptic_vibrate.set(on);
+                                act::set_haptic_vibrate(on);
+                            }/>
+                        <span>"Vibration feedback (where supported)"</span>
+                    </label>
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>

@@ -55,8 +55,13 @@ js-sys = { version = "0.3", optional = true }
 # crate enables it, so it must be listed here. ResizeObserver backs the
 # measured `--composer-h` placement var (UX evolution #11): the composer
 # band's height mirrored onto <html> so the toast capsule and channel floats
-# anchor to it (shell/channel/mod.rs). Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent"] }
+# anchor to it (shell/channel/mod.rs). Navigator + AddEventListenerOptions back
+# the W5/P0 #19 Visual Haptics helper (shell/act/haptics.rs): `vibrate_with_duration`
+# is on `Navigator`, and the once-only animationend cleanup uses
+# `AddEventListenerOptions::set_once`; AddEventListenerOptions is also enabled by
+# tachys (feature-unified) but listed here so the binding never depends on a
+# transitive crate keeping it. Hydrate-only; feature-unified.
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent", "Navigator", "AddEventListenerOptions"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device
