@@ -91,8 +91,12 @@ pub fn send_message(s: Shell) {
             match api::roll(&ch.id, &expr, persona).await {
                 Ok(_) => after_send_success(s, &ch.id).await,
                 // A 400 (bad expression / bounds) surfaces its server message
-                // in the composer status line, like any failed send.
-                Err(e) => s.composer.status.set(api::humanize(&e)),
+                // in the composer status line, like any failed send. (`try_`,
+                // review M-10: post-await — logout may have disposed the
+                // shell while the POST was in flight.)
+                Err(e) => {
+                    let _ = s.composer.status.try_set(api::humanize(&e));
+                }
             }
         });
         return;
@@ -136,7 +140,11 @@ pub fn send_message(s: Shell) {
     spawn_local(async move {
         match api::post_message(&ch.id, &body, attachments, persona, reply_to_id, effect).await {
             Ok(_) => after_send_success(s, &ch.id).await,
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // `try_` (review M-10): post-await — logout may have disposed the
+            // shell while the POST was in flight.
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -157,7 +165,13 @@ async fn after_send_success(s: Shell, cid: &str) {
     // (Discord parity: the divider clears on send, not only on channel
     // switch). Guarded on still-being-in-the-channel so a slow POST resolving
     // after a switch can't wipe the INCOMING channel's freshly set divider.
-    if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid) {
+    // `try_` (review M-10): this whole fn runs after the send POST's await —
+    // logout may have disposed the shell meanwhile; one try_ read proves it
+    // alive for the synchronous stretch below (single-threaded WASM).
+    let Some(sel) = s.sel.sel_channel.try_get_untracked() else {
+        return;
+    };
+    if sel.map(|c| c.id).as_deref() == Some(cid) {
         s.msg.new_divider.set(None);
     }
     let gen = s.composer.sent_gen.get_value().wrapping_add(1);
@@ -181,8 +195,15 @@ async fn after_send_success(s: Shell, cid: &str) {
         // included) onto the INCOMING channel's list and clobber its
         // cursor/last-seen. Same discipline as `refresh_open_channel`
         // (feedback gwiif7xy) — and load-bearing under SSE, where no poll
-        // tick reconciles a quiet channel afterwards.
-        if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() != Some(cid) {
+        // tick reconciles a quiet channel afterwards. `try_` (review M-10):
+        // a shell disposed by logout mid-fetch bails the same way.
+        let open = s
+            .sel
+            .sel_channel
+            .try_get_untracked()
+            .flatten()
+            .map(|c| c.id);
+        if open.as_deref() != Some(cid) {
             return;
         }
         ingest(s, l.messages);
@@ -297,7 +318,9 @@ async fn upload_staged(s: Shell, key: u64, file: web_sys::File) {
     match result {
         Ok(id) => {
             forget_retry_file(key);
-            s.composer.compose_attachments.update(|v| {
+            // `try_` (review M-10): the upload future can outlive the shell
+            // (logout mid-upload) — no staging row left to flip.
+            let _ = s.composer.compose_attachments.try_update(|v| {
                 if let Some(it) = v.iter_mut().find(|it| it.key == key) {
                     it.att.id = id;
                     it.status = super::super::state::UploadStatus::Ready;
@@ -327,10 +350,13 @@ pub fn retry_compose_attachment(s: Shell, key: u64) {
     spawn_local(async move { upload_staged(s, key, file).await });
 }
 
-/// Write a staged attachment's status by key, if it still exists.
+/// Write a staged attachment's status by key, if it still exists. `try_`
+/// (review M-10): also reached from the upload future's progress callback
+/// and failure tail, both of which can outlive the shell (logout
+/// mid-upload) — disposed degrades to a no-op.
 #[cfg(feature = "hydrate")]
 fn set_stage_status(s: Shell, key: u64, status: super::super::state::UploadStatus) {
-    s.composer.compose_attachments.update(|v| {
+    let _ = s.composer.compose_attachments.try_update(|v| {
         if let Some(it) = v.iter_mut().find(|it| it.key == key) {
             it.status = status;
         }
@@ -506,11 +532,23 @@ pub fn copy_message_body(s: Shell, body: String) {
         })();
         match promise {
             Some(p) => match JsFuture::from(p).await {
-                Ok(_) => super::toast::show_success_toast(s, "Copied".to_string()),
-                Err(_) => s
-                    .composer
-                    .status
-                    .set("Couldn't copy — check clipboard permission".to_string()),
+                // Post-await tails (review M-10): the toast funnel writes
+                // `toasts.current` plainly, so prove the shell alive before
+                // pushing; the failure line degrades to a no-op. The `None`
+                // arm below runs BEFORE the spawned future's first await and
+                // stays plain.
+                Ok(_) => {
+                    if s.sync.polling.try_get_untracked().is_none() {
+                        return;
+                    }
+                    super::toast::show_success_toast(s, "Copied".to_string())
+                }
+                Err(_) => {
+                    let _ = s
+                        .composer
+                        .status
+                        .try_set("Couldn't copy — check clipboard permission".to_string());
+                }
             },
             None => s.composer.status.set("Clipboard unavailable".to_string()),
         }
@@ -531,12 +569,18 @@ pub fn edit_message(s: Shell, cid: String, mid: String, body: String) {
     s.composer.status.set(String::new());
     spawn_local(async move {
         match api::edit_message(&cid, &mid, &body).await {
-            Ok(()) => s.msg.messages.update(|v| {
-                if let Some(m) = v.iter_mut().find(|m| m.id == mid) {
-                    m.body = body.clone();
-                }
-            }),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // `try_` both arms (review M-10): the PATCH may resolve after
+            // logout disposed the shell — nothing left to patch or report.
+            Ok(()) => {
+                let _ = s.msg.messages.try_update(|v| {
+                    if let Some(m) = v.iter_mut().find(|m| m.id == mid) {
+                        m.body = body.clone();
+                    }
+                });
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -584,9 +628,20 @@ pub fn delete_message(s: Shell, cid: String, mid: String) {
     spawn_local(async move {
         match api::delete_message(&cid, &mid).await {
             Ok(()) => {
-                let _ = s.msg.seen.try_update(|h| {
-                    h.remove(&mid);
-                });
+                // `try_update` doubles as the disposal PROOF (review M-10):
+                // `None` back means logout disposed the shell while the
+                // DELETE was in flight — the soft-delete stands server-side
+                // and the toast funnel writes `toasts.current` plainly, so
+                // bail instead of pushing.
+                if s.msg
+                    .seen
+                    .try_update(|h| {
+                        h.remove(&mid);
+                    })
+                    .is_none()
+                {
+                    return;
+                }
                 // No envelope (row wasn't in the visible list — shouldn't
                 // happen, the affordances live on visible rows): nothing to
                 // resurface on Undo, so skip the toast; the trash pane can
@@ -599,6 +654,11 @@ pub fn delete_message(s: Shell, cid: String, mid: String) {
                 let msg = api::humanize(&e);
                 if let Some(envelope) = envelope {
                     resurface(s, &cid, envelope);
+                }
+                // Disposal proof before the toast (review M-10): `push`
+                // writes `toasts.current` plainly.
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
                 }
                 super::toast::show_error_toast(s, format!("Couldn't delete — {msg}"));
             }
@@ -657,10 +717,18 @@ pub(super) fn undo_message_delete(s: Shell, cid: String, mid: String, envelope: 
     spawn_local(async move {
         match api::restore_message(&cid, &mid).await {
             Ok(()) => resurface(s, &cid, envelope),
-            Err(e) => super::toast::show_error_toast(
-                s,
-                format!("Couldn't restore — {}", api::humanize(&e)),
-            ),
+            Err(e) => {
+                // Disposal proof before the toast (review M-10): `push`
+                // writes `toasts.current` plainly — a disposed shell has no
+                // toast surface left.
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                super::toast::show_error_toast(
+                    s,
+                    format!("Couldn't restore — {}", api::humanize(&e)),
+                )
+            }
         }
     });
 }
@@ -670,8 +738,14 @@ pub(super) fn undo_message_delete(s: Shell, cid: String, mid: String, envelope: 
 pub fn load_deleted_messages(s: Shell, cid: String) {
     spawn_local(async move {
         match api::list_deleted_messages(&cid).await {
-            Ok(r) => s.trash.deleted_messages.set(r.messages),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // `try_` both arms (review M-10): post-await — a disposed shell
+            // degrades to a no-op.
+            Ok(r) => {
+                let _ = s.trash.deleted_messages.try_set(r.messages);
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -684,12 +758,22 @@ pub fn restore_deleted_message(s: Shell, cid: String, mid: String) {
         match api::restore_message(&cid, &mid).await {
             Ok(()) => {
                 // Drop from the trash list immediately (no re-load needed).
-                s.trash
+                // `try_update` doubles as the disposal proof (review M-10):
+                // the POST may resolve after logout disposed the shell.
+                if s.trash
                     .deleted_messages
-                    .update(|v| v.retain(|m| m.id != mid));
+                    .try_update(|v| v.retain(|m| m.id != mid))
+                    .is_none()
+                {
+                    return;
+                }
                 // Reload channel messages so the restored one reappears.
                 if let Ok(l) = api::list_messages(&cid, None).await {
-                    s.msg.messages.set(l.messages.clone());
+                    // Re-prove after the second await (review M-10); the
+                    // remaining writes ride the same tick.
+                    if s.msg.messages.try_set(l.messages.clone()).is_some() {
+                        return;
+                    }
                     s.msg.seen.update(|h| {
                         h.clear();
                         for m in &l.messages {
@@ -701,7 +785,9 @@ pub fn restore_deleted_message(s: Shell, cid: String, mid: String) {
                         .set(l.messages.last().map(|m| (m.sent_at.clone(), m.id.clone())));
                 }
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -711,8 +797,14 @@ pub fn restore_deleted_message(s: Shell, cid: String, mid: String) {
 pub fn load_deleted_channels(s: Shell, gid: String) {
     spawn_local(async move {
         match api::list_deleted_channels(&gid).await {
-            Ok(r) => s.trash.deleted_channels.set(r.channels),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // `try_` both arms (review M-10): post-await — a disposed shell
+            // degrades to a no-op.
+            Ok(r) => {
+                let _ = s.trash.deleted_channels.try_set(r.channels);
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -771,7 +863,9 @@ pub fn show_wardrobe(s: Shell) {
     s.sync.wardrobe_open.set(true);
     spawn_local(async move {
         if let Ok(r) = api::list_personas().await {
-            s.social.personas.set(r.personas);
+            // `try_` (review M-10): post-await — the fetch may outlive the
+            // shell.
+            let _ = s.social.personas.try_set(r.personas);
         }
     });
 }
@@ -807,8 +901,14 @@ pub fn add_friend(s: Shell, username: String) {
     }
     spawn_local(async move {
         match api::add_friend(&username).await {
+            // `reload_friends` only spawns (no synchronous signal access) and
+            // its own tail is `try_`-guarded, so it is disposal-safe to call.
             Ok(()) => reload_friends(s),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // `try_` (review M-10): post-await — no status line left after a
+            // logout mid-flight.
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -823,8 +923,17 @@ pub fn invite_member(s: Shell, gid: String, username: String) {
         match api::invite_member(&gid, &username).await {
             // Success styling on the toast primitive (UX evolution #11's
             // status-line absorption); the red status <p> stays errors-only.
-            Ok(()) => super::toast::show_success_toast(s, format!("invited {username}")),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // Disposal proof first (review M-10): `push` writes
+            // `toasts.current` plainly.
+            Ok(()) => {
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                super::toast::show_success_toast(s, format!("invited {username}"))
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -854,8 +963,12 @@ pub fn create_lore(s: Shell, cid: String, keys: Vec<String>, content: String) {
     }
     spawn_local(async move {
         match api::create_lore(&cid, keys, &content).await {
+            // `load_lore` only spawns (disposal-safe); the status line gets
+            // the `try_` treatment (review M-10).
             Ok(_) => load_lore(s, cid),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -882,8 +995,11 @@ pub fn patch_lore(
             position,
         };
         match api::patch_lore(&cid, &eid, &req).await {
+            // Same disposal shape as `create_lore` (review M-10).
             Ok(()) => load_lore(s, cid),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -931,8 +1047,11 @@ pub fn swap_lore(s: Shell, cid: String, eid: String, position: i64, up: bool) {
         )
         .await;
         match (r1, r2) {
+            // Same disposal shape as `create_lore` (review M-10).
             (Ok(()), Ok(())) => load_lore(s, cid),
-            (Err(e), _) | (_, Err(e)) => s.composer.status.set(api::humanize(&e)),
+            (Err(e), _) | (_, Err(e)) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -951,7 +1070,9 @@ pub fn delete_lore(s: Shell, cid: String, eid: String) {
 fn reload_friends(s: Shell) {
     spawn_local(async move {
         if let Ok(f) = api::list_friends().await {
-            s.social.friends.set(f);
+            // `try_` (review M-10): post-await — the fetch may outlive the
+            // shell.
+            let _ = s.social.friends.try_set(f);
         }
     });
 }
@@ -960,7 +1081,9 @@ fn reload_friends(s: Shell) {
 pub(super) fn load_lore(s: Shell, cid: String) {
     spawn_local(async move {
         if let Ok(l) = api::list_lore(&cid).await {
-            s.social.lore.set(l.entries);
+            // `try_` (review M-10): post-await — the fetch may outlive the
+            // shell.
+            let _ = s.social.lore.try_set(l.entries);
         }
     });
 }
@@ -1023,7 +1146,10 @@ pub fn hydrate_last_seen(s: Shell) {
             return; // offline — keep the localStorage fallback already loaded.
         };
         let mut changed = false;
-        s.notify.last_seen.update(|m| {
+        // `try_update` doubles as the disposal proof (review M-10): the
+        // fetch can resolve after logout disposed the shell; the same-tick
+        // reads below ride this proof.
+        let merged = s.notify.last_seen.try_update(|m| {
             for c in r.cursors {
                 let incoming = (c.sent_at, c.id);
                 let newer = match m.get(&c.channel_id) {
@@ -1039,6 +1165,9 @@ pub fn hydrate_last_seen(s: Shell) {
                 }
             }
         });
+        if merged.is_none() {
+            return;
+        }
         if changed {
             let _ = LocalStorage::set(KEY_LAST_SEEN, s.notify.last_seen.get_untracked());
         }
@@ -1124,6 +1253,12 @@ pub(super) fn refresh_unread(s: Shell) {
         let Ok(r) = api::get_unread().await else {
             return;
         };
+        // Disposal guard (review M-10): the fetch can resolve after logout
+        // disposed the shell — one try_ read proves it alive for the whole
+        // synchronous reconcile below (single-threaded WASM).
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
+        }
         let mut unread_guilds: std::collections::HashSet<String> = std::collections::HashSet::new();
         for row in r.channels {
             if Some(&row.channel_id) == open.as_ref() {
@@ -1289,12 +1424,21 @@ pub(super) fn refresh_lists(s: Shell) {
     let sel = s.sel.sel_server.get_untracked();
     spawn_local(async move {
         if let Ok(r) = api::list_guilds().await {
-            if s.sel.guilds.with_untracked(|g| *g != r.guilds) {
+            // `try_` (review M-10): every await in this task can resolve
+            // after logout disposed the shell — each block re-proves
+            // liveness before its same-tick writes.
+            let Some(changed) = s.sel.guilds.try_with_untracked(|g| *g != r.guilds) else {
+                return;
+            };
+            if changed {
                 s.sel.guilds.set(r.guilds);
             }
         }
         if let Ok(f) = api::list_friends().await {
-            if s.social.friends.with_untracked(|cur| *cur != f) {
+            let Some(changed) = s.social.friends.try_with_untracked(|cur| *cur != f) else {
+                return;
+            };
+            if changed {
                 s.social.friends.set(f);
             }
         }
@@ -1303,8 +1447,12 @@ pub(super) fn refresh_lists(s: Shell) {
         };
         if let Ok(d) = api::get_guild(&gid).await {
             // Stale-guard: drop this pass's channels if the user switched
-            // servers while the fetch was in flight.
-            if s.sel.sel_server.get_untracked().as_deref() != Some(gid.as_str()) {
+            // servers while the fetch was in flight. (`try_`, review M-10:
+            // a disposed shell bails the same way.)
+            let Some(sel_now) = s.sel.sel_server.try_get_untracked() else {
+                return;
+            };
+            if sel_now.as_deref() != Some(gid.as_str()) {
                 return;
             }
             // Keep the per-guild cache warm for the open guild; write both
@@ -1342,6 +1490,12 @@ pub fn load_older(s: Shell) {
     s.msg.loading_older.set(true);
     spawn_local(async move {
         if let Ok(l) = api::list_messages_before(&ch.id, &oldest).await {
+            // Disposal guard (review M-10): the fetch can resolve after
+            // logout disposed the shell — one try_ read proves it alive for
+            // the synchronous prepend below.
+            if s.msg.more_history.try_get_untracked().is_none() {
+                return;
+            }
             if l.messages.len() < MESSAGES_PAGE_LIMIT {
                 s.msg.more_history.set(false);
             }
@@ -1373,7 +1527,9 @@ pub fn load_older(s: Shell) {
                 });
             }
         }
-        s.msg.loading_older.set(false);
+        // `try_` (review M-10): also reached when the fetch failed, still
+        // past the await.
+        let _ = s.msg.loading_older.try_set(false);
     });
 }
 
@@ -1388,17 +1544,28 @@ pub fn load_older(s: Shell) {
 /// every 1.5s as the fallback cadence.
 #[cfg(feature = "hydrate")]
 pub(super) async fn refresh_open_channel(s: Shell) {
-    if s.sync.pane.get_untracked() != Pane::Channel {
+    // `try_` prelude (review M-10): this fn is awaited from post-await tails
+    // (the poll loop's tick, dispatch's spawned tails, the typing-staleness
+    // clearer) that can resume after logout disposed the shell — bail
+    // instead of panicking, mirroring `sync::refresh_typing_surface`.
+    if s.sync.pane.try_get_untracked() != Some(Pane::Channel) {
         return;
     }
-    let Some(ch) = s.sel.sel_channel.get_untracked() else {
+    let Some(Some(ch)) = s.sel.sel_channel.try_get_untracked() else {
         return;
     };
     match api::list_messages(&ch.id, None).await {
         Ok(l) if l.messages.len() < MESSAGES_PAGE_LIMIT => {
-            // Stale-guard: drop this pass's data if the channel changed
-            // while the fetch was in flight (feedback gwiif7xy).
-            if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+            // Stale-guard + disposal guard (review M-10): drop this pass's
+            // data if the channel changed — or the shell died — while the
+            // fetch was in flight (feedback gwiif7xy).
+            if s.sel
+                .sel_channel
+                .try_get_untracked()
+                .flatten()
+                .map(|c| c.id)
+                != Some(ch.id.clone())
+            {
                 return;
             }
             let fresh = unseen(s, &l.messages);
@@ -1409,9 +1576,15 @@ pub(super) async fn refresh_open_channel(s: Shell) {
         }
         Ok(l) => {
             // Long history: page 1 is only the newest MESSAGES_PAGE_LIMIT
-            // rows. Stale-guard first, same as the short branch (feedback
-            // gwiif7xy).
-            if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+            // rows. Stale-guard + disposal guard first, same as the short
+            // branch (feedback gwiif7xy; review M-10).
+            if s.sel
+                .sel_channel
+                .try_get_untracked()
+                .flatten()
+                .map(|c| c.id)
+                != Some(ch.id.clone())
+            {
                 return;
             }
             let cur = s.msg.cursor.get_untracked();
@@ -1443,9 +1616,15 @@ pub(super) async fn refresh_open_channel(s: Shell) {
                 // Disconnected tail (nothing loaded yet, or more than a full
                 // page arrived since): catch up past the cursor exactly as
                 // before — appending here can never strand a mid-list gap.
-                // Stale-guard again after the second await (feedback
-                // gwiif7xy).
-                if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+                // Stale-guard + disposal guard again after the second await
+                // (feedback gwiif7xy; review M-10).
+                if s.sel
+                    .sel_channel
+                    .try_get_untracked()
+                    .flatten()
+                    .map(|c| c.id)
+                    != Some(ch.id.clone())
+                {
                     return;
                 }
                 let fresh = unseen(s, &l.messages);
@@ -1592,24 +1771,38 @@ fn reconcile_newest_window(s: Shell, page: Vec<MessageEnvelope>) {
 /// would render seconds-stale and linger a full TTL).
 #[cfg(feature = "hydrate")]
 pub(super) async fn refresh_ghost_drafts(s: Shell) {
-    if !s.prefs.ghost_quill.get_untracked() {
+    // `try_` prelude (review M-10): awaited from post-await tails
+    // (dispatch's spawned tails, the typing-staleness clearer) that can
+    // resume after logout disposed the shell; the pref proof covers the
+    // same-tick clear below.
+    let Some(enabled) = s.prefs.ghost_quill.try_get_untracked() else {
+        return;
+    };
+    if !enabled {
         if s.msg.ghost_drafts.with_untracked(|g| !g.is_empty()) {
             s.msg.ghost_drafts.set(Vec::new());
         }
         return;
     }
-    if s.sync.pane.get_untracked() != Pane::Channel {
+    if s.sync.pane.try_get_untracked() != Some(Pane::Channel) {
         return;
     }
-    let Some(ch) = s.sel.sel_channel.get_untracked() else {
+    let Some(Some(ch)) = s.sel.sel_channel.try_get_untracked() else {
         return;
     };
     if let Ok(drafts) = api::get_typing_drafts(&ch.id).await {
-        // Stale-guard: drop this pass if the channel changed while the fetch
-        // was in flight (same discipline as refresh_open_channel). The
+        // Stale-guard + disposal guard (review M-10): drop this pass if the
+        // channel changed — or the shell died — while the fetch was in
+        // flight (same discipline as refresh_open_channel). The
         // unconditional set also clears the signal whenever the fetch
         // returns empty.
-        if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(ch.id.clone()) {
+        if s.sel
+            .sel_channel
+            .try_get_untracked()
+            .flatten()
+            .map(|c| c.id)
+            != Some(ch.id.clone())
+        {
             return;
         }
         s.msg.ghost_drafts.set(drafts);
@@ -1639,6 +1832,13 @@ pub(super) fn start_poll(s: Shell) {
             if super::sync::current_gen() != gen {
                 // A promoted SSE driver owns sync now: stop fetching. Checked
                 // BEFORE the fetches so a retired loop costs zero requests.
+                break;
+            }
+            // Disposal guard (review M-10): logout's `sync::shutdown()`
+            // bumps the generation, but a shell disposed WITHOUT it (context
+            // teardown) would sail past the gen check into the refreshes'
+            // plain same-tick prelude reads — a dead shell ends the loop.
+            if s.sync.polling.try_get_untracked().is_none() {
                 break;
             }
             tick = tick.wrapping_add(1);

@@ -133,7 +133,9 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.sync.switching.set(true);
         spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(180).await;
-            s.sync.switching.set(false);
+            // `try_` (review M-10): a detached timer can outlive the shell
+            // (logout inside the 180ms window).
+            let _ = s.sync.switching.try_set(false);
         });
     }
     // Per-channel draft scoping: when actually switching channels, restore the
@@ -223,7 +225,16 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 // page was in flight, drop it so we don't paint the previous
                 // channel's messages under the new header (feedback gwiif7xy).
                 // The newer switch owns `loading_initial` now, so leave it.
-                if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(cid.clone()) {
+                // `try_` (review M-10): a shell disposed by logout mid-fetch
+                // bails the same way; the rest of this tail rides the proof
+                // on the same tick.
+                if s.sel
+                    .sel_channel
+                    .try_get_untracked()
+                    .flatten()
+                    .map(|c| c.id)
+                    != Some(cid.clone())
+                {
                     return;
                 }
                 // First page landed: drop the loading skeletons (F-7). Cleared
@@ -291,11 +302,20 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 if let Some(cur) = s.msg.cursor.get_untracked() {
                     super::message::set_last_seen(s, &seen_cid, cur);
                 }
-            } else if s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone()) {
+            } else {
                 // First-page fetch failed and we're still on this channel: drop
                 // the skeletons so the pane doesn't shimmer forever (F-7). A
                 // newer switch already owns the flag, so only clear it for ours.
-                s.msg.loading_initial.set(false);
+                // (`try_`, review M-10: a disposed shell skips the same way.)
+                let open = s
+                    .sel
+                    .sel_channel
+                    .try_get_untracked()
+                    .flatten()
+                    .map(|c| c.id);
+                if open.as_deref() == Some(cid.as_str()) {
+                    s.msg.loading_initial.set(false);
+                }
             }
         });
     }
@@ -310,6 +330,12 @@ pub fn open_deep_link(s: Shell, gid: String, cid: String, message: Option<String
         let Ok(d) = api::get_guild(&gid).await else {
             return;
         };
+        // Disposal guard (review M-10): the fetch can resolve after logout
+        // disposed the shell — bail before the plain same-tick writes below
+        // (and before re-persisting the server key for a dead session).
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
+        }
         let _ = LocalStorage::set(KEY_SERVER, &gid);
         s.sel.sel_server.set(Some(gid.clone()));
         s.sel.sel_owner.set(Some(d.owner_id.clone()));
@@ -344,6 +370,12 @@ pub fn restore_session(s: Shell) -> bool {
             LocalStorage::delete(KEY_CHANNEL);
             return;
         };
+        // Disposal guard (review M-10): the fetch can resolve after logout
+        // disposed the shell — the plain writes below (and the open_channel
+        // chain) assume a live shell.
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
+        }
         s.sel.sel_server.set(Some(gid.clone()));
         s.sel.sel_owner.set(Some(d.owner_id.clone()));
         s.sel.channels.set(d.channels.clone());
@@ -376,8 +408,17 @@ pub fn create_channel(s: Shell, name: String, kind: String) {
     }
     spawn_local(async move {
         match api::create_channel(&gid, &name, &kind).await {
-            Ok(_) => super::guild::open_server(s, gid),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // Disposal proof (review M-10): `open_server` writes signals
+            // plainly on entry, so prove the shell alive before calling.
+            Ok(_) => {
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                super::guild::open_server(s, gid)
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -391,11 +432,19 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
     spawn_local(async move {
         match api::patch_channel(&gid, &cid, &name).await {
             Ok(()) => {
-                s.sel.channels.update(|cs| {
-                    if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
-                        c.name = name.clone();
-                    }
-                });
+                // `try_update` doubles as the disposal proof (review M-10);
+                // the second write rides the same tick.
+                if s.sel
+                    .channels
+                    .try_update(|cs| {
+                        if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
+                            c.name = name.clone();
+                        }
+                    })
+                    .is_none()
+                {
+                    return;
+                }
                 s.sel.sel_channel.update(|sc| {
                     if let Some(c) = sc {
                         if c.id == cid {
@@ -404,7 +453,9 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
                     }
                 });
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -418,14 +469,20 @@ pub fn delete_channel(s: Shell, gid: String, cid: String) {
     spawn_local(async move {
         match api::delete_channel(&gid, &cid).await {
             Ok(()) => {
-                if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str())
-                {
+                // `try_` read doubles as the disposal proof (review M-10) —
+                // `open_server` below writes signals plainly on entry.
+                let Some(sel) = s.sel.sel_channel.try_get_untracked() else {
+                    return;
+                };
+                if sel.map(|c| c.id).as_deref() == Some(cid.as_str()) {
                     s.sel.sel_channel.set(None);
                     s.sync.pane.set(Pane::Friends);
                 }
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -510,9 +567,15 @@ fn persist_channel_order(s: Shell, gid: String, list: Vec<ChannelSummary>) {
     spawn_local(async move {
         for (cid, pos) in patches {
             if let Err(e) = api::set_channel_position(&gid, &cid, pos).await {
-                s.composer.status.set(api::humanize(&e));
+                // `try_` (review M-10): mid-loop awaits can outlive the shell.
+                let _ = s.composer.status.try_set(api::humanize(&e));
                 break;
             }
+        }
+        // Disposal proof (review M-10): `open_server` writes signals plainly
+        // on entry.
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
         }
         super::guild::open_server(s, gid);
     });
@@ -524,11 +587,19 @@ fn persist_channel_order(s: Shell, gid: String, list: Vec<ChannelSummary>) {
 pub fn restore_channel(s: Shell, gid: String, cid: String) {
     spawn_local(async move {
         match api::restore_channel(&gid, &cid).await {
+            // Disposal proof (review M-10): `open_server` writes signals
+            // plainly on entry (`load_deleted_channels` only spawns, but it
+            // rides the same proof).
             Ok(()) => {
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
                 super::message::load_deleted_channels(s, gid.clone());
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
