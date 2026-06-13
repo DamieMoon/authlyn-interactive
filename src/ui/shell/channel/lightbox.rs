@@ -2,10 +2,17 @@
 //! gallery nav, zoom buttons/keys, and (hydrate-only) a self-contained pointer
 //! gesture engine — pinch, pan, double-tap, drag-down-to-dismiss.
 //!
-//! [`LightboxState`]/[`LbTransform`] and the pure transform math are un-gated
-//! (plain f64 arithmetic, unit-tested under the ssr graph); the interactive
-//! view + gesture engine are hydrate-only, with a minimal ssr twin that the
-//! client hydrates into.
+//! [`LightboxState`]/[`LbTransform`], the pure transform math, and the
+//! gesture state machine ([`Gesture`] + [`pinch_pointer_gone`]) are un-gated
+//! (plain data, unit-tested under the ssr graph); the interactive view +
+//! gesture engine are hydrate-only, with a minimal ssr twin that the client
+//! hydrates into.
+//!
+//! The overlay stays bespoke (NOT `ui::modal` — restyling through it would
+//! change visuals, see modal.rs) but carries the same dialog a11y contract:
+//! `role="dialog"`/`aria-modal`, focus moves in on open, Tab/Shift+Tab wrap
+//! within the controls, Escape closes, and focus returns to the pre-open
+//! element on close (review M-49).
 
 use leptos::prelude::*;
 
@@ -165,14 +172,16 @@ pub(super) fn should_dismiss(dy: f64, view_h: f64, vy: f64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Gesture engine (hydrate-only).
+// Gesture engine. The state machine (mode enum + bookkeeping struct + the
+// pinch-degrade transition) is plain data, un-gated so the ssr test graph can
+// unit-test it; the DOM wiring below stays hydrate-only.
 // ---------------------------------------------------------------------------
 
 /// What the active pointers are currently doing. Single-finger intent is
 /// decided once, when the press first leaves the slop radius: pan wins while
 /// zoomed (judges' arbitration rule — a pan at scale > 1 must beat the gallery
 /// swipe), otherwise the dominant axis picks gallery-swipe vs drag-dismiss.
-#[cfg(feature = "hydrate")]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 enum GestureMode {
     #[default]
@@ -191,7 +200,7 @@ enum GestureMode {
 
 /// Pointer bookkeeping for one gesture. Lives in a `StoredValue` (plumbing,
 /// not UI — it must never re-render anything per pointermove).
-#[cfg(feature = "hydrate")]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 #[derive(Clone, Default)]
 struct Gesture {
     /// Active tracked pointers (id, last x, last y); capped at two.
@@ -210,6 +219,39 @@ struct Gesture {
     velocity: (f64, f64),
     /// Last completed tap (time ms, x, y) for double-tap pairing.
     last_tap: Option<(f64, f64, f64)>,
+}
+
+/// A pinch just lost a pointer (finger lifted OR the browser cancelled it —
+/// system edge gesture, palm rejection): transition the gesture for whatever
+/// remains. One survivor while zoomed carries on as a pan re-anchored on that
+/// finger; one survivor at fit scale ends the gesture and asks the caller to
+/// snap the view home (returns `true`); no survivors go idle where they are;
+/// two remaining pointers (an untracked extra finger vanished) keep pinching.
+///
+/// Shared by `on_pointerup` and `on_pointercancel` so the two release paths
+/// can never drift apart again — pointercancel used to skip the degrade and
+/// froze the gesture in two-pointer Pinch mode with `.gesturing` pinned
+/// (review M-35). `cur` is the live transform at the moment of loss.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+fn pinch_pointer_gone(g: &mut Gesture, cur: LbTransform) -> bool {
+    match g.pointers[..] {
+        [survivor] => {
+            if cur.scale > 1.01 {
+                g.mode = GestureMode::Pan;
+                g.start_tf = cur;
+                g.origin = (survivor.1, survivor.2);
+                false
+            } else {
+                g.mode = GestureMode::Idle;
+                true
+            }
+        }
+        [] => {
+            g.mode = GestureMode::Idle;
+            false
+        }
+        _ => false, // both pinch fingers still down: carry on
+    }
 }
 
 /// Render the lightbox overlay when open. Split out of `ChannelPane` so the
@@ -241,6 +283,7 @@ pub(super) fn lightbox_view(
     use leptos::ev::{KeyboardEvent, PointerEvent, WheelEvent};
     use leptos::wasm_bindgen::JsCast;
     use leptos::web_sys;
+    use send_wrapper::SendWrapper;
 
     // Scale step for the +/− buttons and keys.
     const ZOOM_STEP: f64 = 0.5;
@@ -268,6 +311,36 @@ pub(super) fn lightbox_view(
                     .flatten()
                     .is_some()
             })
+    }
+
+    /// The lightbox's focusable controls in DOM order (close/nav/zoom buttons
+    /// plus a video entry's `<video controls>`), for the dialog Tab trap. A
+    /// local twin of `ui::modal`'s private helper — the lightbox is
+    /// deliberately bespoke (review M-49) — extended with `video[controls]`,
+    /// which a modal never hosts: the natively tab-focusable video renders
+    /// LAST in the overlay, so without it forward-Tab from zoom "+" wrapped
+    /// straight past the video (its controls keyboard-unreachable) and a
+    /// pointer-focused video resolved no idx, letting the next Tab escape
+    /// into the page behind. Focus inside the closed UA shadow controls
+    /// retargets `activeElement` to the `<video>` host, so the host is one
+    /// trap stop in either direction.
+    fn focusables(root: &web_sys::Element) -> Vec<web_sys::HtmlElement> {
+        const SEL: &str = "a[href], button:not([disabled]), input:not([disabled]), \
+                           textarea:not([disabled]), select:not([disabled]), \
+                           video[controls], [tabindex]:not([tabindex=\"-1\"])";
+        let Ok(list) = root.query_selector_all(SEL) else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(list.length() as usize);
+        for i in 0..list.length() {
+            if let Some(el) = list
+                .item(i)
+                .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
+            {
+                out.push(el);
+            }
+        }
+        out
     }
 
     // Backdrop opacity (1 = the usual dim): thinned 1:1 by drag-dismiss.
@@ -384,6 +457,40 @@ pub(super) fn lightbox_view(
         "0" => {
             ev.prevent_default();
             reset_view();
+        }
+        "Tab" => {
+            // Dialog focus trap, mirroring `ui::modal`: Tab/Shift+Tab wrap
+            // within the lightbox's own controls so keyboard focus can't
+            // escape into the page behind the full-screen overlay — after
+            // which Escape would stop closing, since this keydown only fires
+            // while focus is inside (review M-49).
+            let Some(lb) = lb_ref.get_untracked() else {
+                return;
+            };
+            let els = focusables(lb.as_ref());
+            if els.is_empty() {
+                return;
+            }
+            let active = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.active_element())
+                .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok());
+            let idx = active
+                .as_ref()
+                .and_then(|a| els.iter().position(|el| el == a));
+            let last = els.len() - 1;
+            // Wrap when leaving either end; Shift+Tab from the container
+            // itself (idx None, the post-open state) lands on the last
+            // control instead of escaping backwards.
+            let (wrap, target) = if ev.shift_key() {
+                (idx == Some(0) || idx.is_none(), last)
+            } else {
+                (idx == Some(last), 0)
+            };
+            if wrap {
+                ev.prevent_default();
+                let _ = els[target].focus();
+            }
         }
         _ => {}
     };
@@ -561,20 +668,11 @@ pub(super) fn lightbox_view(
             g.pointers.remove(pos);
             match g.mode {
                 GestureMode::Pinch => {
-                    if let [rest] = &g.pointers[..] {
-                        // One finger lifted: carry on as a pan from here while
-                        // still zoomed, otherwise settle back to dead centre.
-                        let cur = live_tf();
-                        if cur.scale > 1.01 {
-                            g.mode = GestureMode::Pan;
-                            g.start_tf = cur;
-                            g.origin = (rest.1, rest.2);
-                        } else {
-                            g.mode = GestureMode::Idle;
-                            after = After::Snap(LbTransform::default(), 1.0);
-                        }
-                    } else {
-                        g.mode = GestureMode::Idle;
+                    // One finger lifted: carry on as a pan from here while
+                    // still zoomed, otherwise settle back to dead centre
+                    // (shared with on_pointercancel — see pinch_pointer_gone).
+                    if pinch_pointer_gone(g, live_tf()) {
+                        after = After::Snap(LbTransform::default(), 1.0);
                     }
                 }
                 GestureMode::Pending => {
@@ -638,7 +736,8 @@ pub(super) fn lightbox_view(
             }
         });
         // Settle: drop the gesture class FIRST (re-enabling the snap
-        // transition and releasing will-change) so the final write animates.
+        // transition and releasing will-change) so the final write animates
+        // once no finger remains (a pinch survivor keeps the class).
         if gest.with_value(|g| g.pointers.is_empty()) {
             gesturing.set(false);
         }
@@ -671,23 +770,39 @@ pub(super) fn lightbox_view(
     };
 
     // The browser took the pointer back (system gesture, palm rejection…):
-    // forget it, and snap a half-done swipe/drag home.
+    // forget it, and snap a half-done swipe/drag home. A pinch losing ONE
+    // finger degrades exactly like on_pointerup's release — pan on the
+    // survivor while zoomed, snap home at fit; before this mirrored path the
+    // gesture froze in two-pointer Pinch mode with `.gesturing` (will-change)
+    // pinned until a full lift (review M-35).
     let on_pointercancel = move |ev: PointerEvent| {
         let mut snap_home = false;
         gest.update_value(|g| {
             g.pointers.retain(|p| p.0 != ev.pointer_id());
-            if g.pointers.is_empty() && g.mode != GestureMode::Idle {
+            if g.mode == GestureMode::Pinch {
+                snap_home = pinch_pointer_gone(g, live_tf());
+            } else if g.pointers.is_empty() && g.mode != GestureMode::Idle {
                 snap_home = matches!(g.mode, GestureMode::SwipeH | GestureMode::DragV);
                 g.mode = GestureMode::Idle;
             }
         });
+        // Settle ordering as in on_pointerup: drop `.gesturing` BEFORE the
+        // snap write so the final write animates when this was the last
+        // finger. A pinch survivor at fit scale keeps the class until it
+        // lifts — harmless, as the transform is already ~identity there, so
+        // the un-animated snap-home write has nothing visible to move.
         if gest.with_value(|g| g.pointers.is_empty()) {
             gesturing.set(false);
-            if snap_home {
-                reset_view();
-            }
+        }
+        if snap_home {
+            reset_view();
         }
     };
+
+    // The element that held focus when the lightbox stole it — restored on
+    // close (WCAG 2.4.3, review M-49). `SendWrapper` carries the non-`Send`
+    // wasm handle across the `StoredValue` boundary, as in `ui::modal`.
+    let trigger: StoredValue<Option<SendWrapper<web_sys::HtmlElement>>> = StoredValue::new(None);
 
     Effect::new(move |_| {
         if lightbox.with(|o| o.is_some()) {
@@ -697,8 +812,40 @@ pub(super) fn lightbox_view(
             gesturing.set(false);
             reset_view();
             if let Some(el) = lb_ref.get() {
+                // Snapshot the focus we are about to steal so close can hand
+                // it back. Gallery steps re-run this with focus already
+                // inside the lightbox; the `contains` filter drops those so
+                // the original trigger is never clobbered.
+                let lb_el: &web_sys::Element = (*el).as_ref();
+                let prev = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.active_element())
+                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+                    .filter(|el| !lb_el.contains(Some(el.as_ref())));
+                if let Some(prev) = prev {
+                    trigger.set_value(Some(SendWrapper::new(prev)));
+                }
                 let _ = (*el).focus();
             }
+        } else {
+            // Closed (Esc, ✕, backdrop tap, drag-dismiss): hand focus back to
+            // the element it was lifted from. Take-then-focus so a later
+            // re-open starts from a clean slate.
+            let prev = trigger.try_get_value().flatten();
+            trigger.set_value(None);
+            if let Some(prev) = prev {
+                let _ = prev.focus();
+            }
+        }
+    });
+
+    // If the whole pane unmounts while the lightbox is open (channel switch),
+    // the close branch above never runs — restore from cleanup instead, like
+    // `ui::modal`. A trigger that unmounted with the pane no-ops silently;
+    // a normal close already took the value, so this can't double-fire.
+    on_cleanup(move || {
+        if let Some(prev) = trigger.try_get_value().flatten() {
+            let _ = prev.focus();
         }
     });
 
@@ -757,6 +904,7 @@ pub(super) fn lightbox_view(
 
             view! {
                 <div class="lightbox" node_ref=lb_ref tabindex="-1"
+                    role="dialog" aria-modal="true" aria-label="attachment viewer"
                     class:gesturing=move || gesturing.get()
                     on:keydown=on_keydown
                     on:pointerdown=on_pointerdown
@@ -820,7 +968,8 @@ pub(super) fn lightbox_view(
                     .into_any()
                 };
                 view! {
-                    <div class="lightbox">
+                    <div class="lightbox" tabindex="-1"
+                        role="dialog" aria-modal="true" aria-label="attachment viewer">
                         <div class="lightbox-backdrop"></div>
                         <button class="lightbox-close" title="close">"✕"</button>
                         {media}
@@ -968,6 +1117,85 @@ mod tests {
         let got = double_tap_target(LbTransform::default(), (1.0, 1.0), img, view);
         assert!(got.tx.abs() <= 300.0 + 1e-9, "got {got:?}");
         assert!(got.ty.abs() <= 200.0 + 1e-9, "got {got:?}");
+    }
+
+    #[test]
+    fn losing_one_pinch_finger_while_zoomed_degrades_to_a_pan_anchored_on_the_survivor() {
+        // Mid-pinch at 2x, one finger is gone (lifted OR cancelled — the two
+        // paths must behave identically, review M-35) and one survives.
+        let mut g = Gesture {
+            pointers: vec![(7, 320.0, 410.0)],
+            mode: GestureMode::Pinch,
+            ..Default::default()
+        };
+        let cur = LbTransform {
+            scale: 2.0,
+            tx: 12.0,
+            ty: -8.0,
+        };
+        let snap = pinch_pointer_gone(&mut g, cur);
+        assert!(!snap, "still zoomed: keep gesturing, no snap home");
+        assert_eq!(
+            g.mode,
+            GestureMode::Pan,
+            "the survivor must keep panning, never freeze in two-pointer Pinch"
+        );
+        assert_eq!(g.start_tf, cur, "pan re-anchors on the live transform");
+        assert_eq!(g.origin, (320.0, 410.0), "pan origin is the survivor");
+    }
+
+    #[test]
+    fn losing_one_pinch_finger_at_fit_scale_ends_the_gesture_and_requests_a_snap_home() {
+        let mut g = Gesture {
+            pointers: vec![(7, 320.0, 410.0)],
+            mode: GestureMode::Pinch,
+            ..Default::default()
+        };
+        let snap = pinch_pointer_gone(&mut g, LbTransform::default());
+        assert!(
+            snap,
+            "at fit there is nothing to pan: settle back to centre"
+        );
+        assert_eq!(g.mode, GestureMode::Idle);
+    }
+
+    #[test]
+    fn an_untracked_pointer_vanishing_must_not_break_a_live_two_finger_pinch() {
+        // A third (never-tracked) finger cancels: both pinch fingers remain.
+        let mut g = Gesture {
+            pointers: vec![(1, 100.0, 100.0), (2, 200.0, 200.0)],
+            mode: GestureMode::Pinch,
+            ..Default::default()
+        };
+        let snap = pinch_pointer_gone(
+            &mut g,
+            LbTransform {
+                scale: 2.0,
+                tx: 0.0,
+                ty: 0.0,
+            },
+        );
+        assert!(!snap);
+        assert_eq!(g.mode, GestureMode::Pinch, "pinch continues untouched");
+    }
+
+    #[test]
+    fn losing_both_pinch_fingers_goes_idle_without_a_snap() {
+        let mut g = Gesture {
+            pointers: vec![],
+            mode: GestureMode::Pinch,
+            ..Default::default()
+        };
+        let snap = pinch_pointer_gone(
+            &mut g,
+            LbTransform {
+                scale: 3.0,
+                tx: 0.0,
+                ty: 0.0,
+            },
+        );
+        assert!(!snap, "no survivor to settle for; the transform stays put");
+        assert_eq!(g.mode, GestureMode::Idle);
     }
 
     #[test]
