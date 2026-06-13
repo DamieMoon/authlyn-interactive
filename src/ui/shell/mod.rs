@@ -417,6 +417,12 @@ fn AppShell() -> impl IntoView {
     let personas_tab_active = move || s.sync.wardrobe_open.get();
 
     view! {
+        // W5/P1 NOTE: the W3 rail/sidebar/bottom-tabs below are SCAFFOLDING retained
+        // to prove the skeleton switch mid-wave. They render under any .app.sk-* class
+        // until that skeleton's _sk_*.scss + sk_*/mod.rs land (Phases 2-4). DELETE all
+        // W3 chrome + _layout/_rail/_sidebar/_nav/_mobile partials in Phase 6
+        // (retirement). This is the acknowledged in-wave-only "no silent default"
+        // exception (spec §1): a localStorage-unavailable dev build boots orbit→W3.
         <div class="app"
             class:dialogue-style=move || s.prefs.dialogue_style.get()
             class:fx-max=move || s.prefs.eyecandy.get()
