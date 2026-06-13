@@ -402,6 +402,22 @@ impl MessageRow {
 // SELECT against a throwaway namespace on prod's binary over HTTP /sql
 // (seeded message + media_blob + whispered reply parent), or upgrade prod to
 // the verified 3.1.3 first.
+//
+// The same gate now ALSO covers the review M-12-follow-up / M-41-follow-up
+// statement shapes, equally verified only on 3.1.3 (same throwaway-namespace
+// procedure, same deploy):
+//   - the LET boundary probes — `LET $b = array::last((SELECT VALUE sent_at …
+//     ORDER BY sent_at DESC LIMIT $param))` in `load_messages`' cursorless
+//     arm below, and the `array::first(… LIMIT 1)` twin in unread.rs —
+//     i.e. LET binding a parenthesized subquery with a PARAMETERIZED LIMIT,
+//     then range/point statements comparing against the bound `$b`;
+//   - the conditional restore — `UPDATE type::record('message', $mid) SET
+//     deleted_at = NONE WHERE deleted_at != NONE RETURN VALUE meta::id(id)`
+//     in editing.rs `restore_message`.
+// Note the skew split: CORRECTNESS of these shapes is what the gate checks;
+// the Backward-IndexScan early-exit the probe comments cite was observed via
+// EXPLAIN FULL on 3.1.3 ONLY and may simply not exist on 3.0.4 — that would
+// cost the perf win until the prod upgrade, never correctness.
 pub(super) const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
@@ -460,16 +476,46 @@ async fn load_messages(
     // truncating to the page limit yields exactly the single-statement page.
     // tests/messages.rs pins the tie-group boundary and the nearest-the-cursor
     // truncation in both directions.
-    let (sql, bound, reverse) = match cursor {
+    //
+    // The cursorless newest-page arm gets the same treatment (review M-12
+    // follow-up): ORDER BY the computed alias `id_key` cannot ride the
+    // (channel, sent_at) index, so the single-statement form fed EVERY live
+    // row of the channel through SortTopKByKey per call. A LET boundary
+    // probe (`ORDER BY sent_at DESC LIMIT $page_limit` — raw column, so the
+    // planner early-exits a Backward IndexScan; verified via EXPLAIN FULL on
+    // the 3.1.3 dev binary) finds the page's oldest `sent_at` instant, then
+    // the page reassembles as the open range PAST that instant (`MoreThan`,
+    // ≤ page_limit−1 rows by construction of the boundary) plus the boundary
+    // instant's tie group cut by id (a `[channel, $boundary]` point access)
+    // — exactly the cursor arms' split, so the same concatenate-and-truncate
+    // yields exactly the single-statement page. An EMPTY boundary (virgin or
+    // fully soft-deleted channel) makes both statements match nothing.
+    // Equivalence (boundary-straddling tie group, seam losslessness, empty
+    // arms) is pinned in tests/messages.rs. All EXPLAIN evidence here is
+    // 3.1.3-only — the LET-probe shape is covered by the MSG_PROJECTION
+    // VERSION-SKEW runbook gate above (prod still runs 3.0.4).
+    let (sql, bound, reverse, first_stmt) = match cursor {
         CursorState::None => (
             format!(
-                "SELECT {MSG_PROJECTION} FROM message
+                "LET $boundary = array::last((SELECT VALUE sent_at FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
+                    ORDER BY sent_at DESC LIMIT $page_limit));
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at > $boundary
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at = $boundary
                     ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
             ),
             None,
             true,
+            // Statement 0 is the LET probe; the page starts at statement 1.
+            1,
         ),
         CursorState::Both { since, after_id } => (
             format!(
@@ -487,6 +533,7 @@ async fn load_messages(
             ),
             Some(("since", since, "after_id", after_id)),
             false,
+            0,
         ),
         CursorState::Before { before, before_id } => (
             format!(
@@ -504,10 +551,10 @@ async fn load_messages(
             ),
             Some(("before", before, "before_id", before_id)),
             true,
+            0,
         ),
     };
 
-    let split = bound.is_some();
     let mut q = state
         .db
         .query(sql)
@@ -518,16 +565,15 @@ async fn load_messages(
         q = q.bind((k1, v1)).bind((k2, v2));
     }
     let mut resp = q.await?.check()?;
-    let mut rows: Vec<MessageRow> = resp.take(0)?;
-    if split {
-        // Cursor arms: statement 0 is the tie-boundary page head, statement 1
-        // the open-range tail. Truncate BEFORE the display flip so the kept
-        // rows are the ones nearest the cursor — exactly what the
-        // single-statement LIMIT kept.
-        let tail: Vec<MessageRow> = resp.take(1)?;
-        rows.extend(tail);
-        rows.truncate(MESSAGES_PAGE_LIMIT as usize);
-    }
+    // Every arm is a split pair: statement `first_stmt` is the page head
+    // (tie-boundary group on the cursor arms, the strictly-newer open range
+    // on the newest page), `first_stmt + 1` the tail. Truncate BEFORE the
+    // display flip so the kept rows are the ones nearest the cursor / "now"
+    // — exactly what the single-statement LIMIT kept.
+    let mut rows: Vec<MessageRow> = resp.take(first_stmt)?;
+    let tail: Vec<MessageRow> = resp.take(first_stmt + 1)?;
+    rows.extend(tail);
+    rows.truncate(MESSAGES_PAGE_LIMIT as usize);
     let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
     if reverse {
         out.reverse();

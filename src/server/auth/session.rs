@@ -17,7 +17,10 @@ use crate::server::state::AppState;
 
 use super::crypto::{random_token, sha256_hex};
 
-pub(super) const SESSION_COOKIE: &str = "authlyn_session";
+/// Name of the session cookie. `pub(crate)` because the long-lived
+/// `GET /events` stream (`server::events`) reads the raw token at connect to
+/// re-derive identity for the stream's lifetime (review M-05).
+pub(crate) const SESSION_COOKIE: &str = "authlyn_session";
 const SESSION_TTL_DAYS: i64 = 30;
 
 // ---------------------------------------------------------------------------
@@ -89,11 +92,30 @@ pub(super) async fn account_for_token(
     state: &AppState,
     token: &str,
 ) -> surrealdb::Result<Option<String>> {
+    account_for_token_hash(state, session_token_hash(token)).await
+}
+
+/// SHA-256 hex of a raw session token — the form `session.token_hash` stores
+/// (the DB never sees the raw token). `pub(crate)` so a long-lived consumer
+/// (the SSE stream, review M-05) hashes once at connect and re-checks via
+/// [`account_for_token_hash`] without owning a mirror of the transform.
+pub(crate) fn session_token_hash(token: &str) -> String {
+    sha256_hex(token.as_bytes())
+}
+
+/// Resolve a STORED token hash to its live account key (`None` = no such
+/// session, or expired). The hash-keyed twin of [`account_for_token`]: the
+/// per-request extractor path and the SSE per-frame re-check (review M-05)
+/// share this exact lookup, so "is this session valid" can never mean two
+/// different things.
+pub(crate) async fn account_for_token_hash(
+    state: &AppState,
+    token_hash: String,
+) -> surrealdb::Result<Option<String>> {
     #[derive(SurrealValue)]
     struct Row {
         account_key: String,
     }
-    let token_hash = sha256_hex(token.as_bytes());
     let mut resp = state
         .db
         .query(

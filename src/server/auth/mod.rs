@@ -35,6 +35,14 @@ mod session;
 // — re-export so the public path stays stable after the split.
 pub use self::session::AuthAccount;
 
+// Session-validity primitives for the long-lived `GET /events` stream
+// (`server::events`), which re-derives identity for the LIFETIME of its
+// connection (review M-05): the cookie name, the token→stored-hash transform,
+// and the hash-keyed lookup. Hoisted here (wave-2 follow-up of M-05) so
+// events.rs consumes the auth module's own definitions instead of owning
+// drift-prone mirror copies.
+pub(crate) use self::session::{account_for_token_hash, session_token_hash, SESSION_COOKIE};
+
 // Route handlers referenced by `server/mod.rs::small_body_routes` keep
 // their `crate::server::auth::<fn>` paths via these re-exports.
 pub use self::admin::admin_reset_password;

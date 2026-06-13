@@ -151,22 +151,38 @@ pub async fn restore_message(
     if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
         return resp;
     }
+    // Conditional write: only a row that IS soft-deleted transitions — the
+    // pinned idempotent 204 on an already-live message matches nothing and
+    // writes nothing. RETURN VALUE surfaces whether the transition happened,
+    // so the bus emit below fires only for a REAL reappearance (review M-41
+    // follow-up: the no-op 204 used to broadcast a spurious message_created,
+    // fanning a full open-channel refetch to every member's connection).
+    // This `UPDATE … WHERE … RETURN VALUE` shape is verified on the 3.1.3
+    // dev binary only — it falls under the MSG_PROJECTION VERSION-SKEW
+    // runbook gate in reading.rs (prod still runs 3.0.4).
     let result = with_write_conflict_retry(|| async {
-        state
+        let mut resp = state
             .db
-            .query("UPDATE type::record('message', $mid) SET deleted_at = NONE;")
+            .query(
+                "UPDATE type::record('message', $mid) SET deleted_at = NONE
+                    WHERE deleted_at != NONE RETURN VALUE meta::id(id);",
+            )
             .bind(("mid", mid.clone()))
             .await?
             .check()?;
-        Ok(())
+        let restored: Vec<String> = resp.take(0)?;
+        Ok(!restored.is_empty())
     })
     .await;
     match result {
-        Ok(()) => {
-            // A restored message reappears — notify-and-fetch treats it as new arrival.
-            state.emit(crate::protocol::SyncEvent::MessageCreated {
-                channel_id: cid.clone(),
-            });
+        Ok(transitioned) => {
+            if transitioned {
+                // A restored message reappears — notify-and-fetch treats it
+                // as new arrival.
+                state.emit(crate::protocol::SyncEvent::MessageCreated {
+                    channel_id: cid.clone(),
+                });
+            }
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => {

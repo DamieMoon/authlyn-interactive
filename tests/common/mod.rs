@@ -90,6 +90,24 @@ pub async fn arena_with_draft_ttl(ttl: std::time::Duration) -> Arena {
     }
 }
 
+/// Like [`arena`] but with the SSE quiet-stream session re-check period
+/// overridden (review M-05 follow-up). Same before-`make_router` contract as
+/// [`arena_with_draft_ttl`] (`sse_recheck_period` is `Copy` on `AppState`).
+/// Lets the quiet-revocation test run in milliseconds instead of sleeping
+/// out the 30s production period.
+pub async fn arena_with_sse_recheck_period(period: std::time::Duration) -> Arena {
+    let db = test_db().await;
+    let media_dir = test_media_dir();
+    let state = AppState::new(db.clone(), media_dir.clone()).with_sse_recheck_period(period);
+    let router = make_router(state.clone());
+    Arena {
+        router,
+        db,
+        media_dir,
+        state,
+    }
+}
+
 /// Per-arena media-storage tempdir. Uses `random_id()` for uniqueness —
 /// 16 bytes of entropy is more than enough to prevent collisions even
 /// under aggressive parallel `cargo test` workers. Leaks on drop —

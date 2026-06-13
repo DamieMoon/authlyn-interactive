@@ -1642,3 +1642,101 @@ async fn reply_preview_masks_whispered_parent_snippet() {
     );
     assert_eq!(snippet, "(whisper)", "masked with the fixed placeholder");
 }
+
+/// Review M-12 (newest-page arm): the cursorless newest page must be the top
+/// `MESSAGES_PAGE_LIMIT` rows under the strict `(sent_at, id)` order —
+/// including when an equal-`sent_at` tie group STRADDLES the page boundary:
+/// the tie group is cut by id (highest ids stay in the page) and the cut-off
+/// rows remain reachable through the before-cursor, so no row is ever lost at
+/// the seam. Pins the exact semantics the index-friendly boundary-probe split
+/// (LET boundary + open range + boundary tie group) must reproduce.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn newest_page_boundary_tie_group_is_cut_by_id_and_loses_no_row() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    const T_TIE: &str = "2026-01-01T09:59:59Z";
+    let mut ties: Vec<String> = Vec::new();
+    for i in 0..6 {
+        let id = post_one(&a.router, &owner, &cid, &format!("tie {i}")).await;
+        force_sent_at(&a, &id, T_TIE).await;
+        ties.push(id);
+    }
+    let mut later: Vec<String> = Vec::new();
+    for i in 0..97 {
+        let id = post_one(&a.router, &owner, &cid, &format!("later {i}")).await;
+        force_sent_at(
+            &a,
+            &id,
+            &format!("2026-01-01T10:{:02}:{:02}Z", i / 60, i % 60),
+        )
+        .await;
+        later.push(id);
+    }
+    // Within the tie group display order is the id tie-break (lexical).
+    ties.sort();
+
+    // Newest page: 103 live rows, the top 100 under (sent_at, id) = the three
+    // HIGHEST tie ids, then every later row — ASC display order.
+    let got = page_ids(&a.router, &owner, &cid, "").await;
+    let expected: Vec<String> = ties[3..].iter().chain(later.iter()).cloned().collect();
+    assert_eq!(got.len(), 100);
+    assert_eq!(
+        got, expected,
+        "the newest page must cut the tie group by id"
+    );
+
+    // The three cut-off tie rows are exactly the backfill page before the
+    // newest page's first row — the seam loses nothing.
+    let got = page_ids(
+        &a.router,
+        &owner,
+        &cid,
+        &format!("?before={T_TIE}&before_id={}", ties[3]),
+    )
+    .await;
+    assert_eq!(got, ties[..3].to_vec(), "the seam must lose no tie row");
+}
+
+/// Review M-12 (newest-page arm): the boundary probe of the restructured
+/// newest page must degrade cleanly when the channel holds NO live rows —
+/// both a virgin channel and one whose every message is soft-deleted return
+/// an empty page (never an error).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn newest_page_is_empty_for_virgin_and_fully_deleted_channels() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = owner_with_text_channel(&a.router).await;
+
+    // Virgin channel: no message has ever existed.
+    let (status, _, chan) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "virgin", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let virgin_cid = chan["id"].as_str().unwrap().to_string();
+    let got = page_ids(&a.router, &owner, &virgin_cid, "").await;
+    assert!(got.is_empty(), "a virgin channel's page must be empty");
+
+    // Fully soft-deleted channel: rows exist, none of them live.
+    let mid = post_one(&a.router, &owner, &cid, "soon gone").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let got = page_ids(&a.router, &owner, &cid, "").await;
+    assert!(
+        got.is_empty(),
+        "a fully soft-deleted channel's page must be empty"
+    );
+}

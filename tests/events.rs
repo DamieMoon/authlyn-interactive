@@ -485,6 +485,63 @@ async fn rail_reorder_no_longer_broadcasts() {
     assert_eq!(ev["type"], "message_created");
 }
 
+/// Review M-31: creating a guild is observable ONLY by the creator (they are
+/// the sole member at birth) — the actor's connections get a TARGETED
+/// `lists_changed`, every other connection gets nothing (this used to
+/// broadcast globally: N connections × a visibility reload + three client
+/// refetches for an event nobody else can observe — same class as rail
+/// reorder above).
+#[tokio::test]
+async fn create_guild_no_longer_broadcasts() {
+    let a = common::arena().await;
+    let (owner, _gid, _cid) = owner_with_channel(&a.router, "CreateGuildActor").await;
+    // Unrelated account with their own guild (non-empty visible set).
+    let (other, _other_gid, other_cid) = owner_with_channel(&a.router, "CreateGuildOther").await;
+
+    let (st, _h, mut owner_body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _h, mut other_body) = common::open_sse(&a.router, "/events", Some(&other)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "Born Quiet" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    // The actor (their other devices) gets the refresh nudge…
+    let ev = match common::next_sse_data(&mut owner_body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        o => panic!("the creator should receive lists_changed, got {o:?}"),
+    };
+    assert_eq!(ev["type"], "lists_changed");
+
+    // …everyone else stays silent (Timeout, not Closed)…
+    match common::next_sse_data(&mut other_body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        o => panic!("guild creation must not broadcast, got {o:?}"),
+    }
+    // …with the usual aliveness proof.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{other_cid}/messages"),
+        Some(&other),
+        Some(&json!({ "body": "proof of life" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let ev = match common::next_sse_data(&mut other_body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        o => panic!("aliveness event should arrive, got {o:?}"),
+    };
+    assert_eq!(ev["type"], "message_created");
+}
+
 #[tokio::test]
 async fn channel_creation_emits_lists_changed_and_membership_set_refreshes() {
     let a = common::arena().await;
@@ -880,6 +937,190 @@ async fn logging_out_a_session_ends_its_live_events_stream() {
     match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
         common::SseRead::Closed => {}
         other => panic!("a logged-out session must not keep a live stream, got {other:?}"),
+    }
+}
+
+/// Review M-41 follow-up: restoring an ALREADY-LIVE message is a pinned
+/// idempotent 204 (tests/soft_delete.rs) — but the no-op must NOT broadcast
+/// `message_created` (each spurious frame fans a full open-channel refetch
+/// to every member's connection). A REAL restore (soft-deleted → live) must
+/// still broadcast: it is how the reappearance reaches open clients.
+#[tokio::test]
+async fn restore_of_an_already_live_message_does_not_emit_message_created() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "RestoreEmitOwner").await;
+
+    // Seed + soft-delete BEFORE subscribing, so neither event is in the stream.
+    let (st, _, msg) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "delete me, then bring me back" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let mid = msg["id"].as_str().unwrap().to_string();
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // A REAL restore transitions the row → message_created must arrive.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => {
+            assert_eq!(v["type"], "message_created");
+            assert_eq!(v["channel_id"], cid.as_str());
+        }
+        other => panic!("a real restore must broadcast message_created, got {other:?}"),
+    }
+
+    // The idempotent re-restore is a 204 no-op → the stream must stay SILENT
+    // (Timeout, not Data — and not Closed, the connection itself stays up).
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    match common::next_sse_data(&mut body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        other => panic!("a no-op restore must not broadcast, got {other:?}"),
+    }
+
+    // Aliveness proof: the silence is a withheld emit, not a dead stream.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "proof of life" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "message_created"),
+        other => panic!("aliveness event should arrive, got {other:?}"),
+    }
+}
+
+/// Review M-05 follow-up: the per-frame gate only runs when an event is
+/// DELIVERED — a revoked session on a fully QUIET stream must still die
+/// within ~one re-check period (`AppState::sse_recheck_period`, here shrunk
+/// to 100ms), not park in `recv()` holding an authenticated stream open
+/// indefinitely. The first half also proves the periodic re-check does NOT
+/// kill a live session: several quiet periods elapse, then the stream still
+/// delivers.
+#[tokio::test]
+async fn a_quiet_stream_dies_after_revocation_without_any_event() {
+    let a = common::arena_with_sse_recheck_period(Duration::from_millis(100)).await;
+    let (owner, _gid, cid) = owner_with_channel(&a.router, "QuietOwner").await;
+
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&owner)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Several re-check periods pass on a LIVE session — the stream must
+    // survive them and still deliver afterwards.
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "still alive after quiet periods" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => assert_eq!(v["type"], "message_created"),
+        other => panic!("a live session must survive quiet re-checks, got {other:?}"),
+    }
+
+    // Revoke the session — and post NOTHING afterwards. With no event to
+    // deliver, only the periodic re-check can end the stream (Closed; a
+    // Timeout here would mean it is still parked in `recv()`, the exact
+    // leak under test).
+    let (st, _, _) =
+        common::send(&a.router, Method::POST, "/auth/logout", Some(&owner), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    match common::next_sse_data(&mut body, Duration::from_secs(3)).await {
+        common::SseRead::Closed => {}
+        other => panic!("a quiet stream must die within ~one period of revocation, got {other:?}"),
+    }
+}
+
+/// Review M-05 follow-up hardening: the quiet-stream re-check is bound to a
+/// DEADLINE, not to bus-receive activity. A busy bus whose every event is
+/// INVISIBLE to this connection (account B posting in a guild A cannot see)
+/// completes `recv()` at a sub-period cadence; a per-receive timer would
+/// re-arm on each filtered `continue` and never fire, and the filtered paths
+/// never reach the per-frame gate — so revoked-A's stream would live as long
+/// as B keeps typing (the M-05 leak in a narrower disguise). The deadline
+/// advances only when a re-check actually runs, so A's revoked stream must
+/// still die within ~one period despite the traffic.
+#[tokio::test]
+async fn a_revoked_stream_dies_even_while_invisible_bus_traffic_keeps_arriving() {
+    let a = common::arena_with_sse_recheck_period(Duration::from_millis(100)).await;
+    let (victim, _gid_a, _cid_a) = owner_with_channel(&a.router, "DeadlineVictim").await;
+    let (busy, _gid_b, cid_b) = owner_with_channel(&a.router, "DeadlineNeighbor").await;
+
+    let (st, _h, mut body) = common::open_sse(&a.router, "/events", Some(&victim)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Revoke the victim's session, then keep the bus warm with events the
+    // victim's connection filters out, every ~40ms (well under the 100ms
+    // period) for longer than the read window below.
+    let (st, _, _) =
+        common::send(&a.router, Method::POST, "/auth/logout", Some(&victim), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let driver = {
+        let router = a.router.clone();
+        tokio::spawn(async move {
+            for i in 0..100 {
+                let (st, _, _) = common::send(
+                    &router,
+                    Method::POST,
+                    &format!("/channels/{cid_b}/messages"),
+                    Some(&busy),
+                    Some(&json!({ "body": format!("invisible noise {i}") })),
+                )
+                .await;
+                assert_eq!(st, StatusCode::CREATED);
+                tokio::time::sleep(Duration::from_millis(40)).await;
+            }
+        })
+    };
+
+    // Closed within the window — a Timeout means the invisible traffic kept
+    // re-arming the re-check and the revoked stream is still parked; a Data
+    // frame would be a privacy-filter failure on top.
+    let outcome = common::next_sse_data(&mut body, Duration::from_secs(3)).await;
+    driver.abort();
+    match outcome {
+        common::SseRead::Closed => {}
+        other => panic!(
+            "revoked stream must die on the re-check deadline despite invisible bus traffic, got {other:?}"
+        ),
     }
 }
 

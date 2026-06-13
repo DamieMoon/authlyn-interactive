@@ -502,3 +502,50 @@ async fn soft_deleted_guild_drops_its_channels_from_unread() {
         "a soft-deleted guild's channels must not appear in /unread"
     );
 }
+
+/// Review M-12 (/unread Latest probe): a cursorless channel's latest-row
+/// baseline at an equal-`sent_at` tie group must resolve to the HIGHEST id of
+/// the newest instant — the same strict `(sent_at, id)` order the message
+/// cursor uses, which the index-friendly boundary-probe restructure must
+/// preserve.
+#[tokio::test]
+async fn latest_baseline_at_an_equal_sent_at_tie_picks_the_highest_id() {
+    let a = common::arena().await;
+    let (owner, gid, cid) = setup(&a.router).await;
+    let buddy = common::register_account(&a.router, "LatestTieBuddy", "password123").await;
+    invite(&a.router, &owner, &gid, "LatestTieBuddy").await;
+
+    const T_OLD: &str = "2026-01-01T10:00:00Z";
+    const T_TIE: &str = "2026-01-01T10:00:05Z";
+    let early = post_msg(&a.router, &owner, &cid, "early").await;
+    force_sent_at(&a, early["id"].as_str().unwrap(), T_OLD).await;
+    let mut ties: Vec<String> = Vec::new();
+    for i in 0..3 {
+        let m = post_msg(&a.router, &owner, &cid, &format!("tie {i}")).await;
+        ties.push(m["id"].as_str().unwrap().to_string());
+    }
+    for id in &ties {
+        force_sent_at(&a, id, T_TIE).await;
+    }
+    ties.sort();
+
+    // Buddy never visited the channel → no cursor → the latest baseline.
+    let row = unread_row(&a.router, &buddy, &cid).await;
+    assert_eq!(
+        row["unread"], 0,
+        "cursorless channels baseline instead of glowing"
+    );
+    assert!(
+        row["latest_sent_at"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026-01-01T10:00:05"),
+        "latest_sent_at must be the tie instant, got {:?}",
+        row["latest_sent_at"]
+    );
+    assert_eq!(
+        row["latest_id"].as_str().unwrap(),
+        ties.last().unwrap(),
+        "the tie at the newest instant must resolve to the highest id"
+    );
+}

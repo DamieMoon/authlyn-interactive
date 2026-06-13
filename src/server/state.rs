@@ -29,6 +29,18 @@ pub type TypingDraftMap = HashMap<(String, String), (String, Instant)>;
 /// "is typing" line expire together.
 pub const DEFAULT_DRAFT_TTL: Duration = Duration::from_secs(8);
 
+/// Production period for the SSE forced session re-check (review M-05
+/// follow-up): a `/events` connection re-validates its session at least once
+/// per period REGARDLESS of bus traffic — the re-check runs on a deadline
+/// that only an actual re-check (deadline lapse, or a delivered frame's
+/// per-frame gate) advances, never a mere bus receive. So a revoked session
+/// dies within ~one period whether its stream is fully silent OR fed only
+/// events the privacy/target filters drop (which complete `recv()` without
+/// ever reaching the per-frame gate). 30s ≈ one revalidation per idle
+/// connection per half-minute — noise-level next to the per-delivered-frame
+/// checks an active stream already issues.
+pub const DEFAULT_SSE_RECHECK_PERIOD: Duration = Duration::from_secs(30);
+
 /// Bus envelope: an event plus its delivery scope. `targets: None` = the
 /// existing visibility-filtered/global path; `Some(accounts)` = deliver ONLY
 /// to those accounts' connections (bypasses channel-visibility filtering —
@@ -83,6 +95,17 @@ pub struct AppState {
     /// [`AppState::with_draft_ttl`] so the prune tests don't sleep 8s. Plain
     /// `Copy` data — set it BEFORE the state is cloned into the router.
     pub draft_ttl: Duration,
+    /// Longest a `/events` stream may go WITHOUT a session re-check (review
+    /// M-05 follow-up — the per-frame gate only fires on DELIVERY, so
+    /// without this a revoked session on a stream that delivers nothing,
+    /// whether the bus is silent or all its events are filtered out, would
+    /// hold its connection open indefinitely). Enforced as a deadline that
+    /// only an actual re-check advances — see [`DEFAULT_SSE_RECHECK_PERIOD`].
+    /// That default (30s) in production; injectable via
+    /// [`AppState::with_sse_recheck_period`] so the revocation test doesn't
+    /// sleep 30s. Plain `Copy` data — set it BEFORE the state is cloned into
+    /// the router.
+    pub sse_recheck_period: Duration,
     /// W1 realtime: the process-wide SSE event bus. Every mutation handler
     /// best-effort `send()`s a [`BusEvent`]; every `GET /events` connection
     /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
@@ -110,6 +133,7 @@ impl AppState {
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,
+            sse_recheck_period: DEFAULT_SSE_RECHECK_PERIOD,
             events: tokio::sync::broadcast::channel(256).0,
         }
     }
@@ -121,6 +145,16 @@ impl AppState {
     /// router's clone).
     pub fn with_draft_ttl(mut self, ttl: Duration) -> Self {
         self.draft_ttl = ttl;
+        self
+    }
+
+    /// Override the SSE forced session re-check period (review M-05
+    /// follow-up) — test injectability so the revocation-without-delivery
+    /// tests run in milliseconds instead of sleeping out the production 30s. Same
+    /// builder-before-`make_router` contract as [`Self::with_draft_ttl`]
+    /// (`sse_recheck_period` is `Copy`).
+    pub fn with_sse_recheck_period(mut self, period: Duration) -> Self {
+        self.sse_recheck_period = period;
         self
     }
 
@@ -162,6 +196,7 @@ impl AppState {
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,
+            sse_recheck_period: DEFAULT_SSE_RECHECK_PERIOD,
             events: tokio::sync::broadcast::channel(256).0,
         }
     }

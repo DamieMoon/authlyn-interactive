@@ -1,15 +1,22 @@
 //! `GET /events` — the W1 SSE bus (ssr-only). Auth via the session cookie
 //! ([`AuthAccount`]), exactly like every JSON route — and unlike every JSON
 //! route, RE-CHECKED for the stream's lifetime: the session is re-validated
-//! before every delivered frame, so revocation (logout / password-reset
-//! lockout / expiry) ends the stream instead of leaving an unkillable
-//! metadata feed (review M-05). Wire format: unnamed SSE `data:` frames each
-//! carrying one serialized [`SyncEvent`]. Filtering (privacy) is
-//! per-connection: see [`visible_channels`] in `access`.
+//! before every delivered frame AND at least once per
+//! `AppState::sse_recheck_period` regardless of bus traffic — the re-check
+//! runs on a DEADLINE that only an actual re-check (deadline lapse or frame
+//! delivery) advances, so neither a fully quiet bus nor a busy bus whose
+//! events are all filtered out for this connection can starve it (review
+//! M-05 + follow-ups). Revocation (logout / password-reset lockout / expiry)
+//! therefore ends the stream instead of leaving an
+//! unkillable metadata feed. Wire format: unnamed
+//! SSE `data:` frames each carrying one serialized [`SyncEvent`]. Filtering
+//! (privacy) is per-connection: see [`visible_channels`] in `access`.
 
 use crate::protocol::SyncEvent;
 use crate::server::access::visible_channels;
-use crate::server::auth::AuthAccount;
+use crate::server::auth::{
+    account_for_token_hash, session_token_hash, AuthAccount, SESSION_COOKIE,
+};
 use crate::server::errors::error_response;
 use crate::server::state::{AppState, BusEvent};
 use axum::extract::State;
@@ -20,24 +27,7 @@ use axum_extra::extract::cookie::CookieJar;
 use futures_util::stream::Stream;
 use std::collections::HashSet;
 use std::convert::Infallible;
-use surrealdb::types::SurrealValue;
 use tokio::sync::broadcast;
-
-/// Name of the session cookie — mirrors `auth::session::SESSION_COOKIE`,
-/// which is `pub(super)` to the auth module and not importable here. Drift
-/// fails CLOSED and loudly: a renamed cookie 401s the connect below before
-/// any stream exists, never the other way around.
-const SESSION_COOKIE: &str = "authlyn_session";
-
-/// SHA-256 hex of the session token — the form the `session` table stores
-/// (`session.token_hash`; the DB never sees the raw token). Mirrors
-/// `auth::crypto::sha256_hex` (`pub(super)` there); keep the two in sync.
-fn sha256_hex(input: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    hex::encode(hasher.finalize())
-}
 
 /// Per-connection stream state for the unfold below.
 struct Conn {
@@ -53,6 +43,13 @@ struct Conn {
     /// SHA-256 of the caller's session token, re-checked before every
     /// delivered frame (review M-05) — see [`Conn::session_revoked`].
     session_token_hash: String,
+    /// Deadline for the next forced session re-check (review M-05
+    /// follow-up). Advanced ONLY when a re-check actually runs — never by
+    /// merely RECEIVING a bus event — so it measures re-check silence, not
+    /// bus activity: a stream fed nothing but events the privacy/target
+    /// filters drop (which re-complete `recv()` without ever reaching the
+    /// per-frame gate) still re-validates on the period.
+    next_recheck: tokio::time::Instant,
 }
 
 impl Conn {
@@ -88,31 +85,15 @@ impl Conn {
     /// itself fails (fail-closed: ending the stream makes the client
     /// reconnect, and the reconnect re-authenticates through [`AuthAccount`]).
     ///
-    /// Same lookup shape as `auth::session::account_for_token` (private to
-    /// the auth module). Cost: one indexed point-select per DELIVERED frame
-    /// per connection — strictly less than the authenticated follow-up fetch
-    /// every delivered frame already triggers on the client.
+    /// Validity comes from the auth module's own hash-keyed lookup
+    /// (`auth::session::account_for_token_hash` — the extractor's exact
+    /// query), so this re-check can never drift from the per-request rule.
+    /// Cost: one indexed point-select per DELIVERED frame per connection —
+    /// strictly less than the authenticated follow-up fetch every delivered
+    /// frame already triggers on the client.
     async fn session_revoked(&self) -> bool {
-        #[derive(SurrealValue)]
-        struct Row {
-            account_key: String,
-        }
-        let row: surrealdb::Result<Option<Row>> = async {
-            let mut resp = self
-                .state
-                .db
-                .query(
-                    "SELECT meta::id(account) AS account_key FROM session
-                        WHERE token_hash = $token_hash AND expires_at > time::now();",
-                )
-                .bind(("token_hash", self.session_token_hash.clone()))
-                .await?
-                .check()?;
-            resp.take(0)
-        }
-        .await;
-        match row {
-            Ok(Some(r)) => r.account_key != self.account,
+        match account_for_token_hash(&self.state, self.session_token_hash.clone()).await {
+            Ok(Some(account_key)) => account_key != self.account,
             Ok(None) => true,
             Err(e) => {
                 tracing::error!(error = %e, "session re-check failed — failing closed");
@@ -177,19 +158,47 @@ pub async fn events(
         rx,
         visible,
         visible_stale: false,
-        session_token_hash: sha256_hex(token.as_bytes()),
+        session_token_hash: session_token_hash(&token),
+        next_recheck: tokio::time::Instant::now() + state.sse_recheck_period,
         state,
         account: account.0,
     };
 
     let stream = futures_util::stream::unfold(conn, |mut conn| async move {
         loop {
-            // Decide what (if anything) this iteration delivers…
-            let event = match conn.rx.recv().await {
-                Ok(BusEvent {
+            // Deadline gate (review M-05 follow-up): re-validate the session
+            // whenever `next_recheck` has lapsed, however we got here. The
+            // per-frame gate below only fires on DELIVERY, and the filtered
+            // `continue` paths complete `recv()` without delivering — so a
+            // per-receive timer would re-arm forever under sustained
+            // invisible traffic, and the `timeout_at` arm alone could be
+            // starved by a backlogged receiver (tokio polls the inner future
+            // before the timer). Checking the deadline eagerly at the top of
+            // every iteration closes both holes. Revoked → end the stream;
+            // still valid → advance the deadline and park again (nothing is
+            // delivered, so no spurious frame reaches the client — axum's
+            // KeepAlive layer owns the wire-level heartbeat independently of
+            // this loop).
+            if tokio::time::Instant::now() >= conn.next_recheck {
+                if conn.session_revoked().await {
+                    return None;
+                }
+                conn.next_recheck = tokio::time::Instant::now() + conn.state.sse_recheck_period;
+            }
+            // Decide what (if anything) this iteration delivers… The bus
+            // `recv()` parks at most until the re-check DEADLINE — a fixed
+            // instant `timeout_at` does not re-arm on receive, unlike a
+            // per-receive `timeout(period, …)`.
+            let received = tokio::time::timeout_at(conn.next_recheck, conn.rx.recv()).await;
+            let event = match received {
+                // Deadline lapsed with nothing to deliver: loop back — the
+                // gate at the top runs the re-check and advances the
+                // deadline before the next park.
+                Err(_elapsed) => continue,
+                Ok(Ok(BusEvent {
                     event,
                     targets: Some(targets),
-                }) => {
+                })) => {
                     // W1.5 account-targeted lane: deliver iff this connection's
                     // account is named, with NO visibility check — targeted
                     // events are id-only nudges about the target's own
@@ -208,10 +217,10 @@ pub async fn events(
                     }
                     event
                 }
-                Ok(BusEvent {
+                Ok(Ok(BusEvent {
                     event,
                     targets: None,
-                }) => {
+                })) => {
                     let deliver = match event.channel_id() {
                         Some(cid) => {
                             // A previous reload failed and emptied the set
@@ -233,21 +242,26 @@ pub async fn events(
                     }
                     event
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => {
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => {
                     // Dropped events: nudge the client to a full resync.
                     conn.reload_visible().await;
                     SyncEvent::ListsChanged
                 }
-                Err(broadcast::error::RecvError::Closed) => return None,
+                Ok(Err(broadcast::error::RecvError::Closed)) => return None,
             };
             // …then re-derive identity before delivering it (review M-05),
             // mirroring the per-request rule on JSON routes. A revoked
             // session ENDS the stream; the client's reconnect then 401s at
-            // the extractor. (A quiet stream parks in `recv()` above without
-            // delivering anything, so this gate alone closes the leak.)
+            // the extractor. (A stream that never delivers never reaches
+            // this gate — the deadline gate at the top covers it on the
+            // same period.)
             if conn.session_revoked().await {
                 return None;
             }
+            // This WAS a re-check — push the deadline out so an active
+            // stream doesn't pay a redundant timeout-driven re-validation
+            // right after a delivery-driven one.
+            conn.next_recheck = tokio::time::Instant::now() + conn.state.sse_recheck_period;
             return Some((Ok(sse_frame(&event)), conn));
         }
     });
@@ -281,7 +295,8 @@ mod tests {
             visible_stale: false,
             state: state.clone(),
             account: "acct".into(),
-            session_token_hash: sha256_hex(b"some-token"),
+            session_token_hash: session_token_hash("some-token"),
+            next_recheck: tokio::time::Instant::now() + state.sse_recheck_period,
         }
     }
 

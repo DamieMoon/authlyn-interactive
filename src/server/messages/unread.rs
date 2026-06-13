@@ -20,7 +20,12 @@
 //! disjoint by construction (`sent_at =` vs `sent_at >`), so re-merging them
 //! in step 4 (sum the counts, OR the ping flags) reproduces the OR predicate
 //! exactly; the equal-`sent_at` tie-group test in `tests/unread.rs` pins the
-//! boundary. The stored cursor is bound as a true `datetime` (never a
+//! boundary. The cursorless Latest probe is split the same way (review M-12
+//! follow-up): a `LET` boundary probe finds the newest live instant via an
+//! early-exiting backward index walk, then a `[channel, $lat]` point
+//! statement cuts that instant's tie group by id — the single-statement
+//! ORDER BY on the computed `id_key` alias fed the whole channel through
+//! SortTopKByKey instead. The stored cursor is bound as a true `datetime` (never a
 //! `<string>` cast — see `server::datetime`). Soft-deleted messages never
 //! count (`deleted_at = NONE` in every statement); visibility comes from
 //! [`visible_channels`], so a non-member's channels simply don't appear.
@@ -54,6 +59,9 @@ enum Stmt {
     Unread(usize),
     /// Ping probe (`LIMIT 1`) → OR-ed into `out[i].pinged`.
     Ping(usize),
+    /// A `LET` boundary probe feeding the next statement — occupies a result
+    /// slot but produces no output row; the walk skips it.
+    Boundary,
     /// Latest live row of a cursorless channel → `out[i].latest_*`.
     Latest(usize),
 }
@@ -151,14 +159,35 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
                 kinds.push(Stmt::Ping(i));
             } else {
                 // No cursor: surface the latest live row so the client can
-                // baseline instead of glowing. Both ORDER BY keys are
-                // projected (SurrealDB orders by selected aliases).
+                // baseline instead of glowing — strict (sent_at, id) order.
+                // Issued as a LET boundary probe plus a tie-group point
+                // statement (review M-12 follow-up): ORDER BY the computed
+                // alias `id_key` cannot ride the (channel, sent_at) index,
+                // so the single-statement `ORDER BY sent_at DESC, id_key
+                // DESC LIMIT 1` form fed EVERY live row of the channel
+                // through SortTopKByKey per call. The probe orders by the
+                // RAW column (early-exiting backward index walk), then the
+                // point statement resolves the newest instant's tie group
+                // by id — SortTopK over the tie group only. Both ORDER BY
+                // keys stay projected (SurrealDB orders by selected
+                // aliases). An empty channel makes the boundary NONE and
+                // the point statement match nothing, leaving the output
+                // row's latest_* fields None as before. This LET-probe
+                // shape (and its 3.1.3-only EXPLAIN evidence) falls under
+                // the MSG_PROJECTION VERSION-SKEW runbook gate in
+                // reading.rs — prod still runs 3.0.4.
                 sql.push_str(&format!(
-                    "SELECT meta::id(id) AS id_key, sent_at FROM message
+                    "LET $lat_{i} = array::first((SELECT VALUE sent_at FROM message
                         WHERE channel = type::record('channel', $cid_{i})
                           AND deleted_at = NONE
-                        ORDER BY sent_at DESC, id_key DESC LIMIT 1;"
+                        ORDER BY sent_at DESC LIMIT 1));
+                     SELECT meta::id(id) AS id_key, sent_at FROM message
+                        WHERE channel = type::record('channel', $cid_{i})
+                          AND deleted_at = NONE
+                          AND sent_at = $lat_{i}
+                        ORDER BY id_key DESC LIMIT 1;"
                 ));
+                kinds.push(Stmt::Boundary);
                 kinds.push(Stmt::Latest(i));
             }
         }
@@ -196,6 +225,10 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
                     let ids: Vec<String> = resp.take(stmt_idx)?;
                     out[*i].pinged |= !ids.is_empty();
                 }
+                // LET statements occupy a result slot (NONE) but feed no
+                // output row — skip without a `take` (indexing is positional,
+                // untaken slots are simply dropped).
+                Stmt::Boundary => {}
                 Stmt::Latest(i) => {
                     if let Some(latest) = resp.take::<Option<LatestRow>>(stmt_idx)? {
                         out[*i].latest_sent_at = Some(to_rfc3339_fixed(latest.sent_at));
