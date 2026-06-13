@@ -6,7 +6,29 @@
 // want a single edge or none (bars/sheets draw their own `border-top`/
 // `border-bottom` after the include — see .topbar / .bottom-tabs /
 // .channel-sheet). Default stays the bordered panel.
-@mixin glass($border: true) {
+// W5/P0 #20: the NEW Standard default. Compositor-only — NO backdrop-filter.
+// Layered translucent gradient + tiled frost grain + 1px inset specular edge,
+// using the pre-baked --frost-* tints. Rasterizes once, scrolls at composite
+// cost. fx-max / "Materials: live refraction" escalates to glass-live.
+@mixin glass-etched($border: true) {
+	background:
+		var(--frost-noise) repeat,
+		linear-gradient(180deg, var(--frost-top), var(--frost-bottom));
+	@if $border {
+		border: 1px solid var(--glass-line);
+	}
+	box-shadow: inset 0 1px 0 var(--glass-highlight);
+	// forced-colors still forces Canvas (parity with the old mixin guard).
+	@media (forced-colors: active) {
+		background: Canvas;
+	}
+}
+
+// Live refraction — the old behavior, now an escalation (fx-max or the
+// "Materials: live refraction" preference). Keeps every a11y guard intact
+// (matches the original mixin's fallback-first / @supports / reduced-
+// transparency / forced-colors structure at the old _foundation.scss:9-46).
+@mixin glass-live($border: true) {
 	// Fallback first: without backdrop-filter the 55%-alpha --glass-bg would
 	// be illegible over scrolling chat, so default to opaque --surface and
 	// only go translucent where the blur is actually supported.
@@ -42,8 +64,20 @@
 	}
 }
 
+// Back-compat shim: existing `@include glass` callers get etched by default.
+@mixin glass($border: true) {
+	@include glass-etched($border);
+}
+
 .glass {
 	@include glass;
+}
+
+// W5/P0 #20: under fx-max, the chrome bars escalate back to live refraction.
+.app.fx-max .topbar,
+.app.fx-max .bottom-tabs,
+.app.fx-max .channel-sheet {
+	@include glass-live;
 }
 
 // W5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and

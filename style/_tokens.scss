@@ -53,6 +53,16 @@
 	--glass-line: rgba(255, 255, 255, 0.08);
 	--glass-highlight: rgba(255, 255, 255, 0.09);
 
+	// W5/P0 #20 etched-glass tints: pre-computed colors approximating what
+	// blur(14px) of the STATIC aurora yields at the top/bottom chrome bands.
+	// (Aurora is deterministic in Standard, so the blur readback is wasted work
+	// on the POCO C3 GE8320 — bake it once instead.) SAMPLE VALUES — Open
+	// Question #2: owner to eyeball that Standard chrome reads ~90% like blur.
+	--frost-top: rgba(18, 24, 38, 0.82); // approximates aurora sample @ top band
+	--frost-bottom: rgba(12, 22, 30, 0.82); // approximates aurora sample @ bottom band
+	// 32x32 tiled monochrome noise for frost grain (465 bytes, compositor-cheap).
+	--frost-noise: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAMFBMVEWUlJSIiIiAgIB4eHhsbGwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACYtSUTAAABXElEQVR42hWOCYEFIQhAQQ0wHgFEDYBiAFT6Z9q/Ad4B1eWYqb1PTSJchtI9HG67uU7n5QJUMnR7Rvy1+KgABpWK/t3wgas0AP8VFJ8eqnXVCBophnTbIKYW2MAp36y4yPlUuXq4qWTrYKNN1/MlOKPMFL9grev+ZoPCbU6xpBTCtiYQp9ThBc2l01gcOK+rdZaWFqt/EU6u3RkG3gm+GT9AS+JS0ugfeCoTokkBXi98CXSdBMOvwK44x/6kjQFiaT48qaEmON/6YKrP+V1Ps3whCPwq+2i7ujc8i4XAJMmyyr+GdIcCgdmGuq6O3H2HoBeVOO7tBcaHp8K8vk+GljyZIRLQXOuUQO4HtIEXLJ7c7hDwKHPdH8Ka5Sd/hVdFRMA9QItWS84V4wkyk9+tk127fXQH1eOPVug1SVSNMLFBmNMLp827PeCJoxr6EZvG3xn0Hl/LJyJ7J3jwD/CMQuaCdINuAAAAAElFTkSuQmCC");
+
 	// Glow + overlay tokens (replace the audited hardcoded rgba escape vectors)
 	--glow-accent: rgba(77, 159, 255, 0.55);
 	--unread-glow: rgba(77, 159, 255, 0.7); // rail/channel unread markers
