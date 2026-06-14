@@ -1,0 +1,32 @@
+// W5/P2 Omloppsbana (`sk-orbit`) structural skeleton. Full-viewport channel
+// panes in a horizontal swipe strip, a holographic channel pill opening the
+// orbit-map picker (pill-tap entry only), a floating composer orb with a charge
+// ring + effect blossom, and a right-edge HoloPanel slide-over. EVERY rule is
+// `.app.sk-orbit`-prefixed so it can never match a deck/hud session or the
+// retained W3 scaffolding. Loaded AFTER the W3 nav partials in main.scss so an
+// equal-specificity tie resolves in orbit's favour. Motion is transform/opacity
+// only (tests/style_lint.rs); glass is glass-etched at Standard, glass-live
+// under .fx-max. Safe-area: each edge is owned exactly once (the pill owns top,
+// the orb/composer owns bottom, the slide-over owns its own edges).
+@use "tokens" as *;
+@use "foundation" as *;
+
+// Orbit is a single full-viewport stage — the W3 rail/sidebar columns are not
+// part of this skeleton. The shared overlays (sheet/modals/toast/ceremony) and
+// the body-portal overlays (radial/lightbox/emoji) are unchanged.
+.app.sk-orbit {
+	display: block;
+	position: relative;
+	min-height: 100dvh;
+}
+.app.sk-orbit .content.sk-orbit-content {
+	height: 100dvh;
+	height: 100vh; // fallback first; dvh wins where supported
+	display: flex;
+	flex-direction: column;
+}
+// The pill owns the TOP safe-area inset under orbit (the topbar replacement);
+// the orbit topbar is a thin strip — the pill floats above the pane.
+.app.sk-orbit .topbar.sk-orbit-topbar {
+	padding-top: calc(0.4rem + env(safe-area-inset-top, 0px)); // OWNS top edge
+}
