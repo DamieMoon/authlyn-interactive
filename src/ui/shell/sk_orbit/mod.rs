@@ -49,6 +49,33 @@ fn viewport_dims() -> (f64, f64) {
     (360.0, 800.0)
 }
 
+/// The orbit-map dialog's focusable children in DOM order, for the Tab trap
+/// (mirrors `holopanel::PanelDrag::focusables` / `lightbox::focusables` — the
+/// shared selector shape). The map is `aria-modal` but nothing makes the
+/// scrimmed shell behind it inert, so wrapping Tab here is the ONLY thing
+/// keeping keyboard/AT focus from escaping into the still-focusable pill +
+/// composer + topbar behind the portal (design law §13: Modal-parity trap).
+#[cfg(feature = "hydrate")]
+fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlElement> {
+    use leptos::wasm_bindgen::JsCast as _;
+    const SEL: &str = "a[href], button:not([disabled]), input:not([disabled]), \
+                       textarea:not([disabled]), select:not([disabled]), \
+                       [tabindex]:not([tabindex=\"-1\"])";
+    let Ok(list) = root.query_selector_all(SEL) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(list.length() as usize);
+    for i in 0..list.length() {
+        if let Some(el) = list
+            .item(i)
+            .and_then(|n| n.dyn_into::<leptos::web_sys::HtmlElement>().ok())
+        {
+            out.push(el);
+        }
+    }
+    out
+}
+
 /// The Omloppsbana shell chrome. Renders as a sibling of the W3 chrome under
 /// `.app.sk-orbit`, reusing every pane via `use_context::<Shell>()` (zero new
 /// state, no remount on switch). This first cut mounts only the pane switch +
@@ -68,6 +95,15 @@ pub fn SkOrbitShell() -> impl IntoView {
             .map(|c| c.name)
             .unwrap_or_else(|| "—".to_string())
     };
+    // Kind-aware sigil, consistent with the W3 shell (`📖 ` lorebook, `# `
+    // otherwise — `shell/mod.rs`); no surface renders the bare name.
+    let channel_sigil = move || {
+        s.sel
+            .sel_channel
+            .get()
+            .map(|c| if c.kind == "lorebook" { "📖 " } else { "# " })
+            .unwrap_or("# ")
+    };
     let server_name = move || {
         let sid = s.sel.sel_server.get();
         s.sel
@@ -78,8 +114,10 @@ pub fn SkOrbitShell() -> impl IntoView {
             .map(|g| g.name)
             .unwrap_or_default()
     };
-    // Modal-parity focus (gate item): the pill is the trigger; closing the map
-    // restores focus to it (WCAG 2.4.3). The overlay div is focused on open.
+    // Modal-parity focus (gate item, design law §13): trap (Tab/Shift+Tab wrap
+    // within the map — see the on:keydown handler), Esc closes, and restore-to-
+    // trigger — the pill is the trigger, so closing the map restores focus to it
+    // (WCAG 2.4.3). The overlay div is focused on open.
     let pill_ref = NodeRef::<leptos::html::Button>::new();
     let map_ref = NodeRef::<leptos::html::Div>::new();
     let close_map = move || {
@@ -108,7 +146,7 @@ pub fn SkOrbitShell() -> impl IntoView {
                 aria-expanded=move || map_open.get().to_string()
                 title="Open the orbit map"
                 on:click=move |_| map_open.set(true)>
-                <span class="sk-orbit-pill-name">"# "{channel_name}</span>
+                <span class="sk-orbit-pill-name">{channel_sigil}{channel_name}</span>
                 <span class="sk-orbit-pill-server">{server_name}</span>
                 <span class="sk-orbit-pill-dots" aria-hidden="true">
                     {move || {
@@ -142,9 +180,58 @@ pub fn SkOrbitShell() -> impl IntoView {
                         node_ref=map_ref
                         aria-label="Orbit map — pick a channel or server" tabindex="-1"
                         on:keydown=move |ev: leptos::ev::KeyboardEvent| {
-                            if ev.key() == "Escape" {
-                                ev.prevent_default();
-                                close_map();
+                            match ev.key().as_str() {
+                                "Escape" => {
+                                    ev.prevent_default();
+                                    close_map();
+                                }
+                                // Modal-parity focus trap (design law §13): wrap
+                                // Tab/Shift+Tab within the map's own controls so
+                                // keyboard/AT focus can't escape into the
+                                // still-focusable scrimmed shell behind the
+                                // portal (pill, composer, topbar). Mirrors
+                                // `lightbox`/`holopanel`'s trap; this keydown
+                                // only fires while focus is inside the dialog,
+                                // which is also what keeps Escape working.
+                                "Tab" => {
+                                    #[cfg(feature = "hydrate")]
+                                    {
+                                        use leptos::wasm_bindgen::JsCast as _;
+                                        let Some(map) = map_ref.get_untracked() else {
+                                            return;
+                                        };
+                                        let root: &leptos::web_sys::Element =
+                                            (*map).unchecked_ref();
+                                        let els = focusables(root);
+                                        if els.is_empty() {
+                                            return;
+                                        }
+                                        let active = leptos::web_sys::window()
+                                            .and_then(|w| w.document())
+                                            .and_then(|d| d.active_element())
+                                            .and_then(|el| {
+                                                el.dyn_into::<leptos::web_sys::HtmlElement>().ok()
+                                            });
+                                        let idx = active
+                                            .as_ref()
+                                            .and_then(|a| els.iter().position(|el| el == a));
+                                        let last = els.len() - 1;
+                                        // Wrap at either end; Shift+Tab from the
+                                        // dialog root (idx None, the post-open
+                                        // state) lands on the last control rather
+                                        // than escaping backwards.
+                                        let (wrap, target) = if ev.shift_key() {
+                                            (idx == Some(0) || idx.is_none(), last)
+                                        } else {
+                                            (idx == Some(last), 0)
+                                        };
+                                        if wrap {
+                                            ev.prevent_default();
+                                            let _ = els[target].focus();
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                         }>
                         <button class="sk-orbit-map-scrim" aria-label="Close orbit map"
@@ -159,9 +246,9 @@ pub fn SkOrbitShell() -> impl IntoView {
                             let unread = s.notify.unread.get();
                             chans.into_iter().enumerate().map(|(i, c)| {
                                 let p = node_pos(i, n, g.orbit_radius);
-                                let cid = c.id.clone();
                                 let has_unread = unread.contains(&c.id);
                                 let ch = c.clone();
+                                let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
                                 view! {
                                     <button class="sk-orbit-node"
                                         class:unread=has_unread
@@ -174,9 +261,8 @@ pub fn SkOrbitShell() -> impl IntoView {
                                             act::open_channel(s, ch.clone());
                                             close_map();
                                         }>
-                                        <span class="sk-orbit-node-label">{c.name.clone()}</span>
+                                        <span class="sk-orbit-node-label">{sigil}{c.name.clone()}</span>
                                         {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
-                                        {let _ = &cid;}
                                     </button>
                                 }
                             }).collect_view()
