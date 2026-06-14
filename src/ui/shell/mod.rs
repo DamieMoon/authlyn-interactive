@@ -51,6 +51,7 @@ use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
 use members::MembersPane;
+use sk_orbit::SkOrbitShell;
 use toast::toast_host;
 use wardrobe::WardrobePane;
 
@@ -448,6 +449,15 @@ fn AppShell() -> impl IntoView {
             style:--glow-accent=move || crate::ui::accent::accent_glow_css(&accent_name())
             style:--accent=move || crate::ui::accent::accent_var_css(&accent_name())
         >
+            // W5/P2: skeleton sibling switch. Orbit gets its own chrome; deck/
+            // hud/None(scaffold) keep the W3 chrome (Phase-6 retirement deletes
+            // the else arm + its partials). The switch is a pure branch on the
+            // same Shell aggregate / same .app root — no remount (pins
+            // tests/skeleton_switch.rs::set_skeleton_surface_is_pref_only).
+            {move || if s.prefs.skeleton.get().as_deref() == Some("orbit") {
+                view! { <SkOrbitShell/> }.into_any()
+            } else {
+                view! {
             // aria-label: an unlabeled <nav> landmark is just "navigation"
             // to AT; name it so the rail and the bottom tabs are tellable
             // apart (review M-48 evidence).
@@ -849,6 +859,8 @@ fn AppShell() -> impl IntoView {
                     <span class="tab-label">"Personas"</span>
                 </button>
             </nav>
+                }.into_any()
+            }}
 
             // Channel-switch bottom sheet (W3/T5): a glass sheet over its own
             // scrim, mobile-only via CSS — see [`ChannelSheet`] for the
