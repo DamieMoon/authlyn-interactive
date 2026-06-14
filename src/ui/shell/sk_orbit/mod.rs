@@ -25,6 +25,7 @@ use leptos::portal::Portal;
 use leptos::prelude::*;
 
 use self::orbit_map::{map_geom, node_pos};
+use super::holopanel::{Detent, Edge, HoloPanel};
 use super::{
     act, channel::ChannelPane, emoji_manager::EmojiManagerPane, friends::FriendsPane,
     lorebook::LorebookPane, members::MembersPane, Pane, Shell,
@@ -203,6 +204,22 @@ pub fn SkOrbitShell() -> impl IntoView {
     let blossom_open = RwSignal::new(false);
     let hold = blossom::BlossomHold::new();
     let orb_ref = NodeRef::<leptos::html::Button>::new();
+    // Right-edge HoloPanel slide-over (personas + station). Summoned by an
+    // explicit ☰ button (the chat-layer right-edge swipe is DEMOTED — it fights
+    // iOS back-swipe). The single OPEN detent means only on_close can dismiss it.
+    let station_open = RwSignal::new(false);
+    // The summon button — focus restores here when the panel closes (§13).
+    let station_btn_ref = NodeRef::<leptos::html::Button>::new();
+    // Close the slide-over AND restore focus to the summon button (§13 Modal-
+    // parity restore-to-trigger). Used by on_close (Esc + swipe-to-close) and
+    // the explicit ← button.
+    let close_station = move || {
+        station_open.set(false);
+        #[cfg(feature = "hydrate")]
+        if let Some(btn) = station_btn_ref.get_untracked() {
+            let _ = btn.focus();
+        }
+    };
     view! {
         <section class="content sk-orbit-content">
             <button class="sk-orbit-pill" type="button"
@@ -479,7 +496,72 @@ pub fn SkOrbitShell() -> impl IntoView {
                         </div>
                     }
                 })}
+                <button class="sk-orbit-station-btn" type="button"
+                    node_ref=station_btn_ref
+                    aria-haspopup="dialog"
+                    aria-expanded=move || station_open.get().to_string()
+                    title="Personas & station settings"
+                    on:click=move |_| station_open.set(true)>"☰"</button>
             </div>
+            {move || station_open.get().then(|| view! {
+                <HoloPanel
+                    edge=Edge::Right
+                    open=true
+                    detents=vec![Detent { at: 1.0, key: "open" }]
+                    // Single-detent: a committed OPEN drag just re-asserts open
+                    // (no-op). Dismissal flows through on_close (Esc + swipe-to-
+                    // close → snap-to-closed), which restores focus to the button.
+                    on_commit=move |_key: &'static str| {}
+                    on_close=move |_| close_station()
+                >
+                    <div class="sk-orbit-station">
+                        <button class="sk-orbit-station-close" title="Close" aria-label="Close"
+                            on:click=move |_| close_station()>"←"</button>
+                        <h2>{move || {
+                            let cn = s.sel.sel_channel.get().map(|c| c.name).unwrap_or_default();
+                            format!("Your persona in #{cn}")
+                        }}</h2>
+                        <div class="sk-orbit-persona-grid">
+                            {move || {
+                                let active = s.social.active_persona.get();
+                                s.social.personas.get().into_iter().map(|p| {
+                                    let pid = p.id.clone();
+                                    let is_active = active.as_deref() == Some(p.id.as_str());
+                                    view! {
+                                        <button class="sk-orbit-persona-card"
+                                            class:active=is_active
+                                            title=p.name.clone()
+                                            on:click=move |_| act::wear_persona(s, pid.clone())>
+                                            {p.name.clone()}
+                                        </button>
+                                    }
+                                }).collect_view()
+                            }}
+                        </div>
+                        <h2>"Station"</h2>
+                        <label class="sk-orbit-toggle">
+                            <input type="checkbox"
+                                prop:checked=move || s.prefs.ghost_quill.get()
+                                on:change=move |ev| {
+                                    let on = event_target_checked(&ev);
+                                    s.prefs.ghost_quill.set(on);
+                                    act::set_ghost_quill(on);
+                                }/>
+                            "Ghost Quill (live co-writer)"
+                        </label>
+                        <label class="sk-orbit-toggle">
+                            <input type="checkbox"
+                                prop:checked=move || s.prefs.eyecandy.get()
+                                on:change=move |ev| {
+                                    let on = event_target_checked(&ev);
+                                    s.prefs.eyecandy.set(on);
+                                    act::set_eyecandy(on);
+                                }/>
+                            "Aurora-max (eye-candy tier)"
+                        </label>
+                    </div>
+                </HoloPanel>
+            })}
         </section>
     }
 }

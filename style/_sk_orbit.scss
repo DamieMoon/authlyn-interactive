@@ -291,3 +291,54 @@
 		animation: none;
 	}
 }
+
+// Right-edge HoloPanel slide-over (Task 7). The panel transform + scrim +
+// four-edge insets are HoloPanel's (_holopanel.scss) — this owns ONLY the inner
+// content layout + the summon button. The slide-over OWNS its own edges, so the
+// orb/composer bottom inset is not double-counted (it's a separate fixed layer).
+.app.sk-orbit .sk-orbit-station-btn {
+	position: fixed;
+	right: calc(0.9rem + env(safe-area-inset-right, 0px));
+	bottom: calc(4.2rem + env(safe-area-inset-bottom, 0px)); // above the orb
+	z-index: 30;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	@include glass-etched;
+	color: var(--text);
+}
+.app.sk-orbit .sk-orbit-station {
+	// The HoloPanel root is position:fixed + owns insets; this is the inner
+	// scroll surface. Give it the panel's visible width.
+	width: min(86vw, 380px);
+	height: 100%;
+	overflow-y: auto;
+	padding: 1rem;
+	@include glass-etched;
+	color: var(--text);
+}
+.app.fx-max .sk-orbit-station {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-persona-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0.5rem 0 1rem;
+}
+.app.sk-orbit .sk-orbit-persona-card {
+	padding: 0.5rem 0.8rem;
+	border-radius: 0.6rem;
+	border: 2px solid transparent;
+	background: var(--card);
+	color: var(--text);
+}
+.app.sk-orbit .sk-orbit-persona-card.active {
+	border-color: var(--accent);
+}
+.app.sk-orbit .sk-orbit-toggle {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0;
+}
