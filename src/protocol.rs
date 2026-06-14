@@ -146,6 +146,11 @@ pub struct CreateGuildRequest {
 pub struct GuildSummary {
     pub id: String,
     pub name: String,
+    /// Per-server accent: a markup-palette name (red…gray) tinting this guild's
+    /// chrome, or empty for the default. `#[serde(default)]` for post-ship
+    /// wire-compat (older/native clients deserialize cleanly).
+    #[serde(default)]
+    pub accent_color: String,
 }
 
 /// Response from `GET /guilds`.
@@ -178,6 +183,9 @@ pub struct GuildDetail {
     pub id: String,
     pub name: String,
     pub owner_id: String,
+    /// Per-server accent (see `GuildSummary::accent_color`).
+    #[serde(default)]
+    pub accent_color: String,
     pub channels: Vec<ChannelSummary>,
 }
 
@@ -193,6 +201,10 @@ pub struct CreateChannelRequest {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PatchGuildRequest {
     pub name: Option<String>,
+    /// Markup-palette accent name (red…gray) or empty to clear. Validated
+    /// server-side against the same palette as persona.color.
+    #[serde(default)]
+    pub accent_color: Option<String>,
 }
 
 /// Body of `PATCH /guilds/{id}/channels/{cid}` — partial update.
