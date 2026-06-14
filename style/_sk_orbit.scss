@@ -252,3 +252,42 @@
 		transition: none;
 	}
 }
+
+// ---- Effect blossom (whisper/shout/spell) on orb long-hold ----
+// Chips fan UP from the orb; the per-chip --chip-i staggers the open. The open
+// is a transform/opacity keyframe (style_lint-safe). role=menuitem + roving
+// tabindex from day one (the radial a11y debt NOT copied).
+.app.sk-orbit .sk-orbit-blossom {
+	position: absolute;
+	right: 0;
+	bottom: 60px;
+	display: flex;
+	flex-direction: column-reverse;
+	gap: 0.5rem;
+}
+.app.sk-orbit .sk-orbit-chip {
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	@include glass-etched;
+	color: var(--text);
+	display: grid;
+	place-items: center;
+	animation: sk-orbit-chip-in 180ms ease-out backwards;
+	animation-delay: calc(var(--chip-i, 0) * 40ms);
+}
+@keyframes sk-orbit-chip-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.85);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-chip {
+		animation: none;
+	}
+}

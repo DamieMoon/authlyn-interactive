@@ -14,6 +14,7 @@
 //! Shared/always-on math modules (no ssr/hydrate crates); the view code that
 //! consumes them is feature-gated where it touches `web_sys`.
 
+pub mod blossom;
 pub mod charge;
 pub mod drag;
 pub mod orbit_map;
@@ -196,6 +197,12 @@ pub fn SkOrbitShell() -> impl IntoView {
         Some("spell") => "✨",
         _ => "",
     };
+    // Effect blossom: a 480ms hold on the orb (BlossomHold, move-slop disarmed so
+    // a jittery Send tap never blossoms — #47) opens three glass effect chips;
+    // the trailing click is guarded so the hold never also sends.
+    let blossom_open = RwSignal::new(false);
+    let hold = blossom::BlossomHold::new();
+    let orb_ref = NodeRef::<leptos::html::Button>::new();
     view! {
         <section class="content sk-orbit-content">
             <button class="sk-orbit-pill" type="button"
@@ -399,14 +406,41 @@ pub fn SkOrbitShell() -> impl IntoView {
             })}
             <div class="sk-orbit-orb-wrap">
                 <button class="sk-orbit-orb" type="button"
+                    node_ref=orb_ref
                     // Braced: a bare `>` would close the <button> tag in rstml
                     // (matching the in-pane `.send` ring, channel/mod.rs).
                     class:charging={move || charge.get() > 0.0}
                     class:armed=move || s.composer.effect_mode.get().is_some()
                     style:--charge=move || format!("{:.3}", charge.get())
                     style:--dash=move || format!("{:.1}", self::charge::dash_offset(charge.get()))
-                    title="Send"
-                    on:click=move |_| act::send_message(s)>
+                    title="Send (hold for effects)"
+                    on:pointerdown=move |ev| {
+                        #[cfg(feature = "hydrate")]
+                        if let Some(el) = orb_ref.get_untracked() {
+                            use leptos::wasm_bindgen::JsCast as _;
+                            let el: leptos::web_sys::Element = (*el).clone().unchecked_into();
+                            hold.down(&ev, blossom_open, el);
+                        }
+                        #[cfg(not(feature = "hydrate"))]
+                        let _ = &ev;
+                    }
+                    on:pointermove=move |ev| hold.moved(&ev)
+                    on:pointerup=move |ev| {
+                        hold.cancel();
+                        let _ = &ev;
+                    }
+                    on:pointercancel=move |ev| {
+                        hold.cancel();
+                        let _ = &ev;
+                    }
+                    on:click=move |_| {
+                        // Guard: if the hold fired, swallow the trailing click
+                        // (it opened the blossom, it must not also send).
+                        if hold.take_fired() {
+                            return;
+                        }
+                        act::send_message(s);
+                    }>
                     <svg class="sk-orbit-ring" viewBox="0 0 52 52" aria-hidden="true">
                         <circle class="sk-orbit-ring-track" cx="26" cy="26" r="24"></circle>
                         <circle class="sk-orbit-ring-arc" cx="26" cy="26" r="24"></circle>
@@ -416,6 +450,35 @@ pub fn SkOrbitShell() -> impl IntoView {
                         if g.is_empty() { "➤" } else { g }
                     }}</span>
                 </button>
+                {move || blossom_open.get().then(|| {
+                    let chips = [("whisper", "🤫"), ("shout", "📣"), ("spell", "✨")];
+                    view! {
+                        <div class="sk-orbit-blossom" role="menu" aria-label="Message effect">
+                            {chips.into_iter().enumerate().map(|(i, (name, glyph))| {
+                                let name_owned = name.to_string();
+                                view! {
+                                    <button class="sk-orbit-chip" role="menuitem"
+                                        tabindex=if i == 0 { "0" } else { "-1" }
+                                        style:--chip-i=i.to_string()
+                                        title=name
+                                        on:click=move |_| {
+                                            // Toggle-arm this effect, then close.
+                                            s.composer.effect_mode.update(|e| {
+                                                *e = if e.as_deref() == Some(name_owned.as_str()) {
+                                                    None
+                                                } else {
+                                                    Some(name_owned.clone())
+                                                };
+                                            });
+                                            blossom_open.set(false);
+                                        }>
+                                        {glyph}
+                                    </button>
+                                }
+                            }).collect_view()}
+                        </div>
+                    }
+                })}
             </div>
         </section>
     }
