@@ -35,6 +35,11 @@ pub struct StripDrag {
     /// Locked axis once past slop, else None.
     #[cfg(feature = "hydrate")]
     axis: RwSignal<Option<Axis>>,
+    /// True when this gesture's pointerdown landed on a message row — a
+    /// small-radius rightward drag then belongs to swipe-to-reply, not a
+    /// channel switch (the #14/#5 arbitration; see `strip::row_swipe_wins`).
+    #[cfg(feature = "hydrate")]
+    started_on_row: RwSignal<bool>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -52,6 +57,7 @@ impl StripDrag {
             strip_ref,
             start: RwSignal::new(None),
             axis: RwSignal::new(None),
+            started_on_row: RwSignal::new(false),
         }
     }
 
@@ -61,6 +67,15 @@ impl StripDrag {
             let el: &leptos::web_sys::Element = (*el).unchecked_ref();
             let _ = el.set_pointer_capture(ev.pointer_id());
         }
+        // Did this press start on a message row? If so a small-radius rightward
+        // drag is a swipe-to-reply, not a channel switch (the #14/#5 arbitration).
+        let on_row = {
+            ev.target()
+                .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+                .and_then(|e| e.closest("li[id^='msg-']").ok().flatten())
+                .is_some()
+        };
+        self.started_on_row.set(on_row);
         self.start.set(Some((
             ev.client_x() as f64,
             ev.client_y() as f64,
@@ -75,11 +90,33 @@ impl StripDrag {
         };
         let dx = ev.client_x() as f64 - sx;
         let dy = ev.client_y() as f64 - sy;
+        // #14/#5 arbitration: a small-radius rightward drag that STARTED on a
+        // message row is a swipe-to-reply, not a channel switch — bail before any
+        // axis lock or offset write so the strip never claims it (and the radial
+        // is NOT force-disarmed: the row still owns the gesture). The strip only
+        // ever wins once the horizontal travel grows past REPLY_POP_PX*1.5.
+        if super::strip::row_swipe_wins(self.started_on_row.get_untracked(), dx) {
+            // Let the row's own swipe-to-reply handle it; don't move the strip.
+            return;
+        }
         // Lock the axis once past slop; only track horizontal drags.
         let axis = self.axis.get_untracked().or_else(|| {
             let a = axis_lock(dx, dy);
             if a.is_some() {
                 self.axis.set(a);
+                // Horizontal lock: StripDrag owns the gesture and (via
+                // set_pointer_capture in `down`) will steal the pointer stream
+                // from the radial's <ul> listeners, so the radial's own
+                // pointermove/up disarm can't fire. Bump the radial generation +
+                // close any open menu so a press armed on `down` never blossoms
+                // mid-swipe (open_channel_at also disarms on commit, but that's
+                // too late for the in-flight drag). pub(super) — reachable from
+                // this sibling module under `shell`. Runs ONCE per gesture: only
+                // in this or_else arm, which fires only on the transition INTO a
+                // lock (subsequent moves take the get_untracked() short-circuit).
+                if a == Some(Axis::Horizontal) {
+                    crate::ui::shell::channel::disarm_radial();
+                }
             }
             a
         });
@@ -108,11 +145,24 @@ impl StripDrag {
         };
         self.start.set(None);
         let was_h = self.axis.get_untracked() == Some(Axis::Horizontal);
+        let on_row = self.started_on_row.get_untracked();
         self.axis.set(None);
+        // Reset the per-gesture row flag so the next press starts clean.
+        self.started_on_row.set(false);
         if !was_h {
             return;
         }
         let dx = ev.client_x() as f64 - sx;
+        // #14/#5 arbitration (release side): if the finger drifted back into the
+        // small-radius rightward band, the gesture is a swipe-to-reply, not a
+        // channel switch — snap the strip home without committing. (The strip
+        // could only reach here by first locking horizontal past REPLY_POP_PX*1.5,
+        // so this only fires on a finger that grew then shrank back.)
+        if super::strip::row_swipe_wins(on_row, dx) {
+            self.set_dragging(false);
+            self.write_strip_x(-viewport_width());
+            return;
+        }
         let dt = ev.time_stamp() - st;
         let width = viewport_width();
         let commit = commit_swipe(dx, dt, width);
