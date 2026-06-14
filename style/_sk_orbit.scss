@@ -30,3 +30,42 @@
 .app.sk-orbit .topbar.sk-orbit-topbar {
 	padding-top: calc(0.4rem + env(safe-area-inset-top, 0px)); // OWNS top edge
 }
+
+.app.sk-orbit .sk-orbit-pill {
+	position: fixed;
+	top: calc(0.5rem + env(safe-area-inset-top, 0px));
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 30;
+	min-height: 44px;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.35rem 0.9rem;
+	border-radius: 999px;
+	color: var(--text);
+	@include glass-etched;
+}
+.app.fx-max .sk-orbit-pill {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-pill-server {
+	color: var(--text-muted);
+	font-family: var(--font-mono); // defined token (_tokens.scss:95); no fallback needed
+	font-size: 0.8em;
+}
+.app.sk-orbit .sk-orbit-pill-dots {
+	display: inline-flex;
+	gap: 3px;
+}
+.app.sk-orbit .sk-orbit-dot {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--text-muted);
+	opacity: 0.4;
+}
+.app.sk-orbit .sk-orbit-dot.on {
+	background: var(--accent);
+	opacity: 1;
+}

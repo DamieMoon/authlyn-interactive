@@ -37,8 +37,44 @@ pub fn SkOrbitShell() -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let auth = use_context::<crate::ui::AuthCtx>().expect("AuthCtx provided at root");
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
+    let map_open = RwSignal::new(false);
+    let channel_name = move || {
+        s.sel
+            .sel_channel
+            .get()
+            .map(|c| c.name)
+            .unwrap_or_else(|| "—".to_string())
+    };
+    let server_name = move || {
+        let sid = s.sel.sel_server.get();
+        s.sel
+            .guilds
+            .get()
+            .into_iter()
+            .find(|g| Some(&g.id) == sid.as_ref())
+            .map(|g| g.name)
+            .unwrap_or_default()
+    };
     view! {
         <section class="content sk-orbit-content">
+            <button class="sk-orbit-pill" type="button"
+                aria-haspopup="dialog"
+                aria-expanded=move || map_open.get().to_string()
+                title="Open the orbit map"
+                on:click=move |_| map_open.set(true)>
+                <span class="sk-orbit-pill-name">"# "{channel_name}</span>
+                <span class="sk-orbit-pill-server">{server_name}</span>
+                <span class="sk-orbit-pill-dots" aria-hidden="true">
+                    {move || {
+                        let chans = s.sel.channels.get();
+                        let cur = s.sel.sel_channel.get().map(|c| c.id);
+                        chans.into_iter().map(|c| {
+                            let on = Some(&c.id) == cur.as_ref();
+                            view! { <span class="sk-orbit-dot" class:on=on></span> }
+                        }).collect_view()
+                    }}
+                </span>
+            </button>
             <header class="topbar sk-orbit-topbar">
                 <span class="muted">"Signed in as " <strong>{username}</strong></span>
                 <span class="spacer"></span>
