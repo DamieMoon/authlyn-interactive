@@ -158,7 +158,7 @@ impl StripDrag {
     }
 
     pub fn up(&self, ev: &leptos::ev::PointerEvent) {
-        let Some((sx, sy, st)) = self.start.get_untracked() else {
+        let Some((sx, _sy, st)) = self.start.get_untracked() else {
             return;
         };
         self.start.set(None);
@@ -168,7 +168,6 @@ impl StripDrag {
         // Reset the per-gesture row flag so the next press starts clean.
         self.started_on_row.set(false);
         let dx = ev.client_x() as f64 - sx;
-        let dy = ev.client_y() as f64 - sy;
         if !was_h {
             // Terminal path for every gesture the strip did NOT claim
             // horizontally — including pointercancel (bound to `up`), which the
@@ -178,12 +177,17 @@ impl StripDrag {
             // pointer stream to the strip div, so the radial's own
             // pointerup/pointercancel disarm on the `.messages <ul>` never ran
             // and its armed 450ms timer would still pop a phantom menu after
-            // release. Disarm it once IFF the finger actually moved past the
-            // radial's slop — a stationary hold (gesture 4) is preserved so the
-            // long-press still blossoms normally.
-            if super::strip::moved_past_radial_slop(dx, dy) {
-                crate::ui::shell::channel::disarm_radial();
-            }
+            // release. up() is GESTURE-TERMINAL, so disarm the radial
+            // UNCONDITIONALLY (NOT slop-gated): on release the press is over, so
+            // any un-fired long-press MUST be cancelled — a quick TAP (drift <
+            // slop, released before 450ms) is exactly the case a slop gate wrongly
+            // excluded, spuriously blossoming the menu ~450ms later (review). Safe
+            // via the radial's generation gate: a real stationary HOLD has already
+            // fired + nulled its origin before release, so this is a documented
+            // no-op (the open menu stays); a sub-450ms tap's still-sleeping timer
+            // wakes to a stale generation and returns. The slop gate stays ONLY in
+            // moved() (line ~113), where it must not cancel a still-down hold mid-press.
+            crate::ui::shell::channel::disarm_radial();
             return;
         }
         // #14/#5 arbitration (release side): if the finger drifted back into the
