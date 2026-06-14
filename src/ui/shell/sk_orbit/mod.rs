@@ -15,6 +15,7 @@
 //! consumes them is feature-gated where it touches `web_sys`.
 
 pub mod charge;
+pub mod drag;
 pub mod orbit_map;
 pub mod strip;
 pub mod warp;
