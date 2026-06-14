@@ -67,6 +67,26 @@ pub fn open_target_at(detents: &[Detent]) -> f64 {
     detents.last().map(|d| d.at).unwrap_or(1.0)
 }
 
+/// Where a TAP-release (sub-slop travel) leaves the panel's progress, by mode.
+///
+/// The pointer handlers are bound on the panel root and child controls do NOT
+/// stop propagation, so a tap on a persona card / toggle bubbles a full
+/// pointerdown→pointerup pair to the panel — `PanelDrag::up` sees `is_tap`.
+///
+/// - Legacy DRAG-summoned panels (`on_close == None`, so `open_at == None`
+///   here): a tap "passes through" — the panel snaps to `--p=0` (the parent
+///   toggle / off-screen rest), the historical behaviour.
+/// - BUTTON-summoned / Modal-parity panels (`on_close` wired ⇒ `open_at =
+///   Some(open detent)`): the panel RESTS open (`--p=1`); a tap on a child
+///   control must NOT slide it off-screen (which would strand it mounted —
+///   `on_close` only fires on Esc / swipe-to-close, never on a tap — behind an
+///   invisible scrim). It re-asserts the open detent so the child click acts
+///   normally and the station stays open for further toggles. Extracted as a
+///   pure fn so the tap-vs-open decision is unit-testable without a DOM.
+pub fn tap_release_progress(open_at: Option<f64>) -> f64 {
+    open_at.unwrap_or(0.0)
+}
+
 /// Pick the detent whose `at` is nearest the current progress — the snap
 /// target a committed drag lands on. Extracted from the pointerup handler so
 /// the selection is unit-testable without a DOM (the listener body itself is
@@ -160,9 +180,20 @@ impl PanelDrag {
         };
         self.start.set(None);
         let raw = self.axis_coord(ev) - start_coord;
-        // Tap: passes through, no commit (the parent toggle handles taps).
+        // Tap: no commit. The pointer handlers live on the panel root and child
+        // controls don't stop propagation, so a tap on a persona card / toggle
+        // bubbles a full pointerdown→pointerup here. For a button-summoned panel
+        // (on_close wired) the panel RESTS open, so a tap must RE-ASSERT the open
+        // detent — zeroing progress would slide it off-screen yet leave it
+        // mounted (on_close never fires on a tap), stranding the user behind an
+        // invisible scrim. Legacy drag-summoned panels (no on_close) keep the old
+        // "pass through to --p=0" behaviour. Decision is the pure
+        // `tap_release_progress` (unit-tested without a DOM).
         if is_tap(raw.abs()) {
-            self.progress.set(0.0);
+            let open_at = self
+                .on_close
+                .map(|_| self.detents.with_value(|d| open_target_at(d)));
+            self.progress.set(tap_release_progress(open_at));
             return;
         }
         let dt = (ev.time_stamp() - start_t).max(1.0);
@@ -460,6 +491,20 @@ mod tests {
         assert_eq!(nearest_detent(&detents, 0.9).key, "d2");
         // Empty slice falls back to the synthetic full-open detent.
         assert_eq!(nearest_detent(&[], 0.3).key, "open");
+    }
+
+    #[test]
+    fn tap_release_stays_open_for_button_summoned_panels() {
+        // Legacy drag-summoned panel (no on_close): a tap passes through to the
+        // off-screen rest (--p=0), the historical behaviour.
+        assert_eq!(tap_release_progress(None), 0.0);
+        // Button-summoned / Modal-parity panel (on_close wired ⇒ Some(open
+        // detent)): a tap on a child control must re-assert the OPEN detent, not
+        // zero progress (which would strand the panel mounted behind an invisible
+        // scrim — on_close fires only on Esc / swipe-to-close, never on a tap).
+        assert_eq!(tap_release_progress(Some(1.0)), 1.0);
+        // A non-trivial open detent (e.g. a half-open sheet) is preserved too.
+        assert_eq!(tap_release_progress(Some(0.5)), 0.5);
     }
 
     #[test]

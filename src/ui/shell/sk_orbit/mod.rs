@@ -213,6 +213,16 @@ pub fn SkOrbitShell() -> impl IntoView {
     // Close the slide-over AND restore focus to the summon button (§13 Modal-
     // parity restore-to-trigger). Used by on_close (Esc + swipe-to-close) and
     // the explicit ← button.
+    //
+    // DELIBERATE asymmetric motion (matches the orbit-map sibling's `close_map`,
+    // the established overlay convention here): close is a hard parent un-mount
+    // (flip `station_open` false → the `<Show>`/`.then()` drops the HoloPanel +
+    // scrim instantly), so the slide-IN transition plays but there is no
+    // slide-OUT. Deferring un-mount behind a transitionend / timeout (set --p=0,
+    // then drop) would add a motion-only state machine for symmetry alone; left
+    // as a Phase-7 polish carry rather than risking the un-mount path now. The
+    // SSE/composer/selection invariants are untouched either way (the panel is a
+    // pure overlay; closing it never remounts AppShell).
     let close_station = move || {
         station_open.set(false);
         #[cfg(feature = "hydrate")]
