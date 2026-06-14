@@ -73,6 +73,7 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
     struct Row {
         id_key: String,
         name: String,
+        accent_color: Option<String>,
     }
     #[derive(SurrealValue)]
     struct OrderRow {
@@ -87,7 +88,7 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(guild) AS id_key, guild.name AS name FROM guild_member
+            "SELECT meta::id(guild) AS id_key, guild.name AS name, guild.accent_color AS accent_color FROM guild_member
                 WHERE account = type::record('account', $account)
                   AND guild.deleted_at = NONE;
              SELECT meta::id(guild) AS guild_key, position FROM user_guild_order
@@ -109,6 +110,7 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
         .map(|r| GuildSummary {
             id: r.id_key,
             name: r.name,
+            accent_color: r.accent_color.unwrap_or_default(),
         })
         .collect();
     guilds.sort_by(|a, b| {
@@ -259,7 +261,15 @@ pub async fn create_guild(
             // channel-create, which genuinely change ANOTHER party's lists
             // and stay broadcast.
             state.emit_for(vec![account.0.clone()], SyncEvent::ListsChanged);
-            (StatusCode::CREATED, Json(GuildSummary { id, name })).into_response()
+            (
+                StatusCode::CREATED,
+                Json(GuildSummary {
+                    id,
+                    name,
+                    accent_color: String::new(),
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!(error = %e, "persist_create_guild failed");
@@ -345,6 +355,7 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
     struct GuildRow {
         name: String,
         owner_key: String,
+        accent_color: Option<String>,
     }
     #[derive(SurrealValue)]
     struct ChanRow {
@@ -356,7 +367,7 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
     let mut resp = state
         .db
         .query(
-            "SELECT name, meta::id(owner) AS owner_key FROM type::record('guild', $gid)
+            "SELECT name, meta::id(owner) AS owner_key, accent_color FROM type::record('guild', $gid)
                 WHERE deleted_at = NONE;
              SELECT meta::id(id) AS id_key, name, kind, position, created_at FROM channel
                 WHERE guild = type::record('guild', $gid)
@@ -373,6 +384,7 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
         id: gid.to_string(),
         name: g.name,
         owner_id: g.owner_key,
+        accent_color: g.accent_color.unwrap_or_default(),
         channels: chans
             .into_iter()
             .map(|c| ChannelSummary {
@@ -412,7 +424,7 @@ pub async fn patch_guild(
         if let Err(e) = state
             .db
             .query("UPDATE type::record('guild', $gid) SET name = $name;")
-            .bind(("gid", gid))
+            .bind(("gid", gid.clone()))
             .bind(("name", name))
             .await
             .and_then(|r| r.check())
@@ -421,6 +433,23 @@ pub async fn patch_guild(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
         // Inside the `if let`: a body without `name` mutates nothing → no emit.
+        state.emit(SyncEvent::ListsChanged);
+    }
+    if let Some(raw) = req.accent_color {
+        let Some(accent) = crate::server::accent::normalize_accent(&raw) else {
+            return error_response(StatusCode::BAD_REQUEST, "invalid accent color");
+        };
+        if let Err(e) = state
+            .db
+            .query("UPDATE type::record('guild', $gid) SET accent_color = $accent;")
+            .bind(("gid", gid.clone()))
+            .bind(("accent", accent))
+            .await
+            .and_then(|r| r.check())
+        {
+            tracing::error!(error = %e, "patch_guild accent update failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
         state.emit(SyncEvent::ListsChanged);
     }
     StatusCode::NO_CONTENT.into_response()
@@ -462,6 +491,7 @@ pub async fn list_deleted_guilds(State(state): State<AppState>, account: AuthAcc
             .map(|r| GuildSummary {
                 id: r.id_key,
                 name: r.name,
+                accent_color: String::new(),
             })
             .collect(),
         Err(e) => {
