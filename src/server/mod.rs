@@ -7,6 +7,7 @@
 //! larger inner cap under a smaller outer one still rejects at the smaller
 //! one, so the two caps must live on disjoint route groups.
 
+pub mod accent;
 pub mod auth;
 pub mod emoji;
 pub mod events;
