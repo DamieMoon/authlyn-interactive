@@ -16,6 +16,12 @@ pub const COMMIT_FRACTION: f64 = 0.32;
 pub const COMMIT_VELOCITY_PER_MS: f64 = 0.45;
 /// Swipe-to-reply glyph "pop" threshold (px of row displacement).
 pub const REPLY_POP_PX: f64 = 64.0;
+/// Radial-disarm drift slop (px). Mirrors `radial::MOVE_SLOP_PX` (also 10px):
+/// once a press drifts past this radius it is a flick / drag / scroll, not a
+/// long-press hold. The StripDrag terminal/bail paths reuse it to disarm the
+/// inherited radial when `set_pointer_capture` has starved the radial's OWN
+/// `<ul>` slop-disarm (the phantom-menu fix; see `drag.rs`).
+pub const RADIAL_DISARM_SLOP_PX: f64 = 10.0;
 
 /// The gesture's axis after the pointer leaves the slop radius. `None` until
 /// committed. Horizontal wins only when dx dominates dy by `H_DOMINANCE`;
@@ -47,8 +53,22 @@ pub fn row_swipe_wins(started_on_row: bool, dx: f64) -> bool {
 }
 
 /// The reply glyph "pops" (and a haptic tick fires) at/after the pop threshold.
+// TODO(Phase-7 9.4.3-a): forward-stub — first consumed by the swipe-to-reply
+// row VISUAL (the ↩ glyph offset + haptic tick + act::start_reply trigger),
+// booked as a follow-up. The arbitration (strip yields, drag.rs) shipped ahead
+// of the visual on purpose, so this predicate has no caller yet; not orphaned.
 pub fn reply_armed(dx: f64) -> bool {
     dx >= REPLY_POP_PX
+}
+
+/// Has the press drifted past the radial's disarm slop (a flick / drag / scroll
+/// rather than a stationary long-press hold)? A pure mirror of the radial's own
+/// `MOVE_SLOP_PX` test (`dx²+dy² > slop²`, strict). The StripDrag terminal/bail
+/// paths gate `disarm_radial()` on this so a genuine hold still blossoms the
+/// menu while a moved gesture (whose disarm the stolen pointer capture would
+/// otherwise eat) cancels the armed 450ms timer.
+pub fn moved_past_radial_slop(dx: f64, dy: f64) -> bool {
+    dx * dx + dy * dy > RADIAL_DISARM_SLOP_PX * RADIAL_DISARM_SLOP_PX
 }
 
 /// The strip's live `translateX` (px) while dragging, given a viewport `width`
@@ -148,6 +168,37 @@ mod tests {
     fn reply_glyph_pops_at_threshold() {
         assert!(!reply_armed(63.9));
         assert!(reply_armed(64.0));
+    }
+
+    #[test]
+    fn moved_past_radial_slop_preserves_a_stationary_hold() {
+        // A pure mirror of the radial's own MOVE_SLOP_PX drift test: under the
+        // slop radius the finger is "stationary" (a genuine long-press hold the
+        // radial must still open), past it the finger has drifted (a flick /
+        // drag / scroll the StripDrag terminal paths must disarm because the
+        // stolen pointer capture starves the radial's own <ul> slop-disarm).
+        assert!(
+            !moved_past_radial_slop(0.0, 0.0),
+            "no motion = a hold; radial must survive"
+        );
+        assert!(
+            !moved_past_radial_slop(7.0, 7.0),
+            "7,7 (r≈9.9) under the 10px slop = still a hold"
+        );
+        assert!(
+            moved_past_radial_slop(11.0, 0.0),
+            "11px horizontal drift past the slop"
+        );
+        assert!(
+            moved_past_radial_slop(0.0, 11.0),
+            "11px vertical drift (scroll) past the slop"
+        );
+        // Exactly the radial's boundary (> not ≥): RADIAL_DISARM_SLOP_PX² is the
+        // threshold, so a point on the circle does NOT count as moved.
+        assert!(
+            !moved_past_radial_slop(RADIAL_DISARM_SLOP_PX, 0.0),
+            "on the slop circle is not past it (mirrors radial's strict >)"
+        );
     }
 
     #[test]

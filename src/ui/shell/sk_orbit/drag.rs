@@ -92,11 +92,22 @@ impl StripDrag {
         let dy = ev.client_y() as f64 - sy;
         // #14/#5 arbitration: a small-radius rightward drag that STARTED on a
         // message row is a swipe-to-reply, not a channel switch — bail before any
-        // axis lock or offset write so the strip never claims it (and the radial
-        // is NOT force-disarmed: the row still owns the gesture). The strip only
+        // axis lock or offset write so the strip never claims it. The strip only
         // ever wins once the horizontal travel grows past REPLY_POP_PX*1.5.
         if super::strip::row_swipe_wins(self.started_on_row.get_untracked(), dx) {
-            // Let the row's own swipe-to-reply handle it; don't move the strip.
+            // BUT once the finger has drifted past the radial's slop this is a
+            // flick/drag, not a stationary hold: the radial's OWN <ul>
+            // slop-disarm can't see it (set_pointer_capture in `down` stole the
+            // stream), so its armed 450ms timer would fire ~450ms after release
+            // and pop a phantom menu with no finger down. Disarm it here once —
+            // gated on the drift so a genuine HOLD still blossoms (gesture 4 of
+            // the trace) while a row-flick/short-drag cancels it. Idempotent
+            // (generation bump), so calling it on each over-slop move is safe.
+            if super::strip::moved_past_radial_slop(dx, dy) {
+                crate::ui::shell::channel::disarm_radial();
+            }
+            // Let the row's own swipe-to-reply (Phase-7 follow-up) handle the
+            // sub-slop hold; don't move the strip.
             return;
         }
         // Lock the axis once past slop; only track horizontal drags.
@@ -140,7 +151,7 @@ impl StripDrag {
     }
 
     pub fn up(&self, ev: &leptos::ev::PointerEvent) {
-        let Some((sx, _, st)) = self.start.get_untracked() else {
+        let Some((sx, sy, st)) = self.start.get_untracked() else {
             return;
         };
         self.start.set(None);
@@ -149,10 +160,25 @@ impl StripDrag {
         self.axis.set(None);
         // Reset the per-gesture row flag so the next press starts clean.
         self.started_on_row.set(false);
+        let dx = ev.client_x() as f64 - sx;
+        let dy = ev.client_y() as f64 - sy;
         if !was_h {
+            // Terminal path for every gesture the strip did NOT claim
+            // horizontally — including pointercancel (bound to `up`), which the
+            // browser fires when it takes over for a vertical scroll started on
+            // a row, and a short row-flick release that never locked an axis.
+            // For all of these `set_pointer_capture` (in `down`) redirected the
+            // pointer stream to the strip div, so the radial's own
+            // pointerup/pointercancel disarm on the `.messages <ul>` never ran
+            // and its armed 450ms timer would still pop a phantom menu after
+            // release. Disarm it once IFF the finger actually moved past the
+            // radial's slop — a stationary hold (gesture 4) is preserved so the
+            // long-press still blossoms normally.
+            if super::strip::moved_past_radial_slop(dx, dy) {
+                crate::ui::shell::channel::disarm_radial();
+            }
             return;
         }
-        let dx = ev.client_x() as f64 - sx;
         // #14/#5 arbitration (release side): if the finger drifted back into the
         // small-radius rightward band, the gesture is a swipe-to-reply, not a
         // channel switch — snap the strip home without committing. (The strip
