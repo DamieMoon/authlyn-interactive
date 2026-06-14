@@ -180,6 +180,22 @@ pub fn SkOrbitShell() -> impl IntoView {
         self::drag::StripDrag::new(idx_sv, count_sv, Callback::new(on_strip_commit), strip_ref);
     #[cfg(not(feature = "hydrate"))]
     let _ = (strip_ref, on_strip_commit);
+    // Composer-orb charge: the SVG ring fills with message LENGTH via the
+    // log curve (#33 — a one-liner is a sliver, a paragraph ~60%, only a saga
+    // pegs). The orb is the SOLE send surface under orbit (the in-pane
+    // ChannelPane `.send` + its linear ring are hidden in SCSS), so this is the
+    // ONLY ring that reflects length.
+    let charge = Memo::new(move |_| {
+        s.composer
+            .compose
+            .with(|c| self::charge::charge_fraction(c))
+    });
+    let armed_glyph = move || match s.composer.effect_mode.get().as_deref() {
+        Some("whisper") => "🤫",
+        Some("shout") => "📣",
+        Some("spell") => "✨",
+        _ => "",
+    };
     view! {
         <section class="content sk-orbit-content">
             <button class="sk-orbit-pill" type="button"
@@ -381,6 +397,26 @@ pub fn SkOrbitShell() -> impl IntoView {
                     </div>
                 </Portal>
             })}
+            <div class="sk-orbit-orb-wrap">
+                <button class="sk-orbit-orb" type="button"
+                    // Braced: a bare `>` would close the <button> tag in rstml
+                    // (matching the in-pane `.send` ring, channel/mod.rs).
+                    class:charging={move || charge.get() > 0.0}
+                    class:armed=move || s.composer.effect_mode.get().is_some()
+                    style:--charge=move || format!("{:.3}", charge.get())
+                    style:--dash=move || format!("{:.1}", self::charge::dash_offset(charge.get()))
+                    title="Send"
+                    on:click=move |_| act::send_message(s)>
+                    <svg class="sk-orbit-ring" viewBox="0 0 52 52" aria-hidden="true">
+                        <circle class="sk-orbit-ring-track" cx="26" cy="26" r="24"></circle>
+                        <circle class="sk-orbit-ring-arc" cx="26" cy="26" r="24"></circle>
+                    </svg>
+                    <span class="sk-orbit-orb-glyph">{move || {
+                        let g = armed_glyph();
+                        if g.is_empty() { "➤" } else { g }
+                    }}</span>
+                </button>
+            </div>
         </section>
     }
 }

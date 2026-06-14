@@ -182,3 +182,73 @@
 		transition: none;
 	}
 }
+
+// ---- Composer orb + charge ring (#E / #33) ----
+// The floating orb is the SOLE send surface under orbit: hide the in-pane
+// ChannelPane `.send` button + its linear charge ring so exactly ONE ring (the
+// orb's log curve) reflects message length. Send routes through the orb's
+// act::send_message (the same call the in-pane button makes). The composer
+// textarea itself stays (the orb only replaces the send affordance).
+.app.sk-orbit .composer .send {
+	display: none;
+}
+.app.sk-orbit .sk-orbit-orb-wrap {
+	position: fixed;
+	right: calc(0.9rem + env(safe-area-inset-right, 0px));
+	bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px)); // OWNS bottom edge
+	z-index: 30;
+}
+.app.sk-orbit .sk-orbit-orb {
+	position: relative;
+	width: 52px;
+	height: 52px;
+	border-radius: 50%;
+	@include glass-etched;
+	color: var(--text);
+	display: grid;
+	place-items: center;
+}
+.app.fx-max .sk-orbit-orb {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-ring {
+	position: absolute;
+	inset: 0;
+	transform: rotate(-90deg); // start the arc at 12 o'clock
+}
+.app.sk-orbit .sk-orbit-ring-track {
+	fill: none;
+	stroke: var(--glass-line);
+	stroke-width: 3;
+}
+.app.sk-orbit .sk-orbit-ring-arc {
+	fill: none;
+	stroke: var(--accent);
+	stroke-width: 3;
+	stroke-linecap: round;
+	stroke-dasharray: 151; // CIRC
+	stroke-dashoffset: var(--dash, 151);
+	transition: stroke-dashoffset 120ms ease;
+}
+.app.sk-orbit .sk-orbit-orb.armed .sk-orbit-ring-arc {
+	stroke: var(--pinged-glow);
+}
+// Pre-rendered glow: static max box-shadow on ::before, opacity pulsed (the
+// sanctioned pattern — keyframes never animate box-shadow). Only while armed.
+.app.sk-orbit .sk-orbit-orb::before {
+	content: "";
+	position: absolute;
+	inset: -2px;
+	border-radius: 50%;
+	box-shadow: 0 0 16px var(--glow-accent);
+	opacity: 0;
+	pointer-events: none;
+}
+.app.sk-orbit .sk-orbit-orb.charging::before {
+	opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-ring-arc {
+		transition: none;
+	}
+}
