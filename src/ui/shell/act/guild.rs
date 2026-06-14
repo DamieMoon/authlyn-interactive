@@ -185,6 +185,22 @@ pub fn rename_server(s: Shell, gid: String, name: String) {
     });
 }
 
+/// Set the open guild's per-server accent (owner/admin). On success, patch the
+/// rail entry in place so the accent var rebinds without a refetch.
+#[cfg(feature = "hydrate")]
+pub fn set_guild_accent(s: Shell, gid: String, accent: String) {
+    spawn_local(async move {
+        match api::set_guild_accent(&gid, &accent).await {
+            Ok(()) => s.sel.guilds.update(|gs| {
+                if let Some(g) = gs.iter_mut().find(|g| g.id == gid) {
+                    g.accent_color = accent.clone();
+                }
+            }),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
 /// Delete a guild (owner only). On success, clear the server selection and
 /// refresh the rail so it no longer points at a dead id.
 #[cfg(feature = "hydrate")]
@@ -255,6 +271,8 @@ pub fn select_server_for_sheet(_s: Shell, _gid: String) {}
 pub fn create_server(_s: Shell, _name: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn set_guild_accent(_s: Shell, _gid: String, _accent: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_server(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]

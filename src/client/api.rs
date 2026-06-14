@@ -227,6 +227,20 @@ pub async fn patch_guild(gid: &str, name: &str) -> Result<(), ApiError> {
         &format!("/guilds/{gid}"),
         &PatchGuildRequest {
             name: Some(name.to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// PATCH /guilds/{gid} — set the per-server accent (owner/admin only). An
+/// empty string clears it back to the default. Sends ONLY accent_color.
+pub async fn set_guild_accent(gid: &str, accent: &str) -> Result<(), ApiError> {
+    patch_json(
+        &format!("/guilds/{gid}"),
+        &PatchGuildRequest {
+            accent_color: Some(accent.to_string()),
+            ..Default::default()
         },
     )
     .await
