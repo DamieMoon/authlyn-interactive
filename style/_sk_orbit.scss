@@ -69,3 +69,71 @@
 	background: var(--accent);
 	opacity: 1;
 }
+
+// The orbit MAP is <Portal>'d to document.body (sk_orbit/mod.rs), so it lands
+// as a SIBLING of `.app`, NOT a descendant — an `.app.sk-orbit `-prefixed
+// selector can never match it (verified live: prefixed rules left the nodes
+// `position: static`, scrambling the geometry). So these portaled-overlay
+// rules are UNPREFIXED, exactly like the other body-portal overlays
+// (`.radial-menu` / `.lightbox` in `_content.scss`/`_lightbox.scss`); the
+// `sk-orbit-*` class names are unique to this skeleton, so they're self-scoping
+// (only `SkOrbitShell`, which renders only under `.app.sk-orbit`, emits them).
+.sk-orbit-map {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	// Owns its own insets (body-level overlay, like the body-portal contract).
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+	animation: sk-orbit-map-in 220ms ease-out;
+}
+@keyframes sk-orbit-map-in {
+	from { opacity: 0; transform: scale(1.04); }
+	to { opacity: 1; transform: scale(1); }
+}
+.sk-orbit-map-scrim {
+	position: absolute;
+	inset: 0;
+	background: var(--scrim);
+	border: none;
+}
+.sk-orbit-core {
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, -50%);
+	padding: 1rem 1.4rem;
+	border-radius: 999px;
+	@include glass-etched;
+	color: var(--text);
+	z-index: 1;
+}
+.sk-orbit-node,
+.sk-orbit-far {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 2;
+	min-width: 44px;
+	min-height: 44px;
+	border-radius: 999px;
+	@include glass-etched;
+	color: var(--text);
+	padding: 0.4rem 0.7rem;
+}
+.sk-orbit-node-dot {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--unread-glow);
+}
+// Reduced-motion: the open animation is decorative; the class lacks `fx-`, so
+// list it explicitly (the global kill only catches [class*="fx-"]).
+@media (prefers-reduced-motion: reduce) {
+	.sk-orbit-map {
+		animation: none;
+	}
+}
