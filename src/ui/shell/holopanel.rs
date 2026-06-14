@@ -106,6 +106,9 @@ struct PanelDrag {
     /// (coord, time_ms) at pointerdown along the open axis, else `None`.
     #[cfg(feature = "hydrate")]
     start: RwSignal<Option<(f64, f64)>>,
+    /// Parent dismiss callback (Esc + snap-to-closed). `None` = legacy.
+    #[cfg(feature = "hydrate")]
+    on_close: Option<Callback<()>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -164,6 +167,12 @@ impl PanelDrag {
             self.on_commit.run(target.key);
         } else {
             self.progress.set(0.0);
+            // Snap-to-closed: ask the parent to dismiss (it owns un-mount +
+            // focus restore). Legacy drag-summoned panels pass no on_close and
+            // keep the old "just snap to 0" behaviour.
+            if let Some(cb) = self.on_close {
+                cb.run(());
+            }
         }
     }
 
@@ -179,6 +188,9 @@ impl PanelDrag {
                 ev.prevent_default();
                 self.start.set(None);
                 self.progress.set(0.0);
+                if let Some(cb) = self.on_close {
+                    cb.run(());
+                }
             }
             "Tab" => {
                 let Some(root) = self.panel_ref.get_untracked() else {
@@ -282,6 +294,18 @@ pub fn HoloPanel(
     /// Desktop opts IN to drag-reorder / hover affordances; touch is clean.
     #[prop(optional)]
     desktop_chrome: bool,
+    /// Start OPEN: on mount, animate to the open (last) detent instead of the
+    /// closed `--p=0` resting state. For parent-`<Show>`-mounted panels summoned
+    /// by an explicit affordance (the engine is otherwise drag-summoned only).
+    #[prop(optional)]
+    open: bool,
+    /// Fired when the panel asks the parent to dismiss it — on Esc AND on a
+    /// drag/flick that snaps back below the open detent (swipe-to-close). The
+    /// PARENT owns un-mounting (e.g. flips its `<Show>` signal) and focus
+    /// restore-to-trigger; the engine only signals intent. `None` ⇒ legacy
+    /// drag-summoned behaviour (Esc just snaps to `--p=0`, no parent notify).
+    #[prop(optional, into)]
+    on_close: Option<Callback<()>>,
     children: Children,
 ) -> impl IntoView {
     // Drag progress drives the `--p` custom property; SCSS derives the
@@ -297,10 +321,15 @@ pub fn HoloPanel(
     // The panel DOM node: pointer-capture target + focus-trap root. Attached
     // via `node_ref` on the panel <div> below (proven in lightbox.rs).
     let panel_ref = NodeRef::<leptos::html::Div>::new();
+    // The fully-open detent (last, since detents are ascending) — the mount-time
+    // open target. Computed before `detents` moves into the gesture state.
+    let detents_open_at = detents.last().map(|d| d.at).unwrap_or(1.0);
     // `detents`/`on_commit` feed only the hydrate gesture state; consume them
-    // on the server so the props don't read as unused there.
+    // on the server so the props don't read as unused there. `open`/`on_close`/
+    // `detents_open_at` are likewise hydrate-only (the on_load capture + the
+    // struct move), so consume them here too.
     #[cfg(not(feature = "hydrate"))]
-    let _ = (detents, on_commit);
+    let _ = (detents, on_commit, open, on_close, detents_open_at);
     let drag = PanelDrag {
         #[cfg(feature = "hydrate")]
         edge,
@@ -314,14 +343,23 @@ pub fn HoloPanel(
         panel_ref,
         #[cfg(feature = "hydrate")]
         start: RwSignal::new(None),
+        #[cfg(feature = "hydrate")]
+        on_close,
     };
     // a11y contract: move focus onto the panel root the moment it mounts so the
     // Tab trap (PanelDrag::keydown) and Esc-to-close ride the panel's own
     // keydown — the parent owns mount/unmount, so "open" == mounted here. Focus
     // restore on close is the parent's job (it un-mounts the trigger context).
     #[cfg(feature = "hydrate")]
-    panel_ref.on_load(|el| {
+    panel_ref.on_load(move |el| {
         let _ = el.focus();
+        // Button-summoned open: the parent mounts us under <Show> with open=true;
+        // raise progress to the open detent so the SCSS --p transition slides us
+        // in. Leptos applies the initial --p=0, then this set, and the CSS
+        // transition interpolates (no rAF defer needed).
+        if open {
+            progress.set(detents_open_at);
+        }
     });
     let (d_down, d_move, d_up, d_key) = (drag.clone(), drag.clone(), drag.clone(), drag.clone());
     view! {
@@ -390,5 +428,18 @@ mod tests {
         assert_eq!(nearest_detent(&detents, 0.9).key, "d2");
         // Empty slice falls back to the synthetic full-open detent.
         assert_eq!(nearest_detent(&[], 0.3).key, "open");
+    }
+
+    #[test]
+    fn open_target_is_the_last_ascending_detent() {
+        let detents = [Detent { at: 0.5, key: "d1" }, Detent { at: 1.0, key: "d2" }];
+        // Mount-time `open` raises progress to the fully-open (last) detent.
+        assert_eq!(detents.last().map(|d| d.at), Some(1.0));
+        // Single-detent panel (orbit's case) opens to that one detent.
+        let single = [Detent {
+            at: 1.0,
+            key: "open",
+        }];
+        assert_eq!(single.last().map(|d| d.at), Some(1.0));
     }
 }
