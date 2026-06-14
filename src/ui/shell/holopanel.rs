@@ -58,6 +58,15 @@ pub struct Detent {
     pub key: &'static str,
 }
 
+/// The mount-time `open` target: the fully-open detent's `at`. Detents are
+/// sorted ascending, so the open one is last; an empty slice (defensive — a
+/// HoloPanel always has ≥1 detent) falls back to fully-open `1.0`. Extracted
+/// from the component's `on_load` so the selection is unit-testable without a
+/// DOM (mirrors `nearest_detent`).
+pub fn open_target_at(detents: &[Detent]) -> f64 {
+    detents.last().map(|d| d.at).unwrap_or(1.0)
+}
+
 /// Pick the detent whose `at` is nearest the current progress — the snap
 /// target a committed drag lands on. Extracted from the pointerup handler so
 /// the selection is unit-testable without a DOM (the listener body itself is
@@ -322,8 +331,9 @@ pub fn HoloPanel(
     // via `node_ref` on the panel <div> below (proven in lightbox.rs).
     let panel_ref = NodeRef::<leptos::html::Div>::new();
     // The fully-open detent (last, since detents are ascending) — the mount-time
-    // open target. Computed before `detents` moves into the gesture state.
-    let detents_open_at = detents.last().map(|d| d.at).unwrap_or(1.0);
+    // open target. Computed (via the unit-tested `open_target_at`) before
+    // `detents` moves into the gesture state.
+    let detents_open_at = open_target_at(&detents);
     // `detents`/`on_commit` feed only the hydrate gesture state; consume them
     // on the server so the props don't read as unused there. `open`/`on_close`/
     // `detents_open_at` are likewise hydrate-only (the on_load capture + the
@@ -362,7 +372,29 @@ pub fn HoloPanel(
         }
     });
     let (d_down, d_move, d_up, d_key) = (drag.clone(), drag.clone(), drag.clone(), drag.clone());
+    // Modal scrim: a full-viewport backdrop sibling, rendered ONLY when the
+    // parent wired `on_close` (the explicit-affordance / Modal-parity case —
+    // legacy drag-summoned panels pass no on_close and stay scrimless as
+    // before). It makes the slide-over a TRUE modal: `var(--scrim)` at z:59 (just
+    // under the panel) blocks pointer/touch interaction with the chrome behind
+    // it (pill, composer orb, swipe strip) — without it `aria-modal` is a lie,
+    // the Tab-trap only contains KEYBOARD focus — and gives click-outside-to-
+    // close via the same `on_close` (so it fires the parent's un-mount + focus-
+    // restore, exactly like Esc/swipe-to-close). Opacity tracks --p through
+    // `scrim_opacity` (0 closed → 0.85 open), so it fades in as the panel slides.
+    let scrim = on_close.map(|cb| {
+        view! {
+            <button
+                class="holopanel-scrim"
+                aria-label="Close"
+                tabindex="-1"
+                style:opacity=move || scrim_opacity(progress.get()).to_string()
+                on:click=move |_| cb.run(())
+            ></button>
+        }
+    });
     view! {
+        {scrim}
         <div
             node_ref=panel_ref
             class=format!("holopanel {edge_class}")
@@ -434,12 +466,15 @@ mod tests {
     fn open_target_is_the_last_ascending_detent() {
         let detents = [Detent { at: 0.5, key: "d1" }, Detent { at: 1.0, key: "d2" }];
         // Mount-time `open` raises progress to the fully-open (last) detent.
-        assert_eq!(detents.last().map(|d| d.at), Some(1.0));
+        assert_eq!(open_target_at(&detents), 1.0);
         // Single-detent panel (orbit's case) opens to that one detent.
         let single = [Detent {
             at: 1.0,
             key: "open",
         }];
-        assert_eq!(single.last().map(|d| d.at), Some(1.0));
+        assert_eq!(open_target_at(&single), 1.0);
+        // Empty slice (defensive — a HoloPanel always has ≥1 detent) falls back
+        // to fully-open 1.0, the only non-trivial branch the inline test missed.
+        assert_eq!(open_target_at(&[]), 1.0);
     }
 }

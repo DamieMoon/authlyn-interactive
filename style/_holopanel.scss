@@ -38,10 +38,25 @@
 	padding-bottom: env(safe-area-inset-bottom, 0px); // OWNS bottom edge
 	transform: translateY(calc((1 - var(--p)) * 100%));
 }
-// Scrim: a sibling the consumer renders; opacity driven by --p via the
-// component (scrim_opacity()). Declared touch-action:none so dragging the
-// panel never pans the page underneath.
+// Scrim: a full-viewport backdrop the COMPONENT renders as the panel's sibling
+// (only when on_close is wired) so the slide-over is a true modal — it blocks
+// pointer/touch interaction with the chrome behind it (pill, composer orb,
+// swipe strip) and gives click-outside-to-close. Sits just under the panel
+// (z:59 < the panel's z:60), opacity driven by --p via the component
+// (scrim_opacity(): 0 closed → 0.85 open), so it fades in as the panel slides.
+// touch-action:none so dragging the panel/scrim never pans the page underneath.
 .holopanel,
 .holopanel-scrim {
 	touch-action: none;
+}
+.holopanel-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 59;
+	border: none;
+	background: var(--scrim);
+	transition: opacity var(--dur-page) var(--ease-page);
+	@media (prefers-reduced-motion: reduce) {
+		transition: none; // instant, matches the panel's reduced-motion snap
+	}
 }
