@@ -516,6 +516,7 @@ pub fn SkOrbitShell() -> impl IntoView {
             {move || station_open.get().then(|| view! {
                 <HoloPanel
                     edge=Edge::Right
+                    label="Personas & station settings"
                     open=true
                     detents=vec![Detent { at: 1.0, key: "open" }]
                     // Single-detent: a committed OPEN drag just re-asserts open

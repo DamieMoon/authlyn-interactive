@@ -346,6 +346,12 @@ pub fn HoloPanel(
     /// drag-summoned behaviour (Esc just snaps to `--p=0`, no parent notify).
     #[prop(optional, into)]
     on_close: Option<Callback<()>>,
+    /// Optional accessible name for the dialog (WCAG 4.1.2 / Modal-parity §13):
+    /// bound to `aria-label` on the `role="dialog"` root so a screen reader
+    /// announces a NAMED dialog, not a bare "dialog". `None` for legacy
+    /// drag-summoned panels; explicit-affordance (Modal-parity) consumers name it.
+    #[prop(optional, into)]
+    label: Option<&'static str>,
     children: Children,
 ) -> impl IntoView {
     // Drag progress drives the `--p` custom property; SCSS derives the
@@ -432,6 +438,7 @@ pub fn HoloPanel(
             class:holopanel--desktop-chrome=desktop_chrome
             role="dialog"
             aria-modal="true"
+            aria-label=label
             tabindex="-1"
             style:--p=move || progress.get().to_string()
             on:pointerdown=move |ev| d_down.down(&ev)
