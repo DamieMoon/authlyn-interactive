@@ -117,6 +117,21 @@ pub fn SkOrbitShell() -> impl IntoView {
             .map(|g| g.name)
             .unwrap_or_default()
     };
+    // Scene-light (#B, ÖG): the ambient pane wash takes the tint of the
+    // currently-active speaker — the most-recent message's persona palette color
+    // (`persona_color` is the markup palette NAME, protocol.rs), mapped to its
+    // `--tint-{name}` token (style/_tokens.scss). Empty/None ⇒ no tint. Bound
+    // always but only VISIBLE under `.fx-max` (the SCSS gates it), so this is a
+    // no-op at Standard tier.
+    let scene_tint = move || {
+        s.msg.messages.with(|ms| {
+            ms.last()
+                .and_then(|m| m.persona_color.clone())
+                .filter(|c| !c.is_empty())
+                .map(|c| format!("var(--tint-{c})"))
+                .unwrap_or_default()
+        })
+    };
     // Modal-parity focus (gate item, design law §13): trap (Tab/Shift+Tab wrap
     // within the map — see the on:keydown handler), Esc closes, and restore-to-
     // trigger — the pill is the trigger, so closing the map restores focus to it
@@ -231,7 +246,8 @@ pub fn SkOrbitShell() -> impl IntoView {
         }
     };
     view! {
-        <section class="content sk-orbit-content">
+        <section class="content sk-orbit-content"
+            style:--scene-tint=move || scene_tint()>
             <button class="sk-orbit-pill" type="button"
                 node_ref=pill_ref
                 aria-haspopup="dialog"

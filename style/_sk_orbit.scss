@@ -24,6 +24,25 @@
 	height: 100vh; // fallback first; dvh wins where supported
 	display: flex;
 	flex-direction: column;
+	// Positioning context for the scene-light ::before (so its inset:0 maps to
+	// the content box, not the grandparent .app.sk-orbit).
+	position: relative;
+}
+// Scene-light (#B, ÖG): an ambient wash from the active speaker's tint. Only
+// at the eye-candy tier (.fx-max) — NEVER at Standard. Static gradient (no
+// keyframe); the tint updates reactively via --scene-tint.
+.app.fx-max.sk-orbit .sk-orbit-content::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+	background: radial-gradient(
+		120% 80% at 50% 100%,
+		var(--scene-tint, transparent) 0%,
+		transparent 60%
+	);
+	opacity: 0.12;
 }
 // The pill owns the TOP safe-area inset under orbit (the topbar replacement);
 // the orbit topbar is a thin strip — the pill floats above the pane.
