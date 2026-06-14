@@ -6,6 +6,7 @@ use leptos::prelude::*;
 
 use crate::protocol::MeResponse;
 
+pub mod accent;
 pub mod auth;
 pub mod avatar;
 #[cfg(feature = "hydrate")]
