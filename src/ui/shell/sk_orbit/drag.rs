@@ -69,10 +69,17 @@ impl StripDrag {
         }
         // Did this press start on a message row? If so a small-radius rightward
         // drag is a swipe-to-reply, not a channel switch (the #14/#5 arbitration).
+        // EXCLUDE system rows: they offer no actions (`message_actions` →
+        // reply:false) so they have no reply target, and the radial deliberately
+        // skips them too (channel/radial.rs `contains("system")` early-return).
+        // Keeping the two row-detection rules consistent makes the strip own a
+        // swipe started on a system row — a channel switch, the sensible fallback
+        // when there is nothing to reply to (otherwise it would be a dead-zone).
         let on_row = {
             ev.target()
                 .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
                 .and_then(|e| e.closest("li[id^='msg-']").ok().flatten())
+                .filter(|li| !li.class_list().contains("system"))
                 .is_some()
         };
         self.started_on_row.set(on_row);

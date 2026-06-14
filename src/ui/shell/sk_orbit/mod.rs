@@ -127,8 +127,14 @@ pub fn SkOrbitShell() -> impl IntoView {
         s.msg.messages.with(|ms| {
             ms.last()
                 .and_then(|m| m.persona_color.clone())
-                .filter(|c| !c.is_empty())
-                .map(|c| format!("var(--tint-{c})"))
+                // Reuse the validated palette→token mapper (the same one the W3
+                // accent binds at this .app root, shell/mod.rs): it returns "" for
+                // empty/unknown so a non-palette name can never reach the CSS, and
+                // the `--tint-*` tokens stay the single palette source. NEVER
+                // splice the raw server-supplied `persona_color` into the token
+                // string — `persona.color` has no schema ASSERT (schema.surql), so
+                // the app-layer validation is the only thing keeping it safe.
+                .map(|c| crate::ui::accent::accent_var_css(&c))
                 .unwrap_or_default()
         })
     };
