@@ -111,6 +111,16 @@ DEFINE FIELD IF NOT EXISTS created_at ON guild TYPE datetime DEFAULT time::now()
 -- sweep hard-deletes past the rollback window (guild 30d). option<> ⇒ NONE is
 -- valid, no backfill needed. EVERY guild read filters `deleted_at = NONE`.
 DEFINE FIELD IF NOT EXISTS deleted_at ON guild TYPE option<datetime>;
+-- Per-server accent (Open Question #5 / _foundation.scss): a markup-palette
+-- name (red…gray, the SAME 8-name vocabulary as persona.color / --tint-*) or
+-- NONE for the default electric-blue accent. option<> ⇒ NONE is valid on every
+-- pre-existing guild row, so NO backfill is needed and adding it can't trip the
+-- SCHEMAFULL NONE-coercion crash (same reasoning as account.security_question
+-- and message.effect). Purely cosmetic; gates nothing. NO format ASSERT: the
+-- palette is validated server-side (server/accent.rs), mirroring persona.color
+-- (a free TYPE string with no ASSERT). If a format ASSERT is ever added it MUST
+-- use DEFINE FIELD OVERWRITE, not IF NOT EXISTS (enum-OVERWRITE invariant).
+DEFINE FIELD IF NOT EXISTS accent_color ON guild TYPE option<string>;
 
 -- Channels (nested under a guild; `kind` gates text vs lorebook) --------
 DEFINE TABLE IF NOT EXISTS channel SCHEMAFULL;

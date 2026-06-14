@@ -333,6 +333,85 @@ async fn applying_effect_over_populated_messages_keeps_legacy_rows_with_effect_n
     );
 }
 
+/// Task 0: `guild.accent_color` is `option<string>` added to the populated
+/// `guild` table. Applying the real schema over a pre-existing guild row must
+/// NOT crash-loop (no backfill needed for option<>), the legacy row reads back
+/// accent_color = NONE, and a value written after apply persists (proving it's
+/// a real defined field, not silently stripped by SCHEMAFULL). Mirrors
+/// `applying_effect_over_populated_messages_keeps_legacy_rows_with_effect_none`.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_accent_color_over_populated_guilds_keeps_legacy_rows_with_accent_none() {
+    let db = common::raw_db().await;
+
+    // A minimal pre-`accent_color` guild schema: every guild field EXCEPT
+    // accent_color, so re-applying the full schema introduces only it.
+    db.query(
+        "DEFINE TABLE guild SCHEMAFULL;\
+         DEFINE FIELD name ON guild TYPE string;\
+         DEFINE FIELD owner ON guild TYPE record<account>;\
+         DEFINE FIELD icon ON guild TYPE option<record<media_blob>>;\
+         DEFINE FIELD created_at ON guild TYPE datetime DEFAULT time::now();\
+         DEFINE FIELD deleted_at ON guild TYPE option<datetime>;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy guild (record links are not referentially enforced, so
+    // the dangling owner id is fine).
+    db.query("CREATE guild:legacy SET name = 'G', owner = account:y;")
+        .await
+        .expect("seed legacy transport")
+        .check()
+        .expect("seed legacy guild");
+
+    // Apply the REAL schema: adds accent_color (option<string>) over the
+    // populated table. Must not crash-loop — no backfill for option<>.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        name: String,
+        accent_color: Option<String>,
+    }
+    let mut resp = db
+        .query("SELECT name, accent_color FROM guild:legacy;")
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Option<Row> = resp.take(0).expect("take");
+    let row = row.expect("legacy guild row survives the migration");
+    assert_eq!(row.name, "G", "name must survive the apply untouched");
+    assert_eq!(
+        row.accent_color, None,
+        "legacy guilds read back accent_color = NONE"
+    );
+
+    // Existence probe: an accent written AFTER the apply must persist.
+    let mut resp = db
+        .query(
+            "UPDATE guild:legacy SET accent_color = 'purple';\
+             SELECT VALUE accent_color FROM guild:legacy;",
+        )
+        .await
+        .expect("update transport")
+        .check()
+        .expect("updating a legacy guild with an accent must be accepted");
+    let accents: Vec<Option<String>> = resp.take(1).expect("take accent");
+    assert_eq!(
+        accents,
+        vec![Some("purple".to_string())],
+        "accent_color must be a real defined field that persists, not silently stripped"
+    );
+}
+
 /// W4/T5: the `message.effect` enum guard — `option<string>` with
 /// `ASSERT $value = NONE OR $value IN ['whisper','shout','spell']` on the
 /// pinned beta. NONE (the everyday effect-less send) and each known effect are
