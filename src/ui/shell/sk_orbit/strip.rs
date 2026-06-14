@@ -51,15 +51,18 @@ pub fn reply_armed(dx: f64) -> bool {
     dx >= REPLY_POP_PX
 }
 
-/// The strip's live `translateX` (px) while dragging pane index `idx` of
-/// `count` panes in a viewport `width` wide, finger delta `dx`. Edges
-/// rubber-band: a drag past the first/last pane is damped by `RUBBER_BAND`.
-pub fn strip_offset(idx: usize, count: usize, width: f64, dx: f64) -> f64 {
-    let base = -(idx as f64) * width;
-    let at_first = idx == 0;
-    let at_last = count == 0 || idx + 1 >= count;
-    // Dragging right (dx>0) at the first pane, or left (dx<0) at the last, has
-    // no neighbor — damp it.
+/// The strip's live `translateX` (px) while dragging, given a viewport `width`
+/// wide and finger delta `dx`. The DOM is a FIXED 3-slot strip whose live
+/// ChannelPane is ALWAYS the middle slot, so the resting base is `-width`
+/// regardless of the current channel's position in the sidebar list — `idx`/
+/// `count` MUST NOT feed this base (the bug that translated the strip off-screen
+/// for any channel not at list-index 1). `at_first`/`at_last` are the TRUE
+/// channel-list edges (no prev / no next neighbor), used ONLY to rubber-band a
+/// drag that has no neighbor to reveal: dragging right (`dx>0`) at the first
+/// channel, or left (`dx<0`) at the last, is damped by `RUBBER_BAND`.
+pub fn strip_offset(at_first: bool, at_last: bool, width: f64, dx: f64) -> f64 {
+    // The middle slot of the 3-slot strip is the resting position.
+    let base = -width;
     let extra = if (dx > 0.0 && at_first) || (dx < 0.0 && at_last) {
         dx * RUBBER_BAND
     } else {
@@ -148,20 +151,46 @@ mod tests {
     }
 
     #[test]
-    fn strip_offset_tracks_one_to_one_in_the_middle() {
-        // Middle pane (idx 1 of 3), 360px wide, dragged -100: base -360, extra -100.
-        assert!((strip_offset(1, 3, 360.0, -100.0) - (-460.0)).abs() < 1e-9);
+    fn strip_offset_tracks_one_to_one_from_the_middle_slot() {
+        // The live ChannelPane is ALWAYS the middle of the fixed 3-slot DOM, so
+        // the resting base is -width regardless of the channel's list index.
+        // Interior channel (not at either edge), 360px wide, dragged -100:
+        // base -360, extra -100 ⇒ -460.
+        assert!((strip_offset(false, false, 360.0, -100.0) - (-460.0)).abs() < 1e-9);
     }
 
     #[test]
-    fn strip_offset_rubber_bands_at_edges() {
-        // First pane dragged RIGHT (no prev) ⇒ damped by 0.32.
-        assert!((strip_offset(0, 3, 360.0, 100.0) - (100.0 * RUBBER_BAND)).abs() < 1e-9);
-        // Last pane dragged LEFT (no next) ⇒ base -720 + damped -100*0.32.
-        let last = strip_offset(2, 3, 360.0, -100.0);
-        assert!((last - (-720.0 + (-100.0 * RUBBER_BAND))).abs() < 1e-9);
-        // First pane dragged LEFT (has a next) ⇒ full 1:1, no damping.
-        assert!((strip_offset(0, 3, 360.0, -100.0) - (-100.0)).abs() < 1e-9);
+    fn strip_offset_resting_base_is_one_slot_regardless_of_list_index() {
+        // The 3-slot invariant the broken wiring violated: the no-drag offset is
+        // -width for a current channel at list-index 0, in the middle, AND at
+        // the last index — the math only ever sees slot geometry now. dx=0 ⇒
+        // exactly -width in every edge configuration.
+        for (at_first, at_last) in [(true, false), (false, false), (false, true)] {
+            assert!(
+                (strip_offset(at_first, at_last, 360.0, 0.0) - (-360.0)).abs() < 1e-9,
+                "resting offset must be -width (the middle slot) for \
+                 at_first={at_first} at_last={at_last}",
+            );
+        }
+    }
+
+    #[test]
+    fn strip_offset_rubber_bands_only_at_true_edges() {
+        // First channel dragged RIGHT (no prev neighbor) ⇒ damped by 0.32 off
+        // the -width resting base.
+        assert!(
+            (strip_offset(true, false, 360.0, 100.0) - (-360.0 + 100.0 * RUBBER_BAND)).abs() < 1e-9
+        );
+        // Last channel dragged LEFT (no next neighbor) ⇒ damped -100*0.32 off
+        // the same -width base.
+        assert!(
+            (strip_offset(false, true, 360.0, -100.0) - (-360.0 + (-100.0 * RUBBER_BAND))).abs()
+                < 1e-9
+        );
+        // First channel dragged LEFT (a next neighbor EXISTS) ⇒ full 1:1.
+        assert!((strip_offset(true, false, 360.0, -100.0) - (-360.0 - 100.0)).abs() < 1e-9);
+        // Last channel dragged RIGHT (a prev neighbor EXISTS) ⇒ full 1:1.
+        assert!((strip_offset(false, true, 360.0, 100.0) - (-360.0 + 100.0)).abs() < 1e-9);
     }
 
     #[test]

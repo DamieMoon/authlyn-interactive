@@ -88,8 +88,17 @@ impl StripDrag {
         }
         // Horizontal: prevent the page from scrolling and track 1:1 + rubber-band.
         ev.prevent_default();
+        // Kill the settle transition so the strip tracks the finger 1:1 — a CSS
+        // transition would smooth/lag the per-move writes (mirrors the prototype
+        // toggling `.snap` OFF during the drag). Re-added in `up()` for the
+        // commit settle.
+        self.set_dragging(true);
         let width = viewport_width();
-        let offset = strip_offset(self.idx.get_value(), self.count.get_value(), width, dx);
+        // The live ChannelPane is the MIDDLE of the fixed 3-slot strip, so the
+        // resting base is -width; idx/count only decide whether THIS edge can
+        // rubber-band (no prev at the first channel, no next at the last).
+        let (at_first, at_last) = self.edges();
+        let offset = strip_offset(at_first, at_last, width, dx);
         self.write_strip_x(offset);
     }
 
@@ -107,11 +116,41 @@ impl StripDrag {
         let dt = ev.time_stamp() - st;
         let width = viewport_width();
         let commit = commit_swipe(dx, dt, width);
-        // Snap back to the resting offset for the (possibly new) index; the
-        // caller's on_commit advances the channel, which re-renders the strip.
-        self.write_strip_x(-(self.idx.get_value() as f64) * width);
+        // Re-enable the settle transition for the snap, then snap back to the
+        // middle slot (-width). The middle slot is ALWAYS the live pane, so the
+        // resting offset is -width regardless of the channel's list index; a
+        // committed swipe's on_commit swaps the middle pane's channel in place
+        // (it does NOT shift the strip), so the strip stays centered.
+        self.set_dragging(false);
+        self.write_strip_x(-width);
         if commit != StripCommit::Stay {
             self.on_commit.run(commit);
+        }
+    }
+
+    /// The TRUE channel-list edges (no prev / no next neighbor), derived from
+    /// the live index/count. These gate the rubber-band ONLY; they never feed
+    /// the resting base (which is the fixed middle slot, `-width`).
+    fn edges(&self) -> (bool, bool) {
+        let idx = self.idx.get_value();
+        let count = self.count.get_value();
+        let at_first = idx == 0;
+        let at_last = count == 0 || idx + 1 >= count;
+        (at_first, at_last)
+    }
+
+    /// Toggle the `--snap` transition class. While dragging it is REMOVED so the
+    /// strip tracks the finger 1:1 (a permanent transition would smooth/lag the
+    /// per-move `--strip-x` writes); it is re-added for the commit/snap-back
+    /// settle. Mirrors the prototype's `.snap` toggle (a-orbit.html).
+    fn set_dragging(&self, dragging: bool) {
+        if let Some(el) = self.strip_ref.get_untracked() {
+            let list = (*el).class_list();
+            if dragging {
+                let _ = list.remove_1(SNAP_CLASS);
+            } else {
+                let _ = list.add_1(SNAP_CLASS);
+            }
         }
     }
 
@@ -124,6 +163,11 @@ impl StripDrag {
         }
     }
 }
+
+/// The class carrying the `transform` settle transition. Present at rest and for
+/// the commit snap-back; removed mid-drag so the finger-tracking writes are 1:1.
+#[cfg(feature = "hydrate")]
+const SNAP_CLASS: &str = "sk-orbit-strip--snap";
 
 #[cfg(feature = "hydrate")]
 fn viewport_width() -> f64 {

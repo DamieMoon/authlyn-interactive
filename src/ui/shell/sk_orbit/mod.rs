@@ -219,7 +219,7 @@ pub fn SkOrbitShell() -> impl IntoView {
                     #[cfg(feature = "hydrate")]
                     let (d_down, d_move, d_up, d_cancel) = (d.clone(), d.clone(), d.clone(), d);
                     view! {
-                        <div class="sk-orbit-strip" node_ref=strip_ref
+                        <div class="sk-orbit-strip sk-orbit-strip--snap" node_ref=strip_ref
                             on:pointerdown=move |ev| {
                                 #[cfg(feature = "hydrate")] d_down.down(&ev);
                                 #[cfg(not(feature = "hydrate"))] let _ = &ev;

@@ -148,8 +148,15 @@
 	min-height: 0;
 	width: 300vw;
 	transform: translateX(var(--strip-x, -100vw));
-	transition: transform 380ms cubic-bezier(0.18, 0.85, 0.25, 1);
 	touch-action: pan-y; // we own horizontal; let vertical scroll through
+}
+// The settle transition lives ONLY on the --snap class: present at rest and for
+// the commit/snap-back, REMOVED by StripDrag mid-drag (drag.rs set_dragging) so
+// the per-move --strip-x writes track the finger 1:1. A permanent transition
+// would interpolate toward each write over 380ms — a smoothed, lagging follow,
+// not 1:1 — which is the prototype's `.snap`-toggle behavior (a-orbit.html).
+.app.sk-orbit .sk-orbit-strip--snap {
+	transition: transform 380ms cubic-bezier(0.18, 0.85, 0.25, 1);
 }
 .app.sk-orbit .sk-orbit-pane {
 	width: 100vw;
@@ -169,11 +176,9 @@
 	justify-content: center;
 	color: var(--text-muted);
 }
-// The 380ms snap is the COMMIT settle; while dragging the JS clears the
-// transition by writing --strip-x every move (the transition still applies but
-// the rapid writes make it track the finger). Reduced-motion: instant snap.
+// Reduced-motion: instant snap (kill the commit settle too).
 @media (prefers-reduced-motion: reduce) {
-	.app.sk-orbit .sk-orbit-strip {
+	.app.sk-orbit .sk-orbit-strip--snap {
 		transition: none;
 	}
 }
