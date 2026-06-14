@@ -47,7 +47,7 @@
 // The pill owns the TOP safe-area inset under orbit (the topbar replacement);
 // the orbit topbar is a thin strip — the pill floats above the pane.
 .app.sk-orbit .topbar.sk-orbit-topbar {
-	padding-top: calc(0.4rem + env(safe-area-inset-top, 0px)); // OWNS top edge
+	padding-top: 0.4rem; // §13 exactly-once: the PILL owns the top inset (below); this thin topbar sits under it, no env()
 }
 
 .app.sk-orbit .sk-orbit-pill {
@@ -87,6 +87,13 @@
 .app.sk-orbit .sk-orbit-dot.on {
 	background: var(--accent);
 	opacity: 1;
+}
+
+// §13 exactly-once: the floating orb (.sk-orbit-orb-wrap) OWNS the bottom inset
+// under orbit, so the ChannelPane composer cedes its own bottom inset here — the
+// home-indicator inset is counted exactly once.
+.app.sk-orbit .composer {
+	padding-bottom: 0.35rem;
 }
 
 // The orbit MAP is <Portal>'d to document.body (sk_orbit/mod.rs), so it lands
