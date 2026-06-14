@@ -15,6 +15,10 @@ target/
 .env
 .env.local
 
+# Local LAN dev root CA (mkcert) used to validate the novahome test deck's
+# HTTPS over the LAN — junk for the repo, kept locally only.
+authlyn-dev-rootCA.pem
+
 # macOS
 .DS_Store
 
