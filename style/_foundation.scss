@@ -148,9 +148,10 @@
 // .channel-view (the transformed pane) now that .content is transform-free.
 // Base opacity 0 + `forwards` keep it invisible before the sweep starts and
 // after it ends — even if the class outlives the animation by a frame.
-// (Open Question #5: the streak deliberately tints with the generic
-// --glow-accent; a destination per-server accent awaits guild.accent_color,
-// which does not exist in schema.surql today.)
+// (#A/#G: the streak tints with --glow-accent, which the shell now rebinds per
+// guild from guild.accent_color via an inline style: on .app root — see
+// src/ui/accent.rs. A guild with no accent leaves --glow-accent at its token
+// default.)
 .app.fx-max .channel-view.fx-switching {
 	overflow: hidden;
 }
@@ -169,4 +170,27 @@
 	background: linear-gradient(105deg, transparent 0%, var(--glow-accent) 50%, transparent 100%);
 	transform: translateX(-100%);
 	animation: fx-warp 180ms ease-out forwards;
+}
+
+// W5/P2 per-server accent picker swatches (owner-gated modal).
+.accent-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+}
+.accent-swatch {
+	width: 2.25rem;
+	height: 2.25rem;
+	border-radius: 50%;
+	border: 2px solid transparent;
+	cursor: pointer;
+}
+.accent-swatch.active {
+	border-color: var(--text);
+}
+.accent-swatch.accent-default {
+	width: auto;
+	border-radius: 0.5rem;
+	padding: 0 0.6rem;
 }

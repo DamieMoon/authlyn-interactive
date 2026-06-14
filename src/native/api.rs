@@ -256,6 +256,7 @@ impl ApiClient {
             .patch(self.url(&format!("/guilds/{gid}")))
             .json(&PatchGuildRequest {
                 name: Some(name.to_string()),
+                ..Default::default()
             });
         self.empty(self.authed(req)).await
     }

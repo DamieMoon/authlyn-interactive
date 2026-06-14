@@ -311,6 +311,9 @@ fn AppShell() -> impl IntoView {
     // L-5: the unified channel-management window (create/rename/delete/reorder),
     // opened from the owner-gated "⚙ Manage" button in the server header.
     let channel_manager_open = RwSignal::new(false);
+    // W5/P2: the per-server accent picker modal (owner-gated, opens from the
+    // server-header cluster).
+    let accent_open = RwSignal::new(false);
     // Inline-rename edit state for the server title (owner only). The edit
     // buffer lives INSIDE `<InlineRename>` (W6/C7); this signal just gates
     // whether the input is rendered. (The per-channel equivalent moved into
@@ -331,6 +334,18 @@ fn AppShell() -> impl IntoView {
             .into_iter()
             .find(|g| Some(&g.id) == sid.as_ref())
             .map(|g| g.name)
+            .unwrap_or_default()
+    };
+    // The open guild's accent name (empty = default), derived from the rail
+    // list so it auto-updates on a set-accent patch.
+    let accent_name = move || {
+        let sid = s.sel.sel_server.get();
+        s.sel
+            .guilds
+            .get()
+            .into_iter()
+            .find(|g| Some(&g.id) == sid.as_ref())
+            .map(|g| g.accent_color)
             .unwrap_or_default()
     };
 
@@ -429,6 +444,8 @@ fn AppShell() -> impl IntoView {
             class:sk-orbit=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
             class:sk-deck=move || s.prefs.skeleton.get().as_deref() == Some("deck")
             class:sk-hud=move || s.prefs.skeleton.get().as_deref() == Some("hud")
+            style:--glow-accent=move || crate::ui::accent::accent_glow_css(&accent_name())
+            style:--accent=move || crate::ui::accent::accent_var_css(&accent_name())
         >
             // aria-label: an unlabeled <nav> landmark is just "navigation"
             // to AT; name it so the rail and the bottom tabs are tellable
@@ -521,6 +538,8 @@ fn AppShell() -> impl IntoView {
                                     // window (create/rename/delete/reorder).
                                     <button class="row-edit" title="Manage channels"
                                         on:click=move |_| channel_manager_open.set(true)>"⚙"</button>
+                                    <button class="row-edit" title="Server accent"
+                                        on:click=move |_| accent_open.set(true)>"🎨"</button>
                                     <button class="row-edit" title="rename server"
                                         on:click=move |_| editing_server.set(true)>"✎"</button>
                                     <button class="row-edit danger" title="delete server"
@@ -854,6 +873,48 @@ fn AppShell() -> impl IntoView {
                         <button class="modal-x" title="close" aria-label="Close wardrobe"
                             on:click=move |_| s.sync.wardrobe_open.set(false)>"✕"</button>
                         <WardrobePane/>
+                    </Modal>
+                }
+            })}
+
+            // W5/P2 per-server accent picker (owner-gated open). The 8 palette
+            // swatches + a Default clear; each calls act::set_guild_accent on
+            // the open guild. The server require_manager gate is authoritative.
+            {move || accent_open.get().then(|| {
+                let names = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "gray"];
+                let cur = accent_name();
+                view! {
+                    <Modal class="accent-modal" close=move || accent_open.set(false)>
+                        <h3>"Server accent"</h3>
+                        <div class="accent-swatches">
+                            <button class="accent-swatch accent-default"
+                                class:active=move || accent_name().is_empty()
+                                title="Default (electric blue)"
+                                on:click=move |_| {
+                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                        act::set_guild_accent(s, gid, String::new());
+                                    }
+                                    accent_open.set(false);
+                                }>"Default"</button>
+                            {names.into_iter().map(|n| {
+                                let n_owned = n.to_string();
+                                let is_cur = cur == n;
+                                view! {
+                                    <button
+                                        class="accent-swatch"
+                                        class:active=is_cur
+                                        style:background=format!("var(--tint-{n})")
+                                        title=n
+                                        on:click=move |_| {
+                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                                act::set_guild_accent(s, gid, n_owned.clone());
+                                            }
+                                            accent_open.set(false);
+                                        }>
+                                    </button>
+                                }
+                            }).collect_view()}
+                        </div>
                     </Modal>
                 }
             })}
