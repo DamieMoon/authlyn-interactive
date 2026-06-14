@@ -139,6 +139,47 @@ pub fn SkOrbitShell() -> impl IntoView {
             }
         }
     });
+    // Strip geometry: the current channel's index in the sidebar order.
+    let cur_idx = move || {
+        let chans = s.sel.channels.get();
+        s.sel
+            .sel_channel
+            .get()
+            .and_then(|c| chans.iter().position(|x| x.id == c.id))
+    };
+    let chan_count = move || s.sel.channels.get().len();
+    let strip_ref = NodeRef::<leptos::html::Div>::new();
+    // StoredValues feed the hydrate StripDrag without re-rendering it.
+    #[cfg(feature = "hydrate")]
+    let idx_sv = StoredValue::new(0usize);
+    #[cfg(feature = "hydrate")]
+    let count_sv = StoredValue::new(0usize);
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        idx_sv.set_value(cur_idx().unwrap_or(0));
+        count_sv.set_value(chan_count());
+    });
+    // Commit: a Prev/Next swipe opens the neighbor channel (act handles the
+    // switch + warp). The destination index comes from the UNIT-TESTED
+    // strip::commit_target (Task 1.3) — edge guards (no prev at first / no next
+    // at last / Stay) all collapse to None ⇒ no-op. A committed switch makes the
+    // destination the ACTIVE channel, so marking it read on open is correct
+    // (peek-never-marks-read concerns only non-current neighbors, which are
+    // name-only here and never reach open_channel — see the Task 1.3 intro).
+    let on_strip_commit = move |commit: strip::StripCommit| {
+        let chans = s.sel.channels.get_untracked();
+        let Some(i) = cur_idx() else { return };
+        if let Some(j) = strip::commit_target(commit, i, chans.len()) {
+            if let Some(ch) = chans.get(j).cloned() {
+                act::open_channel(s, ch);
+            }
+        }
+    };
+    #[cfg(feature = "hydrate")]
+    let strip_drag =
+        self::drag::StripDrag::new(idx_sv, count_sv, Callback::new(on_strip_commit), strip_ref);
+    #[cfg(not(feature = "hydrate"))]
+    let _ = (strip_ref, on_strip_commit);
     view! {
         <section class="content sk-orbit-content">
             <button class="sk-orbit-pill" type="button"
@@ -169,7 +210,47 @@ pub fn SkOrbitShell() -> impl IntoView {
             </header>
             {move || match s.sync.pane.get() {
                 Pane::Friends => view! { <FriendsPane/> }.into_any(),
-                Pane::Channel => view! { <ChannelPane/> }.into_any(),
+                Pane::Channel => {
+                    #[cfg(feature = "hydrate")]
+                    let d = strip_drag.clone();
+                    // Four handles: pointercancel shares the release path with
+                    // pointerup (M-35) but needs its OWN clone — both can't move
+                    // the same `d_up` into their closures.
+                    #[cfg(feature = "hydrate")]
+                    let (d_down, d_move, d_up, d_cancel) = (d.clone(), d.clone(), d.clone(), d);
+                    view! {
+                        <div class="sk-orbit-strip" node_ref=strip_ref
+                            on:pointerdown=move |ev| {
+                                #[cfg(feature = "hydrate")] d_down.down(&ev);
+                                #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                            }
+                            on:pointermove=move |ev| {
+                                #[cfg(feature = "hydrate")] d_move.moved(&ev);
+                                #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                            }
+                            on:pointerup=move |ev| {
+                                #[cfg(feature = "hydrate")] d_up.up(&ev);
+                                #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                            }
+                            on:pointercancel=move |ev| {
+                                #[cfg(feature = "hydrate")] d_cancel.up(&ev);
+                                #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                            }>
+                            // prev/current/next. The current pane is the real
+                            // ChannelPane (owns composer + list). The neighbors
+                            // are peek previews (lazy first page, NEVER mark read).
+                            <div class="sk-orbit-pane sk-orbit-pane-prev" aria-hidden="true">
+                                {move || neighbor_preview(s, cur_idx().and_then(|i| i.checked_sub(1)))}
+                            </div>
+                            <div class="sk-orbit-pane sk-orbit-pane-cur">
+                                <ChannelPane/>
+                            </div>
+                            <div class="sk-orbit-pane sk-orbit-pane-next" aria-hidden="true">
+                                {move || neighbor_preview(s, cur_idx().map(|i| i + 1).filter(|&j| j < chan_count()))}
+                            </div>
+                        </div>
+                    }.into_any()
+                }
                 Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
                 Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
                 Pane::Members => view! { <MembersPane/> }.into_any(),
@@ -301,5 +382,24 @@ pub fn SkOrbitShell() -> impl IntoView {
                 </Portal>
             })}
         </section>
+    }
+}
+
+/// A lightweight, read-only preview of a neighbor channel for the swipe strip's
+/// prev/next slots. NAME-ONLY for Phase 2 (the lazy first-page neighbor render
+/// is the Phase-7 carry 9.4.3-c) — which is exactly why peek-never-marks-read
+/// holds STRUCTURALLY: a name-only neighbor is never a mounted `ChannelPane`,
+/// never becomes "current", and never reaches `act::open_channel`/last-seen.
+/// `idx == None` (no neighbor at the edge) renders an empty peek.
+fn neighbor_preview(s: Shell, idx: Option<usize>) -> impl IntoView {
+    let label = idx
+        .and_then(|i| s.sel.channels.get().get(i).map(|c| c.name.clone()))
+        .unwrap_or_default();
+    view! {
+        <div class="sk-orbit-peek">
+            {(!label.is_empty()).then(|| view! {
+                <span class="sk-orbit-peek-name">"# "{label}</span>
+            })}
+        </div>
     }
 }

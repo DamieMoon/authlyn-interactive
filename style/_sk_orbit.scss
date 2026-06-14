@@ -137,3 +137,43 @@
 		animation: none;
 	}
 }
+
+// W5/P2 #5 — the 3-pane swipe strip. A 300vw flex row translated by --strip-x:
+// the MIDDLE slot is the live ChannelPane; prev/next are name-only label peeks
+// (full neighbor render is the Phase-7 carry). Transform is the only animated
+// property (motion doctrine, tests/style_lint.rs).
+.app.sk-orbit .sk-orbit-strip {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	width: 300vw;
+	transform: translateX(var(--strip-x, -100vw));
+	transition: transform 380ms cubic-bezier(0.18, 0.85, 0.25, 1);
+	touch-action: pan-y; // we own horizontal; let vertical scroll through
+}
+.app.sk-orbit .sk-orbit-pane {
+	width: 100vw;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.app.sk-orbit .sk-orbit-pane-prev,
+.app.sk-orbit .sk-orbit-pane-next {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 100vh;
+}
+.app.sk-orbit .sk-orbit-peek {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+// The 380ms snap is the COMMIT settle; while dragging the JS clears the
+// transition by writing --strip-x every move (the transition still applies but
+// the rapid writes make it track the finger). Reduced-motion: instant snap.
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-strip {
+		transition: none;
+	}
+}
