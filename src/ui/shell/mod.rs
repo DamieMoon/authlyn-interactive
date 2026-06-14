@@ -34,7 +34,7 @@ mod friends;
 pub mod holopanel;
 mod lorebook;
 mod members;
-mod sk_orbit;
+pub mod sk_orbit;
 mod state;
 mod toast;
 mod wardrobe;

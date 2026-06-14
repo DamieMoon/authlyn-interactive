@@ -72,4 +72,15 @@ mod tests {
         assert!(dash_offset(1.0).abs() < 1e-9);
         assert!((dash_offset(0.5) - CIRC * 0.5).abs() < 1e-9);
     }
+
+    #[test]
+    fn dash_offset_clamps_out_of_range_fractions() {
+        // Over-full saturates to a fully-revealed ring (offset 0), not negative.
+        assert!(dash_offset(1.5).abs() < 1e-9, "over 1.0 clamps to 0");
+        // Negative clamps to empty (offset == CIRC), not beyond the circumference.
+        assert!(
+            (dash_offset(-0.2) - CIRC).abs() < 1e-9,
+            "below 0 clamps to CIRC"
+        );
+    }
 }

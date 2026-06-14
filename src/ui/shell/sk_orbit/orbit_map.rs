@@ -113,6 +113,11 @@ mod tests {
         let p = node_pos(0, 4, 100.0);
         assert!(p.x.abs() < 1e-9, "x got {}", p.x);
         assert!((p.y - (-100.0)).abs() < 1e-9, "y got {}", p.y);
+        // The second node (idx 1 of 4) is at 0° — straight right of center:
+        // x≈+radius, y≈0. Pins an off-axis node placement, not just idx 0.
+        let q = node_pos(1, 4, 100.0);
+        assert!((q.x - 100.0).abs() < 1e-9, "x got {}", q.x);
+        assert!(q.y.abs() < 1e-9, "y got {}", q.y);
     }
 
     #[test]

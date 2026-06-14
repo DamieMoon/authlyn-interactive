@@ -84,7 +84,10 @@ pub enum StripCommit {
 pub fn commit_swipe(dx: f64, dt_ms: f64, width: f64) -> StripCommit {
     let dt = dt_ms.max(1.0);
     let velocity = (dx / dt).abs();
-    let past_displacement = dx.abs() >= COMMIT_FRACTION * width;
+    // A non-positive width (an unmeasured / zero-laid-out pane) has no
+    // displacement threshold to clear — otherwise `COMMIT_FRACTION * 0 == 0`
+    // would let ANY nonzero dx commit. Fall through to the velocity branch.
+    let past_displacement = width > 0.0 && dx.abs() >= COMMIT_FRACTION * width;
     if !past_displacement && velocity <= COMMIT_VELOCITY_PER_MS {
         return StripCommit::Stay;
     }
@@ -172,6 +175,14 @@ mod tests {
         assert_eq!(commit_swipe(20.0, 1000.0, w), StripCommit::Stay);
         // zero ⇒ Stay.
         assert_eq!(commit_swipe(0.0, 1000.0, w), StripCommit::Stay);
+        // zero width (unmeasured pane): displacement threshold is 0, so the
+        // guard must NOT let a slow drag commit on width alone — falls through
+        // to velocity, which here is too slow ⇒ Stay.
+        assert_eq!(
+            commit_swipe(50.0, 1000.0, 0.0),
+            StripCommit::Stay,
+            "zero width must not auto-commit by displacement"
+        );
     }
 
     #[test]
