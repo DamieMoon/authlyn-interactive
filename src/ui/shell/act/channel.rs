@@ -132,6 +132,29 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // the first timer's remainder — cosmetic, not worth a generation counter
     // (unlike the send pulse, W4/T2, whose truncation earned one).
     if !same_channel {
+        // W5/P2: set the directional warp sign (deferred from Foundation T0.2)
+        // from the channel-list index direction of this switch. Written on the
+        // document root so `.channel-view.fx-switching` (_content.scss:46) reads
+        // it. Visible in orbit (swipe strip + warp); harmless under W3.
+        {
+            let chans = s.sel.channels.get_untracked();
+            let from_idx = s
+                .sel
+                .sel_channel
+                .get_untracked()
+                .and_then(|c| chans.iter().position(|x| x.id == c.id));
+            let to_idx = chans.iter().position(|x| x.id == cid);
+            let dir = crate::ui::shell::sk_orbit::warp::warp_dir(from_idx, to_idx);
+            if let Some(root) = leptos::web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.document_element())
+            {
+                use leptos::wasm_bindgen::JsCast as _;
+                if let Some(html) = root.dyn_ref::<leptos::web_sys::HtmlElement>() {
+                    let _ = html.style().set_property("--warp-dir", &dir.to_string());
+                }
+            }
+        }
         s.sync.switching.set(true);
         spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(180).await;
