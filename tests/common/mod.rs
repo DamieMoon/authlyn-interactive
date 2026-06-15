@@ -154,8 +154,16 @@ pub async fn raw_db() -> Surreal<Client> {
 
     let pid = std::process::id();
     let seq = NS_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let ns = format!("test_{}_{}", pid, seq);
-    let db_name = format!("test_{}_{}", pid, seq);
+    // pid+seq ALONE is not collision-proof: the dev SurrealDB is a long-lived
+    // in-memory server that accumulates every test namespace across runs, and
+    // the OS recycles PIDs — so a later run reusing an old PID with the same
+    // low seq lands on a PRIOR run's namespace and inherits its rows (observed
+    // as a flaky 409 "username already taken" on fixed-username tests like
+    // lorebook's "Owner"). Mix in random_id() — the SAME 16-byte entropy source
+    // test_media_dir() already uses for exactly this reason — so each arena gets
+    // a globally unique namespace regardless of PID reuse or DB accumulation.
+    let ns = format!("test_{}_{}_{}", pid, seq, random_id());
+    let db_name = ns.clone();
     db.use_ns(&ns).use_db(&db_name).await.expect("use ns/db");
     db
 }
