@@ -45,3 +45,9 @@ CLAUDE.local.md
 
 # Playwright MCP scratch (snapshots, fixtures, screenshots) — never commit
 .playwright-mcp/
+
+# Visual gate (dev-only headed-Playwright orbit regression net, visual-gate/):
+# its npm deps and per-run screenshots are local junk, never committed. The
+# harness sources (package.json, *.mjs, README) ARE tracked.
+visual-gate/node_modules/
+visual-gate/shots/

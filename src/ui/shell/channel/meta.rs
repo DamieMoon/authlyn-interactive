@@ -9,7 +9,7 @@
 use leptos::prelude::*;
 
 use super::super::{act, Shell};
-use super::avatar::{chat_avatar, format_local_time};
+use super::avatar::{chat_avatar, format_clock_time, format_local_time};
 use super::display_name;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
@@ -40,7 +40,14 @@ pub(super) fn message_meta(
         .filter(|c| Color::from_name(c).is_some())
         .map(|c| format!("who mk-{c}"))
         .unwrap_or_else(|| "who".to_string());
-    let when = format_local_time(&m.sent_at);
+    // Orbit shows the prototype's terse HH:MM clock; deck/hud keep the verbose
+    // date+time. Branch on the skeleton pref (untracked — a skeleton switch
+    // re-mounts the shell, so no per-row signal subscription is warranted).
+    let when = if s.prefs.skeleton.get_untracked().as_deref() == Some("orbit") {
+        format_clock_time(&m.sent_at)
+    } else {
+        format_local_time(&m.sent_at)
+    };
     let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
 
     let info_m = m.clone();

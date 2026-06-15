@@ -1,0 +1,15 @@
+{
+  "name": "authlyn-visual-gate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only headed-Playwright visual gate for the Omloppsbana orbit swipe-strip (no empty neighbor peek panes). NOT part of the Rust build; runs against a local dev server + the dev DB only — never prod.",
+  "scripts": {
+    "gate": "node run-gate.mjs",
+    "seed": "node seed.mjs",
+    "postinstall": "echo '\\nVisual gate: now run  npx playwright install chromium webkit  to fetch the browser engines.\\n'"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
+}

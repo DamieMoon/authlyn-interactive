@@ -27,6 +27,25 @@ pub(super) fn format_local_time(sent_at: &str) -> String {
     sent_at.to_string()
 }
 
+/// Bare 24-hour HH:MM clock for the author's send time — the Omloppsbana orbit's
+/// terse timestamp (the prototype's '21:06', a-orbit.html:81), as opposed to the
+/// verbose date+time `format_local_time` keeps for deck/hud. Locale-independent
+/// like the prototype (zero-padded local getHours/getMinutes); on ssr it falls
+/// back to the raw string, replaced on hydrate like its sibling.
+#[cfg(feature = "hydrate")]
+pub(super) fn format_clock_time(sent_at: &str) -> String {
+    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(sent_at));
+    if date.get_time().is_nan() {
+        return sent_at.to_string();
+    }
+    format!("{:02}:{:02}", date.get_hours(), date.get_minutes())
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn format_clock_time(sent_at: &str) -> String {
+    sent_at.to_string()
+}
+
 use leptos::prelude::*;
 
 use crate::ui::avatar::monogram;

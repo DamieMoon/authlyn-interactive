@@ -593,6 +593,20 @@
 				font-variant-numeric: tabular-nums;
 			}
 
+			// Sealed-roll caption: a static mono sub-label under the chip
+			// (channel/mod.rs is_roll branch) restating that a Fate Engine
+			// roll is immutable — the lock the server enforces (403 on
+			// edit/delete), surfaced on-screen. Small + muted like the
+			// divider/sync mono labels; no animation, no shadow/filter — pure
+			// state, style_lint-safe at every tier.
+			.roll-tag {
+				margin-top: 0.3rem;
+				font-family: var(--font-mono);
+				font-size: 0.62rem;
+				letter-spacing: 0.04em;
+				color: var(--text-muted);
+			}
+
 			// Eye-candy tier: the die tumbles in a full turn as the chip
 			// lands.
 			.app.fx-max & .roll-die {
@@ -618,6 +632,30 @@
 			transition: filter var(--dur-quick) var(--ease-quick);
 			user-select: none;
 			-webkit-user-select: none;
+		}
+
+		// Visible reveal cue for sighted touch users (channel/mod.rs whisper
+		// branch): the tap-to-reveal affordance otherwise lives only in the
+		// veil's title/aria (the AT path), invisible on a coarse pointer. A
+		// small muted mono caption beside the blurred body advertises it. NOT
+		// blurred itself — it must stay legible to do its job. The component
+		// flips `.revealed` on it once the body is shown, so it disappears the
+		// moment it's no longer needed (mirroring the title/aria, which also
+		// drop on reveal). Pure static text — no animation/shadow/filter.
+		.msg.effect-whisper .whisper-hint {
+			display: block;
+			margin-top: 0.2rem;
+			font-family: var(--font-mono);
+			font-size: 0.62rem;
+			letter-spacing: 0.04em;
+			color: var(--text-muted);
+			cursor: pointer;
+			user-select: none;
+			-webkit-user-select: none;
+
+			&.revealed {
+				display: none;
+			}
 		}
 
 		// A11y disclosure (review M-22): the veil spans are real keyboard

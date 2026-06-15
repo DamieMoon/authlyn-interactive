@@ -63,6 +63,19 @@ impl StripDrag {
 
     pub fn down(&self, ev: &leptos::ev::PointerEvent) {
         use leptos::wasm_bindgen::JsCast as _;
+        // A press that STARTS inside the composer (textarea / send / 📎 / 😀) must
+        // reach that control — bail before pointer-capture, or the captured stream
+        // redirects the trailing click to the strip and the control never fires.
+        // (Under the W5/P2 orbit choreography the composer is a strip descendant,
+        // so its taps would otherwise be swallowed by the swipe drag.)
+        if ev
+            .target()
+            .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+            .and_then(|e| e.closest(".composer").ok().flatten())
+            .is_some()
+        {
+            return;
+        }
         if let Some(el) = self.strip_ref.get_untracked() {
             let el: &leptos::web_sys::Element = (*el).unchecked_ref();
             let _ = el.set_pointer_capture(ev.pointer_id());

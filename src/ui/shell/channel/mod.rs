@@ -950,12 +950,22 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             // Glass result chip: die glyph + the
                             // server-generated result text, rendered VERBATIM
                             // (never markup-parsed — the body is the server's
-                            // formatted outcome, not user markup).
+                            // formatted outcome, not user markup). A static
+                            // mono caption under the chip names the source and
+                            // its immutability (the server 403s edit/delete on
+                            // kind='roll', message_actions offers neither) so a
+                            // sealed roll reads as sealed on-screen, not only in
+                            // semantics — pure static text, no animation, so
+                            // there is nothing for reduced-motion to strip. It
+                            // is a SIBLING of the `.text` span (a <div> may not
+                            // nest in the inline span), flattened into the row
+                            // by the multi-root view.
                             view! {
                                 <span class="text roll-chip">
                                     <span class="roll-die" aria-hidden="true">"🎲"</span>
                                     <span class="roll-text">{body.clone()}</span>
                                 </span>
+                                <div class="roll-tag">"fate engine · sealed 🔒"</div>
                             }
                             .into_any()
                         } else if is_whisper {
@@ -996,6 +1006,10 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             };
                             let toggle_kbd = toggle.clone();
                             let toggle_click = toggle.clone();
+                            // The visible hint caption (below) reveals on tap
+                            // too, so the on-screen cue is also the affordance,
+                            // not just a label pointing at the veil.
+                            let toggle_hint = toggle.clone();
                             let open = {
                                 let mid = m.id.clone();
                                 move || revealed.with(|r| r.contains(&mid))
@@ -1005,6 +1019,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             let open_inert = open.clone();
                             let open_role = open.clone();
                             let open_title = open.clone();
+                            // Visible reveal cue for SIGHTED touch users: the
+                            // tap-to-reveal affordance otherwise lives ONLY in
+                            // title/aria (the AT path), so a coarse-pointer
+                            // viewer sees a blurred blob with no on-screen hint.
+                            // A static mono caption beside the veil supplies it
+                            // — shown only while veiled (it vanishes the moment
+                            // the body is revealed, mirroring the title/aria
+                            // which also drop on reveal). Pure text, no
+                            // animation. Sibling of `.text` so it sits beside
+                            // the blurred body, flattened into the row by the
+                            // multi-root view.
+                            let open_hint = open.clone();
                             view! {
                                 <span class="text"
                                     role=move || (!open_role()).then_some("button")
@@ -1046,6 +1072,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         inert=move || (!open_inert()).then_some("")>
                                         {render_body(&body)}
                                     </span>
+                                </span>
+                                <span class="whisper-hint" aria-hidden="true"
+                                    class:revealed=move || open_hint()
+                                    on:click=move |_| toggle_hint()>
+                                    "whisper · tap to listen"
                                 </span>
                             }
                             .into_any()
@@ -1795,7 +1826,20 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // wrapped it into an ugly two-line block); the
                     // `::placeholder` nowrap/ellipsis guard in _content.scss
                     // degrades anything narrower gracefully.
-                    placeholder="type a message — **bold**, *italic*"
+                    // Orbit speaks the prototype's quiet channel cue
+                    // ("Message #channel…") instead of advertising markdown;
+                    // deck/hud keep the markdown hint. Reactive on the worn channel.
+                    placeholder=move || {
+                        if s.prefs.skeleton.get().as_deref() == Some("orbit") {
+                            s.sel
+                                .sel_channel
+                                .get()
+                                .map(|c| format!("Message #{}…", c.name))
+                                .unwrap_or_else(|| "Message…".to_string())
+                        } else {
+                            "type a message — **bold**, *italic*".to_string()
+                        }
+                    }
                 ></textarea>
                 // `:`-autocomplete popover: matches for the trailing `:query`
                 // under the caret. Arrow/Enter/Tab navigate (handled in
@@ -1860,7 +1904,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     ac_token.set(None);
                 }>
                     // "Save" while editing a message, "Send" for a normal compose.
-                    {move || if s.composer.editing.get().is_some() { "Save" } else { "Send" }}
+                    {move || {
+                        let editing = s.composer.editing.get().is_some();
+                        // Orbit's composer pill uses the prototype's compact glyph
+                        // send (a-orbit.html #sendBtn ➤); deck/hud keep the word.
+                        if s.prefs.skeleton.get().as_deref() == Some("orbit") {
+                            if editing { "✓" } else { "➤" }
+                        } else if editing {
+                            "Save"
+                        } else {
+                            "Send"
+                        }
+                    }}
                 </button>
             </div>
 

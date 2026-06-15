@@ -81,16 +81,25 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
 
 /// The Omloppsbana shell chrome. Renders as a sibling of the W3 chrome under
 /// `.app.sk-orbit`, reusing every pane via `use_context::<Shell>()` (zero new
-/// state, no remount on switch). This first cut mounts only the pane switch +
-/// account control; the orbit chrome (pill, orbit map, composer orb, slide-
-/// over) lands in later tasks. The full-viewport panes + swipe strip layout is
-/// driven entirely by `style/_sk_orbit.scss` keyed off `.app.sk-orbit`.
+/// state, no remount on switch). The orbit chrome — channel pill, zoomable
+/// orbit map, swipe strip, composer orb (charge ring + effect blossom), and the
+/// right-edge station slide-over — is driven by `style/_sk_orbit.scss` keyed off
+/// `.app.sk-orbit`.
+///
+/// `account_open` is the shell-wide AccountModal visibility signal (owned by
+/// `AppShell`, mod.rs); the station slide-over's "Account & preferences" / "Log
+/// out" affordances flip it. The orbit chrome has NO topbar gear, so this is the
+/// ONLY path to the (skeleton-independent) account modal — without it the orbit
+/// user is trapped with no logout and no way back to the skeleton chooser (F2).
 #[component]
-pub fn SkOrbitShell() -> impl IntoView {
+pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
-    let auth = use_context::<crate::ui::AuthCtx>().expect("AuthCtx provided at root");
-    let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
     let map_open = RwSignal::new(false);
+    // Composer choreography (W5/P2, the prototype's `body.composing`): the orb
+    // becomes a COMPOSE trigger (no longer send) — a tap reveals the composer and
+    // hides the orb; the in-composer send button commits; a tap-away scrim
+    // collapses it back (a-orbit.html expandComposer/collapseComposer).
+    let composing = RwSignal::new(false);
     let channel_name = move || {
         s.sel
             .sel_channel
@@ -213,18 +222,68 @@ pub fn SkOrbitShell() -> impl IntoView {
             .compose
             .with(|c| self::charge::charge_fraction(c))
     });
+    // Armed-effect glyph shown in the orb center. Matches the prototype's orb
+    // badge 1:1 (a-orbit.html:917: 🌫 fog / 📣 / ✨) and the blossom chips below.
     let armed_glyph = move || match s.composer.effect_mode.get().as_deref() {
-        Some("whisper") => "🤫",
+        Some("whisper") => "🌫",
         Some("shout") => "📣",
         Some("spell") => "✨",
         _ => "",
     };
     // Effect blossom: a 480ms hold on the orb (BlossomHold, move-slop disarmed so
     // a jittery Send tap never blossoms — #47) opens three glass effect chips;
-    // the trailing click is guarded so the hold never also sends.
+    // the trailing click is guarded so the hold never also sends. KEYBOARD parity
+    // (a11y): the blossom is a `role="menu"` with full roving-tabindex arrow
+    // navigation (`blossom_active` indexes the focused chip), an Escape that
+    // closes + refocuses the orb, focus-on-open onto the first chip, AND a
+    // keyboard OPEN path off the orb (ArrowUp/Down — Enter/Space stay SEND, like
+    // the pointer tap) — the orb is the SOLE effect surface, so a
+    // pointer-hold-only open would lock keyboard and AT users out of effects
+    // entirely.
     let blossom_open = RwSignal::new(false);
+    // Roving tabindex cursor: which of the 3 chips currently owns tabindex=0
+    // (the rest are -1). DOM order is whisper(0)/shout(1)/spell(2); the SCSS
+    // fans them UP via flex column-reverse, so ArrowUp walks toward higher
+    // indices and ArrowDown toward lower — matching the visual stack.
+    let blossom_active = RwSignal::new(0usize);
     let hold = blossom::BlossomHold::new();
     let orb_ref = NodeRef::<leptos::html::Button>::new();
+    let blossom_ref = NodeRef::<leptos::html::Div>::new();
+    // Refocus the orb after the blossom closes via keyboard (Escape / pick), so
+    // focus is never stranded on an unmounted chip (WCAG 2.4.3, mirroring
+    // `close_map`/`close_station`'s restore-to-trigger).
+    let focus_orb = move || {
+        #[cfg(feature = "hydrate")]
+        if let Some(orb) = orb_ref.get_untracked() {
+            let _ = (*orb).focus();
+        }
+    };
+    // Open the blossom from the keyboard. The focus-on-open Effect below resets
+    // the roving cursor and lands focus on the first chip once the chips mount.
+    let open_blossom_kbd = move || blossom_open.set(true);
+    // Focus the first chip when the blossom opens (the Effect re-runs on every
+    // open since it reads `blossom_open`), and reset the roving cursor to 0 so
+    // the tabindex=0 chip and the actually-focused chip agree even when the
+    // pointer-HOLD path (`blossom::BlossomHold`, which can't touch this signal)
+    // opened it after a prior keyboard session left the cursor elsewhere.
+    // Mirrors `radial_menu`'s focus-on-open.
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        if blossom_open.get() {
+            blossom_active.set(0);
+            if let Some(menu) = blossom_ref.get() {
+                use leptos::wasm_bindgen::JsCast as _;
+                if let Some(first) = (*menu)
+                    .query_selector(".sk-orbit-chip")
+                    .ok()
+                    .flatten()
+                    .and_then(|el| el.dyn_into::<leptos::web_sys::HtmlElement>().ok())
+                {
+                    let _ = first.focus();
+                }
+            }
+        }
+    });
     // Right-edge HoloPanel slide-over (personas + station). Summoned by an
     // explicit ☰ button (the chat-layer right-edge swipe is DEMOTED — it fights
     // iOS back-swipe). The single OPEN detent means only on_close can dismiss it.
@@ -253,14 +312,60 @@ pub fn SkOrbitShell() -> impl IntoView {
     };
     view! {
         <section class="content sk-orbit-content"
-            style:--scene-tint=move || scene_tint()>
+            // Composer choreography state (W5/P2): `.composing` lives on THIS
+            // section (the signal is owned here in SkOrbitShell, not the parent
+            // `.app`) — the SCSS keys the composer slide + orb hide + send reveal
+            // off `.sk-orbit-content.composing`.
+            class:composing=move || composing.get()
+            style:--scene-tint=move || scene_tint()
+            // Prototype collapse-on-tap-outside (a-orbit.html:845): while composing,
+            // a tap on the VOID (not the composer, not a message) slides the
+            // composer back down. Message taps fall through to the ChannelPane
+            // (whisper reveal / shout reshake); composer + pill taps keep working.
+            on:click=move |ev: leptos::ev::MouseEvent| {
+                if !composing.get_untracked() {
+                    return;
+                }
+                #[cfg(feature = "hydrate")]
+                {
+                    use leptos::wasm_bindgen::JsCast as _;
+                    let outside = ev
+                        .target()
+                        .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+                        .map(|el| {
+                            // Exclude the orb: a tap on it is what STARTED composing
+                            // (its handler runs first, sets composing=true), and THIS
+                            // same click bubbles here — without the orb exclusion we'd
+                            // immediately re-collapse it (target is "outside" the
+                            // composer). Messages fall through to the ChannelPane.
+                            el.closest(".composer").ok().flatten().is_none()
+                                && el.closest(".msg").ok().flatten().is_none()
+                                && el.closest(".sk-orbit-orb-wrap").ok().flatten().is_none()
+                        })
+                        .unwrap_or(true);
+                    if outside {
+                        composing.set(false);
+                    }
+                }
+                #[cfg(not(feature = "hydrate"))]
+                let _ = &ev;
+            }>
+            // F3 cosmic starfield backdrop (Standard-tier; position:fixed,
+            // z-index:-1 so it sits behind all content). Static box-shadow dot
+            // field + opacity-only twinkle on the `fx-`-classed layers (global
+            // reduced-motion kill auto-covers them). Pure decoration.
+            <div class="sk-orbit-stars" aria-hidden="true">
+                <div class="fx-sk-orbit-stars-a"></div>
+                <div class="fx-sk-orbit-stars-b"></div>
+            </div>
             <button class="sk-orbit-pill" type="button"
                 node_ref=pill_ref
                 aria-haspopup="dialog"
                 aria-expanded=move || map_open.get().to_string()
                 title="Open the orbit map"
                 on:click=move |_| map_open.set(true)>
-                <span class="sk-orbit-pill-name">{channel_sigil}{channel_name}</span>
+                <span class="sk-orbit-pill-hash" aria-hidden="true">{channel_sigil}</span>
+                <span class="sk-orbit-pill-name">{channel_name}</span>
                 <span class="sk-orbit-pill-server">{server_name}</span>
                 <span class="sk-orbit-pill-dots" aria-hidden="true">
                     {move || {
@@ -271,15 +376,15 @@ pub fn SkOrbitShell() -> impl IntoView {
                             view! { <span class="sk-orbit-dot" class:on=on></span> }
                         }).collect_view()
                     }}
+                    // Re-homed sync signal (W5/P2 fidelity): the LIVE/POLLING state
+                    // lost its topbar chip when the bar was removed to match the
+                    // prototype's clean cosmic top; a mint dot on the pill carries
+                    // it — and unlike the old `.sync-chip` it stays visible on mobile.
+                    <span class="sk-orbit-pill-live"
+                        class:live=move || s.sync.sse_live.get()
+                        aria-hidden="true"></span>
                 </span>
             </button>
-            <header class="topbar sk-orbit-topbar">
-                <span class="muted">"Signed in as " <strong>{username}</strong></span>
-                <span class="spacer"></span>
-                <span class="sync-chip" class:live=move || s.sync.sse_live.get()>
-                    {move || if s.sync.sse_live.get() { "● LIVE" } else { "● POLLING" }}
-                </span>
-            </header>
             {move || match s.sync.pane.get() {
                 Pane::Friends => view! { <FriendsPane/> }.into_any(),
                 Pane::Channel => {
@@ -390,7 +495,22 @@ pub fn SkOrbitShell() -> impl IntoView {
                         }>
                         <button class="sk-orbit-map-scrim" aria-label="Close orbit map"
                             on:click=move |_| close_map()></button>
-                        <div class="sk-orbit-core">{server_name}</div>
+                        // Map core (the central "star"): the server emblem, its
+                        // name, and a live channel count. Split into three spans
+                        // so the SCSS can size/stack them independently (NAMING
+                        // CONTRACT: glyph/name/sub).
+                        <div class="sk-orbit-core">
+                            <span class="sk-orbit-core-glyph" aria-hidden="true">
+                                {move || crate::ui::avatar::monogram(&server_name(), '#')}
+                            </span>
+                            <span class="sk-orbit-core-name">{server_name}</span>
+                            <span class="sk-orbit-core-sub">
+                                {move || {
+                                    let n = chan_count();
+                                    format!("{n} channel{}", if n == 1 { "" } else { "s" })
+                                }}
+                            </span>
+                        </div>
                         {move || {
                             // Geometry from the live viewport (UX-equality).
                             let (vw, vh) = viewport_dims();
@@ -415,7 +535,8 @@ pub fn SkOrbitShell() -> impl IntoView {
                                             act::open_channel(s, ch.clone());
                                             close_map();
                                         }>
-                                        <span class="sk-orbit-node-label">{sigil}{c.name.clone()}</span>
+                                        <span class="sk-orbit-node-hash" aria-hidden="true">{sigil}</span>
+                                        <span class="sk-orbit-node-name">{c.name.clone()}</span>
                                         {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
                                     </button>
                                 }
@@ -454,15 +575,71 @@ pub fn SkOrbitShell() -> impl IntoView {
                 </Portal>
             })}
             <div class="sk-orbit-orb-wrap">
-                <button class="sk-orbit-orb" type="button"
+                <button type="button"
                     node_ref=orb_ref
-                    // Braced: a bare `>` would close the <button> tag in rstml
-                    // (matching the in-pane `.send` ring, channel/mod.rs).
-                    class:charging={move || charge.get() > 0.0}
-                    class:armed=move || s.composer.effect_mode.get().is_some()
-                    style:--charge=move || format!("{:.3}", charge.get())
-                    style:--dash=move || format!("{:.1}", self::charge::dash_offset(charge.get()))
-                    title="Send (hold for effects)"
+                    // Leptos `Attribute`/`RenderHtml` are impl'd for attribute
+                    // tuples only up to a fixed arity (≤26); ONE element over the
+                    // ceiling drops the whole tuple's trait impl and rustc reports
+                    // it as a cascade (`IntoClass not satisfied` on a `class:`
+                    // slot, `RenderHtml not satisfied` on the <button>, and
+                    // `cannot find value ev` in the `on:` closures). This button
+                    // carries ~17 attrs/handlers, so the three class slots are
+                    // collapsed into ONE reactive `class=move || String` and the
+                    // two `style:` vars into ONE `style=move || String` (the
+                    // documented `class=move || …` / `style=move || …` form) to
+                    // stay under the limit. SCSS still keys off `.sk-orbit-orb` /
+                    // `.charging` (charge.get()>0) / `.full` (prototype
+                    // `#sendBtn.full`, a-orbit.html:266 — brightened arc+glow at
+                    // the top of the length curve, distinct from the `data-armed`
+                    // tint below) and the `--charge`/`--dash` custom props.
+                    class=move || {
+                        let c = charge.get();
+                        let mut s = String::from("sk-orbit-orb");
+                        if c > 0.0 {
+                            s.push_str(" charging");
+                        }
+                        if c >= 1.0 {
+                            s.push_str(" full");
+                        }
+                        s
+                    }
+                    style=move || {
+                        let c = charge.get();
+                        format!("--charge:{:.3};--dash:{:.1}", c, self::charge::dash_offset(c))
+                    }
+                    // Effect tint (prototype `#orb[data-armed="…"]`,
+                    // a-orbit.html:222-224): emit the ARMED effect NAME
+                    // (whisper|shout|spell) so the SCSS can border/glow/recolor
+                    // the orb per effect; empty string when unarmed clears it
+                    // (an absent value would leave the last tint stuck). This is
+                    // the orb↔SCSS naming contract — `class:armed` was a boolean
+                    // that couldn't carry WHICH effect. Custom `data-*` attrs need
+                    // Leptos 0.8's `attr:` prefix (only TYPED attrs like `aria-*`
+                    // go bare — a bare `data-armed=closure` fails to typecheck and
+                    // poisons the whole attribute chain); an empty value renders
+                    // `data-armed=""`, which matches no
+                    // `[data-armed="whisper|shout|spell"]` rule, so the tint clears.
+                    attr:data-armed=move || s.composer.effect_mode.get().unwrap_or_default()
+                    // a11y: announce the orb as the trigger for the effect
+                    // `role="menu"` blossom (WCAG 4.1.2) and expose its state.
+                    aria-haspopup="menu"
+                    aria-expanded=move || blossom_open.get().to_string()
+                    title="Send (hold or press ↑ for effects)"
+                    // Keyboard OPEN path (a11y): the orb is the SOLE effect
+                    // surface and the pointer-HOLD open is unreachable by
+                    // keyboard, so ArrowUp/ArrowDown open the blossom (the chips
+                    // fan UP from the orb, so ↑ is the natural reveal). Enter /
+                    // Space stay the SEND activation (the button's default click),
+                    // matching the pointer tap — never hijacked to open effects.
+                    on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                        match ev.key().as_str() {
+                            "ArrowUp" | "ArrowDown" => {
+                                ev.prevent_default();
+                                open_blossom_kbd();
+                            }
+                            _ => {}
+                        }
+                    }
                     on:pointerdown=move |ev| {
                         #[cfg(feature = "hydrate")]
                         if let Some(el) = orb_ref.get_untracked() {
@@ -484,34 +661,136 @@ pub fn SkOrbitShell() -> impl IntoView {
                     }
                     on:click=move |_| {
                         // Guard: if the hold fired, swallow the trailing click
-                        // (it opened the blossom, it must not also send).
+                        // (it opened the effect blossom, it must not also compose).
                         if hold.take_fired() {
                             return;
                         }
-                        act::send_message(s);
+                        // Prototype choreography (a-orbit.html:859 expandComposer):
+                        // the orb REVEALS the composer (it no longer sends) and
+                        // hides itself (SCSS `.composing`); the in-composer send
+                        // button commits. Focus the textarea so the keyboard rises.
+                        composing.set(true);
+                        #[cfg(feature = "hydrate")]
+                        {
+                            use leptos::wasm_bindgen::JsCast as _;
+                            if let Some(el) = leptos::web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| {
+                                    d.query_selector(".app.sk-orbit .composer textarea")
+                                        .ok()
+                                        .flatten()
+                                })
+                            {
+                                if let Ok(t) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+                                    let _ = t.focus();
+                                }
+                            }
+                        }
                     }>
                     <svg class="sk-orbit-ring" viewBox="0 0 52 52" aria-hidden="true">
                         <circle class="sk-orbit-ring-track" cx="26" cy="26" r="24"></circle>
                         <circle class="sk-orbit-ring-arc" cx="26" cy="26" r="24"></circle>
                     </svg>
                     <span class="sk-orbit-orb-glyph">{move || {
+                        // ✎ compose pen when unarmed (the prototype's #orbGlyph,
+                        // a-orbit.html:416) — the orb now opens the composer; the
+                        // armed-effect glyph (🌫/📣/✨) still wins when an effect
+                        // is loaded, so you can see what the next message carries.
                         let g = armed_glyph();
-                        if g.is_empty() { "➤" } else { g }
+                        if g.is_empty() { "✎" } else { g }
                     }}</span>
                 </button>
                 {move || blossom_open.get().then(|| {
-                    let chips = [("whisper", "🤫"), ("shout", "📣"), ("spell", "✨")];
+                    // (effect name, glyph, English label). Glyphs match the
+                    // prototype's effect ring 1:1 (a-orbit.html:420-422:
+                    // 🌫 fog / 📣 / ✨) and the orb badge below; labels are
+                    // ENGLISH (UI-copy rule) — the SCSS uppercases them.
+                    let chips = [
+                        ("whisper", "🌫", "whisper"),
+                        ("shout", "📣", "shout"),
+                        ("spell", "✨", "spell"),
+                    ];
                     view! {
-                        <div class="sk-orbit-blossom" role="menu" aria-label="Message effect">
-                            {chips.into_iter().enumerate().map(|(i, (name, glyph))| {
+                        // Tap-outside dismiss layer (mirrors `.sk-orbit-map-scrim`):
+                        // a transparent full-viewport button that closes the
+                        // blossom on click. Without it a pointer user who opened
+                        // the blossom (480ms hold) had no tap-away dismiss — only
+                        // picking a chip closed it. DOM-first + lower z-index than
+                        // the chips (SCSS), so the chips stay clickable on top.
+                        <button class="sk-orbit-blossom-scrim" aria-label="Dismiss effects"
+                            tabindex="-1"
+                            on:click=move |_| blossom_open.set(false)></button>
+                        <div class="sk-orbit-blossom" role="menu" aria-label="Message effect"
+                            node_ref=blossom_ref
+                            // Roving-tabindex menu keyboard model (WAI-ARIA menu):
+                            // ArrowUp/Down move the roving cursor (`blossom_active`)
+                            // and focus that chip; Escape closes + refocuses the
+                            // orb. The chips fan UP via flex column-reverse, so
+                            // ArrowUp walks toward higher DOM indices (spell) and
+                            // ArrowDown toward lower (whisper) — matching the eye.
+                            on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                match ev.key().as_str() {
+                                    "Escape" => {
+                                        ev.prevent_default();
+                                        blossom_open.set(false);
+                                        focus_orb();
+                                    }
+                                    "ArrowUp" | "ArrowDown" => {
+                                        ev.prevent_default();
+                                        let up = ev.key() == "ArrowUp";
+                                        // 3 chips; wrap at both ends.
+                                        let cur = blossom_active.get();
+                                        let next = if up {
+                                            (cur + 1) % 3
+                                        } else {
+                                            (cur + 3 - 1) % 3
+                                        };
+                                        blossom_active.set(next);
+                                        #[cfg(feature = "hydrate")]
+                                        if let Some(menu) = blossom_ref.get_untracked() {
+                                            use leptos::wasm_bindgen::JsCast as _;
+                                            if let Ok(list) =
+                                                (*menu).query_selector_all(".sk-orbit-chip")
+                                            {
+                                                if let Some(el) = list.item(next as u32).and_then(
+                                                    |n| {
+                                                        n.dyn_into::<leptos::web_sys::HtmlElement>()
+                                                            .ok()
+                                                    },
+                                                ) {
+                                                    let _ = el.focus();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }>
+                            {chips.into_iter().enumerate().map(|(i, (name, glyph, label))| {
                                 let name_owned = name.to_string();
                                 view! {
                                     <button class="sk-orbit-chip" role="menuitem"
-                                        tabindex=if i == 0 { "0" } else { "-1" }
+                                        // Per-effect class so the SCSS can tint
+                                        // each chip its effect color (prototype
+                                        // `.fxBtn.whisper/.shout/.spell`,
+                                        // a-orbit.html:238-240). Exactly one of the
+                                        // three is true per chip — the contract the
+                                        // SCSS keys off.
+                                        class:whisper=name == "whisper"
+                                        class:shout=name == "shout"
+                                        class:spell=name == "spell"
+                                        // Roving tabindex: exactly one chip is in
+                                        // the Tab order (the active cursor); arrows
+                                        // move within. Reactive so it tracks the
+                                        // cursor as ArrowUp/Down rove.
+                                        tabindex=move || if blossom_active.get() == i { "0" } else { "-1" }
                                         style:--chip-i=i.to_string()
                                         title=name
                                         on:click=move |_| {
-                                            // Toggle-arm this effect, then close.
+                                            // Toggle-arm this effect, then close +
+                                            // restore focus to the orb (so keyboard
+                                            // focus isn't stranded on the unmounting
+                                            // chip; a no-op extra for pointer users).
                                             s.composer.effect_mode.update(|e| {
                                                 *e = if e.as_deref() == Some(name_owned.as_str()) {
                                                     None
@@ -520,8 +799,13 @@ pub fn SkOrbitShell() -> impl IntoView {
                                                 };
                                             });
                                             blossom_open.set(false);
+                                            focus_orb();
                                         }>
-                                        {glyph}
+                                        // Split glyph + label (prototype's
+                                        // `.fxBtn > .ic + .lb`, a-orbit.html:420)
+                                        // so the SCSS stacks them; ENGLISH label.
+                                        <span class="sk-orbit-chip-ic" aria-hidden="true">{glyph}</span>
+                                        <span class="sk-orbit-chip-lb">{label}</span>
                                     </button>
                                 }
                             }).collect_view()}
@@ -592,6 +876,24 @@ pub fn SkOrbitShell() -> impl IntoView {
                                 }/>
                             "Aurora-max (eye-candy tier)"
                         </label>
+                        // F2 account-trap fix: the orbit chrome has NO topbar
+                        // gear, so WITHOUT this the user is trapped — no way to
+                        // reach Account & preferences (and therefore no Log out
+                        // and no skeleton switch back to the chooser). This opens
+                        // the shell-wide AccountModal (skeleton-independent,
+                        // mounted in AppShell), which is the canonical home for
+                        // BOTH "Log out" (mobile finding #50a) and the skeleton
+                        // picker. Close the station first so focus/scrim don't
+                        // stack, then flip the shared signal.
+                        <h2>"Account"</h2>
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| {
+                                close_station();
+                                s.composer.status.set(String::new());
+                                account_open.set(true);
+                            }>
+                            "⚙ Account & preferences"
+                        </button>
                     </div>
                 </HoloPanel>
             })}
@@ -604,16 +906,29 @@ pub fn SkOrbitShell() -> impl IntoView {
 /// is the Phase-7 carry 9.4.3-c) — which is exactly why peek-never-marks-read
 /// holds STRUCTURALLY: a name-only neighbor is never a mounted `ChannelPane`,
 /// never becomes "current", and never reaches `act::open_channel`/last-seen.
-/// `idx == None` (no neighbor at the edge) renders an empty peek.
+/// `idx == None` (no neighbor at a true list edge) renders a deliberate
+/// "orbit's edge" affordance — NEVER an empty pane, so the edge rubber-band
+/// reveals a designed boundary instead of the black void (W5/P2 void-fix).
 fn neighbor_preview(s: Shell, idx: Option<usize>) -> impl IntoView {
     let label = idx
         .and_then(|i| s.sel.channels.get().get(i).map(|c| c.name.clone()))
         .unwrap_or_default();
     view! {
         <div class="sk-orbit-peek">
-            {(!label.is_empty()).then(|| view! {
-                <span class="sk-orbit-peek-name">"# "{label}</span>
-            })}
+            {if label.is_empty() {
+                // No neighbor this way (first / last / only channel): a designed
+                // orbital boundary, never a blank pane for the rubber-band to
+                // expose. aria-hidden rides the parent `.sk-orbit-pane-*`.
+                view! {
+                    <div class="sk-orbit-peek-edge">
+                        <span class="sk-orbit-peek-edge-ring"></span>
+                        <span class="sk-orbit-peek-edge-text">"orbit's edge"</span>
+                    </div>
+                }
+                .into_any()
+            } else {
+                view! { <span class="sk-orbit-peek-name">"# "{label}</span> }.into_any()
+            }}
         </div>
     }
 }

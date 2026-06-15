@@ -455,7 +455,12 @@ fn AppShell() -> impl IntoView {
             // same Shell aggregate / same .app root — no remount (pins
             // tests/skeleton_switch.rs::set_skeleton_surface_is_pref_only).
             {move || if s.prefs.skeleton.get().as_deref() == Some("orbit") {
-                view! { <SkOrbitShell/> }.into_any()
+                // F2 account-trap fix: pass the shared `account_open` signal into
+                // the orbit shell so its station slide-over can open the
+                // skeleton-independent AccountModal (mounted below, outside this
+                // branch). Without it, orbit has no gear → no logout / no
+                // skeleton switch → the user is trapped.
+                view! { <SkOrbitShell account_open=account_open/> }.into_any()
             } else {
                 view! {
             // aria-label: an unlabeled <nav> landmark is just "navigation"

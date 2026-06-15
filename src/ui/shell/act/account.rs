@@ -6,6 +6,10 @@
 //! (review M-21).
 
 use crate::ui::AuthCtx;
+// Ungated so both the hydrate-real and the ssr-stub `choose_skeleton`
+// signatures can name `RwSignal<bool>` (the account modal's `open` flag) —
+// same pattern as `act::feedback`'s modal-closing signal params.
+use leptos::prelude::RwSignal;
 
 #[cfg(feature = "hydrate")]
 use super::super::Shell;
@@ -122,6 +126,40 @@ pub fn admin_reset_password(s: Shell, username: String, new_password: String) {
     });
 }
 
+/// Re-choose the interface skeleton from Account → Preferences (W5/P1): the
+/// single action behind each skeleton radio. Persists the pref
+/// (`set_skeleton`), flips the live `Prefs.skeleton` signal so the `.app.sk-*`
+/// root class swaps immediately, then DISMISSES the account modal (`open`) so
+/// the freshly-applied skeleton is actually visible — without the close the
+/// modal stays over the whole screen, the confusing "ping-pong" the owner
+/// flagged. A short success toast names the chosen skeleton to confirm the
+/// switch. `id` is one of the static skeleton ids (`orbit`/`deck`/`hud`); an
+/// unknown id is ignored (no persist, no close, no toast) since
+/// `set_skeleton` already rejects it.
+#[cfg(feature = "hydrate")]
+pub fn choose_skeleton(s: Shell, open: RwSignal<bool>, id: &'static str) {
+    if !super::prefs::is_valid_skeleton(id) {
+        return;
+    }
+    // Persist + apply. The signal is set regardless of the localStorage write
+    // outcome (mirrors the ceremony's `choose`): the session still gets the
+    // chosen class even if persistence somehow fails.
+    let _saved = super::prefs::set_skeleton(id);
+    s.prefs.skeleton.set(Some(id.to_string()));
+    // Close the modal so the new skeleton is immediately visible (the fix).
+    open.set(false);
+    // Confirming toast, named by the canon proper-noun (kept as-is; matches
+    // the ceremony cards and the radio labels). Mirrors every other success
+    // toast — pure confirmation, nothing to act on.
+    let name = match id {
+        "orbit" => "Omloppsbana",
+        "deck" => "Kortdäck",
+        "hud" => "Holoterminal",
+        _ => id,
+    };
+    super::toast::show_success_toast(s, format!("{name} enabled"));
+}
+
 // ---- ssr stubs ----
 
 #[cfg(not(feature = "hydrate"))]
@@ -135,3 +173,5 @@ pub fn change_password(_s: Shell, _current: String, _new: String) {}
 pub fn set_security_question(_s: Shell, _question: String, _answer: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn admin_reset_password(_s: Shell, _username: String, _new_password: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn choose_skeleton(_s: Shell, _open: RwSignal<bool>, _id: &'static str) {}
