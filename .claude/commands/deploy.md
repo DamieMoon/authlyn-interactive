@@ -1,6 +1,9 @@
 ---
+name: deploy
 description: Build a release and deploy it to the LIVE systemd service (production)
 ---
+> ⚠️ **FROZEN — this targets the legacy fenrir prod path** (`/home/damien/authlyn-interactive` + `sudo /opt/authlyn/deploy.sh`). fenrir is RETIRED; mendicant-bias prod = **novahome**, and both `.github/workflows/deploy.yml` and this skill must be **repointed to novahome before any v27 deploy** (CLAUDE.md Deploy · ctx · learnings · I2). The novahome **test deck** is updated separately over SSH (the `authlyn-test` service), NOT by this skill. Do NOT run this against the retired host.
+
 Deploy the **current working tree** to the live `authlyn.service` (production at `/opt/authlyn`, the instance real users hit). Source `~/.cargo/env` first if `cargo` isn't on PATH.
 
 **This is production and outward-facing — confirm before the privileged step unless the user clearly just said to deploy.**
