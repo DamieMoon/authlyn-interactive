@@ -23,7 +23,14 @@
 // build.rs), so every release is automatically a new SW. The browser then sees an
 // update and `register-sw.js` shows the "new version available" refresh banner.
 // (A non-served local build keeps the literal placeholder — harmless, just not unique.)
-const CACHE_VERSION = "authlyn-__BUILD_REV__";
+//
+// ASSET_REV is a manual, monotonically-bumped suffix for changes to precached /
+// cache-first static assets (e.g. new self-hosted /fonts/ faces) so the cache
+// name changes even where the build-rev placeholder stays literal. Bump it
+// whenever the precache list or a cache-first asset set changes.
+// v2: self-hosted JetBrains Mono (400/700) + Crimson Pro italic (400/600).
+const ASSET_REV = "v2";
+const CACHE_VERSION = "authlyn-__BUILD_REV__-" + ASSET_REV;
 const PRECACHE = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",

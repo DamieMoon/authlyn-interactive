@@ -47,3 +47,41 @@
 	font-display: swap;
 	src: url("/fonts/space-grotesk-600.woff2") format("woff2");
 }
+
+// JetBrains Mono (orbit chrome / monospace — timestamps, tags) via --font-mono
+// in _tokens.scss; Latin subset, 400 + 700. SIL OFL, re-hosted from the same
+// fontsource jsdelivr mirror as the families above.
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono-700.woff2") format("woff2");
+}
+
+// Crimson Pro ITALIC (roleplay action / emphasis prose) — the italic faces
+// paired with the normal Crimson Pro above; without them italics fall back to a
+// faux-oblique synthesis. Latin subset, 400 + 600. SIL OFL, same mirror.
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: italic;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-italic-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: italic;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-italic-600.woff2") format("woff2");
+}
