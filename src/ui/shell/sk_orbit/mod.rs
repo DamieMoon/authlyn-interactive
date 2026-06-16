@@ -417,7 +417,21 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                     #[cfg(feature = "hydrate")]
                     let (d_down, d_move, d_up, d_cancel) = (d.clone(), d.clone(), d.clone(), d);
                     view! {
-                        <div class="sk-orbit-strip sk-orbit-strip--snap" node_ref=strip_ref
+                        // W5/P2 #d single-channel = NO swipe: a 1-channel guild
+                        // has nowhere to swipe, so it renders ONLY the current
+                        // pane — no prev/next peeks, no "orbit's edge" boundary
+                        // (the edge affordance stays for MULTI-channel list edges,
+                        // where a real neighbor exists the other way). The
+                        // `--single` modifier collapses the 3-slot geometry: the
+                        // strip drops to 100vw with no `--strip-x` offset so the
+                        // lone cur pane fills the viewport (the resting -100vw
+                        // assumes a 3-pane strip with cur in the MIDDLE; with the
+                        // prev pane gone, cur becomes the first slot and -100vw
+                        // would push it off-screen). The drag engine stays bound
+                        // but is inert at count≤1 (both edges true ⇒ no commit).
+                        <div class="sk-orbit-strip sk-orbit-strip--snap"
+                            class:sk-orbit-strip--single=move || chan_count() <= 1
+                            node_ref=strip_ref
                             on:pointerdown=move |ev| {
                                 #[cfg(feature = "hydrate")] d_down.down(&ev);
                                 #[cfg(not(feature = "hydrate"))] let _ = &ev;
@@ -436,16 +450,23 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             }>
                             // prev/current/next. The current pane is the real
                             // ChannelPane (owns composer + list). The neighbors
-                            // are peek previews (lazy first page, NEVER mark read).
-                            <div class="sk-orbit-pane sk-orbit-pane-prev" aria-hidden="true">
-                                {move || neighbor_preview(s, cur_idx().and_then(|i| i.checked_sub(1)))}
-                            </div>
+                            // are peek previews (lazy first page, NEVER mark read)
+                            // — rendered ONLY for multi-channel guilds (a single
+                            // channel has no neighbor either way, so no peek panes
+                            // mount: #d "no swipe / no orbit's edge").
+                            {move || (chan_count() > 1).then(|| view! {
+                                <div class="sk-orbit-pane sk-orbit-pane-prev" aria-hidden="true">
+                                    {move || neighbor_preview(s, cur_idx().and_then(|i| i.checked_sub(1)))}
+                                </div>
+                            })}
                             <div class="sk-orbit-pane sk-orbit-pane-cur">
                                 <ChannelPane/>
                             </div>
-                            <div class="sk-orbit-pane sk-orbit-pane-next" aria-hidden="true">
-                                {move || neighbor_preview(s, cur_idx().map(|i| i + 1).filter(|&j| j < chan_count()))}
-                            </div>
+                            {move || (chan_count() > 1).then(|| view! {
+                                <div class="sk-orbit-pane sk-orbit-pane-next" aria-hidden="true">
+                                    {move || neighbor_preview(s, cur_idx().map(|i| i + 1).filter(|&j| j < chan_count()))}
+                                </div>
+                            })}
                         </div>
                     }.into_any()
                 }

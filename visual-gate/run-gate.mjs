@@ -2,12 +2,18 @@
 // swipe-strip's neighbor "peek" panes are NEVER visually empty.
 //
 // This is the regression net for the W5/P2 "swipe-void" bug: when you swiped
-// to a channel that had no neighbor on one side (a list edge, or the only
-// channel), the prev/next pane rendered an empty black void instead of a
-// designed boundary. The fix (`neighbor_preview` in src/ui/shell/sk_orbit/
-// mod.rs) renders an "orbit's edge" affordance at list edges and a "# name"
-// preview for real neighbors — and that's exactly what this gate asserts, on
-// the full mobile-first device matrix.
+// to a channel that had no neighbor on one side (a MULTI-channel list edge),
+// the prev/next pane rendered an empty black void instead of a designed
+// boundary. The fix (`neighbor_preview` in src/ui/shell/sk_orbit/mod.rs)
+// renders an "orbit's edge" affordance at list edges and a "# name" preview
+// for real neighbors.
+//
+// W5/P2 #d FLIPPED the single-channel contract: a 1-channel guild has nowhere
+// to swipe, so it now mounts NO prev/next peek panes at all (only the current
+// pane). So this gate asserts, on the full mobile-first device matrix:
+//   - single-channel guild → exactly ONE pane, NO peeks, NO "orbit's edge";
+//   - multi-channel guild   → prev/cur/next with a named neighbor + the
+//     "orbit's edge" boundary at the true list edge (unchanged).
 //
 // DEV-ONLY tooling. NOT part of the Rust build. Runs against a LOCALLY-running
 // dev server (http://localhost:3000) + the dev DB. NEVER point it at prod or
@@ -141,16 +147,19 @@ async function forceOrbit(page) {
 
 /**
  * Drive the orbit map to open a channel in `guild` (matched by name), then
- * assert the swipe-strip's peek panes for that guild.
+ * assert the swipe-strip's pane shape for that guild.
  *
  * @param page Playwright page (already logged-in, orbit forced).
  * @param guild { name } the seeded guild to open.
- * @param expectEdgesBothSides true for the single-channel guild (both
- *   neighbors must be "orbit's edge"); false for multi (≥1 named neighbor).
+ * @param singleChannel true for the 1-channel guild. W5/P2 #d FLIPPED the
+ *   single-channel contract: a 1-channel guild has nowhere to swipe, so it now
+ *   renders NO prev/next peek panes at all (was: "orbit's edge" on BOTH sides).
+ *   For multi (false) the strip keeps prev/cur/next with ≥1 named neighbor and
+ *   the "orbit's edge" boundary at the true list edge.
  * @param f Failures collector.
  * @param shotPath where to save this guild's screenshot.
  */
-async function assertGuildPeeks(page, guild, expectEdgesBothSides, f, shotPath) {
+async function assertGuildPeeks(page, guild, singleChannel, f, shotPath) {
   const tag = `[${f.device}] guild "${guild.name}"`;
 
   // Open the orbit map via the holographic pill (the ONLY entry — pinch was
@@ -182,15 +191,48 @@ async function assertGuildPeeks(page, guild, expectEdgesBothSides, f, shotPath) 
   const strip = page.locator(".sk-orbit-strip");
   await strip.waitFor({ state: "visible", timeout: 15000 });
 
-  // --- Structural assertion: exactly three panes (prev / cur / next). ---
+  const prevPane = page.locator(".sk-orbit-strip .sk-orbit-pane-prev");
+  const nextPane = page.locator(".sk-orbit-strip .sk-orbit-pane-next");
   const paneCount = await page.locator(".sk-orbit-strip .sk-orbit-pane").count();
+
+  // --- W5/P2 #d: single-channel guild renders ONLY the current pane. ---
+  // No swipe targets, no peek panes, no "orbit's edge" — there is nowhere to
+  // swipe. This is the FLIPPED contract (was: edges on both sides).
+  if (singleChannel) {
+    f.check(
+      paneCount === 1,
+      `${tag}: single-channel guild must render exactly 1 .sk-orbit-pane ` +
+        `(the current channel, no swipe), found ${paneCount}`,
+    );
+    f.check(
+      (await prevPane.count()) === 0 && (await nextPane.count()) === 0,
+      `${tag}: single-channel guild must have NO prev/next peek panes ` +
+        `(prev=${await prevPane.count()}, next=${await nextPane.count()})`,
+    );
+    f.check(
+      (await page.locator(".sk-orbit-strip .sk-orbit-peek").count()) === 0,
+      `${tag}: single-channel guild must show NO .sk-orbit-peek (nothing to swipe to)`,
+    );
+    f.check(
+      (await page.locator(".sk-orbit-strip .sk-orbit-peek-edge").count()) === 0,
+      `${tag}: single-channel guild must NOT show the "orbit's edge" affordance ` +
+        `(the #d flip — a 1-channel guild has no edge, it just IS the channel)`,
+    );
+    // The lone current pane must still carry the real ChannelPane (the channel
+    // is reachable, just un-swipeable).
+    f.check(
+      (await page.locator(".sk-orbit-strip .sk-orbit-pane-cur").count()) === 1,
+      `${tag}: single-channel guild is missing its current pane`,
+    );
+    await page.screenshot({ path: shotPath, fullPage: false });
+    return;
+  }
+
+  // --- Multi-channel: the 3-pane strip (prev / cur / next). UNCHANGED. ---
   f.check(
     paneCount === 3,
     `${tag}: expected 3 .sk-orbit-pane, found ${paneCount}`,
   );
-
-  const prevPane = page.locator(".sk-orbit-strip .sk-orbit-pane-prev");
-  const nextPane = page.locator(".sk-orbit-strip .sk-orbit-pane-next");
 
   // The neighbor panes each hold exactly one `.sk-orbit-peek` (the void-fix
   // wrapper). A missing peek IS the original bug (an empty void pane).
@@ -245,29 +287,19 @@ async function assertGuildPeeks(page, guild, expectEdgesBothSides, f, shotPath) 
     }
   }
 
-  // --- Per-guild shape of the peeks. ---
-  const prevIsEdge = (await prevPeek.locator(".sk-orbit-peek-edge").count()) > 0;
+  // --- Multi-channel per-guild shape. (Single-channel returned early above.) ---
+  // The auto-opened first channel has a real NEXT neighbor (channel index 1),
+  // so the next peek must be a named neighbor; the prev peek (left edge of the
+  // 3-channel list) is the "orbit's edge" boundary — which STILL exists for a
+  // multi-channel list edge (the #d flip removed it only for single-channel).
   const nextIsEdge = (await nextPeek.locator(".sk-orbit-peek-edge").count()) > 0;
-  if (expectEdgesBothSides) {
-    // Single-channel guild: there is no neighbor either way, so BOTH peeks must
-    // be the "orbit's edge" boundary (never blank).
-    f.check(
-      prevIsEdge && nextIsEdge,
-      `${tag}: single-channel guild must show "orbit's edge" on BOTH sides ` +
-        `(prevEdge=${prevIsEdge}, nextEdge=${nextIsEdge})`,
-    );
-  } else {
-    // Multi-channel guild: the auto-opened first channel has a real NEXT
-    // neighbor (channel index 1). So the next peek must be a named neighbor,
-    // and the prev peek (at the left edge of a 3-channel list) is the boundary.
-    const nextHasName =
-      (await nextPeek.locator(".sk-orbit-peek-name").count()) > 0;
-    f.check(
-      nextHasName,
-      `${tag}: multi-channel guild's NEXT peek must be a named neighbor ` +
-        `(.sk-orbit-peek-name), got edge=${nextIsEdge}`,
-    );
-  }
+  const nextHasName =
+    (await nextPeek.locator(".sk-orbit-peek-name").count()) > 0;
+  f.check(
+    nextHasName,
+    `${tag}: multi-channel guild's NEXT peek must be a named neighbor ` +
+      `(.sk-orbit-peek-name), got edge=${nextIsEdge}`,
+  );
 
   await page.screenshot({ path: shotPath, fullPage: false });
 }
@@ -312,14 +344,14 @@ async function runDevice(spec, creds) {
     await assertGuildPeeks(
       page,
       creds.single,
-      /* expectEdgesBothSides */ true,
+      /* singleChannel */ true,
       f,
       join(SHOTS_DIR, `${spec.id}-single-channel.png`),
     );
     await assertGuildPeeks(
       page,
       creds.multi,
-      /* expectEdgesBothSides */ false,
+      /* singleChannel */ false,
       f,
       join(SHOTS_DIR, `${spec.id}-multi-channel.png`),
     );
