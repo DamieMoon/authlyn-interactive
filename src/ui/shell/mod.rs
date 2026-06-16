@@ -34,6 +34,7 @@ mod friends;
 pub mod holopanel;
 mod lorebook;
 mod members;
+mod server;
 pub mod sk_orbit;
 mod state;
 mod toast;
@@ -51,6 +52,7 @@ use emoji_manager::EmojiManagerPane;
 use friends::FriendsPane;
 use lorebook::LorebookPane;
 use members::MembersPane;
+use server::ServerModal;
 use sk_orbit::SkOrbitShell;
 use toast::toast_host;
 use wardrobe::WardrobePane;
@@ -307,6 +309,11 @@ fn AppShell() -> impl IntoView {
     let new_invite = RwSignal::new(String::new());
     // Account-management modal visibility (change password, future options).
     let account_open = RwSignal::new(false);
+    // Server-management modal visibility (owner-gated: accent, invitations,
+    // channels). Mirrors `account_open` — a shared, skeleton-independent window
+    // rendered below and opened from the orbit station's "Server settings"
+    // button.
+    let server_open = RwSignal::new(false);
     // Guild-trash panel open/closed (rail trash button toggles it).
     let guild_trash_open = RwSignal::new(false);
     // Deleted-channel list open/closed in the sidebar (owner-only).
@@ -458,7 +465,8 @@ fn AppShell() -> impl IntoView {
                 // skeleton-independent AccountModal (mounted below, outside this
                 // branch). Without it, orbit has no gear → no logout / no
                 // skeleton switch → the user is trapped.
-                view! { <SkOrbitShell account_open=account_open/> }.into_any()
+                view! { <SkOrbitShell account_open=account_open server_open=server_open/> }
+                    .into_any()
             } else {
                 view! {
             // aria-label: an unlabeled <nav> landmark is just "navigation"
@@ -870,6 +878,14 @@ fn AppShell() -> impl IntoView {
             } else {
                 ().into_any()
             }}
+
+            // Server-management window (owner-gated): the guild-owner sibling of
+            // the AccountModal, opened from the orbit station's "Server
+            // settings" button. The is_owner gate is a UX affordance; each
+            // server route the modal calls re-validates require_manager.
+            {move || (server_open.get() && is_owner()).then(|| view! {
+                <ServerModal s=s open=server_open/>
+            })}
 
             // Wardrobe popup (F-2): a dismissible Modal — backdrop click, Esc, or
             // the X close it. Auto-closes when a channel is opened (act::open_channel

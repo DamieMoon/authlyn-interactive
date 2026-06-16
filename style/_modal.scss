@@ -281,8 +281,10 @@
 	}
 }
 
-// ---- account-management modal (reuses .modal / .modal-backdrop) ----
-.account-modal {
+// ---- account- + server-management modals (reuse .modal / .modal-backdrop) ----
+// The server modal (accent / invitations / channels) is the guild-owner sibling
+// of the account modal; it reuses the same section chrome and orbit slide-over.
+:is(.account-modal, .server-modal) {
 	.account-head {
 		display: flex;
 		align-items: center;
@@ -528,7 +530,7 @@
 // backdrop-filter ancestor sits BETWEEN this scroll box and the sticky head
 // (the panel IS the scroller, the head is its direct child) so iOS WebKit
 // position:sticky never silently breaks.
-.app.sk-orbit .modal.account-modal {
+.app.sk-orbit .modal:is(.account-modal, .server-modal) {
 	position: fixed;
 	inset: 0;
 	z-index: 51; // the modal-card slot (one above the backdrop at 50)
@@ -590,7 +592,7 @@
 // repaint from the momentum-scroll judder of the glass it carries (the WebKit
 // guidance), and because the head is the scroller's DIRECT child no
 // intervening containing block can break the sticky.
-.app.sk-orbit .account-modal .account-head {
+.app.sk-orbit :is(.account-modal, .server-modal) .account-head {
 	position: sticky;
 	top: 0;
 	z-index: 2;
@@ -674,7 +676,7 @@
 // Section padding/rules retuned to the void palette + the prototype's mono
 // section-label look (a-orbit.html .soSec h3, :308). The first section drops
 // its top rule (the sticky head already draws the divider).
-.app.sk-orbit .account-modal {
+.app.sk-orbit :is(.account-modal, .server-modal) {
 	.account-section {
 		gap: 0.5rem;
 		padding: 18px 18px 8px;

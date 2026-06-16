@@ -91,8 +91,11 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
 /// out" affordances flip it. The orbit chrome has NO topbar gear, so this is the
 /// ONLY path to the (skeleton-independent) account modal — without it the orbit
 /// user is trapped with no logout and no way back to the skeleton chooser (F2).
+/// `server_open` is its owner-gated sibling — the shell-wide ServerModal
+/// (accent / invitations / channels) opened by the station's "Server settings"
+/// button (M5 parity: consolidates the W3 sidebar's scattered server controls).
 #[component]
-pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
+pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     // Owner gate for the station's server-management affordances (mirrors
     // AppShell's is_owner; `s.sync.me` is the viewer's account id, set at init).
@@ -1084,14 +1087,16 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             on:click=move |_| { close_station(); act::show_emoji_manager(s); }>
                             "😀 Custom emoji"
                         </button>
-                        // Parity wiring (M5): owner-only server management — opens the
-                        // shared ChannelManagerModal via s.sync.manager_open (the same
-                        // signal the W3 sidebar gear sets). Hidden for non-owners.
+                        // Parity wiring (M5): owner-only server management lives in
+                        // the ServerModal (accent / invitations / channels) — the
+                        // guild-owner sibling of "Account & preferences", opened via
+                        // the shared `server_open` signal. Hidden for non-owners; each
+                        // server route the modal calls re-checks require_manager.
                         {move || is_owner().then(|| view! {
                             <h2>"Server"</h2>
                             <button class="sk-orbit-account-btn" type="button"
-                                on:click=move |_| { close_station(); s.sync.manager_open.set(true); }>
-                                "⚙ Manage channels"
+                                on:click=move |_| { close_station(); server_open.set(true); }>
+                                "⚙ Server settings"
                             </button>
                         })}
                         <h2>"Station"</h2>
