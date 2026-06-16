@@ -51,3 +51,9 @@ CLAUDE.local.md
 # harness sources (package.json, *.mjs, README) ARE tracked.
 visual-gate/node_modules/
 visual-gate/shots/
+
+# Stray gate-capture screenshots that land in the repo ROOT (xengine / fidelity
+# captures that escaped their out-dir under ~/authlyn-ios-gate). Root-level PNGs
+# are always junk here — real images live under public/ or docs/. Root-only
+# (leading slash), so public/*.png and docs/**/*.png stay tracked.
+/*.png

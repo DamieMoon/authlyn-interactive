@@ -1,4 +1,5 @@
 ---
+name: dev-db
 description: Start the local dev SurrealDB (in-memory, root/root, ws://127.0.0.1:8000)
 ---
 Check whether a SurrealDB is already listening on `127.0.0.1:8000` (e.g. `curl -s http://127.0.0.1:8000/health`). If one is already up, say so and stop.
