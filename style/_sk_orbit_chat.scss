@@ -23,13 +23,19 @@
 // Bubble geometry (the prototype's `.bubble`, a-orbit.html:82-83): 18px radius,
 // prose padding 10px 15px, body 17.5px. Skip the full-width system/roll rows
 // (banners, not bubbles) for radius/padding so they keep their own composition.
-// With the in-flow topbar gone, the fixed pill floats over the top of the
-// scrolling list — clear it so the first message starts BELOW the pill (the
-// prototype's `.scroller` top pad, a-orbit.html:73). The composer is absolute +
-// the orb floats bottom-right, so reserve bottom clearance too, so the last
-// message never hides under the revealed composer / the orb.
+// Top reserve (W5/P2 cross-agent fix with A2's chrome rebuild): the channel
+// pill is NO LONGER a `position:fixed` float over this list — A2 rebuilt it into
+// the IN-FLOW sticky header row of the `.sk-orbit-content` flex column
+// (`_sk_orbit_chrome.scss` `.sk-orbit-pill`), which already reserves real layout
+// space AND owns the top safe-area inset itself (`top`/`margin: calc(0.5rem +
+// sat)`). The prototype's 72px `.scroller` top pad (a-orbit.html:73) existed
+// ONLY to clear ITS floating `#pill`; an in-flow header needs none, so a small
+// breathing pad is all that's left — a safe-area term here would DOUBLE-reserve
+// the inset and push the first message far below the pill. The composer is
+// hidden-at-rest + the orb floats bottom-right, so the bottom clearance stays so
+// the last message never hides under the revealed composer / the orb.
 .app.sk-orbit .messages {
-	padding-top: calc(72px + env(safe-area-inset-top, 0px));
+	padding-top: 14px;
 	padding-bottom: calc(122px + env(safe-area-inset-bottom, 0px)); // a-orbit.html:73 — clears the orb + station stack
 }
 .app.sk-orbit .messages .msg:not(.system):not(.roll) {
@@ -75,9 +81,7 @@
 // spell — full PURPLE retint (the prototype's `.msg.spell`, a-orbit.html
 // :106-115). The base `_content.scss` spell glow is accent-BLUE; under orbit we
 // override it to the prototype's arcane purple on the `.msg` bubble: purple
-// border, the exact purple gradient fill, and the 0 0 24px purple halo. The
-// rising sparks are the base rule's `.msg::before`/`::after` (fx-spark,
-// opacity-only keyframe — left as-is); we only swap their STATIC colour.
+// border, the exact purple gradient fill, and the 0 0 24px purple halo.
 .app.sk-orbit .messages .msg.effect-spell {
 	border-color: var(--tint-purple);
 	background: linear-gradient(
@@ -87,8 +91,18 @@
 	);
 	box-shadow: 0 0 24px rgba(196, 168, 255, 0.28);
 }
+// Spark hues 1:1 (the prototype's `.spark`/.s1/.s2/.s3, a-orbit.html:109-113):
+// the rising sparks are the base rule's three pseudo-elements (fx-spark,
+// opacity-only keyframe — left as-is); we only swap their STATIC colour to match
+// the prototype's exact per-spark assignment. The base maps `::before`=s1
+// (top-right), `::after`=s2 (left, .7s), `.text::after`=s3 (bottom, 1.3s). The
+// prototype paints s1 + s3 PURPLE (`--tint-purple`) and keeps the MIDDLE s2
+// BLUE (`--accent-bright`) — so retint ONLY `::before` (s1) and `.text::after`
+// (s3); `::after` (s2) inherits the base's `--accent-bright` UNTOUCHED, the lone
+// blue spark exactly as the prototype intends. (The earlier orbit pass purpled
+// s2 too and never reached s3 — two sparks off; this is the 1:1 correction.)
 .app.sk-orbit .messages .msg.effect-spell::before,
-.app.sk-orbit .messages .msg.effect-spell::after {
+.app.sk-orbit .messages .msg.effect-spell .text::after {
 	background: var(--tint-purple);
 	box-shadow: 0 0 8px var(--tint-purple);
 }
