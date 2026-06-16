@@ -1,8 +1,9 @@
 // Self-hosted webfonts — Duo typography (W2, Void Station).
 //
 // Two SIL OFL families from the fontsource jsdelivr mirror:
-//   - Space Grotesk (UI chrome, 400 + 600, Latin subset) — body default
-//     via --font-ui in _tokens.scss
+//   - Space Grotesk (UI chrome, 400 + 500 + 600 + 700, Latin subset) — body
+//     default via --font-ui in _tokens.scss (orbit declares 700 for the core
+//     name / node hashes / dock buttons and 500 for node labels)
 //   - Crimson Pro (prose, 400 + 600, Latin subset) — message text /
 //     composer / lorebook / persona descriptions via --font-prose
 //
@@ -43,9 +44,25 @@
 @font-face {
 	font-family: "Space Grotesk";
 	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("/fonts/space-grotesk-500.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Space Grotesk";
+	font-style: normal;
 	font-weight: 600;
 	font-display: swap;
 	src: url("/fonts/space-grotesk-600.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Space Grotesk";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/space-grotesk-700.woff2") format("woff2");
 }
 
 // JetBrains Mono (orbit chrome / monospace — timestamps, tags) via --font-mono
