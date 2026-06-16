@@ -518,6 +518,15 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                         }>
                         <button class="sk-orbit-map-scrim" aria-label="Close orbit map"
                             on:click=move |_| close_map()></button>
+                        // Cosmic ambience INSIDE the portal: the map is a body-portal
+                        // sibling of `.app`, so the fixed app starfield (z:-1 under
+                        // `.app`) can't reach it — clone the two twinkle layers here so
+                        // the map floats over the same star field as the chat (the SCSS
+                        // selectors are `:is(.app.sk-orbit, .sk-orbit-map)`-scoped).
+                        <div class="sk-orbit-stars" aria-hidden="true">
+                            <div class="fx-sk-orbit-stars-a"></div>
+                            <div class="fx-sk-orbit-stars-b"></div>
+                        </div>
                         // Map core (the central "star"): the server emblem, its
                         // name, and a live channel count. Split into three spans
                         // so the SCSS can size/stack them independently (NAMING

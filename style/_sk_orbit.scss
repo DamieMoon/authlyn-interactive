@@ -58,7 +58,11 @@
 // twinkle keyframes touch OPACITY ONLY, and each layer carries an `fx-`
 // prefixed class so the GLOBAL reduced-motion kill (`[class*="fx-"]`,
 // _motion.scss) auto-covers both — no _motion.scss edit, no local guard.
-.app.sk-orbit .sk-orbit-stars {
+// `:is(.app.sk-orbit, .sk-orbit-map)` so the field renders BOTH behind the chat
+// (under `.app`) AND inside the body-portal map (a `.app` sibling the fixed app
+// field can't reach). In the map it rests at z:-1 — above the map's own bg layer
+// (CSS paints negative-z children over the parent background), below the core.
+:is(.app.sk-orbit, .sk-orbit-map) .sk-orbit-stars {
 	position: fixed;
 	inset: 0;
 	z-index: -1;
@@ -67,8 +71,8 @@
 	// box-shadow. Centre it so the vw/vh-anchored offsets land on-screen.
 	overflow: hidden;
 }
-.app.sk-orbit .fx-sk-orbit-stars-a,
-.app.sk-orbit .fx-sk-orbit-stars-b {
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-a,
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-b {
 	position: absolute;
 	top: 0;
 	left: 0;
@@ -77,7 +81,7 @@
 	border-radius: 50%;
 }
 // ~46 dots (≈0.7px, a few 1.4px), faint→bright twinkle.
-.app.sk-orbit .fx-sk-orbit-stars-a {
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-a {
 	box-shadow:
 		7.2vw 14.6vh 0 0.7px rgba(221, 230, 242, 0.42),
 		18.3vw 71.4vh 0 0.7px rgba(221, 230, 242, 0.33),
@@ -128,7 +132,7 @@
 	animation: fx-sk-orbit-twinkle-a 5.5s ease-in-out infinite alternate;
 }
 // ~34 offset dots, counter-phased (bright→faint while -a does faint→bright).
-.app.sk-orbit .fx-sk-orbit-stars-b {
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-b {
 	box-shadow:
 		13.7vw 6.2vh 0 0.7px rgba(221, 230, 242, 0.4),
 		45.2vw 88.3vh 0 0.7px rgba(221, 230, 242, 0.34),
