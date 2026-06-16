@@ -10,6 +10,8 @@ Work in progress. Private / internal use.
 - **Frontend:** Leptos 0.8 (`hydrate`, WASM)
 - **Database:** SurrealDB (external server)
 - **Auth:** session cookies (argon2 password hashing); no browser-side cryptography
+- **Native client:** Freya (Skia-rendered, no webview) — standalone `authlyn-native` bin behind the optional `freya` feature; shares only `protocol` + `markup` with the web app
+- **MCP bridge:** standalone `nova-mcp` bin behind the optional `nova` feature — talks to the running HTTP API as the "Nova" account and exposes it over MCP
 
 ## Versioning
 
@@ -39,16 +41,19 @@ Optional pre-commit gate (fmt + clippy), off by default — enable per-clone wit
 
 ```
 src/
-  app.rs           Leptos root (shared ssr & hydrate)
-  lib.rs           module wiring + hydrate entrypoint
-  main.rs          axum server entrypoint (ssr only)
-  db.rs            SurrealDB connection helper (ssr only)
-  protocol.rs      shared REST JSON DTOs
-  markup.rs        chat markup rendering
-  client/          hydrate-only REST client (gloo-net)
-  server/          axum routes (ssr only): auth, guilds, personas,
-                   messages, lorebook, emoji, friends, media, push, feedback
-  storage/         SurrealDB schema (schema.surql)
-  ui/              Leptos UI: auth + shell/ (Discord-style app shell)
-  bin/nova-mcp.rs  standalone MCP bridge (optional `nova` feature)
+  app.rs                 Leptos root (shared ssr & hydrate)
+  lib.rs                 module wiring + hydrate entrypoint
+  main.rs                axum server entrypoint (ssr only)
+  db.rs                  SurrealDB connection helper (ssr only)
+  protocol.rs            shared REST JSON DTOs
+  markup/                shared chat markup parser (tokenize/tree/blocks)
+  client/                hydrate-only REST client (gloo-net)
+  server/                axum routes (ssr only): auth, guilds, messages,
+                         personas, lorebook, friends, emoji, accent, media,
+                         push, events (SSE), feedback, system messages
+  storage/               SurrealDB schema (schema.surql)
+  ui/                    Leptos UI: auth + shell/ (Discord-style app shell)
+  native/                Freya native desktop/Android client (`freya` feature)
+  bin/nova-mcp.rs        standalone MCP bridge (optional `nova` feature)
+  bin/authlyn-native.rs  native client entrypoint (optional `freya` feature)
 ```
