@@ -731,17 +731,51 @@
 	white-space: nowrap;
 	pointer-events: none;
 }
+// Far server — a docked-in-the-corner MINI nucleus (a-orbit.html `.srv.far
+// .core`, line 179): the same luminous core disc as the active star but 64px,
+// dimmer (opacity .75) with a softer glow, the monogram emblem centred and the
+// name labelled below. (Was a flat glass name-pill.)
 .sk-orbit-far {
 	position: absolute;
 	top: 0;
 	left: 0;
 	z-index: 2;
-	min-width: 44px;
-	min-height: 44px;
-	border-radius: 999px;
-	@include glass-holo;
-	color: var(--text);
-	padding: 0.4rem 0.7rem;
+	width: 64px;
+	height: 64px;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	background: radial-gradient(
+		circle at 34% 28%,
+		rgba(127, 182, 255, 0.35),
+		rgba(16, 20, 29, 0.92) 70%
+	);
+	border: 1px solid var(--accent-soft);
+	opacity: 0.75;
+	// Static (style_lint: box-shadow never in a keyframe). Softer than the active
+	// core's glow.
+	box-shadow: 0 0 18px rgba(77, 159, 255, 0.25);
+	color: var(--accent-bright);
+}
+.sk-orbit-far-glyph {
+	font-size: 20px;
+	line-height: 1;
+	color: var(--accent-bright);
+	text-shadow: 0 0 12px var(--glow-accent);
+}
+// Name below the mini disc (mirrors `.sk-orbit-core-name`, a touch smaller).
+.sk-orbit-far-name {
+	position: absolute;
+	top: calc(100% + 7px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: 1.4px;
+	text-transform: uppercase;
+	color: var(--text-soft);
+	white-space: nowrap;
+	text-shadow: 0 2px 8px #000;
 }
 .sk-orbit-node-dot {
 	position: absolute;

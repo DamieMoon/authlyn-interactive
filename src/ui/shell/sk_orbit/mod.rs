@@ -615,7 +615,14 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                                 act::open_server(s, gid.clone());
                                                 close_map();
                                             }>
-                                            {gd.name.clone()}
+                                            // Mini-nucleus: the monogram emblem
+                                            // distinguishes each far server (authlyn has
+                                            // no per-guild glyph; the active core keeps
+                                            // the ✦ star), name labelled below the disc.
+                                            <span class="sk-orbit-far-glyph" aria-hidden="true">
+                                                {crate::ui::avatar::monogram(&gd.name, '#')}
+                                            </span>
+                                            <span class="sk-orbit-far-name">{gd.name.clone()}</span>
                                         </button>
                                     }
                                 }).collect_view()
