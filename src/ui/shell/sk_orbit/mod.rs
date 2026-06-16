@@ -510,9 +510,12 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                         // so the SCSS can size/stack them independently (NAMING
                         // CONTRACT: glyph/name/sub).
                         <div class="sk-orbit-core">
-                            <span class="sk-orbit-core-glyph" aria-hidden="true">
-                                {move || crate::ui::avatar::monogram(&server_name(), '#')}
-                            </span>
+                            // The nucleus is a luminous STAR (the prototype's per-server
+                            // emblem `glyph:"✦"`, a-orbit.html:510/752) — the "sun" of this
+                            // solar system, NOT a letter-monogram. Server identity rides the
+                            // `.sk-orbit-core-name` label below; authlyn has no per-guild
+                            // glyph field yet, so a fixed ✦ is the faithful nucleus.
+                            <span class="sk-orbit-core-glyph" aria-hidden="true">"✦"</span>
                             <span class="sk-orbit-core-name">{server_name}</span>
                             <span class="sk-orbit-core-sub">
                                 {move || {

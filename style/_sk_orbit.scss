@@ -495,10 +495,24 @@
 	// Owns its own insets (body-level overlay, like the body-portal contract).
 	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
 		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
-	animation: sk-orbit-map-in 220ms ease-out;
+	// OPAQUE cosmic backdrop — the prototype's body deep-space gradient
+	// (a-orbit.html:38, identical --void/--void-deep tokens). The map is a FULL
+	// takeover, not a translucent overlay: without an opaque base the chat bled
+	// through the body-portal (gate divergence #1, 2026-06-16). Stars live behind
+	// it via the fixed `.sk-orbit-stars` is z:-1 below `.app`, so the map carries
+	// its own base here.
+	background: radial-gradient(120% 90% at 50% 0%, var(--void) 0%, var(--void-deep) 70%);
+	// Map-enter WARP (a-orbit.html #orbitMap → .live): zoom in from scale(2.6),
+	// matching the prototype's `.55s` page-eased transform — NOT the old
+	// scale(1.04) pop. The whole map (core + nodes + dock) rides the warp.
+	animation: sk-orbit-map-in 550ms var(--ease-page, cubic-bezier(0.22, 0.61, 0.36, 1));
 }
 @keyframes sk-orbit-map-in {
-	from { opacity: 0; transform: scale(1.04); }
+	// Opacity reaches full BEFORE the zoom finishes so the opaque cosmic backdrop
+	// occludes the chat almost immediately — the warp reveals deep space, never a
+	// flash of the channel behind (the prototype is a full takeover throughout).
+	from { opacity: 0; transform: scale(2.6); }
+	22% { opacity: 1; }
 	to { opacity: 1; transform: scale(1); }
 }
 .sk-orbit-map-scrim {
