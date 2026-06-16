@@ -95,6 +95,12 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
 pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
     let map_open = RwSignal::new(false);
+    // Node-dive exit (a-orbit.html enterChannel): tapping a channel zooms the map
+    // INTO that node (scale 3.4 + fade) before it un-mounts. `diving` flips the
+    // `.diving` class; `dive_origin` re-points the map's transform-origin to the
+    // tapped node's screen centre so the zoom flies into the chosen channel.
+    let diving = RwSignal::new(false);
+    let dive_origin = RwSignal::new(String::from("center"));
     // Composer choreography (W5/P2, the prototype's `body.composing`): the orb
     // becomes a COMPOSE trigger (no longer send) — a tap reveals the composer and
     // hides the orb; the in-composer send button commits; a tap-away scrim
@@ -373,7 +379,12 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                 aria-haspopup="dialog"
                 aria-expanded=move || map_open.get().to_string()
                 title="Open the orbit map"
-                on:click=move |_| map_open.set(true)>
+                on:click=move |_| {
+                    // Reset any prior dive so the enter-warp scales from centre.
+                    dive_origin.set("center".to_string());
+                    diving.set(false);
+                    map_open.set(true);
+                }>
                 <span class="sk-orbit-pill-hash" aria-hidden="true">{channel_sigil}</span>
                 <span class="sk-orbit-pill-name">{channel_name}</span>
                 <span class="sk-orbit-pill-server">{server_name}</span>
@@ -447,6 +458,8 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                 <Portal>
                     <div class="sk-orbit-map" role="dialog" aria-modal="true"
                         node_ref=map_ref
+                        class:diving=move || diving.get()
+                        style:transform-origin=move || dive_origin.get()
                         aria-label="Orbit map — pick a channel or server" tabindex="-1"
                         on:keydown=move |ev: leptos::ev::KeyboardEvent| {
                             match ev.key().as_str() {
@@ -569,9 +582,44 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                     <button class="sk-orbit-node"
                                         class:unread=has_unread
                                         title=c.name.clone()
-                                        on:click=move |_| {
-                                            act::open_channel(s, ch.clone());
-                                            close_map();
+                                        on:click=move |ev: leptos::ev::MouseEvent| {
+                                            #[cfg(feature = "hydrate")]
+                                            {
+                                                use leptos::wasm_bindgen::JsCast as _;
+                                                // Zoom INTO the tapped node: transform-origin
+                                                // = its screen centre (a-orbit.html enterChannel).
+                                                if let Some(el) = ev.current_target().and_then(|t| {
+                                                    t.dyn_into::<leptos::web_sys::Element>().ok()
+                                                }) {
+                                                    let r = el.get_bounding_client_rect();
+                                                    dive_origin.set(format!(
+                                                        "{}px {}px",
+                                                        r.x() + r.width() / 2.0,
+                                                        r.y() + r.height() / 2.0
+                                                    ));
+                                                }
+                                                diving.set(true);
+                                                act::open_channel(s, ch.clone());
+                                                // Defer the un-mount so the dive (scale 3.4 +
+                                                // fade, .55s) plays before the portal drops
+                                                // (a-orbit.html defers 580ms), then restore
+                                                // focus to the pill (now the entered channel).
+                                                leptos::task::spawn_local(async move {
+                                                    gloo_timers::future::TimeoutFuture::new(560)
+                                                        .await;
+                                                    map_open.set(false);
+                                                    diving.set(false);
+                                                    if let Some(pill) = pill_ref.get_untracked() {
+                                                        let _ = (*pill).focus();
+                                                    }
+                                                });
+                                            }
+                                            #[cfg(not(feature = "hydrate"))]
+                                            {
+                                                let _ = &ev;
+                                                act::open_channel(s, ch.clone());
+                                                map_open.set(false);
+                                            }
                                         }>
                                         <span class="sk-orbit-node-in">
                                             <span class="sk-orbit-node-hash" aria-hidden="true">{sigil}</span>

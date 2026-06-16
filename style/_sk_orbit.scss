@@ -511,6 +511,16 @@
 	// matching the prototype's `.55s` page-eased transform — NOT the old
 	// scale(1.04) pop. The whole map (core + nodes + dock) rides the warp.
 	animation: sk-orbit-map-in 550ms var(--ease-page, cubic-bezier(0.22, 0.61, 0.36, 1));
+	// Node-dive EXIT transition (a-orbit.html #orbitMap.dive): the `.diving` class
+	// zooms the map INTO the tapped node + fades over .55s before the deferred
+	// un-mount, the signature "fly into the channel" gesture.
+	transition: transform 0.55s var(--ease-page, cubic-bezier(0.22, 0.61, 0.36, 1)),
+		opacity 0.42s ease;
+}
+.sk-orbit-map.diving {
+	transform: scale(3.4);
+	opacity: 0;
+	pointer-events: none;
 }
 @keyframes sk-orbit-map-in {
 	// Opacity reaches full BEFORE the zoom finishes so the opaque cosmic backdrop
@@ -803,6 +813,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.sk-orbit-map {
 		animation: none;
+		// Dive is a transition; strip it too so reduced-motion just un-mounts.
+		transition: none;
 	}
 	// The orbital revolution + its node counter-spin (a-orbit.html kills
 	// `.orbit`/`.nodeIn` here too). Not `fx-`-named, so the global kill misses
