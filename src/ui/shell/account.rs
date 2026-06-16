@@ -138,7 +138,14 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     view! {
         // Backdrop click closes; the Modal wrapper handles stop_propagation
         // on the inner panel so inner clicks don't bubble up and close it.
-        <Modal class="account-modal" close=move || open.set(false)>
+        // `swipe_close` opts this dialog into the Omloppsbana full-screen
+        // slide-over's swipe-right-to-close gesture (a-orbit.html:979-997). It's
+        // a no-op outside `.app.sk-orbit` (the engine's `enabled` flag gates the
+        // pointer handlers) and the slide-over LOOK is `.app.sk-orbit`-scoped
+        // SCSS in `_modal.scss` — so the desktop/deck/hud modal is unchanged.
+        // The X close button reads as the prototype's back-arrow disc (#soClose)
+        // under orbit purely via SCSS; the "svep → stäng" grip is drawn there too.
+        <Modal class="account-modal" swipe_close=true close=move || open.set(false)>
                 <header class="account-head">
                     <h2>"Account"</h2>
                     <button class="row-edit" title="Close"
