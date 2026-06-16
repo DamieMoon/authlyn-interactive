@@ -106,6 +106,19 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
     // hides the orb; the in-composer send button commits; a tap-away scrim
     // collapses it back (a-orbit.html expandComposer/collapseComposer).
     let composing = RwSignal::new(false);
+    // Collapse the composer back to the orb once a send/roll actually LANDS
+    // (the prototype's `body.composing` clears on send; owner found the composer
+    // staying open over his own message on his iPhone). `composing` is shell-
+    // local but the send path lives in ChannelPane/`act::send_message`, so bridge
+    // the collapse through the shared one-shot pulse `after_send_success` fires on
+    // every committed send + roll (`s.composer.sent`). A FAILED send never pulses
+    // it, so the composer stays open to retry — the right behaviour.
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        if s.composer.sent.get() {
+            composing.set(false);
+        }
+    });
     let channel_name = move || {
         s.sel
             .sel_channel
