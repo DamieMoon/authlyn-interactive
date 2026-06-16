@@ -132,9 +132,18 @@ struct PanelDrag {
     on_commit: Callback<&'static str>,
     #[cfg(feature = "hydrate")]
     panel_ref: NodeRef<leptos::html::Div>,
-    /// (coord, time_ms) at pointerdown along the open axis, else `None`.
+    /// `(along, cross, time_ms)` at pointerdown — the coord along the open axis,
+    /// the coord on the CROSS axis (feeds the scroll-vs-drag lock), and the start
+    /// time. `None` between gestures.
     #[cfg(feature = "hydrate")]
-    start: RwSignal<Option<(f64, f64)>>,
+    start: RwSignal<Option<(f64, f64, f64)>>,
+    /// Axis lock for the in-flight gesture (the Modal swipe-close pattern, reused
+    /// via `modal::swipe_close_lock`): `Some('h')` = a drag ALONG the open axis
+    /// (drives `--p`, can close); `Some('v')` = a CROSS-axis scroll → leave `--p`
+    /// untouched so the panel CONTENT scrolls and never dismisses (the
+    /// station-vanishes-on-scroll fix); `None` until the first move past the slop.
+    #[cfg(feature = "hydrate")]
+    locked: RwSignal<Option<char>>,
     /// Parent dismiss callback (Esc + snap-to-closed). `None` = legacy.
     #[cfg(feature = "hydrate")]
     on_close: Option<Callback<()>>,
@@ -154,32 +163,62 @@ impl PanelDrag {
             let el: &leptos::web_sys::Element = (*el).unchecked_ref();
             let _ = el.set_pointer_capture(ev.pointer_id());
         }
-        self.start.set(Some((self.axis_coord(ev), ev.time_stamp())));
+        self.start.set(Some((
+            self.axis_coord(ev),
+            self.cross_coord(ev),
+            ev.time_stamp(),
+        )));
+        self.locked.set(None);
     }
 
-    /// `pointermove`: map the signed delta toward "open" into `--p` progress.
+    /// `pointermove`: lock to an axis on the first move past the slop, then map
+    /// the signed open-axis delta into `--p` — but ONLY while locked to a drag
+    /// along the open axis. A cross-axis scroll lock leaves `--p` alone so the
+    /// panel content scrolls instead of the panel dismissing.
     fn moved(&self, ev: &leptos::ev::PointerEvent) {
-        if let Some((start_coord, _)) = self.start.get_untracked() {
-            // Sign the delta toward "open" per edge (right/bottom open by
-            // moving toward the negative direction; left/top by positive).
-            let raw = self.axis_coord(ev) - start_coord;
-            let signed = match self.edge {
-                Edge::Left | Edge::Top => raw,
-                Edge::Right | Edge::Bottom => -raw,
-            };
-            self.progress
-                .set(progress_from_delta(signed, self.extent()));
+        if let Some((start_along, start_cross, _)) = self.start.get_untracked() {
+            let d_along = self.axis_coord(ev) - start_along;
+            let d_cross = self.cross_coord(ev) - start_cross;
+            // Scroll-vs-drag lock (the Modal swipe-close pattern, reused): pass
+            // the open-axis delta as `dx` and the cross-axis delta as `dy`. `'h'`
+            // ⇒ a drag along the open axis (drive the panel); `'v'` ⇒ a cross-axis
+            // scroll (leave `--p` untouched — the station-vanishes-on-scroll fix).
+            if self.locked.get_untracked().is_none() {
+                self.locked
+                    .set(crate::ui::modal::swipe_close_lock(d_along, d_cross));
+            }
+            if self.locked.get_untracked() == Some('h') {
+                // Sign the delta toward "open" per edge (right/bottom open by
+                // moving toward the negative direction; left/top by positive).
+                let signed = match self.edge {
+                    Edge::Left | Edge::Top => d_along,
+                    Edge::Right | Edge::Bottom => -d_along,
+                };
+                self.progress
+                    .set(progress_from_delta(signed, self.extent()));
+            }
         }
     }
 
     /// `pointerup` / `pointercancel`: tap passes through; a real drag either
     /// commits (snap to nearest detent + fire `on_commit`) or snaps back to 0.
     fn up(&self, ev: &leptos::ev::PointerEvent) {
-        let Some((start_coord, start_t)) = self.start.get_untracked() else {
+        let Some((start_along, _start_cross, start_t)) = self.start.get_untracked() else {
             return;
         };
         self.start.set(None);
-        let raw = self.axis_coord(ev) - start_coord;
+        // A cross-axis scroll ('v') or an undecided gesture (None — a tap that
+        // never passed the slop) is NOT a close drag: re-assert the open detent
+        // (button-summoned) / pass through (legacy) and NEVER dismiss. This is
+        // what stops the station vanishing when you scroll its content.
+        if self.locked.get_untracked() != Some('h') {
+            let open_at = self
+                .on_close
+                .map(|_| self.detents.with_value(|d| open_target_at(d)));
+            self.progress.set(tap_release_progress(open_at));
+            return;
+        }
+        let raw = self.axis_coord(ev) - start_along;
         // Tap: no commit. The pointer handlers live on the panel root and child
         // controls don't stop propagation, so a tap on a persona card / toggle
         // bubbles a full pointerdown→pointerup here. For a button-summoned panel
@@ -270,6 +309,16 @@ impl PanelDrag {
         match self.edge {
             Edge::Left | Edge::Right => ev.client_x() as f64,
             Edge::Top | Edge::Bottom => ev.client_y() as f64,
+        }
+    }
+
+    /// The pointer coordinate on the CROSS axis (perpendicular to the open axis):
+    /// vertical for a side panel, horizontal for top/bottom. Feeds the
+    /// scroll-vs-drag lock so a content scroll doesn't read as a close drag.
+    fn cross_coord(&self, ev: &leptos::ev::PointerEvent) -> f64 {
+        match self.edge {
+            Edge::Left | Edge::Right => ev.client_y() as f64,
+            Edge::Top | Edge::Bottom => ev.client_x() as f64,
         }
     }
 
@@ -390,6 +439,8 @@ pub fn HoloPanel(
         panel_ref,
         #[cfg(feature = "hydrate")]
         start: RwSignal::new(None),
+        #[cfg(feature = "hydrate")]
+        locked: RwSignal::new(None),
         #[cfg(feature = "hydrate")]
         on_close,
     };
