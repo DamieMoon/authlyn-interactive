@@ -18,6 +18,21 @@
 	display: block;
 	position: relative;
 	min-height: 100dvh;
+	// iOS WebKit: suppress native text-selection + the long-press callout so the
+	// long-press radial action menu (channel/radial.rs) is NOT hijacked into
+	// selecting the whole screen blue (owner found this on his real iPhone;
+	// Playwright never showed it). Mirrors the prototype's body rule
+	// (a-orbit.html:40); the composer textarea opts back IN below.
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+// Re-enable selection where the user actually types (prototype a-orbit.html:43);
+// chat copy flows through the message action menu, not native selection.
+.app.sk-orbit textarea,
+.app.sk-orbit input {
+	-webkit-user-select: text;
+	user-select: text;
 }
 .app.sk-orbit .content.sk-orbit-content {
 	height: 100vh; // fallback first
@@ -348,6 +363,12 @@
 	position: fixed;
 	inset: 0;
 	z-index: 90;
+	// Swallow touch on the full-cover overlay so iOS WebKit can't scroll/bounce
+	// the chat behind it (same bug class as `.sk-orbit-map`; owner found it on
+	// his iPhone). The inner `.sk-orbit-hints-rows` is its own scroll container
+	// and still scrolls (proven by `.account-modal` inside its touch-action:none
+	// backdrop) — its overscroll is contained below.
+	touch-action: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -400,6 +421,8 @@
 	min-height: 0;
 	overflow-y: auto;
 	-webkit-overflow-scrolling: touch;
+	// Don't chain the inner scroll to the (now touch-action:none) overlay/page.
+	overscroll-behavior: contain;
 }
 .sk-orbit-hint-row {
 	display: flex;
