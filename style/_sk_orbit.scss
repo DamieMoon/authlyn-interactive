@@ -20,8 +20,8 @@
 	min-height: 100dvh;
 }
 .app.sk-orbit .content.sk-orbit-content {
-	height: 100dvh;
-	height: 100vh; // fallback first; dvh wins where supported
+	height: 100vh; // fallback first
+	height: 100dvh; // dvh wins where supported (mobile chrome + standalone PWA safe-area)
 	display: flex;
 	flex-direction: column;
 	// Positioning context for the scene-light ::before (so its inset:0 maps to
@@ -270,6 +270,150 @@
 	box-shadow: 0 0 6px color-mix(in srgb, var(--live) 65%, transparent);
 }
 
+// Vertical wayfinding side-label (a-orbit.html `.concept-tag`, :59-61): a faint
+// mono caption riding the left safe-area edge, rotated up the side. Pure
+// decoration (pointer-events:none) so it never intercepts the strip swipe.
+.app.sk-orbit .sk-orbit-concept-tag {
+	position: fixed;
+	left: calc(4px + env(safe-area-inset-left, 0px));
+	top: 50%;
+	z-index: 6;
+	pointer-events: none;
+	writing-mode: vertical-rl;
+	transform: translateY(-50%) rotate(180deg);
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 4px;
+	color: var(--text-faint);
+	opacity: 0.75;
+}
+
+// Help button (a-orbit.html #helpBtn): bottom-left "?" glass disc, balancing the
+// bottom-right orb. Hidden while composing so it never crowds the keyboard.
+.app.sk-orbit .sk-orbit-help {
+	position: fixed;
+	left: calc(16px + env(safe-area-inset-left, 0px));
+	bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+	z-index: 20;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	@include glass-holo;
+	font-size: 17px;
+	font-weight: 700;
+	color: var(--text-muted);
+	transition: opacity 0.25s, transform 0.25s;
+}
+.app.sk-orbit .sk-orbit-content.composing .sk-orbit-help {
+	opacity: 0;
+	pointer-events: none;
+	transform: scale(0.6);
+}
+
+// Gesture-hints overlay (a-orbit.html #hints / .hintCard) — a portaled modal
+// legend of the orbit's gestures. Unprefixed (body-portal contract, like
+// .sk-orbit-map); the class names are unique to this skeleton.
+.sk-orbit-hints {
+	position: fixed;
+	inset: 0;
+	z-index: 90;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--scrim);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
+	animation: sk-orbit-hints-in 300ms ease;
+}
+@keyframes sk-orbit-hints-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+.sk-orbit-hints-card {
+	width: min(330px, 86vw);
+	max-height: calc(100dvh - 48px);
+	display: flex;
+	flex-direction: column;
+	background: var(--glass-bg);
+	-webkit-backdrop-filter: blur(24px) saturate(150%);
+	backdrop-filter: blur(24px) saturate(150%);
+	border: 1px solid var(--glass-line);
+	border-radius: 26px;
+	padding: 22px 22px 16px;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 var(--glass-highlight);
+	animation: sk-orbit-hints-card-in 350ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+@keyframes sk-orbit-hints-card-in {
+	from { opacity: 0; transform: scale(0.92); }
+	to { opacity: 1; transform: scale(1); }
+}
+.sk-orbit-hints-card h2 {
+	margin: 0;
+	font-size: 18px;
+	letter-spacing: 3px;
+	text-transform: uppercase;
+	text-align: center;
+}
+.sk-orbit-hints-sub {
+	margin: 4px 0 16px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 2.5px;
+	color: var(--accent);
+	text-align: center;
+	text-transform: uppercase;
+}
+.sk-orbit-hints-rows {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+}
+.sk-orbit-hint-row {
+	display: flex;
+	gap: 13px;
+	align-items: flex-start;
+	margin-bottom: 11px;
+}
+.sk-orbit-hint-g {
+	font-size: 19px;
+	flex: 0 0 28px;
+	text-align: center;
+	filter: drop-shadow(0 0 6px rgba(77, 159, 255, 0.4));
+}
+.sk-orbit-hint-t b {
+	display: block;
+	font-size: 13.5px;
+	letter-spacing: 0.3px;
+}
+.sk-orbit-hint-t span {
+	display: block;
+	font-size: 12px;
+	color: var(--text-muted);
+	line-height: 1.45;
+	margin-top: 1px;
+}
+.sk-orbit-hints-ok {
+	display: block;
+	flex: 0 0 auto;
+	width: 100%;
+	min-height: 48px;
+	margin-top: 14px;
+	border-radius: 24px;
+	background: var(--mention-bg);
+	border: 1px solid var(--accent-soft);
+	color: var(--accent-bright);
+	font-weight: 700;
+	letter-spacing: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.sk-orbit-hints,
+	.sk-orbit-hints-card {
+		animation: none;
+	}
+}
+
 // §13 exactly-once: the orb (.sk-orbit-orb-wrap) owns the bottom inset when IT is
 // the visible affordance (at rest), and the composer owns it when IT is (while
 // composing) — they are NEVER co-present (the orb hides while composing, below),
@@ -425,6 +569,27 @@
 // a-orbit.html:190-198). A 62px glass disc with the `#` hash over the channel
 // name. (`.sk-orbit-far` — other servers docked in the corners — is NOT renamed
 // by the contract and keeps its own pill shape below.)
+// The revolving channel ring (a-orbit.html `.orbit`): a zero-size point pinned
+// at the star centre that rotates 90s linear infinite, carrying every node
+// around its orbit. transform-origin is the point itself (0×0 box → its own
+// centre = the star). Children place themselves RELATIVE to this point.
+.sk-orbit-ring {
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	width: 0;
+	height: 0;
+	z-index: 2;
+	animation: sk-orbit-spin 90s linear infinite;
+}
+@keyframes sk-orbit-spin {
+	from { transform: rotate(0); }
+	to { transform: rotate(360deg); }
+}
+@keyframes sk-orbit-spin-rev {
+	from { transform: rotate(0); }
+	to { transform: rotate(-360deg); }
+}
 .sk-orbit-node {
 	position: absolute;
 	top: 0;
@@ -433,10 +598,19 @@
 	width: 62px;
 	height: 62px;
 	border-radius: 50%;
-	display: grid;
-	place-items: center;
 	@include glass-holo;
 	color: var(--text);
+}
+// Counter-rotates the ring's spin (`spinRev`, same 90s) so the glyph/label/dot
+// stay screen-upright as the node revolves (a-orbit.html `.nodeIn`). Fills the
+// node disc and centres the stacked hash + name.
+.sk-orbit-node-in {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	border-radius: 50%;
+	animation: sk-orbit-spin-rev 90s linear infinite;
 }
 .sk-orbit-node-hash {
 	font-size: 19px;
@@ -451,6 +625,61 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+// Halo rings — the visible orbital TRACKS the nodes ride (a-orbit.html
+// `.haloRing.r1` solid + `.outer` dashed). Static (the track does not revolve),
+// centred on the star; width/height set inline from the live orbit radius.
+.sk-orbit-halo {
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, -50%);
+	border-radius: 50%;
+	pointer-events: none;
+	z-index: 0;
+}
+.sk-orbit-halo-inner {
+	border: 1px solid rgba(77, 159, 255, 0.18);
+}
+.sk-orbit-halo-outer {
+	border: 1.5px dashed var(--line-strong);
+}
+// Map dock (a-orbit.html #mapDock + .sat): personas + station entry, centred
+// above the bottom edge. Glass pills; the dock OWNS this map's bottom inset.
+.sk-orbit-map-dock {
+	position: absolute;
+	left: 50%;
+	bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+	transform: translateX(-50%);
+	display: flex;
+	gap: 12px;
+	z-index: 3;
+}
+.sk-orbit-sat {
+	min-height: 44px;
+	padding: 11px 17px;
+	border-radius: 22px;
+	white-space: nowrap;
+	@include glass-holo;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 1px;
+	color: var(--text-soft);
+}
+// Map hint caption (a-orbit.html #mapHint), below the dock.
+.sk-orbit-map-hint {
+	position: absolute;
+	bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+	left: 50%;
+	transform: translateX(-50%);
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 2px;
+	color: var(--text-faint);
+	text-transform: uppercase;
+	white-space: nowrap;
+	pointer-events: none;
 }
 .sk-orbit-far {
 	position: absolute;
@@ -477,6 +706,13 @@
 // list it explicitly (the global kill only catches [class*="fx-"]).
 @media (prefers-reduced-motion: reduce) {
 	.sk-orbit-map {
+		animation: none;
+	}
+	// The orbital revolution + its node counter-spin (a-orbit.html kills
+	// `.orbit`/`.nodeIn` here too). Not `fx-`-named, so the global kill misses
+	// them — strip them explicitly; nodes rest at their t=0 placement.
+	.sk-orbit-ring,
+	.sk-orbit-node-in {
 		animation: none;
 	}
 }
@@ -885,19 +1121,9 @@
 
 // Right-edge HoloPanel slide-over (Task 7). The panel transform + scrim +
 // four-edge insets are HoloPanel's (_holopanel.scss) — this owns ONLY the inner
-// content layout + the summon button. The slide-over OWNS its own edges, so the
-// orb/composer bottom inset is not double-counted (it's a separate fixed layer).
-.app.sk-orbit .sk-orbit-station-btn {
-	position: fixed;
-	right: calc(0.9rem + env(safe-area-inset-right, 0px));
-	bottom: calc(4.2rem + env(safe-area-inset-bottom, 0px)); // above the orb
-	z-index: 30;
-	width: 44px;
-	height: 44px;
-	border-radius: 50%;
-	@include glass-holo;
-	color: var(--text);
-}
+// content layout. Summoned from the map dock now (the floating ☰ was removed,
+// 1:1 — the prototype has no such button). The slide-over OWNS its own edges, so
+// the orb/composer bottom inset is not double-counted (it's a separate fixed layer).
 // Slide-over back/close button (the prototype's #soClose, a-orbit.html:303) —
 // a 44px round glass disc at the head of the station panel.
 .app.sk-orbit .sk-orbit-station-close {

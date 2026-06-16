@@ -221,7 +221,7 @@
 	// Keyframe is `fx-`-named (decorative doctrine) and `.app::before` is already
 	// in the global reduced-motion kill list (_motion.scss), so motion is auto-
 	// stripped there; killed, it rests at full opacity (state, not motion).
-	animation: fx-aurora-pulse 12s ease-in-out infinite alternate;
+	animation: fx-aurora-pulse 16s ease-in-out infinite alternate;
 }
 
 // Standard-tier aurora breath: OPACITY ONLY (doctrine — no paint/layout props

@@ -46,6 +46,21 @@
 	}
 }
 
+// Ghost-Quill shimmer (a-orbit.html `ghostShimmer`): the un-sent draft row
+// breathes its opacity .5 → .95 so a live draft reads as "in motion, not yet
+// committed". Opacity-only (composite-cheap, doctrine-clean). Applied with
+// `infinite alternate`; killed under reduced-motion via the `fx-` attribute
+// selector below (the name carries the `fx-` token), leaving the row at its
+// static base opacity (state).
+@keyframes fx-ghost-shimmer {
+	from {
+		opacity: 0.5;
+	}
+	to {
+		opacity: 0.95;
+	}
+}
+
 @keyframes fx-sweep {
 	from {
 		transform: translateX(-130%) skewX(-16deg);
@@ -56,14 +71,16 @@
 }
 
 // A tiny star circling a center point (W4: the typing-indicator
-// constellation). The counter-rotate keeps the star itself unrotated while
-// it orbits at a 6px radius.
+// constellation; a-orbit.html `orbitDot`). The counter-rotate keeps the star
+// itself unrotated while it orbits at a per-dot radius read from `--orbit-r`
+// (prototype `--r`: 7 / 10 / 14px). One dot runs `animation-direction:
+// reverse` so the constellation counter-spins (prototype `--rev`).
 @keyframes fx-orbit {
 	from {
-		transform: rotate(0deg) translateX(6px) rotate(0deg);
+		transform: rotate(0deg) translateX(var(--orbit-r, 10px)) rotate(0deg);
 	}
 	to {
-		transform: rotate(360deg) translateX(6px) rotate(-360deg);
+		transform: rotate(360deg) translateX(var(--orbit-r, 10px)) rotate(-360deg);
 	}
 }
 
@@ -129,26 +146,24 @@
 // layout and never fights a positioning transform. The row carries no
 // transform at rest, so a killed/finished animation leaves it exactly put.
 @keyframes fx-shout {
-	0% {
-		transform: translateX(0);
-	}
-	15% {
-		transform: translateX(-5px);
-	}
-	30% {
-		transform: translateX(4px);
-	}
-	45% {
-		transform: translateX(-3px);
-	}
-	60% {
-		transform: translateX(2px);
-	}
-	75% {
-		transform: translateX(-1px);
-	}
+	0%,
 	100% {
 		transform: translateX(0);
+	}
+	12% {
+		transform: translateX(-5px) rotate(-0.6deg);
+	}
+	28% {
+		transform: translateX(4px) rotate(0.4deg);
+	}
+	44% {
+		transform: translateX(-3px);
+	}
+	62% {
+		transform: translateX(2px);
+	}
+	80% {
+		transform: translateX(-1px);
 	}
 }
 
@@ -159,14 +174,14 @@
 // vanish while the row's glow (state) stays.
 @keyframes fx-spark {
 	0% {
-		transform: translateY(0) scale(0.6);
+		transform: translateY(0) scale(0.4);
 		opacity: 0;
 	}
-	30% {
+	25% {
 		opacity: 1;
 	}
 	100% {
-		transform: translateY(-14px) scale(1.1);
+		transform: translateY(-16px) scale(1);
 		opacity: 0;
 	}
 }
@@ -358,6 +373,11 @@
 // `.roll-die` glyph consume fx- keyframes (fx-roll-in / fx-die-tumble) but
 // carry no "fx-" in the class string. Killed, the chip simply sits at its
 // resting state — the glass styling is state, not motion.
+// The Ghost-Quill row (`.msg.msg-ghost`) is explicit too: it consumes
+// fx-ghost-shimmer (opacity breathe) but carries no "fx-" in its class string,
+// and the central typing-anchor dot (`.typing-indicator .star-core`) consumes
+// fx-twinkle the same way. Killed, both sit at their static base (the ghost at
+// its dim floor opacity, the anchor at rest) — presence is state.
 // The corridor-hum row dot (`.channel-hum`, _sidebar.scss) is explicit for
 // the same reason: it consumes fx-twinkle with no "fx-" in the class
 // string. Killed, the dot sits static at full opacity and still
@@ -367,6 +387,8 @@
 	.app::before,
 	.app.fx-max::before,
 	.typing-indicator .star,
+	.typing-indicator .star-core,
+	.msg.msg-ghost,
 	.channel-hum,
 	.composer .send.sent,
 	.composer .send.sent::after,

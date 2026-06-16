@@ -284,12 +284,14 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
             }
         }
     });
-    // Right-edge HoloPanel slide-over (personas + station). Summoned by an
-    // explicit ☰ button (the chat-layer right-edge swipe is DEMOTED — it fights
-    // iOS back-swipe). The single OPEN detent means only on_close can dismiss it.
+    // Right-edge HoloPanel slide-over (personas + station). Summoned from the
+    // orbit-map DOCK (✦ Personas / ⚙ Station, a-orbit.html #mapDock) — the
+    // floating ☰ was removed (1:1: the prototype has no such button; station
+    // lives in the map). The single OPEN detent means only on_close dismisses it.
     let station_open = RwSignal::new(false);
-    // The summon button — focus restores here when the panel closes (§13).
-    let station_btn_ref = NodeRef::<leptos::html::Button>::new();
+    // Gesture-help overlay (a-orbit.html #helpBtn / #hints) — the bottom-left "?"
+    // opens a one-card legend of the orbit's gestures.
+    let help_open = RwSignal::new(false);
     // Close the slide-over AND restore focus to the summon button (§13 Modal-
     // parity restore-to-trigger). Used by on_close (Esc + swipe-to-close) and
     // the explicit ← button.
@@ -305,9 +307,11 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
     // pure overlay; closing it never remounts AppShell).
     let close_station = move || {
         station_open.set(false);
+        // Focus returns to the pill (the persistent map entry) — the old ☰
+        // summon button is gone; station now opens from the map dock.
         #[cfg(feature = "hydrate")]
-        if let Some(btn) = station_btn_ref.get_untracked() {
-            let _ = btn.focus();
+        if let Some(pill) = pill_ref.get_untracked() {
+            let _ = (*pill).focus();
         }
     };
     view! {
@@ -358,6 +362,12 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                 <div class="fx-sk-orbit-stars-a"></div>
                 <div class="fx-sk-orbit-stars-b"></div>
             </div>
+            // Vertical wayfinding side-label (a-orbit.html `.concept-tag`,
+            // left-edge, writing-mode:vertical-rl + rotate(180deg)). Pure
+            // decoration — `pointer-events:none`, `aria-hidden` — so it never
+            // intercepts the strip swipe or the map/orb taps. Hidden while
+            // composing / the map is open (SCSS), matching the prototype's calm.
+            <div class="sk-orbit-concept-tag" aria-hidden="true">"KONCEPT A · OMLOPPSBANA"</div>
             <button class="sk-orbit-pill" type="button"
                 node_ref=pill_ref
                 aria-haspopup="dialog"
@@ -518,16 +528,28 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             let chans = s.sel.channels.get();
                             let n = chans.len();
                             let unread = s.notify.unread.get();
-                            chans.into_iter().enumerate().map(|(i, c)| {
-                                let p = node_pos(i, n, g.orbit_radius);
+                            let r = g.orbit_radius;
+                            // Halo rings — the visible orbital TRACKS the nodes ride
+                            // (a-orbit.html `.haloRing.r1` solid + `.outer` dashed).
+                            // Static, centred on the star; sized to the live radius.
+                            let inner_d = format!("{}px", r * 2.0);
+                            let outer_d = format!("{}px", (r + 38.0) * 2.0);
+                            let nodes = chans.into_iter().enumerate().map(|(i, c)| {
+                                let p = node_pos(i, n, r);
                                 let has_unread = unread.contains(&c.id);
                                 let ch = c.clone();
                                 let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
                                 view! {
+                                    // Placement is RELATIVE to the spinning ring's
+                                    // centre point (the star), so the `spin` carries
+                                    // the node around the orbit. The inner
+                                    // `.sk-orbit-node-in` counter-spins (`spinRev`,
+                                    // same 90s) so the glyph/label stay upright
+                                    // (a-orbit.html `.orbit`/`.nodeIn`).
                                     <button class="sk-orbit-node"
                                         class:unread=has_unread
                                         style:transform=format!(
-                                            "translate(calc(50vw + {}px), calc(50vh + {}px)) translate(-50%, -50%)",
+                                            "translate({}px, {}px) translate(-50%, -50%)",
                                             p.x, p.y
                                         )
                                         title=c.name.clone()
@@ -535,12 +557,21 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                             act::open_channel(s, ch.clone());
                                             close_map();
                                         }>
-                                        <span class="sk-orbit-node-hash" aria-hidden="true">{sigil}</span>
-                                        <span class="sk-orbit-node-name">{c.name.clone()}</span>
-                                        {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
+                                        <span class="sk-orbit-node-in">
+                                            <span class="sk-orbit-node-hash" aria-hidden="true">{sigil}</span>
+                                            <span class="sk-orbit-node-name">{c.name.clone()}</span>
+                                            {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
+                                        </span>
                                     </button>
                                 }
-                            }).collect_view()
+                            }).collect_view();
+                            view! {
+                                <div class="sk-orbit-halo sk-orbit-halo-inner" aria-hidden="true"
+                                    style:width=inner_d.clone() style:height=inner_d></div>
+                                <div class="sk-orbit-halo sk-orbit-halo-outer" aria-hidden="true"
+                                    style:width=outer_d.clone() style:height=outer_d></div>
+                                <div class="sk-orbit-ring">{nodes}</div>
+                            }
                         }}
                         {move || {
                             // Other servers docked in the top corners.
@@ -571,6 +602,21 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                     }
                                 }).collect_view()
                         }}
+                        // Map dock (a-orbit.html #mapDock): the in-map entry to
+                        // personas + station — the prototype's home for it,
+                        // replacing the removed floating ☰. Both open the station
+                        // slide-over (which stacks personas above station settings).
+                        <div class="sk-orbit-map-dock">
+                            <button class="sk-orbit-sat" type="button"
+                                on:click=move |_| { close_map(); station_open.set(true); }>
+                                "✦ Personas"
+                            </button>
+                            <button class="sk-orbit-sat" type="button"
+                                on:click=move |_| { close_map(); station_open.set(true); }>
+                                "⚙ Station"
+                            </button>
+                        </div>
+                        <p class="sk-orbit-map-hint" aria-hidden="true">"tap a node to enter"</p>
                     </div>
                 </Portal>
             })}
@@ -812,13 +858,47 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                         </div>
                     }
                 })}
-                <button class="sk-orbit-station-btn" type="button"
-                    node_ref=station_btn_ref
-                    aria-haspopup="dialog"
-                    aria-expanded=move || station_open.get().to_string()
-                    title="Personas & station settings"
-                    on:click=move |_| station_open.set(true)>"☰"</button>
             </div>
+            // Help button (a-orbit.html #helpBtn) — bottom-left, balances the
+            // bottom-right orb; opens the gesture-hints overlay. Hidden while
+            // composing (SCSS) so it never crowds the keyboard.
+            <button class="sk-orbit-help" type="button"
+                aria-haspopup="dialog"
+                aria-expanded=move || help_open.get().to_string()
+                title="Gesture help"
+                on:click=move |_| help_open.set(true)>"?"</button>
+            {move || help_open.get().then(|| view! {
+                <Portal>
+                    <div class="sk-orbit-hints" role="dialog" aria-modal="true"
+                        aria-label="Gesture help"
+                        on:click=move |_| help_open.set(false)>
+                        <div class="sk-orbit-hints-card"
+                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                            <h2>"Omloppsbana"</h2>
+                            <p class="sk-orbit-hints-sub">"You navigate space, not menus"</p>
+                            <div class="sk-orbit-hints-rows">
+                                {[
+                                    ("↔", "Swipe sideways", "Switch between channels"),
+                                    ("◉", "The orb", "Tap to write — hold for whisper / shout / spell"),
+                                    ("⏺", "Hold a message", "Reply, react, edit or delete"),
+                                    ("✦", "Tap the pill", "Open the orbit map — pick a channel or world"),
+                                    ("🌫", "Whispers", "Touch a whisper to listen"),
+                                ].into_iter().map(|(g, t, d)| view! {
+                                    <div class="sk-orbit-hint-row">
+                                        <span class="sk-orbit-hint-g" aria-hidden="true">{g}</span>
+                                        <span class="sk-orbit-hint-t">
+                                            <b>{t}</b>
+                                            <span>{d}</span>
+                                        </span>
+                                    </div>
+                                }).collect_view()}
+                            </div>
+                            <button class="sk-orbit-hints-ok" type="button"
+                                on:click=move |_| help_open.set(false)>"Got it ✦"</button>
+                        </div>
+                    </div>
+                </Portal>
+            })}
             {move || station_open.get().then(|| view! {
                 <HoloPanel
                     edge=Edge::Right

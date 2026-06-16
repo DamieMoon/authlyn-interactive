@@ -757,10 +757,56 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             last_dist.set_value(0.0);
             // Following the bottom on this append also clears any unread state.
             mark_seen();
-            leptos::task::spawn_local(async move {
-                gloo_timers::future::TimeoutFuture::new(0).await;
+            // Robust pin-to-bottom (default-tail case only). The first
+            // TimeoutFuture(0) pin can land ABOVE the true bottom when the
+            // self-hosted JetBrains Mono / Crimson Pro faces (loaded async)
+            // reflow the list TALLER after the scroll fires — orbit then opens
+            // mid-history. Re-pin after layout settles (a double-rAF) AND once
+            // `document.fonts.ready` resolves, so the late font reflow is
+            // caught. Each re-pin re-checks the guard: skip if a jump anchor
+            // took over (deep-link / NEW-divider / scroll-restore set
+            // `anchor_to`, handled by the anchor effect below) or the user has
+            // scrolled meaningfully up since (`last_dist` is kept live by the
+            // on:scroll handler) — so those paths are never overridden.
+            let pin = move || {
+                if s.msg.anchor_to.get_untracked().is_some() {
+                    return;
+                }
+                if last_dist.get_value() > 4.0 {
+                    return;
+                }
                 if let Some(el) = list_ref.get_untracked() {
                     el.set_scroll_top(el.scroll_height());
+                }
+            };
+            leptos::task::spawn_local(async move {
+                use wasm_bindgen::JsCast as _;
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                pin();
+                // Double-rAF: settle past this frame's layout, then pin on the
+                // next painted frame.
+                request_animation_frame(move || {
+                    request_animation_frame(pin);
+                });
+                // …and once the async web fonts finish loading and reflow the
+                // list. `document.fonts.ready` is a Promise<FontFaceSet>;
+                // reach it via Reflect (no web-sys `FontFaceSet` feature
+                // needed) — the same JsFuture pattern as the clipboard path.
+                if let Some(ready) = leptos::web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| {
+                        let fonts =
+                            js_sys::Reflect::get(&d, &wasm_bindgen::JsValue::from_str("fonts"))
+                                .ok()?;
+                        let ready =
+                            js_sys::Reflect::get(&fonts, &wasm_bindgen::JsValue::from_str("ready"))
+                                .ok()?;
+                        ready.dyn_into::<js_sys::Promise>().ok()
+                    })
+                {
+                    if wasm_bindgen_futures::JsFuture::from(ready).await.is_ok() {
+                        pin();
+                    }
                 }
             });
         }
@@ -1361,12 +1407,31 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     2 => format!("{} and {} are typing…", names[0], names[1]),
                     _ => "Several people are typing…".to_string(),
                 };
+                // Constellation (a-orbit.html): a central mint anchor dot
+                // (`.star-core`, twinkle in place) plus one orbiting dot per
+                // typist (capped at 3), each with its OWN radius + duration and
+                // ONE reversed — the prototype's `--r`/`--d`/`--rev` set per
+                // dot. Purely decorative (aria-hidden); the names line stays for
+                // accessibility.
+                const ORBITS: [(&str, &str, &str); 3] = [
+                    ("10px", "2.4s", "normal"),
+                    ("14px", "3.4s", "reverse"),
+                    ("7px", "1.9s", "normal"),
+                ];
                 let stars = (0..names.len().min(3))
-                    .map(|_| view! { <span class="star"></span> })
+                    .map(|i| {
+                        let (r, d, rev) = ORBITS[i];
+                        let style =
+                            format!("--orbit-r:{r};--orbit-d:{d};--orbit-rev:{rev}");
+                        view! { <span class="star" style=style></span> }
+                    })
                     .collect_view();
                 view! {
                     <div class="typing-indicator">
-                        <span class="constellation" aria-hidden="true">{stars}</span>
+                        <span class="constellation" aria-hidden="true">
+                            <span class="star-core"></span>
+                            {stars}
+                        </span>
                         {line}
                     </div>
                 }
