@@ -901,6 +901,14 @@ pub enum SyncEvent {
     /// The friends/requests list changed for this account (targeted to the
     /// two accounts of the friendship edge).
     FriendsChanged,
+    /// Dev hot-reload: a new build was deployed to the test deck (which runs
+    /// the compiled binary, so there is no cargo-leptos live-reload). A global,
+    /// content-free nudge telling every connected client to `location.reload()`
+    /// onto the new version. Admin-triggered only (`POST /admin/dev/reload`);
+    /// delivered to ALL connections as a DISTINCT NAMED `event: reload` frame,
+    /// bypassing the per-connection visibility filter (it is not channel-scoped
+    /// — `channel_id()` is `None`).
+    Reload,
     /// Forward-compat catch-all: an event type this build doesn't know
     /// (a newer server during version skew). Consumers MUST ignore it;
     /// the server never constructs it.
@@ -928,6 +936,7 @@ impl SyncEvent {
             SyncEvent::ListsChanged
             | SyncEvent::ReadStateChanged { .. }
             | SyncEvent::FriendsChanged
+            | SyncEvent::Reload
             | SyncEvent::Unknown => None,
         }
     }

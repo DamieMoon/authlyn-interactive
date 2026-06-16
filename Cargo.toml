@@ -60,8 +60,10 @@ js-sys = { version = "0.3", optional = true }
 # is on `Navigator`, and the once-only animationend cleanup uses
 # `AddEventListenerOptions::set_once`; AddEventListenerOptions is also enabled by
 # tachys (feature-unified) but listed here so the binding never depends on a
-# transitive crate keeping it. Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent", "Navigator", "AddEventListenerOptions"] }
+# transitive crate keeping it. Location backs the dev hot-reload listener
+# (`shell/act/sync.rs`): the test-deck auto-refresh calls `window.location().reload()`
+# when a `event: reload` SSE frame lands after a deploy. Hydrate-only; feature-unified.
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent", "Navigator", "AddEventListenerOptions", "Location"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device

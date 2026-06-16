@@ -9,6 +9,7 @@
 
 pub mod accent;
 pub mod auth;
+pub mod dev_reload;
 pub mod emoji;
 pub mod events;
 pub mod feedback;
@@ -228,6 +229,11 @@ fn small_body_routes() -> Router<AppState> {
             "/admin/system-message",
             post(system_messages::send_system_message),
         )
+        // Dev hot-reload: broadcast a global, payload-free reload nudge over
+        // the SSE bus so every connected client refreshes onto a freshly
+        // deployed build (the test deck runs the compiled binary, so it has no
+        // cargo-leptos live-reload). Admin-gated (is_admin → 403).
+        .route("/admin/dev/reload", post(dev_reload::dev_reload))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
         // Dynamic JSON API responses must never be cached (by the service
         // worker or the browser HTTP cache); a cached message list flashed

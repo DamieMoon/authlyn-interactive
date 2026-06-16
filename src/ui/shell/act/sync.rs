@@ -359,6 +359,30 @@ fn connect(s: Shell, promote_at_birth: bool) -> bool {
     };
     es.set_onopen(Some(on_open.as_ref().unchecked_ref()));
 
+    // Dev hot-reload (test-deck auto-refresh): the server emits a DISTINCT
+    // NAMED `event: reload` frame when a new build is deployed (the deck runs
+    // the compiled binary, so there is no cargo-leptos live-reload). It arrives
+    // on its OWN event name — never `onmessage` (which fires only for unnamed
+    // `message` frames) — so it can't be confused with a `SyncEvent` notify.
+    // The reaction is the whole point: navigate onto the freshly deployed
+    // bundle. Generation-guarded like every other handler so a retired stream
+    // (handover/logout) can't trigger a reload; the payload is ignored entirely
+    // (the frame's mere arrival is the signal — id-only bus).
+    let on_reload = {
+        let my_gen = Rc::clone(&my_gen);
+        let es = es.clone();
+        Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
+            if current_gen() != my_gen.get() {
+                es.close();
+                return;
+            }
+            if let Some(loc) = web_sys::window().map(|w| w.location()) {
+                let _ = loc.reload();
+            }
+        })
+    };
+    let _ = es.add_event_listener_with_callback("reload", on_reload.as_ref().unchecked_ref());
+
     // Deliberate bounded leak: one EventSource per driver handover —
     // `forget()` keeps the handlers valid without us managing their lifetime
     // from Rust. Probes are bounded by the backoff schedule (one per
@@ -367,6 +391,7 @@ fn connect(s: Shell, promote_at_birth: bool) -> bool {
     on_message.forget();
     on_error.forget();
     on_open.forget();
+    on_reload.forget();
     true
 }
 

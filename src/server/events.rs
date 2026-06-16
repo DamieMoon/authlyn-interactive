@@ -11,6 +11,13 @@
 //! unkillable metadata feed. Wire format: unnamed
 //! SSE `data:` frames each carrying one serialized [`SyncEvent`]. Filtering
 //! (privacy) is per-connection: see [`visible_channels`] in `access`.
+//!
+//! ONE exception to both rules above: the dev hot-reload nudge
+//! ([`SyncEvent::Reload`], emitted by `server::dev_reload`) is delivered to
+//! EVERY connection — bypassing the visibility filter AND the W1.5 targeted
+//! lane — as a DISTINCT NAMED `event: reload` frame (see [`reload_frame`]), so
+//! the client can listen for it separately from message-notify frames. It
+//! stays payload-free (id-only bus invariant): the frame itself is the signal.
 
 use crate::protocol::SyncEvent;
 use crate::server::access::visible_channels;
@@ -110,6 +117,21 @@ fn sse_frame(ev: &SyncEvent) -> Event {
     Event::default().data(serde_json::to_string(ev).expect("SyncEvent serializes"))
 }
 
+/// The SSE event NAME the dev hot-reload nudge is delivered under, so the
+/// client (`ui/shell/act/sync.rs`) listens for it SEPARATELY from the generic
+/// data-only message frames. Kept in one place so server emit + the client
+/// listener can never drift.
+pub const RELOAD_EVENT_NAME: &str = "reload";
+
+/// The dev hot-reload nudge's wire frame: a DISTINCT named `event: reload`
+/// frame carrying a content-free empty-object `data:` sentinel. Payload-free by
+/// design — the bus stays id-only, so the SIGNAL is the frame itself; nothing
+/// rides it. `Event` requires a non-empty `data` line for the browser to
+/// dispatch the named event, hence the `{}` placeholder (it carries nothing).
+fn reload_frame() -> Event {
+    Event::default().event(RELOAD_EVENT_NAME).data("{}")
+}
+
 /// GET /events — long-lived SSE stream of id-only sync events, filtered to
 /// what the caller may see. Subscribes EAGERLY in the handler body (before the
 /// response returns) — the test contract posts a message immediately after the
@@ -190,6 +212,27 @@ pub async fn events(
             // instant `timeout_at` does not re-arm on receive, unlike a
             // per-receive `timeout(period, …)`.
             let received = tokio::time::timeout_at(conn.next_recheck, conn.rx.recv()).await;
+            // Dev hot-reload (global, filter-bypassing): a `Reload` is the
+            // test-deck "a new build landed — refresh" nudge. It is NOT
+            // channel-scoped and NOT account-targeted: it must reach EVERY live
+            // connection regardless of its visible-channel set or any `targets`
+            // list, so short-circuit BOTH the per-connection visibility filter
+            // and the W1.5 targeted lane before either can drop it. It still
+            // passes through the per-frame session re-check below (a revoked
+            // session ends the stream, never reloads), and rides the wire as a
+            // DISTINCT named `event: reload` frame so the client listens for it
+            // separately from the generic data-only message frames.
+            if let Ok(Ok(BusEvent {
+                event: SyncEvent::Reload,
+                ..
+            })) = &received
+            {
+                if conn.session_revoked().await {
+                    return None;
+                }
+                conn.next_recheck = tokio::time::Instant::now() + conn.state.sse_recheck_period;
+                return Some((Ok(reload_frame()), conn));
+            }
             let event = match received {
                 // Deadline lapsed with nothing to deliver: loop back — the
                 // gate at the top runs the re-check and advances the

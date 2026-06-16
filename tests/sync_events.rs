@@ -68,3 +68,21 @@ async fn targeted_sync_events_pin_their_wire_shape() {
     assert_eq!(back, ev);
     assert_eq!(ev.channel_id(), None);
 }
+
+/// Dev hot-reload: `Reload` is a bare-tag, content-free variant (the test-deck
+/// auto-refresh nudge). Like the other global tags it carries no channel scope
+/// — but unlike them it is delivered as a DISTINCT NAMED SSE frame
+/// (`event: reload`), so this only pins the (rarely-relevant) `data:` wire form
+/// it would take if ever serialized through the generic path. It is a NEW type
+/// on an already-shipped wire, so a stale client decodes it through the
+/// `#[serde(other)] Unknown` catch-all.
+#[tokio::test]
+async fn reload_sync_event_is_a_bare_global_tag() {
+    let ev = SyncEvent::Reload;
+    assert_eq!(serde_json::to_string(&ev).unwrap(), r#"{"type":"reload"}"#);
+    let back: SyncEvent = serde_json::from_str(r#"{"type":"reload"}"#).unwrap();
+    assert_eq!(back, SyncEvent::Reload);
+    // No channel scope: the events handler delivers it to every connection,
+    // bypassing the visibility filter entirely.
+    assert_eq!(ev.channel_id(), None);
+}
