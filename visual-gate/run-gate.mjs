@@ -191,6 +191,22 @@ async function assertGuildPeeks(page, guild, singleChannel, f, shotPath) {
   const strip = page.locator(".sk-orbit-strip");
   await strip.waitFor({ state: "visible", timeout: 15000 });
 
+  // The orbit far-dive opens a far guild via `act::open_server` → `load_server`
+  // (act/guild.rs), which CLEARS s.sel.channels and ASYNC-fetches them. So the
+  // strip first mounts in the channels-cleared window — transiently 1 pane
+  // (chan_count 0 ⇒ the `--single` collapse) — before the fetch resolves to the
+  // real count. Assert the SETTLED strip, not that sub-fetch flash: for a
+  // multi-channel guild wait for the neighbor pane to attach (chan_count settled
+  // > 1). A single-channel guild stays 1 pane throughout, so it needs no settle.
+  // On a genuine regression (channels never load) this times out and the
+  // assertions below still fire with the true count — so it can't mask a real bug.
+  if (!singleChannel) {
+    await page
+      .locator(".sk-orbit-strip .sk-orbit-pane-next")
+      .waitFor({ state: "attached", timeout: 12000 })
+      .catch(() => {});
+  }
+
   const prevPane = page.locator(".sk-orbit-strip .sk-orbit-pane-prev");
   const nextPane = page.locator(".sk-orbit-strip .sk-orbit-pane-next");
   const paneCount = await page.locator(".sk-orbit-strip .sk-orbit-pane").count();
