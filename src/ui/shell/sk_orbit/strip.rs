@@ -139,6 +139,17 @@ pub fn commit_target(commit: StripCommit, cur_idx: usize, count: usize) -> Optio
     }
 }
 
+/// Whether the orbit swipe-strip collapses to its single, un-swipeable pane
+/// (`--single`: one pane filling the viewport, no neighbor peeks). TRUE only for
+/// a GENUINELY single-channel guild (`== 1`). `count == 0` is the TRANSIENT
+/// far-dive load window — `act::open_server` clears `s.sel.channels` then
+/// async-fetches them — and MUST keep the multi geometry, or the strip flashes a
+/// lone pane on every far-server dive before the channels land (the shipped
+/// `<= 1` conflated load-0 with a real single).
+pub fn collapses_to_single(channel_count: usize) -> bool {
+    channel_count == 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +296,26 @@ mod tests {
         assert_eq!(commit_target(StripCommit::Stay, 1, 4), None);
         // Empty/degenerate guild: nothing to switch to.
         assert_eq!(commit_target(StripCommit::Next, 0, 0), None);
+    }
+
+    #[test]
+    fn strip_collapses_only_for_a_genuinely_single_channel_guild() {
+        // count 0 is the TRANSIENT far-dive load window (open_server clears
+        // s.sel.channels then async-fetches) — it must NOT collapse, or the strip
+        // flashes a lone pane on every far-server dive. The shipped `<= 1`
+        // returned true here (the regression this test pins); `== 1` is correct.
+        assert!(
+            !collapses_to_single(0),
+            "count 0 = transient load, not a single-channel guild; keep multi geometry"
+        );
+        assert!(
+            collapses_to_single(1),
+            "exactly one channel = a lone un-swipeable pane"
+        );
+        assert!(
+            !collapses_to_single(2),
+            "two channels = a swipeable multi strip"
+        );
+        assert!(!collapses_to_single(9));
     }
 }

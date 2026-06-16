@@ -430,7 +430,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                         // would push it off-screen). The drag engine stays bound
                         // but is inert at count≤1 (both edges true ⇒ no commit).
                         <div class="sk-orbit-strip sk-orbit-strip--snap"
-                            class:sk-orbit-strip--single=move || chan_count() <= 1
+                            class:sk-orbit-strip--single=move || strip::collapses_to_single(chan_count())
                             node_ref=strip_ref
                             on:pointerdown=move |ev| {
                                 #[cfg(feature = "hydrate")] d_down.down(&ev);
@@ -454,7 +454,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             // — rendered ONLY for multi-channel guilds (a single
                             // channel has no neighbor either way, so no peek panes
                             // mount: #d "no swipe / no orbit's edge").
-                            {move || (chan_count() > 1).then(|| view! {
+                            {move || (!strip::collapses_to_single(chan_count())).then(|| view! {
                                 <div class="sk-orbit-pane sk-orbit-pane-prev" aria-hidden="true">
                                     {move || neighbor_preview(s, cur_idx().and_then(|i| i.checked_sub(1)))}
                                 </div>
@@ -462,7 +462,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             <div class="sk-orbit-pane sk-orbit-pane-cur">
                                 <ChannelPane/>
                             </div>
-                            {move || (chan_count() > 1).then(|| view! {
+                            {move || (!strip::collapses_to_single(chan_count())).then(|| view! {
                                 <div class="sk-orbit-pane sk-orbit-pane-next" aria-hidden="true">
                                     {move || neighbor_preview(s, cur_idx().map(|i| i + 1).filter(|&j| j < chan_count()))}
                                 </div>
