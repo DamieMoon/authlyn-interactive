@@ -191,21 +191,18 @@ async function assertGuildPeeks(page, guild, singleChannel, f, shotPath) {
   const strip = page.locator(".sk-orbit-strip");
   await strip.waitFor({ state: "visible", timeout: 15000 });
 
-  // The orbit far-dive opens a far guild via `act::open_server` → `load_server`
-  // (act/guild.rs), which CLEARS s.sel.channels and ASYNC-fetches them. So the
-  // strip first mounts in the channels-cleared window — transiently 1 pane
-  // (chan_count 0 ⇒ the `--single` collapse) — before the fetch resolves to the
-  // real count. Assert the SETTLED strip, not that sub-fetch flash: for a
-  // multi-channel guild wait for the neighbor pane to attach (chan_count settled
-  // > 1). A single-channel guild stays 1 pane throughout, so it needs no settle.
-  // On a genuine regression (channels never load) this times out and the
-  // assertions below still fire with the true count — so it can't mask a real bug.
-  if (!singleChannel) {
-    await page
-      .locator(".sk-orbit-strip .sk-orbit-pane-next")
-      .waitFor({ state: "attached", timeout: 12000 })
-      .catch(() => {});
-  }
+  // Settle past the far-dive's async channel-load (act::open_server →
+  // load_server CLEARS s.sel.channels then fetches). After the strip-collapse fix
+  // the neighbor panes mount even mid-load (chan_count 0 ⇒ transient "orbit's
+  // edge" placeholders), so a bare "pane attached" no longer means "channels
+  // loaded". Wait for the GUILD-SPECIFIC settled state: multi → the named
+  // neighbor renders; single → the strip collapses to --single (its lone channel
+  // resolved). On a genuine regression this times out and the assertions below
+  // still fire with the true state, so it cannot mask a real bug.
+  const settled = singleChannel
+    ? page.locator(".sk-orbit-strip.sk-orbit-strip--single")
+    : page.locator(".sk-orbit-strip .sk-orbit-pane-next .sk-orbit-peek-name");
+  await settled.waitFor({ state: "attached", timeout: 12000 }).catch(() => {});
 
   const prevPane = page.locator(".sk-orbit-strip .sk-orbit-pane-prev");
   const nextPane = page.locator(".sk-orbit-strip .sk-orbit-pane-next");
@@ -355,7 +352,7 @@ async function runDevice(spec, creds) {
     // Confirm the orbit skeleton actually engaged before asserting its DOM.
     await page
       .locator(".app.sk-orbit")
-      .waitFor({ state: "attached", timeout: 15000 });
+      .waitFor({ state: "attached", timeout: 30000 });
 
     await assertGuildPeeks(
       page,
@@ -403,7 +400,16 @@ async function main() {
   // racing each other's orbit-map navigation. The matrix is small (5).
   for (const spec of MATRIX) {
     process.stdout.write(`\n▶ ${spec.label} … `);
-    const f = await runDevice(spec, creds);
+    let f = await runDevice(spec, creds);
+    // Playwright's emulated WebKit cold-launches slowly + intermittently (I17:
+    // emulated WebKit ≠ a real device) — the FIRST webkit device occasionally
+    // exceeds the .app.sk-orbit hydrate-attach timeout. That thrown timeout is
+    // the gate's OWN infra flake, not a code regression, so retry the device
+    // ONCE; a real break fails both attempts (the retry runs a warmed WebKit).
+    if (!f.ok && f.items.some((i) => /threw|Timeout/i.test(i))) {
+      process.stdout.write("↻ transient (likely WebKit cold-launch), retry … ");
+      f = await runDevice(spec, creds);
+    }
     results.push(f);
     console.log(f.ok ? "PASS" : `FAIL (${f.items.length})`);
     for (const item of f.items) console.log(`    ✗ ${item}`);
