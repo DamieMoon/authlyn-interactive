@@ -545,6 +545,15 @@
 	position: fixed;
 	inset: 0;
 	z-index: 80;
+	// Swallow touch on the full-cover overlay so iOS WebKit can't route a vertical
+	// drag to the document and rubber-band the chat BEHIND the map. The app's
+	// <body> stays pannable (`_base.scss` touch-action:manipulation, shared with
+	// non-orbit routes, so it can't be globally locked like the prototype's
+	// `body{position:fixed}`). touch-action intersects along the touch hit-path, so
+	// this root declaration covers the whole map subtree (scrim/core/nodes/dock).
+	// Mirrors the prototype's #orbitMap (a-orbit.html:163); pinned by
+	// tests/style_lint.rs::orbit_map_overlay_blocks_touch_scroll.
+	touch-action: none;
 	// Owns its own insets (body-level overlay, like the body-portal contract).
 	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
 		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);

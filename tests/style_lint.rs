@@ -253,3 +253,57 @@ fn glass_holo_is_liquid_glass_not_frost_noise() {
         "glass-holo must NOT layer --frost-noise grain (the 'TV static' removed 2026-06-15)"
     );
 }
+
+/// iOS scroll-lock doctrine (CLAUDE.md F1 / fidelity gate 2026-06-16): the orbit
+/// map (`.sk-orbit-map`) is a full-cover `position:fixed` body-portal overlay.
+/// The app's `<body>` stays pannable (`_base.scss` `touch-action: manipulation`,
+/// shared with non-orbit routes — it can't be globally locked like the prototype's
+/// `body{position:fixed}`), so WITHOUT `touch-action: none` on the map root, iOS
+/// WebKit routes vertical drags on the overlay to the document and rubber-bands
+/// the chat behind it (owner found this on his real iPhone; Playwright reported
+/// green). `touch-action` intersects along the touch hit-path to the root, so the
+/// declaration on the full-cover root covers the whole map subtree (scrim / nodes
+/// / dock). The prototype's `#orbitMap` (a-orbit.html:163) carries it; this pins
+/// that the app keeps it.
+#[test]
+fn orbit_map_overlay_blocks_touch_scroll() {
+    let src = strip_line_comments(
+        &fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("style/_sk_orbit_chrome.scss"),
+        )
+        .expect("read _sk_orbit_chrome.scss"),
+    );
+
+    // Isolate the base `.sk-orbit-map { ... }` rule (brace-matched). The exact
+    // `.sk-orbit-map {` selector (space before brace) excludes `.sk-orbit-map-scrim`
+    // / `-dock` / `-hint` (a `-` follows `map`) and `.sk-orbit-map.diving` (a `.`
+    // follows); `find` returns the first match = the top-level base rule.
+    let start = src
+        .find(".sk-orbit-map {")
+        .expect(".sk-orbit-map base rule present");
+    let open = start + src[start..].find('{').expect(".sk-orbit-map opening brace");
+    let bytes = src.as_bytes();
+    let (mut depth, mut i, mut end) = (0i32, open, open);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let body = &src[open..=end];
+
+    assert!(
+        body.contains("touch-action: none"),
+        "`.sk-orbit-map` must carry `touch-action: none` so the full-cover fixed \
+         overlay swallows touch and iOS WebKit can't scroll/rubber-band the chat \
+         behind it (prototype #orbitMap a-orbit.html:163; CLAUDE.md F1)."
+    );
+}
