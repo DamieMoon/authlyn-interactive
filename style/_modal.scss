@@ -775,18 +775,26 @@
 	}
 }
 
-// Confirm sub-dialogs (`.confirm-modal`, the feedback-archive + broadcast
-// confirms nested inside the AccountModal) stay COMPACT — a transient yes/no is
-// not a full-screen place. They are re-skinned to the void glass so they don't
-// flash the vellum look over the slide-over. The shared backdrop rule above
-// removed the centering flex, so the confirm panel centers itself.
-.app.sk-orbit .modal-backdrop:has(.confirm-modal) {
+// COMPACT orbit dialogs — the small surfaces that are a peek, not a "place":
+// `.confirm-modal` (transient yes/no), `.accent-modal` (the 8-swatch picker), and
+// `.persona-info` (the tap-a-name read-only profile peek). Without an orbit rule
+// these fell through to the base centered `.modal` while the shared backdrop rule
+// above had ALREADY dropped its centering flex (for the slide-over) — so under
+// orbit they rendered as an orphaned top-left card: the "STILL the OLD modal" the
+// owner hit on his iPhone (state · OUTSTANDING BUGS #2; "inga modaler" → the
+// orbit-void look). They are re-centered here and re-skinned to the void glass so
+// they belong in the cosmos instead of flashing the vellum surface. The big
+// management surface (`.wardrobe-modal` + its nested persona editor) wants the
+// FULL-SCREEN slide-over, not this compact card, and is carried in the broader
+// W1–W4 fidelity rebuild (it needs the `.account-head` sticky-head chrome it
+// lacks — a rebuild-not-restore job, not a one-line graft).
+.app.sk-orbit .modal-backdrop:has(:is(.confirm-modal, .accent-modal, .persona-info)) {
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	padding: 1rem;
 }
-.app.sk-orbit .modal.confirm-modal {
+.app.sk-orbit .modal:is(.confirm-modal, .accent-modal, .persona-info) {
 	position: static;
 	inset: auto;
 	width: 100%;
