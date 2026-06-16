@@ -1051,6 +1051,26 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                 }).collect_view()
                             }}
                         </div>
+                        // Parity wiring (M5): the Friends / Members / Emoji panes
+                        // mount in the orbit pane-dispatch but had NO orbit entry
+                        // point (dead arms) — these surface them via the shared act::
+                        // helpers (same `s.sync.pane` set the W3 chrome triggers,
+                        // shell/mod.rs:471/584/588). Members + Custom emoji are
+                        // guild-scoped (read the active server); Friends is account-
+                        // global. Close the station first so the pane shows unscrimmed.
+                        <h2>"Go to"</h2>
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| { close_station(); act::show_friends(s); }>
+                            "✦ Friends"
+                        </button>
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| { close_station(); act::show_members(s); }>
+                            "👥 Members"
+                        </button>
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| { close_station(); act::show_emoji_manager(s); }>
+                            "😀 Custom emoji"
+                        </button>
                         <h2>"Station"</h2>
                         <label class="sk-orbit-toggle">
                             <input type="checkbox"
