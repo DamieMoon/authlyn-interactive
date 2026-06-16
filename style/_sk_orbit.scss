@@ -495,13 +495,18 @@
 	// Owns its own insets (body-level overlay, like the body-portal contract).
 	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
 		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
-	// OPAQUE cosmic backdrop — the prototype's body deep-space gradient
-	// (a-orbit.html:38, identical --void/--void-deep tokens). The map is a FULL
-	// takeover, not a translucent overlay: without an opaque base the chat bled
-	// through the body-portal (gate divergence #1, 2026-06-16). Stars live behind
-	// it via the fixed `.sk-orbit-stars` is z:-1 below `.app`, so the map carries
-	// its own base here.
-	background: radial-gradient(120% 90% at 50% 0%, var(--void) 0%, var(--void-deep) 70%);
+	// FULL cosmic backdrop — the app's exact aurora stack (_foundation.scss:214-217
+	// / a-orbit.html #aurora): two nebula ellipses (blue top-right, teal bottom-
+	// left) OVER an opaque void→void-deep base. The opaque base (LAST layer) keeps
+	// the chat from bleeding through the body-portal; the nebula ellipses restore
+	// the prototype's bloom the earlier flat-void backdrop had dropped (fidelity
+	// audit 2026-06-16). The starfield rides inside the portal (the
+	// `.sk-orbit-stars` clone, emitted in mod.rs) since the fixed app starfield
+	// (z:-1 under `.app`) cannot reach a z:80 portal sibling.
+	background:
+		radial-gradient(ellipse 60% 48% at 80% 6%, var(--aurora-1) 0%, transparent 60%),
+		radial-gradient(ellipse 55% 45% at 10% 94%, var(--aurora-2) 0%, transparent 55%),
+		radial-gradient(120% 90% at 50% 0%, var(--void) 0%, var(--void-deep) 70%);
 	// Map-enter WARP (a-orbit.html #orbitMap → .live): zoom in from scale(2.6),
 	// matching the prototype's `.55s` page-eased transform — NOT the old
 	// scale(1.04) pop. The whole map (core + nodes + dock) rides the warp.
@@ -518,7 +523,10 @@
 .sk-orbit-map-scrim {
 	position: absolute;
 	inset: 0;
-	background: var(--scrim);
+	// Transparent click-catcher only (close-on-tap-outside): the map's own opaque
+	// aurora+void backdrop already occludes the chat, so the old var(--scrim) dim
+	// just muted the cosmos over it. Kept as the full-bleed dismiss target.
+	background: transparent;
 	border: none;
 }
 // MAP CORE — the active server's nucleus (the prototype's .core,
@@ -670,6 +678,10 @@
 }
 .sk-orbit-node-name {
 	font-size: 9.5px;
+	// Medium weight + slight positive tracking (a-orbit.html `.node .cn`:195) —
+	// needs the self-hosted 500 face or it falls back to 400.
+	font-weight: 500;
+	letter-spacing: 0.4px;
 	color: var(--text-soft);
 	max-width: 58px;
 	overflow: hidden;
