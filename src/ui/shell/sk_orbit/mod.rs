@@ -94,6 +94,12 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
 #[component]
 pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    // Owner gate for the station's server-management affordances (mirrors
+    // AppShell's is_owner; `s.sync.me` is the viewer's account id, set at init).
+    let is_owner = move || {
+        let me = s.sync.me.get();
+        me.is_some() && me == s.sel.sel_owner.get()
+    };
     let map_open = RwSignal::new(false);
     // Node-dive exit (a-orbit.html enterChannel): tapping a channel zooms the map
     // INTO that node (scale 3.4 + fade) before it un-mounts. `diving` flips the
@@ -1051,6 +1057,13 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                 }).collect_view()
                             }}
                         </div>
+                        // Parity wiring (M5): the full wardrobe editor (create/edit/
+                        // delete personas) opens the shared wardrobe Modal
+                        // (shell/mod.rs); the station grid above only wears/switches.
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| { close_station(); act::show_wardrobe(s); }>
+                            "✦ Manage personas"
+                        </button>
                         // Parity wiring (M5): the Friends / Members / Emoji panes
                         // mount in the orbit pane-dispatch but had NO orbit entry
                         // point (dead arms) — these surface them via the shared act::
@@ -1071,6 +1084,16 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             on:click=move |_| { close_station(); act::show_emoji_manager(s); }>
                             "😀 Custom emoji"
                         </button>
+                        // Parity wiring (M5): owner-only server management — opens the
+                        // shared ChannelManagerModal via s.sync.manager_open (the same
+                        // signal the W3 sidebar gear sets). Hidden for non-owners.
+                        {move || is_owner().then(|| view! {
+                            <h2>"Server"</h2>
+                            <button class="sk-orbit-account-btn" type="button"
+                                on:click=move |_| { close_station(); s.sync.manager_open.set(true); }>
+                                "⚙ Manage channels"
+                            </button>
+                        })}
                         <h2>"Station"</h2>
                         <label class="sk-orbit-toggle">
                             <input type="checkbox"

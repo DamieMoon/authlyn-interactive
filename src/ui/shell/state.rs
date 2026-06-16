@@ -236,6 +236,10 @@ pub(crate) struct SyncState {
     /// another pane — it overlays the current view and closes on backdrop
     /// click / Esc / X, and auto-closes when a channel is opened.
     pub(crate) wardrobe_open: RwSignal<bool>,
+    /// Whether the unified channel-management window (create/rename/reorder/
+    /// delete, L-5) is open. Promoted from a local `AppShell` signal so the
+    /// orbit station can open it too — both shells set this one signal.
+    pub(crate) manager_open: RwSignal<bool>,
     /// Set during a channel switch to play the warp transition (W4/T3):
     /// `act::open_channel_at` flips it true on entry and a detached ~180ms
     /// timer clears it, driving the `.channel-view.fx-switching` class (rebased

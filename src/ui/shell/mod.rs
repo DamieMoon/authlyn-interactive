@@ -177,6 +177,7 @@ fn AppShell() -> impl IntoView {
         pane: RwSignal::new(Pane::Friends),
         sheet_open: RwSignal::new(false),
         wardrobe_open: RwSignal::new(false),
+        manager_open: RwSignal::new(false),
         switching: RwSignal::new(false),
     };
     provide_context(sync);
@@ -310,9 +311,6 @@ fn AppShell() -> impl IntoView {
     let guild_trash_open = RwSignal::new(false);
     // Deleted-channel list open/closed in the sidebar (owner-only).
     let chan_trash_open = RwSignal::new(false);
-    // L-5: the unified channel-management window (create/rename/delete/reorder),
-    // opened from the owner-gated "⚙ Manage" button in the server header.
-    let channel_manager_open = RwSignal::new(false);
     // W5/P2: the per-server accent picker modal (owner-gated, opens from the
     // server-header cluster).
     let accent_open = RwSignal::new(false);
@@ -553,7 +551,7 @@ fn AppShell() -> impl IntoView {
                                     // L-5: open the unified channel-management
                                     // window (create/rename/delete/reorder).
                                     <button class="row-edit" title="Manage channels"
-                                        on:click=move |_| channel_manager_open.set(true)>"⚙"</button>
+                                        on:click=move |_| s.sync.manager_open.set(true)>"⚙"</button>
                                     <button class="row-edit" title="Server accent"
                                         on:click=move |_| accent_open.set(true)>"🎨"</button>
                                     <button class="row-edit" title="rename server"
@@ -640,12 +638,6 @@ fn AppShell() -> impl IntoView {
                                 }>"Create"</button>
                             </div>
                         </Modal>
-                    })}
-                    // L-5: the unified channel-management window. Owner-gated
-                    // open (the server re-checks require_manager on every
-                    // mutate, so the gate is defence-in-depth, not the boundary).
-                    {move || (channel_manager_open.get() && is_owner()).then(|| view! {
-                        <ChannelManagerModal s=s open=channel_manager_open/>
                     })}
                     // Deleted-channels panel (owner only).
                     <Show when=is_owner fallback=|| ()>
@@ -893,6 +885,13 @@ fn AppShell() -> impl IntoView {
                         <WardrobePane/>
                     </Modal>
                 }
+            })}
+
+            // Channel-management window (L-5): promoted to `s.sync.manager_open`
+            // so BOTH the W3 sidebar gear and the orbit station can open it; the
+            // `is_owner` gate is authoritative (a non-owner trigger renders nothing).
+            {move || (s.sync.manager_open.get() && is_owner()).then(|| view! {
+                <ChannelManagerModal s=s open=s.sync.manager_open/>
             })}
 
             // W5/P2 per-server accent picker (owner-gated open). The 8 palette
