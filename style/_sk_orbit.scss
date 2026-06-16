@@ -588,13 +588,41 @@
 // around its orbit. transform-origin is the point itself (0×0 box → its own
 // centre = the star). Children place themselves RELATIVE to this point.
 .sk-orbit-ring {
+	// Static 0×0 anchor at the star centre — the per-node `.sk-orbit-orbit`
+	// children now each carry their OWN revolution (W5/P2 wave 3: seeded Kepler
+	// orbits), so the ring itself no longer spins.
 	position: absolute;
 	top: 50vh;
 	left: 50vw;
 	width: 0;
 	height: 0;
 	z-index: 2;
-	animation: sk-orbit-spin 90s linear infinite;
+}
+// Per-node revolving frame: a 0×0 point at the star centre rotating at the
+// channel's OWN seeded period (`--orbit-period` from orbit_map::channel_orbit —
+// inner channels faster, period ∝ r^1.5). `.retro` reverses the ~17% that orbit
+// the other way. Children place themselves relative to this point.
+.sk-orbit-orbit {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	animation: sk-orbit-spin var(--orbit-period, 90s) linear infinite;
+}
+.sk-orbit-orbit.retro {
+	animation-direction: reverse;
+}
+// Static placement (a-orbit.html `.nodePos`): rotate to the seeded start angle
+// `--orbit-a`, push out by the seeded radius `--orbit-r`, then un-rotate so the
+// node rests upright. The static angle is what makes reduced-motion (spin off)
+// rest each node at its OWN angle/radius instead of stacking all at 0°.
+.sk-orbit-nodepos {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform: rotate(var(--orbit-a, 0deg)) translateX(var(--orbit-r, 118px))
+		rotate(calc(-1 * var(--orbit-a, 0deg)));
 }
 @keyframes sk-orbit-spin {
 	from { transform: rotate(0); }
@@ -612,6 +640,9 @@
 	width: 62px;
 	height: 62px;
 	border-radius: 50%;
+	// Centre the disc on the `.sk-orbit-nodepos` placement point (the angular
+	// position now lives on the parent, not an inline per-node transform).
+	transform: translate(-50%, -50%);
 	@include glass-holo;
 	color: var(--text);
 }
@@ -624,7 +655,12 @@
 	display: grid;
 	place-items: center;
 	border-radius: 50%;
-	animation: sk-orbit-spin-rev 90s linear infinite;
+	// Counter-spin at the SAME per-node period so the glyph/label stay upright as
+	// the node orbits (a-orbit.html `.nodeIn`); flips with the orbit for retrograde.
+	animation: sk-orbit-spin-rev var(--orbit-period, 90s) linear infinite;
+}
+.sk-orbit-orbit.retro .sk-orbit-node-in {
+	animation-direction: reverse;
 }
 .sk-orbit-node-hash {
 	font-size: 19px;
@@ -725,7 +761,7 @@
 	// The orbital revolution + its node counter-spin (a-orbit.html kills
 	// `.orbit`/`.nodeIn` here too). Not `fx-`-named, so the global kill misses
 	// them — strip them explicitly; nodes rest at their t=0 placement.
-	.sk-orbit-ring,
+	.sk-orbit-orbit,
 	.sk-orbit-node-in {
 		animation: none;
 	}

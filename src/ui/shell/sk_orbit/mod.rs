@@ -24,7 +24,7 @@ pub mod warp;
 use leptos::portal::Portal;
 use leptos::prelude::*;
 
-use self::orbit_map::{map_geom, node_pos};
+use self::orbit_map::{channel_orbit, map_geom, seed_of};
 use super::holopanel::{Detent, Edge, HoloPanel};
 use super::{
     act, channel::ChannelPane, emoji_manager::EmojiManagerPane, friends::FriendsPane,
@@ -532,29 +532,42 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                             let n = chans.len();
                             let unread = s.notify.unread.get();
                             let r = g.orbit_radius;
+                            // Per-guild seed → every channel's orbit is LOCKED across
+                            // refreshes (radius/period/retrograde from the guild seed ^
+                            // channel id; orbit_map::channel_orbit, owner ruling
+                            // 2026-06-16). The active server id IS the seed.
+                            let guild_seed = seed_of(
+                                s.sel.sel_server.get().as_deref().unwrap_or_default(),
+                            );
                             // Halo rings — the visible orbital TRACKS the nodes ride
                             // (a-orbit.html `.haloRing.r1` solid + `.outer` dashed).
                             // Static, centred on the star; sized to the live radius.
                             let inner_d = format!("{}px", r * 2.0);
                             let outer_d = format!("{}px", (r + 38.0) * 2.0);
                             let nodes = chans.into_iter().enumerate().map(|(i, c)| {
-                                let p = node_pos(i, n, r);
+                                // Seeded Kepler orbit: inner channels revolve faster
+                                // (period ∝ r^1.5), ~17% retrograde, locked per guild.
+                                let orbit = channel_orbit(guild_seed, &c.id, i, n, r);
+                                // Start angle for the STATIC placement (so reduced-motion
+                                // rests each node at its own angle, not stacked at 0°).
+                                let a0 = orbit.y.atan2(orbit.x).to_degrees();
                                 let has_unread = unread.contains(&c.id);
                                 let ch = c.clone();
                                 let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
                                 view! {
-                                    // Placement is RELATIVE to the spinning ring's
-                                    // centre point (the star), so the `spin` carries
-                                    // the node around the orbit. The inner
-                                    // `.sk-orbit-node-in` counter-spins (`spinRev`,
-                                    // same 90s) so the glyph/label stay upright
-                                    // (a-orbit.html `.orbit`/`.nodeIn`).
+                                    // Per-node revolving frame (a-orbit.html `.orbit`, but
+                                    // each node spins at its OWN --orbit-period instead of
+                                    // sharing one 90s ring); `.retro` flips the retrograde
+                                    // ones. `.sk-orbit-nodepos` STATICALLY places it at
+                                    // (a0, radius); `.sk-orbit-node-in` counter-spins at the
+                                    // same period to keep the glyph upright.
+                                    <div class="sk-orbit-orbit" class:retro=orbit.retrograde
+                                        style:--orbit-period=format!("{:.1}s", orbit.period_s)
+                                        style:--orbit-r=format!("{:.1}px", orbit.radius)
+                                        style:--orbit-a=format!("{:.1}deg", a0)>
+                                    <div class="sk-orbit-nodepos">
                                     <button class="sk-orbit-node"
                                         class:unread=has_unread
-                                        style:transform=format!(
-                                            "translate({}px, {}px) translate(-50%, -50%)",
-                                            p.x, p.y
-                                        )
                                         title=c.name.clone()
                                         on:click=move |_| {
                                             act::open_channel(s, ch.clone());
@@ -566,6 +579,8 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>) -> impl IntoView {
                                             {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
                                         </span>
                                     </button>
+                                    </div>
+                                    </div>
                                 }
                             }).collect_view();
                             view! {
