@@ -364,6 +364,14 @@ pub struct MessageEnvelope {
     /// unset). Shown as the message author when no persona was worn — the
     /// "default" identity — instead of a raw id.
     pub author_display: String,
+    /// The controlling account's avatar media id (`/media/{id}` source), resolved
+    /// LIVE at read like `author_display` — NOT a send-time snapshot (contrast
+    /// `persona_avatar_id`, which is frozen). `None` ⇒ monogram fallback. Shown
+    /// beside a bare-account message, and carries the account identity behind a
+    /// worn persona's subtle "· name" marker (M6/P2). `#[serde(default)]` for the
+    /// post-ship wire-compat reason its siblings share.
+    #[serde(default)]
+    pub author_avatar_id: Option<String>,
     /// Live link to the persona row (None if the author wore none). May dangle
     /// once the persona is deleted — `persona_name`/`persona_description` are
     /// the source of truth for display.

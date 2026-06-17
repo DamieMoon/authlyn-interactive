@@ -38,6 +38,82 @@ async fn owner_with_text_channel(router: &axum::Router) -> (String, String, Stri
     (owner, gid, cid)
 }
 
+/// M6/P2 identity invariant: ACCOUNT identity (display_name + avatar) resolves
+/// LIVE at read on every message — a rename / new avatar reflects even on OLD
+/// rows — while a worn persona's name stays SNAPSHOTTED at send. Pins the new
+/// live `author_avatar_id` projection on both a bare and a persona-worn message.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn account_identity_resolves_live_while_persona_name_stays_frozen() {
+    let a = common::arena().await;
+    let (owner, _gid, cid) = owner_with_text_channel(&a.router).await;
+
+    // A persona, then two messages: one wearing it (snapshots persona_name) and
+    // one bare (account identity only).
+    let (status, _, persona) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas",
+        Some(&owner),
+        Some(&json!({ "name": "Hero" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let pid = persona["id"].as_str().unwrap().to_string();
+
+    let (status, _, m) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "in character", "persona_id": pid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let in_char = m["id"].as_str().unwrap().to_string();
+    let bare = post_one(&a.router, &owner, &cid, "bare").await;
+
+    // Rename the account AND set its avatar AFTER both messages were sent.
+    let avatar_mid = upload_media(&a.router, &owner, "image/png", b"\x89PNG\r\n\x1a\nfake").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        "/account",
+        Some(&owner),
+        Some(&json!({ "display_name": "Renamed", "avatar": avatar_mid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Re-read the SAME old messages.
+    let (_, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let msgs = body["messages"].as_array().unwrap();
+    let find = |id: &str| msgs.iter().find(|m| m["id"] == id).unwrap().clone();
+    let ic = find(&in_char);
+    let bm = find(&bare);
+
+    // Account identity is LIVE on BOTH old rows (rename + new avatar reflected).
+    assert_eq!(bm["author_display"], "Renamed");
+    assert_eq!(bm["author_avatar_id"], avatar_mid);
+    assert_eq!(ic["author_display"], "Renamed");
+    assert_eq!(
+        ic["author_avatar_id"], avatar_mid,
+        "the account behind a worn persona still resolves its live avatar"
+    );
+
+    // The bare message has no persona; the worn-persona message keeps its
+    // send-time persona_name snapshot, unaffected by the account change.
+    assert!(bm["persona_id"].is_null());
+    assert_eq!(ic["persona_name"], "Hero");
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn malformed_cursor_is_400_not_500() {

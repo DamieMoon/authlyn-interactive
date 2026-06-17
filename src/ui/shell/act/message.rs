@@ -1969,6 +1969,7 @@ mod tests {
             author_id: "account:a".into(),
             author_name: "a".into(),
             author_display: "A".into(),
+            author_avatar_id: None,
             persona_id: None,
             persona_name: None,
             persona_description: None,
