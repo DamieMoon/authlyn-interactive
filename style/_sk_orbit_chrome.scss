@@ -696,6 +696,16 @@
 	color: var(--accent-bright);
 	text-shadow: 0 0 14px var(--glow-accent);
 }
+// Per-server icon filling the nucleus disc (M6/P1); the disc's 1px border + glow
+// stay as the ring. `object-fit: cover` crops to the circle. Replaces the ✦ glyph
+// only when an icon is set.
+.sk-orbit-core-icon {
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	object-fit: cover;
+	display: block;
+}
 // Name + sub-count stack beneath the disc (grid-centred glyph stays put;
 // these are pulled out of flow so they don't squash the emblem).
 .sk-orbit-core-name {
@@ -910,6 +920,15 @@
 	line-height: 1;
 	color: var(--accent-bright);
 	text-shadow: 0 0 12px var(--glow-accent);
+}
+// Per-server icon filling a far (docked) disc (M6/P1); monogram fallback when
+// no icon. Mirrors `.sk-orbit-core-icon`, sized by the 64px parent.
+.sk-orbit-far-icon {
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	object-fit: cover;
+	display: block;
 }
 // Name below the mini disc (mirrors `.sk-orbit-core-name`, a touch smaller).
 .sk-orbit-far-name {

@@ -362,6 +362,59 @@
 		}
 	}
 
+	// ---- M6 guild icon (ServerModal): preview + upload control ----
+	.server-icon-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.server-icon-preview {
+		flex: 0 0 auto;
+		width: 3.5rem;
+		height: 3.5rem;
+		border-radius: 50%;
+		overflow: hidden;
+		display: grid;
+		place-items: center;
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			display: block;
+		}
+
+		.server-icon-mono {
+			font-size: 1.3rem;
+			font-weight: 700;
+			color: var(--text-soft);
+		}
+	}
+	// The styled <label> IS the button; the wrapping label keeps the (hidden)
+	// native file input operable. 44px touch floor at the control's BASE
+	// definition (Mendicant Bias touch-first), NOT an `.app.sk-orbit` override.
+	.server-icon-upload {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem; // 44px
+		padding: 0 0.9rem;
+		border-radius: 0.5rem;
+		background: var(--surface-2);
+		border: 1px solid var(--line-strong);
+		color: var(--text);
+		cursor: pointer;
+
+		input[type="file"] {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			opacity: 0;
+			pointer-events: none;
+		}
+	}
+
 	// Session sign-out (mobile finding #50a): relocated here from the topbar.
 	// Full-width so there is nothing adjacent to fat-finger, and ≥44px tall
 	// (the owner's tap-target floor). The red comes from the global
