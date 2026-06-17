@@ -320,6 +320,11 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     // Gesture-help overlay (a-orbit.html #helpBtn / #hints) — the bottom-left "?"
     // opens a one-card legend of the orbit's gestures.
     let help_open = RwSignal::new(false);
+    // Founding (create-server) dialog: open flag + the name buffer. Orbit's
+    // ONLY make-a-new-server entry — the M3 rail-add is retired. Opens from the
+    // orbit-map dock, where servers (the far-docks) spatially live.
+    let founding = RwSignal::new(false);
+    let new_server_name = RwSignal::new(String::new());
     // Close the slide-over AND restore focus to the summon button (§13 Modal-
     // parity restore-to-trigger). Used by on_close (Esc + swipe-to-close) and
     // the explicit ← button.
@@ -740,6 +745,13 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 on:click=move |_| { close_map(); station_open.set(true); }>
                                 "⚙ Station"
                             </button>
+                            // Found a new server (orbit's only create-server
+                            // entry; M3's rail-add is retired). Opens the
+                            // founding dialog over the shell.
+                            <button class="sk-orbit-sat" type="button"
+                                on:click=move |_| { close_map(); new_server_name.set(String::new()); founding.set(true); }>
+                                "✦ New server"
+                            </button>
                         </div>
                         <p class="sk-orbit-map-hint" aria-hidden="true">"tap a node to enter"</p>
                     </div>
@@ -1020,6 +1032,37 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             </div>
                             <button class="sk-orbit-hints-ok" type="button"
                                 on:click=move |_| help_open.set(false)>"Got it ✦"</button>
+                        </div>
+                    </div>
+                </Portal>
+            })}
+            // Founding dialog (create-server) — orbit's only "make a new server"
+            // entry, opened from the map dock. Mirrors the help overlay's
+            // portal/card; on submit calls act::create_server, which refreshes
+            // the guild list so the new world appears in the map.
+            {move || founding.get().then(|| view! {
+                <Portal>
+                    <div class="sk-orbit-hints" role="dialog" aria-modal="true"
+                        aria-label="Found a new server"
+                        on:click=move |_| founding.set(false)>
+                        <div class="sk-orbit-hints-card"
+                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                            <h2>"Found a world"</h2>
+                            <p class="sk-orbit-hints-sub">"Name your new server"</p>
+                            <input class="sk-orbit-found-input" type="text"
+                                prop:value=move || new_server_name.get()
+                                placeholder="server name"
+                                on:input=move |ev| new_server_name.set(event_target_value(&ev))/>
+                            <button class="sk-orbit-hints-ok" type="button"
+                                on:click=move |_| {
+                                    let name = new_server_name.get_untracked();
+                                    if name.trim().is_empty() {
+                                        return;
+                                    }
+                                    new_server_name.set(String::new());
+                                    founding.set(false);
+                                    act::create_server(s, name);
+                                }>"Found ✦"</button>
                         </div>
                     </div>
                 </Portal>
