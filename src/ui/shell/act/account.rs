@@ -138,18 +138,6 @@ pub fn set_account_avatar(s: Shell, auth: AuthCtx, file: web_sys::File) {
     });
 }
 
-/// Set/replace the caller's self-service recovery question + answer.
-#[cfg(feature = "hydrate")]
-pub fn set_security_question(s: Shell, question: String, answer: String) {
-    s.composer.status.set(String::new());
-    spawn_local(async move {
-        match api::set_security_question(&question, &answer).await {
-            Ok(()) => s.composer.status.set("security question saved".to_string()),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
-    });
-}
-
 /// Admin-only: reset another account's password by username.
 #[cfg(feature = "hydrate")]
 pub fn admin_reset_password(s: Shell, username: String, new_password: String) {
@@ -174,8 +162,6 @@ use super::super::Shell;
 pub fn logout(_s: Shell, _auth: AuthCtx) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn change_password(_s: Shell, _current: String, _new: String) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn set_security_question(_s: Shell, _question: String, _answer: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn admin_reset_password(_s: Shell, _username: String, _new_password: String) {}
 #[cfg(not(feature = "hydrate"))]

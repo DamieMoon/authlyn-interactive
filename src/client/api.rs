@@ -15,19 +15,17 @@ use serde::Serialize;
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
     AddGalleryImagesBatchResponse, AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest,
-    ChannelListResponse, ChannelSummary, ConfirmResetRequest, CreateChannelRequest,
-    CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
-    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
-    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListEmojiResponse,
-    ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
-    ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
-    LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
-    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
-    ResetQuestionResponse, RollRequest, SendMessageRequest, SendMessageResponse,
-    SendSystemMessageRequest, SetActivePersonaRequest, SetMemberRoleRequest,
-    SetSecurityQuestionRequest, SubmitFeedbackRequest, SystemBroadcastResult, TypingDraftEntry,
-    TypingPingRequest, UnreadResponse, VapidKeyResponse,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateEmojiRequest,
+    CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
+    CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
+    InviteMemberRequest, ListEmojiResponse, ListFeedbackResponse, ListFriendsResponse,
+    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
+    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MarkReadRequest, MeResponse,
+    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
+    PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest, ReadStateResponse,
+    RegisterRequest, RollRequest, SendMessageRequest, SendMessageResponse,
+    SendSystemMessageRequest, SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest,
+    SystemBroadcastResult, TypingDraftEntry, TypingPingRequest, UnreadResponse, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -121,47 +119,6 @@ pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<
         "/auth/admin/reset-password",
         &AdminResetPasswordRequest {
             username: username.to_string(),
-            new_password: new_password.to_string(),
-        },
-    )
-    .await
-}
-
-/// POST /auth/security-question — set/replace the signed-in account's
-/// self-service recovery question + answer.
-pub async fn set_security_question(question: &str, answer: &str) -> Result<(), ApiError> {
-    post_json_empty(
-        "/auth/security-question",
-        &SetSecurityQuestionRequest {
-            question: question.to_string(),
-            answer: answer.to_string(),
-        },
-    )
-    .await
-}
-
-/// GET /auth/reset/question?username={…} — public: fetch a user's recovery
-/// question for the reset form. `question` is `None` for unknown users and
-/// users with no question set (no enumeration).
-pub async fn reset_question(username: &str) -> Result<ResetQuestionResponse, ApiError> {
-    let q = js_sys::encode_uri_component(username)
-        .as_string()
-        .unwrap_or_default();
-    get(&format!("/auth/reset/question?username={q}")).await
-}
-
-/// POST /auth/reset/confirm — public: complete a self-service reset by
-/// answering the security question.
-pub async fn confirm_reset(
-    username: &str,
-    answer: &str,
-    new_password: &str,
-) -> Result<(), ApiError> {
-    post_json_empty(
-        "/auth/reset/confirm",
-        &ConfirmResetRequest {
-            username: username.to_string(),
-            answer: answer.to_string(),
             new_password: new_password.to_string(),
         },
     )

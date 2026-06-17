@@ -71,15 +71,14 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/change-password", post(auth::change_password))
         .route("/auth/me", get(auth::me))
         .route("/account", patch(auth::patch_account))
-        // Password recovery: admin reset (admin-only), set the self-service
-        // security question (authed), and the public reset flow.
+        // Password recovery is admin-only (/auth/admin/reset-password). The
+        // self-service security-question reset was removed: a session could set
+        // a recovery credential without the password, then reset through it
+        // (account takeover). Admin reset is the sole recovery path now.
         .route(
             "/auth/admin/reset-password",
             post(auth::admin_reset_password),
         )
-        .route("/auth/security-question", post(auth::set_security_question))
-        .route("/auth/reset/question", get(auth::get_reset_question))
-        .route("/auth/reset/confirm", post(auth::confirm_password_reset))
         // W1 realtime: long-lived SSE stream of id-only sync events, filtered
         // per-connection to channels the caller may see. The group's no-store
         // Cache-Control layer is correct for SSE.

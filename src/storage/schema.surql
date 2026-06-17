@@ -17,16 +17,24 @@ DEFINE FIELD IF NOT EXISTS username      ON account TYPE string;
 DEFINE FIELD IF NOT EXISTS username_ci   ON account TYPE string;  -- lowercased, for case-insensitive uniqueness
 DEFINE FIELD IF NOT EXISTS display_name  ON account TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS password_hash ON account TYPE string;  -- argon2id PHC string
--- Self-service password recovery (option<> ⇒ NONE is valid on old rows, so no
--- backfill is needed and adding these can't trip the SCHEMAFULL NONE-coercion crash).
-DEFINE FIELD IF NOT EXISTS security_question    ON account TYPE option<string>;  -- user-set reset prompt
-DEFINE FIELD IF NOT EXISTS security_answer_hash ON account TYPE option<string>;  -- argon2id hash of the normalized answer
 DEFINE FIELD IF NOT EXISTS avatar        ON account TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS created_at    ON account TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS account_username_ci ON account FIELDS username_ci UNIQUE;
 -- Same NONE-coercion guard as persona: accounts predating `display_name` hold
 -- NONE there, which would 500 any account UPDATE (e.g. change-password).
 UPDATE account SET display_name = (display_name ?? '') WHERE display_name = NONE;
+
+-- Security question/answer (self-service password recovery) was REMOVED
+-- (2026-06-17): obsolete, and the self-service reset was an account-takeover
+-- vector — a session could set a recovery credential WITHOUT the password, then
+-- reset through it. Admin reset (/auth/admin/reset-password) is the sole
+-- recovery path now. Purge any stored values, then drop the fields. Idempotent:
+-- UNSET of an absent key and REMOVE FIELD IF EXISTS are both no-ops on reboot.
+-- Runs AFTER the display_name guard above so this account UPDATE can't hit the
+-- SCHEMAFULL NONE-coercion 500 on pre-display_name rows.
+UPDATE account UNSET security_question, security_answer_hash;
+REMOVE FIELD IF EXISTS security_question ON account;
+REMOVE FIELD IF EXISTS security_answer_hash ON account;
 
 -- Reserved Nova DOT system/bot account — the author of every `kind='system'`
 -- message (the app-admin broadcast feature). Seeded here (pure SurrealQL) so it
@@ -115,7 +123,7 @@ DEFINE FIELD IF NOT EXISTS deleted_at ON guild TYPE option<datetime>;
 -- name (red…gray, the SAME 8-name vocabulary as persona.color / --tint-*) or
 -- NONE for the default electric-blue accent. option<> ⇒ NONE is valid on every
 -- pre-existing guild row, so NO backfill is needed and adding it can't trip the
--- SCHEMAFULL NONE-coercion crash (same reasoning as account.security_question
+-- SCHEMAFULL NONE-coercion crash (same reasoning as account.avatar
 -- and message.effect). Purely cosmetic; gates nothing. NO format ASSERT: the
 -- palette is validated server-side (server/accent.rs), mirroring persona.color
 -- (a free TYPE string with no ASSERT). If a format ASSERT is ever added it MUST

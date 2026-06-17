@@ -63,7 +63,6 @@ pub mod toast;
 // Re-exports so the view code keeps calling `act::xxx` unchanged.
 pub use account::{
     admin_reset_password, change_password, logout, save_display_name, set_account_avatar,
-    set_security_question,
 };
 pub use admin::send_system_broadcast;
 pub use channel::{

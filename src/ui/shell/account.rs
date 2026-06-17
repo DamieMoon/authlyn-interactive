@@ -35,10 +35,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let fb_kind = RwSignal::new("other".to_string());
     let fb_body = RwSignal::new(String::new());
 
-    // ---- security-question section (self-service reset): local form state ----
-    let sq_question = RwSignal::new(String::new());
-    let sq_answer = RwSignal::new(String::new());
-
     // ---- admin: reset a user's password (only shown inside the admin gate) ----
     let ar_username = RwSignal::new(String::new());
     let ar_password = RwSignal::new(String::new());
@@ -96,20 +92,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         current.set(String::new());
         new_pw.set(String::new());
         confirm.set(String::new());
-    };
-
-    let save_security_question = move |_| {
-        let q = sq_question.get_untracked();
-        let a = sq_answer.get_untracked();
-        if q.trim().is_empty() || a.trim().is_empty() {
-            s.composer
-                .status
-                .set("question and answer are required".to_string());
-            return;
-        }
-        act::set_security_question(s, q, a);
-        // Keep the question visible; clear only the answer.
-        sq_answer.set(String::new());
     };
 
     let send_feedback = move |_| {
@@ -232,23 +214,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         prop:value=move || confirm.get()
                         on:input=move |ev| confirm.set(event_target_value(&ev))/>
                     <button class="account-save" on:click=save>"Save"</button>
-                </section>
-
-                // ---- Security question (lets you reset your own password) ----
-                <section class="account-section">
-                    <h3>"Security question"</h3>
-                    <p class="muted">
-                        "Set a question and answer so you can reset your own password if you forget it."
-                    </p>
-                    <input type="text" placeholder="security question (e.g. first pet's name?)"
-                        prop:value=move || sq_question.get()
-                        on:input=move |ev| sq_question.set(event_target_value(&ev))/>
-                    <input type="password" placeholder="answer"
-                        prop:value=move || sq_answer.get()
-                        on:input=move |ev| sq_answer.set(event_target_value(&ev))/>
-                    <button class="account-save" on:click=save_security_question>
-                        "Save security question"
-                    </button>
                 </section>
 
                 // ---- Preferences ----

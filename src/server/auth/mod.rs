@@ -46,7 +46,5 @@ pub(crate) use self::session::{account_for_token_hash, session_token_hash, SESSI
 // Route handlers referenced by `server/mod.rs::small_body_routes` keep
 // their `crate::server::auth::<fn>` paths via these re-exports.
 pub use self::admin::admin_reset_password;
-pub use self::password::{
-    change_password, confirm_password_reset, get_reset_question, set_security_question,
-};
+pub use self::password::change_password;
 pub use self::registration::{login, logout, me, patch_account, register};
