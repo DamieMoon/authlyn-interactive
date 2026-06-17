@@ -159,6 +159,10 @@
 		justify-content: flex-end;
 		gap: 0.5rem;
 		margin-top: 0.25rem;
+
+		button {
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+		}
 	}
 }
 
@@ -245,8 +249,13 @@
 			// The grip owns the touch for the reorder drag — without this the
 			// browser scrolls the list instead of dragging the row.
 			touch-action: none;
-			// A finger-friendly hit area around the ⠿ glyph.
-			padding: 0.3rem 0.15rem;
+			// A finger-friendly 44px hit area around the ⠿ glyph (Mendicant
+			// Bias touch floor — finger-drag needs a real target, not a glyph).
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 2.75rem;
+			min-height: 2.75rem;
 			font-size: 1.1rem;
 		}
 
@@ -338,6 +347,7 @@
 
 		.account-save {
 			align-self: flex-start;
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 		}
 
 		// A checkbox + label preference (e.g. the message-delete confirm toggle).
@@ -719,9 +729,13 @@
 		}
 
 		// Inputs/textareas on the void: dark input-bg, hairline, accent focus.
+		// `.rename-input` is the InlineRename field — it carries no `type`
+		// attribute, so it must be named explicitly (the W3 `.sidebar
+		// .rename-input` rule doesn't reach the modal).
 		input[type="text"],
 		input[type="password"],
-		textarea {
+		textarea,
+		.rename-input {
 			background: var(--input-bg);
 			border: 1px solid var(--line-strong);
 			border-radius: 0.5rem;
@@ -738,6 +752,82 @@
 			}
 		}
 
+		// T3 owner controls — TOUCH-FIRST sizing. The W3 sidebar defaults
+		// (_sidebar.scss, _trash.scss) are compact desktop ghost controls; the
+		// orbit shell is built on generous tap targets, so every control here is
+		// raised to the owner's tap-target floor (2.75rem / 44px — cf.
+		// .account-logout). Compact buttons are exactly the regression Mendicant
+		// Bias exists to retire.
+		.identity-row {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			flex-wrap: wrap;
+
+			.identity-name {
+				flex: 1;
+				min-width: 0;
+				color: var(--text);
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			// Vertically centre the row's buttons (the section-level
+			// .account-save sets align-self: flex-start for the column layout).
+			.account-save {
+				align-self: center;
+			}
+		}
+
+		.rename-input {
+			flex: 1;
+			min-width: 0;
+			min-height: 2.75rem; // 44px tap floor
+		}
+
+		// InlineRename ✓/✕ — ghost (transparent), but a full 44px square hit
+		// area, not a cramped glyph.
+		.row-edit {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 2.75rem; // 44px
+			min-height: 2.75rem;
+			background: transparent;
+			border: none;
+			color: var(--text-muted);
+			font-size: 1.1rem;
+
+			&:hover {
+				color: var(--text);
+			}
+		}
+
+		// Trashed-channels disclosure + rows: retune the sidebar-compact
+		// _trash.scss defaults to the tap floor for touch.
+		.trash-section .trash-toggle {
+			min-height: 2.75rem; // 44px
+			padding: 0.55rem 0.7rem;
+			font-size: 0.95rem;
+			border-radius: 0.6rem;
+		}
+
+		.trash-item {
+			padding: 0.4rem 0.5rem;
+
+			.trash-name {
+				font-size: 0.95rem;
+			}
+
+			.trash-restore {
+				min-height: 2.75rem; // 44px
+				padding: 0.4rem 0.9rem;
+				font-size: 0.9rem;
+				border-radius: 0.6rem;
+			}
+		}
+
 		// The muted helper lines (version string, section blurbs).
 		.muted,
 		p.muted {
@@ -750,6 +840,7 @@
 		// confirms nested below.
 		.account-save {
 			align-self: flex-start;
+			min-height: 2.75rem; // 44px tap floor (Mendicant Bias touch-first)
 			padding: 0.5rem 1rem;
 			border-radius: 0.6rem;
 			color: var(--accent-bright);

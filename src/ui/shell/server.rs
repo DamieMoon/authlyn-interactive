@@ -16,8 +16,9 @@
 use leptos::prelude::*;
 
 use super::channel::ChannelManagerBody;
-use super::{act, Shell};
+use super::{act, PendingDelete, Shell};
 use crate::ui::icons::IconClose;
+use crate::ui::inline_rename::InlineRename;
 use crate::ui::modal::Modal;
 
 /// The server-management window. Renders the shared `.modal`/`.modal-backdrop`
@@ -44,6 +45,24 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             .map(|g| g.accent_color)
             .unwrap_or_default()
     };
+
+    // Identity-section edit toggle, and the open guild's name derived live from
+    // the rail list (mirrors `accent_name`) so an InlineRename → rename_server
+    // in-place patch (act/guild.rs) re-renders the name without a refetch.
+    let editing_name = RwSignal::new(false);
+    let server_name = move || {
+        let sid = s.sel.sel_server.get();
+        s.sel
+            .guilds
+            .get()
+            .into_iter()
+            .find(|g| Some(&g.id) == sid.as_ref())
+            .map(|g| g.name)
+            .unwrap_or_default()
+    };
+
+    // Trashed-channels disclosure.
+    let chan_trash_open = RwSignal::new(false);
 
     view! {
         <Modal class="server-modal" swipe_close=true close=move || open.set(false)>
@@ -129,6 +148,107 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 <h3>"Channels"</h3>
                 <div class="channel-manager">
                     <ChannelManagerBody s=s/>
+                </div>
+            </section>
+
+            // ---- Server identity ----
+            // Rename (InlineRename → act::rename_server) + delete (queues the
+            // shared confirm modal via PendingDelete::Server; on confirm,
+            // delete_server clears sel_owner so this modal's is_owner gate in
+            // shell/mod.rs unmounts it — no explicit close needed). Mirrors the
+            // W3 sidebar header (shell/mod.rs:541-584). The whole ServerModal is
+            // already owner-gated at the call site, so no inner is_owner Show.
+            <section class="account-section">
+                <h3>"Server identity"</h3>
+                {move || if editing_name.get() {
+                    view! {
+                        <div class="identity-row">
+                            <InlineRename
+                                value=server_name()
+                                on_save=move |v| {
+                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                        act::rename_server(s, gid, v);
+                                    }
+                                    editing_name.set(false);
+                                }
+                                on_cancel=move || editing_name.set(false)
+                            />
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <div class="identity-row">
+                            <span class="identity-name">{server_name()}</span>
+                            <button class="account-save" title="Rename server"
+                                on:click=move |_| editing_name.set(true)>"Rename"</button>
+                            <button class="account-save danger" title="Delete server"
+                                on:click=move |_| {
+                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                        act::ask_delete(
+                                            s,
+                                            format!(
+                                                "Delete the server “{}” and all its channels \
+                                                 and messages? This cannot be undone.",
+                                                server_name()
+                                            ),
+                                            PendingDelete::Server { gid },
+                                        );
+                                    }
+                                }>"Delete server"</button>
+                        </div>
+                    }.into_any()
+                }}
+            </section>
+
+            // ---- Trashed channels ----
+            // Disclosure that loads soft-deleted channels (load_deleted_channels)
+            // and lists them with Restore (restore_channel reloads both the trash
+            // list and the live channel list via open_server). Mirrors the W3
+            // sidebar trash-section (shell/mod.rs:650-695).
+            <section class="account-section">
+                <h3>"Trashed channels"</h3>
+                <div class="trash-section">
+                    <button class="trash-toggle"
+                        class:active=move || chan_trash_open.get()
+                        on:click=move |_| {
+                            let now_open = !chan_trash_open.get_untracked();
+                            chan_trash_open.set(now_open);
+                            if now_open {
+                                if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                    act::load_deleted_channels(s, gid);
+                                }
+                            }
+                        }>
+                        "🗑 Show trashed channels"
+                    </button>
+                    {move || chan_trash_open.get().then(|| {
+                        let chans = s.trash.deleted_channels.get();
+                        if chans.is_empty() {
+                            view! {
+                                <p class="muted trash-empty">"No trashed channels."</p>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <ul class="trash-list">
+                                    {chans.into_iter().map(|c| {
+                                        let cid = c.id.clone();
+                                        let name = c.name.clone();
+                                        view! {
+                                            <li class="trash-item">
+                                                <span class="trash-name">"# "{name}</span>
+                                                <button class="trash-restore"
+                                                    on:click=move |_| {
+                                                        if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                                            act::restore_channel(s, gid, cid.clone());
+                                                        }
+                                                    }>"Restore"</button>
+                                            </li>
+                                        }
+                                    }).collect_view()}
+                                </ul>
+                            }.into_any()
+                        }
+                    })}
                 </div>
             </section>
 

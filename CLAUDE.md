@@ -6,7 +6,7 @@ Behavior, communication language, persistence philosophy, novelty handling, and 
 
 **Lives elsewhere — read there, don't copy here:**
 - **Stack + directory layout:** `README.md`.
-- **Every dependency's purpose + the ssr/hydrate/nova/freya graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
+- **Every dependency's purpose + the ssr/hydrate/nova graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
 - **Toolchain probe, Bash allowlist, hooks:** `.claude/settings.json`.
 - **Project knowledge (architecture, invariant rationale, incidents, decisions):** **ctx** is canonical (global rule). ctx was reset to a clean slate on 2026-06-16 and re-accumulates here going forward — pre-reboot blocks are tombstoned; don't cite them.
 
@@ -18,7 +18,7 @@ Behavior, communication language, persistence philosophy, novelty handling, and 
 - **Run:** `cp .env.example .env`, then `cargo leptos watch`. App → `http://127.0.0.1:3000`, DB → `ws://127.0.0.1:8000`.
 - **Tests:** `cargo test --features ssr` — **requires both `--features ssr` AND a live SurrealDB** on `ws://127.0.0.1:8000`. 26 suites in `tests/*.rs` drive the axum router via `tower::ServiceExt::oneshot` (no port bind); `tests/common/mod.rs` gives each worker an isolated namespace + media tempdir. Gate = **0 failed**.
 - **Quality gate `/check`:** `cargo fmt --all --check` → `cargo clippy --features ssr --no-deps -- -D warnings` → `cargo clippy --features hydrate --target wasm32-unknown-unknown --no-deps -- -D warnings`. This is the fmt+clippy **subset** of `.githooks/pre-commit`, which *also* runs the #43 motion-doctrine `@keyframes` scan over staged `.scss` (precise check: `cargo test --features ssr --test style_lint`).
-- **freya / nova are NOT in `/check`** — build them by hand when touched: `cargo build --bin authlyn-native --features freya` and `cargo build --release --bin nova-mcp --features nova`. For changes to the always-on spine (`protocol.rs`, `markup/`), "compiles under all four graphs" is part of done.
+- **nova is NOT in `/check`** — build it by hand when touched: `cargo build --release --bin nova-mcp --features nova`. For changes to the always-on spine (`protocol.rs`, `markup/`), "compiles under all three graphs" is part of done.
 - **Regenerate `public/emoji.json`:** `cargo run --example gen_emoji_json`.
 - `rustfmt` runs automatically on every `Edit`/`Write` of a `.rs` file (settings.json `PostToolUse` hook) — don't hand-run it per file.
 
@@ -29,13 +29,12 @@ Behavior, communication language, persistence philosophy, novelty handling, and 
 - Never re-create the intentionally-deleted `deploy/` `scripts/` `end2end/` trees (commit `c2aba1c`) or the `visual-gate/` tooling (commit `68b65bd`).
 
 ## Disjoint feature graphs (hard rule — never cross-import)
-Four graphs, mutually exclusive at the binary level:
+Three graphs, mutually exclusive at the binary level:
 - **ssr** (server): axum + tokio + surrealdb + leptos/ssr — never compiles to wasm.
 - **hydrate** (browser/WASM): leptos/hydrate + gloo-* + web-sys — never enters the server runtime.
 - **nova** (`src/bin/nova-mcp.rs`, `--features nova`): MCP bridge — imports zero ssr/hydrate.
-- **freya** (`src/bin/authlyn-native.rs`, `--features freya`): native client — imports zero ssr/hydrate.
 
-Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must compile to `wasm32-unknown-unknown` (serde-only — no axum/surrealdb/tokio). `nova`/`freya` carry `required-features` so the default build / cargo-leptos never pulls them. Per-crate membership is in `Cargo.toml [features]`.
+Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must compile to `wasm32-unknown-unknown` (serde-only — no axum/surrealdb/tokio). `nova` carries `required-features` so the default build / cargo-leptos never pulls it. Per-crate membership is in `Cargo.toml [features]`.
 
 ## Conventions
 - **Commits — Conventional Commits** + trailing milestone tag: `type(scope): subject (M5/P2)`, imperative subject, `type ∈ {feat, fix, refactor, docs, chore, a11y}`. Body explains the invariant/finding touched; add a `Tests:` line and the `Co-Authored-By` trailer.
@@ -69,3 +68,5 @@ Proactively `ctx save` (and say where) after: a new/changed invariant or its rat
 
 ## UI fidelity
 Compile-green is necessary, never sufficient, for UI. The visual oracle is the surviving skeleton prototypes in `docs/superpowers/specs/assets/2026-06-12-skelettvagen/` (`a-orbit.html`, `b-deck.html`, `c-hud.html`). The deleted `visual-gate/` Playwright tooling must not be re-created; a fidelity-gate method is owner-driven.
+
+**Touch-target floor — Mendicant Bias is touch-first (hard rule, owner ruling 2026-06-17).** Every interactive control in the **Mendicant Bias** UX — the whole product, across all skeletons and the shared modals/panes; **not** scoped to `sk-orbit` — meets a **≥ 44px (`2.75rem`) tap target**: `min-height`, plus `min-width` for square/icon buttons. This is a product-wide baseline and correctness, not polish — compact desktop-density controls are the regression Mendicant Bias exists to retire. Apply the floor at the control's **base/shared definition** so every surface inherits it (e.g. raise the compact ghosts in `_base.scss`, `_trash.scss`, `_wave_b.scss`, `_sidebar.scss`, `_wardrobe.scss` themselves) — **not** as an `.app.sk-orbit` override. It is already anchored in places (`.account-logout`, the modal close `.account-head .row-edit`, `.sk-orbit-pill`, `.composer .send`, `.sk-orbit-chip`, `.accent-swatch` are all ≥ 44px); match it on every control. There is **no blanket `button { min-height }`** — it distorts the bespoke chrome (composer orb, map nodes, swipe-strip); apply the floor per control.

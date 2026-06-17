@@ -299,8 +299,9 @@
 	margin-top: 0.75rem;
 }
 .accent-swatch {
-	width: 2.25rem;
-	height: 2.25rem;
+	// Touch floor (Mendicant Bias): a 44px tap target, not the old 36px chip.
+	width: 2.75rem;
+	height: 2.75rem;
 	border-radius: 50%;
 	border: 2px solid transparent;
 	cursor: pointer;

@@ -1376,6 +1376,9 @@
 	margin: 0.5rem 0 1rem;
 }
 .app.sk-orbit .sk-orbit-persona-card {
+	display: flex;
+	align-items: center;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.5rem 0.8rem;
 	border-radius: 0.6rem;
 	border: 2px solid transparent;
@@ -1389,5 +1392,13 @@
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.4rem 0;
+}
+// Station nav buttons (Manage personas / Friends / Members / Emoji / Server
+// settings / Account) — keep the inherited look, raise to the tap floor.
+.app.sk-orbit .sk-orbit-account-btn {
+	display: flex;
+	align-items: center;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }

@@ -245,7 +245,8 @@
 		background: var(--surface);
 		color: var(--danger-soft);
 		border-radius: 0.3rem;
-		padding: 0.2rem 0.5rem;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+		padding: 0.2rem 0.6rem;
 		cursor: pointer;
 
 		&:hover {
@@ -275,6 +276,7 @@
 
 	button {
 		align-self: flex-start;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 		padding: 0.3rem 0.8rem;
 		border: 1px solid var(--accent);
 		border-radius: 0.3rem;
@@ -282,6 +284,12 @@
 		color: var(--accent);
 		cursor: pointer;
 	}
+}
+
+// Friend-request accept / remove (friends pane). The list is otherwise
+// unstyled (falls to the base button); all it needs is the tap floor.
+.flist button {
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
 // Member-management pane (#16/FB5): a roster of the open guild's members.
@@ -354,6 +362,7 @@
 }
 
 .member-role-btn {
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.2rem 0.55rem;
 	border: 1px solid var(--accent);
 	border-radius: 0.3rem;
@@ -368,6 +377,7 @@
 	background: var(--surface);
 	color: var(--danger-soft);
 	border-radius: 0.3rem;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.2rem 0.5rem;
 	cursor: pointer;
 

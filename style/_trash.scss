@@ -49,8 +49,9 @@
 		background: transparent;
 		border: none;
 		color: var(--text-muted);
-		font-size: 0.8rem;
-		padding: 0.35rem 0.3rem;
+		font-size: 0.85rem;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+		padding: 0.35rem 0.5rem;
 		cursor: pointer;
 		border-radius: 0.3rem;
 
@@ -96,8 +97,9 @@
 
 	.trash-restore {
 		flex-shrink: 0;
-		font-size: 0.78rem;
-		padding: 0.2rem 0.5rem;
+		font-size: 0.85rem;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+		padding: 0.2rem 0.7rem;
 		color: var(--accent);
 		border-color: var(--accent);
 		background: transparent;
