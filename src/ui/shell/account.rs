@@ -233,35 +233,10 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Vibration feedback (where supported)"</span>
                     </label>
-                    // W5/P1 (Task 1.4): structural-skeleton picker. Mirrors the
-                    // eyecandy pref-row pattern; selecting routes through
-                    // act::choose_skeleton, which persists authlyn.skeleton,
-                    // flips the live Prefs.skeleton signal (`.app.sk-*` root
-                    // class swaps live), then DISMISSES this modal so the new
-                    // skeleton is actually visible — and fires a confirming
-                    // toast naming the choice (no more stuck "ping-pong" modal).
-                    // No ceremony (this is an explicit re-choice, not a
-                    // first-run). Theme names are proper nouns; the rest is
-                    // English copy.
-                    <h4 class="pref-subhead">"Interface skeleton"</h4>
-                    <label class="pref-row">
-                        <input type="radio" name="skeleton" value="orbit"
-                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
-                            on:change=move |_| act::choose_skeleton(s, open, "orbit")/>
-                        <span>"Omloppsbana — spatial, swipe between worlds"</span>
-                    </label>
-                    <label class="pref-row">
-                        <input type="radio" name="skeleton" value="deck"
-                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("deck")
-                            on:change=move |_| act::choose_skeleton(s, open, "deck")/>
-                        <span>"Kortdäck — layered deck scrub"</span>
-                    </label>
-                    <label class="pref-row">
-                        <input type="radio" name="skeleton" value="hud"
-                            prop:checked=move || s.prefs.skeleton.get().as_deref() == Some("hud")
-                            on:change=move |_| act::choose_skeleton(s, open, "hud")/>
-                        <span>"Holoterminal — zero-chrome, edge panels"</span>
-                    </label>
+                    // v27 (M5/P2): the structural-skeleton picker is retired —
+                    // Omloppsbana is the sole shell for the release (deck/hud are
+                    // post-release). This section returns when a second skeleton
+                    // ships; the prefs.rs persistence surface is kept for it.
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>

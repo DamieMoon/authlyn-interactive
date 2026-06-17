@@ -1,8 +1,12 @@
-//! W5/P1 theme-switch guards. The skeleton-id validation runs in the ssr
-//! graph (no DB needed). The switch-invariant assertions (SSE/composer/
-//! selection preserved) are documented here as the Phase-7 gate contract.
+//! Skeleton-id validation guards. The id validation runs in the ssr graph (no
+//! DB needed) and pins the prefs.rs persistence surface that survives the M3
+//! retirement. v27 (M5/P2) ships Omloppsbana as the SOLE shell — the three-way
+//! ceremony and the account skeleton-picker are retired (deck/hud are
+//! post-release). These tests keep `SKELETON_IDS` / `is_valid_skeleton` /
+//! `SKELETON_FALLBACK` / `set_skeleton` honest so re-enabling a chooser when a
+//! second skeleton lands is a known-good surface.
 
-// Reached via the act re-export (Step 1.1.4); this is the stable public path.
+// Reached via the act re-export; this is the stable public path.
 use authlyn_interactive::ui::shell::act::{is_valid_skeleton, SKELETON_FALLBACK, SKELETON_IDS};
 
 #[test]
@@ -26,43 +30,39 @@ fn fallback_is_a_valid_id() {
     assert_eq!(SKELETON_FALLBACK, "orbit");
 }
 
-// W5/P1 (Task 1.3): pin the no-silent-default surface the ceremony depends on.
+// Pin the ssr persistence surface. v27 forces orbit unconditionally at shell
+// init (no ceremony, no chooser); these stubs still pin the contract the
+// post-release deck/hud chooser will re-use.
 use authlyn_interactive::ui::shell::act::{local_storage_writable, skeleton_pref};
 
 #[test]
 fn ssr_stubs_signal_no_pref_and_no_storage() {
-    // On the server there is no localStorage: skeleton_pref() is None (so the
-    // ceremony would show on a writable client) and local_storage_writable()
-    // is false (so the server never claims a writable store). This pins the
-    // surface the ceremony's no-silent-default branch depends on; the live
-    // writable→None / non-writable→orbit behavior is a Phase-7 device check.
+    // On the server there is no localStorage: skeleton_pref() is None and
+    // local_storage_writable() is false. v27 forces orbit at hydrate init in
+    // shell/mod.rs (not via this stub), so the ssr stub stays None unchanged.
     assert_eq!(skeleton_pref(), None);
     assert!(!local_storage_writable());
 }
 
 use authlyn_interactive::ui::shell::act::set_skeleton;
 
-/// W5/P1 §13 invariant contract: switching the skeleton must NOT remount the
-/// shell. The structural guarantee is that the skeleton lives on the same
-/// stable Prefs aggregate / same .app root that carries fx-max (which we
-/// already switch live without remount), so flipping it is a pure class
-/// toggle. set_skeleton therefore must (a) accept only valid ids and (b)
-/// never need to touch SSE / composer / selection state — it only persists a
-/// string. These assertions pin that set_skeleton's surface is exactly that.
+/// §13 invariant contract: when a second skeleton ships and the chooser
+/// returns, switching must NOT remount the shell — the skeleton lives on the
+/// same stable Prefs aggregate / same .app root that carries fx-max (switched
+/// live without remount), so flipping it is a pure class toggle. set_skeleton
+/// therefore must (a) accept only valid ids and (b) never touch SSE / composer
+/// / selection state — it only persists a string. These assertions pin that.
 #[test]
 fn set_skeleton_surface_is_pref_only() {
     // The ssr stub returns false (no localStorage on the server) and takes
-    // ONLY an id — proving the API touches no shell state. (The hydrate impl
-    // is the same shape; the live SSE/composer/selection preservation is a
-    // Phase-7 real-device gate item, documented below.)
+    // ONLY an id — proving the API touches no shell state.
     assert!(!set_skeleton("orbit"));
     assert!(!set_skeleton("nonsense"));
 }
 
-// PHASE-7 GATE CONTRACT (real-device, per §13): after this lands, the wave
-// gate MUST verify on the live app that switching the skeleton via the account
-// picker preserves: (1) the SSE connection (no reconnect in the network
-// panel), (2) the composer draft text, (3) the selected channel + scroll
-// position. These cannot be asserted from the ssr harness (no WASM signals);
-// they are booked as Phase-7 theme-machinery items. Open Question #4: the
-// owner may want this automated sooner via headed Playwright on the MacBook.
+// PHASE-7 GATE CONTRACT (real-device, per §13): v27 ships orbit-only, so there
+// is no live skeleton switch to verify this release. When a second skeleton
+// lands and the picker returns, the gate MUST verify on the live app that
+// switching preserves: (1) the SSE connection (no reconnect), (2) the composer
+// draft text, (3) the selected channel + scroll position — none assertable
+// from the ssr harness. Headed Playwright on the MacBook is the intended tool.
