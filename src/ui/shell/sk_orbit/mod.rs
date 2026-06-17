@@ -128,6 +128,35 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             composing.set(false);
         }
     });
+    // The INVERSE bridge (M6 bug-fix): editing or replying to a message must
+    // REVEAL the composer, exactly as tapping the orb does. `act::start_edit` /
+    // `act::start_reply` live in the shared act layer and set `editing` /
+    // `replying_to`, but `composing` is shell-local — so open it here when either
+    // becomes Some. Their own `query_selector(".composer textarea").focus()` runs
+    // during the user gesture but targets the still-hidden (visibility:hidden)
+    // at-rest composer on orbit, a no-op; this reveal is what makes it appear, and
+    // the focus below (after the reveal) is the one that lands. We do NOT read
+    // `composing` here, so writing it cannot re-trigger this effect (no cycle).
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        let opening = s.composer.editing.get().is_some() || s.composer.replying_to.get().is_some();
+        if opening {
+            composing.set(true);
+            use leptos::wasm_bindgen::JsCast as _;
+            if let Some(el) = leptos::web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| {
+                    d.query_selector(".app.sk-orbit .composer textarea")
+                        .ok()
+                        .flatten()
+                })
+            {
+                if let Ok(t) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+                    let _ = t.focus();
+                }
+            }
+        }
+    });
     let channel_name = move || {
         s.sel
             .sel_channel
