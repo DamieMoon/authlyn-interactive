@@ -27,7 +27,7 @@ mod meta;
 mod radial;
 mod skeleton;
 
-pub(crate) use manager::ChannelManagerModal;
+pub(crate) use manager::{ChannelManagerBody, ChannelManagerModal};
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};

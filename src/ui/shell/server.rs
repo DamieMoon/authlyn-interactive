@@ -15,6 +15,7 @@
 
 use leptos::prelude::*;
 
+use super::channel::ChannelManagerBody;
 use super::{act, Shell};
 use crate::ui::icons::IconClose;
 use crate::ui::modal::Modal;
@@ -120,16 +121,15 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             </section>
 
             // ---- Channels ----
-            // Interim launcher (T1): opens the existing ChannelManagerModal via
-            // the shared `s.sync.manager_open` signal so channel management
-            // stays reachable. T2 inlines the manager body as a section here and
-            // drops this button.
+            // The full channel manager (create / rename / delete / finger-drag
+            // reorder) inlined as a section — the SAME ChannelManagerBody the W3
+            // sidebar's "⚙ Manage" modal wraps. The `.channel-manager` div is the
+            // ancestor its scoped styling needs.
             <section class="account-section">
                 <h3>"Channels"</h3>
-                <button class="account-save"
-                    on:click=move |_| s.sync.manager_open.set(true)>
-                    "⚙ Manage channels"
-                </button>
+                <div class="channel-manager">
+                    <ChannelManagerBody s=s/>
+                </div>
             </section>
 
             <p class="account-status">{move || s.composer.status.get()}</p>

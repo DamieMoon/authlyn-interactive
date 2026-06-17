@@ -35,13 +35,35 @@ use crate::ui::modal::Modal;
 #[cfg(feature = "hydrate")]
 use leptos::ev::PointerEvent;
 
-/// The channel-management modal. `open` is the caller-owned visibility signal;
-/// the modal clears it on backdrop/Esc/✕. Channels are read live from
-/// `s.sel.channels` (already position-sorted by the server).
+/// The channel-management modal — the W3 sidebar's "⚙ Manage" entry. A thin
+/// chrome wrapper (shared [`Modal`] + a head) around the reusable
+/// [`ChannelManagerBody`]; `open` is the caller-owned visibility signal (cleared
+/// on backdrop/Esc/✕). The orbit Server window renders the SAME body inline as
+/// its "Channels" section, so the two stay in lockstep.
 #[component]
 pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
+    view! {
+        <Modal class="channel-manager" close=move || open.set(false)>
+            <div class="manager-head">
+                <h3>"Manage channels"</h3>
+                <button class="row-edit" title="close"
+                    on:click=move |_| open.set(false)>"✕"</button>
+            </div>
+            <ChannelManagerBody s=s/>
+        </Modal>
+    }
+}
+
+/// The channel-management body — list + finger-drag reorder + new-channel
+/// creator — with NO modal chrome, so it mounts both inside
+/// [`ChannelManagerModal`] (W3 sidebar) and inline as the orbit Server window's
+/// "Channels" section. The caller supplies the `.channel-manager` ancestor that
+/// scopes the styling. Channels are read live from `s.sel.channels` (already
+/// position-sorted by the server).
+#[component]
+pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
     // Inline-rename target (which channel id, if any) and the new-channel
-    // creator buffers — scoped to this modal so they reset when it closes.
+    // creator buffers — scoped here so they reset when the host unmounts.
     let editing = RwSignal::new(None::<String>);
     let new_name = RwSignal::new(String::new());
     let new_kind = RwSignal::new("text".to_string());
@@ -53,66 +75,58 @@ pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let drag_over = RwSignal::new(None::<usize>);
 
     view! {
-        <Modal class="channel-manager" close=move || open.set(false)>
-            <div class="manager-head">
-                <h3>"Manage channels"</h3>
-                <button class="row-edit" title="close"
-                    on:click=move |_| open.set(false)>"✕"</button>
-            </div>
+        <ul class="manager-list">
+            {move || {
+                let chans = s.sel.channels.get();
+                chans.into_iter().enumerate().map(|(idx, c)| {
+                    view! {
+                        <ManagerRow s=s ch=c idx=idx
+                            editing=editing drag_from=drag_from drag_over=drag_over/>
+                    }
+                }).collect_view()
+            }}
+        </ul>
 
-            <ul class="manager-list">
-                {move || {
-                    let chans = s.sel.channels.get();
-                    chans.into_iter().enumerate().map(|(idx, c)| {
-                        view! {
-                            <ManagerRow s=s ch=c idx=idx
-                                editing=editing drag_from=drag_from drag_over=drag_over/>
-                        }
-                    }).collect_view()
-                }}
-            </ul>
-
-            // New-channel creator: kind picker + name + Create (mirrors the
-            // standalone creator dialog, kept here so management is one window).
-            <div class="manager-create">
-                <div class="creator-kind">
-                    <label class="pref-row">
-                        <input type="radio" name="mgr-ch-kind" value="text"
-                            prop:checked=move || new_kind.get() == "text"
-                            on:change=move |_| new_kind.set("text".to_string())/>
-                        <span>"# Text"</span>
-                    </label>
-                    <label class="pref-row">
-                        <input type="radio" name="mgr-ch-kind" value="lorebook"
-                            prop:checked=move || new_kind.get() == "lorebook"
-                            on:change=move |_| new_kind.set("lorebook".to_string())/>
-                        <span>"📖 Lorebook"</span>
-                    </label>
-                </div>
-                <div class="manager-create-row">
-                    <input class="creator-name" prop:value=move || new_name.get()
-                        on:input=move |ev| new_name.set(event_target_value(&ev))
-                        placeholder="new channel name"/>
-                    <button class="account-save" on:click=move |_| {
-                        let name = new_name.get_untracked();
-                        if name.trim().is_empty() {
-                            return;
-                        }
-                        let kind = new_kind.get_untracked();
-                        new_name.set(String::new());
-                        new_kind.set("text".to_string());
-                        act::create_channel(s, name, kind);
-                    }>"Create"</button>
-                </div>
+        // New-channel creator: kind picker + name + Create (mirrors the
+        // standalone creator dialog, kept here so management is one place).
+        <div class="manager-create">
+            <div class="creator-kind">
+                <label class="pref-row">
+                    <input type="radio" name="mgr-ch-kind" value="text"
+                        prop:checked=move || new_kind.get() == "text"
+                        on:change=move |_| new_kind.set("text".to_string())/>
+                    <span>"# Text"</span>
+                </label>
+                <label class="pref-row">
+                    <input type="radio" name="mgr-ch-kind" value="lorebook"
+                        prop:checked=move || new_kind.get() == "lorebook"
+                        on:change=move |_| new_kind.set("lorebook".to_string())/>
+                    <span>"📖 Lorebook"</span>
+                </label>
             </div>
-        </Modal>
+            <div class="manager-create-row">
+                <input class="creator-name" prop:value=move || new_name.get()
+                    on:input=move |ev| new_name.set(event_target_value(&ev))
+                    placeholder="new channel name"/>
+                <button class="account-save" on:click=move |_| {
+                    let name = new_name.get_untracked();
+                    if name.trim().is_empty() {
+                        return;
+                    }
+                    let kind = new_kind.get_untracked();
+                    new_name.set(String::new());
+                    new_kind.set("text".to_string());
+                    act::create_channel(s, name, kind);
+                }>"Create"</button>
+            </div>
+        </div>
     }
 }
 
 /// One row in the manager list: a finger-drag grip (`⠿`) + name (or inline-rename
 /// input), then rename (✎) and delete (🗑). Reorder is a press-drag on the grip
-/// (see the module header); `data-idx` lets a drag's `elementFromPoint` hit-test
-/// resolve which row the finger is over.
+/// (see the module header); the drag hit-tests the row under the finger by
+/// bounding box, so a row needs no positional marker of its own.
 #[component]
 fn ManagerRow(
     s: Shell,
@@ -132,6 +146,11 @@ fn ManagerRow(
     #[cfg(feature = "hydrate")]
     let on_grip_down = move |ev: PointerEvent| {
         use leptos::wasm_bindgen::JsCast as _;
+        // Stop the press bubbling to an enclosing swipe-to-close modal (the orbit
+        // Server window is `swipe_close`): otherwise its pointer engine ALSO
+        // set_pointer_capture's this pointer on bubble and steals the move
+        // stream, so the row never follows the finger.
+        ev.stop_propagation();
         if let Some(el) = ev
             .current_target()
             .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
