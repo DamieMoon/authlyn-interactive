@@ -19,6 +19,8 @@ use leptos::ev::KeyboardEvent;
 use leptos::html::{Input, Textarea};
 use leptos::prelude::*;
 
+use crate::ui::icons::{IconCheck, IconClose};
+
 /// `value` — initial buffer contents (the existing name / body).
 ///
 /// `on_save` — called once with the final buffer when the user hits Enter or
@@ -114,8 +116,8 @@ pub fn InlineRename(
     view! {
         {input_field}
         <button class="row-edit" title="save"
-            on:click=move |_| on_save.run(buf.get_untracked())>"✓"</button>
+            on:click=move |_| on_save.run(buf.get_untracked())><IconCheck/></button>
         <button class="row-edit" title="cancel"
-            on:click=move |_| on_cancel.run(())>"✕"</button>
+            on:click=move |_| on_cancel.run(())><IconClose/></button>
     }
 }

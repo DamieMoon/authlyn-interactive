@@ -29,6 +29,7 @@ use leptos::prelude::*;
 
 use super::super::{act, PendingDelete, Shell};
 use crate::protocol::ChannelSummary;
+use crate::ui::icons::{IconBook, IconClose, IconEdit, IconGrip, IconTrash};
 use crate::ui::inline_rename::InlineRename;
 use crate::ui::modal::Modal;
 
@@ -47,7 +48,7 @@ pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             <div class="manager-head">
                 <h3>"Manage channels"</h3>
                 <button class="row-edit" title="close"
-                    on:click=move |_| open.set(false)>"✕"</button>
+                    on:click=move |_| open.set(false)><IconClose/></button>
             </div>
             <ChannelManagerBody s=s/>
         </Modal>
@@ -101,7 +102,7 @@ pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
                     <input type="radio" name="mgr-ch-kind" value="lorebook"
                         prop:checked=move || new_kind.get() == "lorebook"
                         on:change=move |_| new_kind.set("lorebook".to_string())/>
-                    <span>"📖 Lorebook"</span>
+                    <span><IconBook/>" Lorebook"</span>
                 </label>
             </div>
             <div class="manager-create-row">
@@ -138,7 +139,7 @@ fn ManagerRow(
 ) -> impl IntoView {
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
-    let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
+    let is_lore = ch.kind == "lorebook";
 
     // Pointer-drag reorder (hydrate-only — the drag is a no-op on ssr). The grip
     // captures the pointer on `down`, hit-tests the row under the finger on
@@ -221,7 +222,7 @@ fn ManagerRow(
                 }
                 on:pointercancel=move |_ev| {
                     #[cfg(feature = "hydrate")] on_grip_up(_ev);
-                }>"⠿"</span>
+                }><IconGrip/></span>
             {
                 let cid = cid.clone();
                 let name0 = name0.clone();
@@ -244,7 +245,14 @@ fn ManagerRow(
                         }.into_any()
                     } else {
                         view! {
-                            <span class="manager-name">{sigil}{name0.clone()}</span>
+                            <span class="manager-name">
+                                {if is_lore {
+                                    view! { <IconBook/>" " }.into_any()
+                                } else {
+                                    view! { "# " }.into_any()
+                                }}
+                                {name0.clone()}
+                            </span>
                         }.into_any()
                     }
                 }
@@ -253,7 +261,7 @@ fn ManagerRow(
                 <button class="row-edit" title="rename channel" on:click={
                     let cid = cid.clone();
                     move |_| editing.set(Some(cid.clone()))
-                }>"✎"</button>
+                }><IconEdit/></button>
                 <button class="row-edit danger" title="delete channel" on:click={
                     let del_cid = cid.clone();
                     let del_name = name0.clone();
@@ -269,7 +277,7 @@ fn ManagerRow(
                             );
                         }
                     }
-                }>"🗑"</button>
+                }><IconTrash/></button>
             </div>
         </li>
     }

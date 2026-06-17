@@ -13,7 +13,7 @@ use super::avatar::{chat_avatar, format_clock_time, format_local_time};
 use super::display_name;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
-use crate::ui::icons::NovaOrb;
+use crate::ui::icons::{IconCopy, IconEdit, IconReply, IconTrash, NovaOrb};
 
 /// Render the `<div class="meta">` block for a single message row.
 ///
@@ -88,7 +88,7 @@ pub(super) fn message_meta(
                     let reply_m = m.clone();
                     view! {
                         <button class="row-edit" title="reply"
-                            on:click=move |_| act::start_reply(s, reply_m.clone())>"↩"</button>
+                            on:click=move |_| act::start_reply(s, reply_m.clone())><IconReply/></button>
                     }
                 })}
                 {actions.copy.then(|| {
@@ -97,7 +97,7 @@ pub(super) fn message_meta(
                         <button class="row-edit" title="copy markup (no color)"
                             on:click=move |_| {
                                 act::copy_message_body(s, copy_body.clone())
-                            }>"📋"</button>
+                            }><IconCopy/></button>
                     }
                 })}
                 {actions.edit.then(|| {
@@ -112,7 +112,7 @@ pub(super) fn message_meta(
                                         s, cid, edit_mid.clone(), edit_body.clone(),
                                     );
                                 }
-                            }>"✎"</button>
+                            }><IconEdit/></button>
                     }
                 })}
                 {actions.delete.then(|| {
@@ -128,7 +128,7 @@ pub(super) fn message_meta(
                                     // 6s — no confirm modal in the flow.
                                     act::delete_message(s, cid, del_mid.clone());
                                 }
-                            }>"🗑"</button>
+                            }><IconTrash/></button>
                     }
                 })}
             </span>

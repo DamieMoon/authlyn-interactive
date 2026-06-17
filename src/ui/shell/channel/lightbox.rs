@@ -17,6 +17,12 @@
 use leptos::prelude::*;
 
 use crate::protocol::Attachment;
+use crate::ui::icons::IconClose;
+// The gallery-nav + zoom controls live only in the hydrate (interactive) view;
+// the ssr twin renders just the close button. Gate their import so the ssr
+// build doesn't flag them unused (clippy -D warnings).
+#[cfg(feature = "hydrate")]
+use crate::ui::icons::{IconChevronLeft, IconChevronRight, IconMinus, IconPlus, IconZoomReset};
 
 /// Lightbox gallery state: the clicked message's IMAGE attachments plus the
 /// index currently on screen. Arrow keys / pointer-swipe step `idx` within
@@ -915,22 +921,22 @@ pub(super) fn lightbox_view(
                     <div class="lightbox-backdrop"
                         style=move || format!("opacity:{:.3}", backdrop.get())></div>
                     <button class="lightbox-close" title="close"
-                        on:click=move |ev| { ev.stop_propagation(); lightbox.set(None); }>"✕"</button>
+                        on:click=move |ev| { ev.stop_propagation(); lightbox.set(None); }><IconClose/></button>
                     {move || multi().then(|| view! {
                         <button class="lightbox-nav lightbox-prev" title="previous"
                             prop:disabled=at_start
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(-1); }>"‹"</button>
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(-1); }><IconChevronLeft/></button>
                         <button class="lightbox-nav lightbox-next" title="next"
                             prop:disabled=at_end
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(1); }>"›"</button>
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(1); }><IconChevronRight/></button>
                     })}
                     <div class="lightbox-zoom" on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
                         <button title="zoom out"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); nudge_zoom(-ZOOM_STEP); }>"−"</button>
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); nudge_zoom(-ZOOM_STEP); }><IconMinus/></button>
                         <button title="reset zoom"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); reset_view(); }>"⤢"</button>
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); reset_view(); }><IconZoomReset/></button>
                         <button title="zoom in"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); nudge_zoom(ZOOM_STEP); }>"+"</button>
+                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); nudge_zoom(ZOOM_STEP); }><IconPlus/></button>
                     </div>
                     {media}
                 </div>
@@ -971,7 +977,7 @@ pub(super) fn lightbox_view(
                     <div class="lightbox" tabindex="-1"
                         role="dialog" aria-modal="true" aria-label="attachment viewer">
                         <div class="lightbox-backdrop"></div>
-                        <button class="lightbox-close" title="close">"✕"</button>
+                        <button class="lightbox-close" title="close"><IconClose/></button>
                         {media}
                     </div>
                 }

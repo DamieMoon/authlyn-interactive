@@ -64,6 +64,65 @@ icon!(/// Personas tab (W3 mobile nav).
 icon!(/// Notifications / bell.
     IconBell, r#"<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0"/>"#);
 
+// M6 affordance migration (owner directive 2026-06-17 — "Allt, inkl.
+// dingbats"): every emoji/glyph UI control becomes an inline-SVG icon. The
+// set below replaces the inline composer/orbit/menu glyphs that the W2 system
+// never reached. Genuine emoji CONTENT (the picker grid, custom-emoji manager,
+// emoji typed into messages) is NOT an affordance and stays untouched.
+icon!(/// Attach a file (replaces "📎") — paperclip.
+    IconAttach, r#"<path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>"#);
+icon!(/// Emoji picker trigger (replaces "😀") — smiley outline. NB: the affordance,
+    /// not emoji content; the picker grid stays a real emoji surface.
+    IconEmoji, r#"<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>"#);
+icon!(/// Draft-preview toggle (replaces "👁") — eye.
+    IconEye, r#"<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>"#);
+icon!(/// Disclosure chevron (replaces "▼") — color-swatch / popover toggles.
+    IconChevronDown, r#"<path d="M6 9l6 6 6-6"/>"#);
+icon!(/// Roll a die (replaces "🎲") — die face with pips.
+    IconDie, r#"<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 8.5h.01M15.5 8.5h.01M12 12h.01M8.5 15.5h.01M15.5 15.5h.01"/>"#);
+icon!(/// Whisper effect (replaces "🌫"/"🤫") — a brief, quiet speech bubble.
+    IconWhisper, r#"<path d="M21 11.5a8.4 8.4 0 0 1-11.7 7.7L3 21l1.8-6.3A8.4 8.4 0 1 1 21 11.5z"/><path d="M8.5 11.5h7"/>"#);
+icon!(/// Shout effect (replaces "📣") — megaphone with sound waves.
+    IconShout, r#"<path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M14.5 9a4 4 0 0 1 0 6M17 7a7 7 0 0 1 0 10"/>"#);
+icon!(/// Spell effect (replaces "✨") — sparkles.
+    IconSpell, r#"<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/>"#);
+icon!(/// Four-point brand star (replaces "✦") — orbit nucleus / menu bullet.
+    IconStar, r#"<path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/>"#);
+icon!(/// Drag grip (replaces "⠿") — six dots, the finger-reorder handle.
+    IconGrip, r#"<path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/>"#);
+icon!(/// Empty / off state (replaces "○" and the "◌" no-effect mode) — outline circle.
+    IconCircle, r#"<circle cx="12" cy="12" r="7"/>"#);
+icon!(/// Members roster (replaces "👥") — two side-by-side people; distinct from
+    /// IconFriends so the station's Friends / Members entries read apart.
+    IconMembers, r#"<circle cx="8" cy="9.5" r="2.5"/><circle cx="16" cy="9.5" r="2.5"/><path d="M3.5 18a4.5 4.5 0 0 1 9 0M11.5 18a4.5 4.5 0 0 1 9 0"/>"#);
+icon!(/// Swipe sideways (replaces "↔") — orbit help legend.
+    IconSwipe, r#"<path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/>"#);
+icon!(/// The compose orb (replaces "◉") — orbit help legend; a ringed core.
+    IconOrb, r#"<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/>"#);
+icon!(/// Press-and-hold gesture (replaces "⏺") — orbit help legend.
+    IconHold, r#"<circle cx="12" cy="12" r="3.5" fill="currentColor"/><path d="M12 4v2.5M12 17.5V20M4 12h2.5M17.5 12H20"/>"#);
+icon!(/// Previous (replaces "‹") — lightbox gallery nav.
+    IconChevronLeft, r#"<path d="M15 6l-6 6 6 6"/>"#);
+icon!(/// Next (replaces "›") — lightbox gallery nav.
+    IconChevronRight, r#"<path d="M9 6l6 6-6 6"/>"#);
+icon!(/// Zoom out (replaces "−") — lightbox.
+    IconMinus, r#"<path d="M5 12h14"/>"#);
+icon!(/// Reset / fit (replaces "⤢") — lightbox zoom reset; corner brackets.
+    IconZoomReset, r#"<path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5"/>"#);
+icon!(/// Back (replaces "←") — left arrow, e.g. the orbit station close.
+    IconBack, r#"<path d="M19 12H5M11 6l-6 6 6 6"/>"#);
+icon!(/// File / document download tile (replaces "📄").
+    IconFile, r#"<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>"#);
+icon!(/// Retry / refresh (replaces "↻") — failed-upload re-try.
+    IconRefresh, r#"<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v5h-5"/>"#);
+icon!(/// Lorebook channel sigil (replaces "📖") — open book.
+    IconBook, r#"<path d="M12 6.5v13"/><path d="M3 5.5a9 9 0 0 1 9 1 9 9 0 0 1 9-1V17a9 9 0 0 0-9 1 9 9 0 0 0-9-1z"/>"#);
+icon!(/// Ghost Quill author marker (replaces "✒️") — a feather quill.
+    IconQuill, r#"<path d="M20 4C10.5 6 6.5 12 4.5 20l3-1c1.2-6 5-10 12.5-12z"/><path d="M14 7l-7 7"/>"#);
+icon!(/// Filled disc (replaces "●") — a colour swatch dot; fills in currentColor
+    /// so a `.mk-*` swatch shows its hue. The empty/none swatch uses IconCircle.
+    IconDisc, r#"<circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/>"#);
+
 /// Nova DOT system avatar — the Superintendent-inspired civic-AI orb (spec
 /// §3:98, M6/P3). Unlike the stroke icons above this is the bundled BRAND
 /// asset: the art lives in `public/nova-dot.svg` (the owner is the visual

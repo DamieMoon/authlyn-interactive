@@ -54,6 +54,10 @@ use crate::client::api;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
 use crate::ui::emoji::data::{self, GROUPS};
+use crate::ui::icons::{
+    IconAttach, IconCheck, IconChevronDown, IconCircle, IconClose, IconDie, IconDown, IconEmoji,
+    IconEye, IconQuill, IconRefresh, IconSend, IconShout, IconSpell, IconTrash, IconWhisper,
+};
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
@@ -81,12 +85,12 @@ fn next_effect(cur: Option<&str>) -> Option<&'static str> {
 }
 
 /// Glyph shown on the effect-picker button per mode (◌ = no effect).
-fn effect_glyph(cur: Option<&str>) -> &'static str {
+fn effect_glyph(cur: Option<&str>) -> AnyView {
     match cur {
-        Some("whisper") => "🤫",
-        Some("shout") => "📣",
-        Some("spell") => "✨",
-        _ => "◌",
+        Some("whisper") => view! { <IconWhisper/> }.into_any(),
+        Some("shout") => view! { <IconShout/> }.into_any(),
+        Some("spell") => view! { <IconSpell/> }.into_any(),
+        _ => view! { <IconCircle/> }.into_any(),
     }
 }
 
@@ -1008,7 +1012,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             // by the multi-root view.
                             view! {
                                 <span class="text roll-chip">
-                                    <span class="roll-die" aria-hidden="true">"🎲"</span>
+                                    <span class="roll-die" aria-hidden="true"><IconDie/></span>
                                     <span class="roll-text">{body.clone()}</span>
                                 </span>
                                 <div class="roll-tag">"fate engine · sealed 🔒"</div>
@@ -1305,7 +1309,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         view! {
                             <li class=li_class>
                                 <div class="meta">
-                                    <span class="who">{g.display_name} " ✒️"</span>
+                                    <span class="who">{g.display_name}" "<IconQuill/></span>
                                 </div>
                                 <span class="text">{g.draft}</span>
                             </li>
@@ -1321,9 +1325,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 (unread.get() > 0).then(|| {
                     let n = unread.get();
                     let label = if n == 1 {
-                        "1 new message ↓".to_string()
+                        "1 new message".to_string()
                     } else {
-                        format!("{n} new messages ↓")
+                        format!("{n} new messages")
                     };
                     view! {
                         <button class="unread-pill"
@@ -1340,7 +1344,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     mark_seen();
                                 }
                             }>
-                            {label}
+                            {label}" "<IconDown/>
                         </button>
                     }
                 })
@@ -1362,7 +1366,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     mark_seen();
                                 }
                             }>
-                            "↓"
+                            <IconDown/>
                         </button>
                     }
                 })
@@ -1375,7 +1379,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 view! {
                     <div class="trash-msg-panel">
                         <div class="trash-panel-header">
-                            <span>"🗑 Deleted messages"</span>
+                            <span><IconTrash/>" Deleted messages"</span>
                         </div>
                         {if msgs.is_empty() {
                             view! { <p class="muted pad">"No deleted messages."</p> }.into_any()
@@ -1452,7 +1456,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                 <span class="reply-banner-snippet">{snippet}</span>
                             </span>
                             <button class="reply-banner-cancel" type="button" title="cancel reply"
-                                on:click=move |_| act::cancel_reply(s)>"✕"</button>
+                                on:click=move |_| act::cancel_reply(s)><IconClose/></button>
                         </div>
                     }
                 })}
@@ -1464,7 +1468,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         <div class="edit-banner">
                             <span class="edit-banner-text">"Editing message"</span>
                             <button class="edit-banner-cancel" type="button" title="cancel edit"
-                                on:click=move |_| act::cancel_edit(s)>"✕"</button>
+                                on:click=move |_| act::cancel_edit(s)><IconClose/></button>
                         </div>
                     }
                 })}
@@ -1472,7 +1476,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.
                     <label class="fmt attach" title="attach a file">
-                        "📎"
+                        <IconAttach/>
                         // NO `accept`: on Android a media `accept` hint makes Chrome
                         // launch the system photo picker (Google Photos on this
                         // device), which the user doesn't want; omitting it gives the
@@ -1578,14 +1582,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     }}
                     <button class="fmt color-more" title="more colors"
                         on:click=move |_| color_open.update(|o| *o = !*o)>
-                        "▼"
+                        <IconChevronDown/>
                     </button>
                     // Emoji picker toggle + live-preview toggle. The preview
                     // toggle persists per-user (localStorage) like the other
                     // composer prefs.
                     <button class="fmt" title="emoji"
                         on:click=move |_| emoji_open.update(|o| *o = !*o)>
-                        "😀"
+                        <IconEmoji/>
                     </button>
                     <button class="fmt" title="preview"
                         on:click=move |_| {
@@ -1593,7 +1597,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             preview_on.set(v);
                             act::set_compose_preview(v);
                         }>
-                        "👁"
+                        <IconEye/>
                     </button>
                 </div>
                 // Color palette popover: all 8 swatches in a small grid; a
@@ -1693,7 +1697,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                             <div class="att-failed" title=msg>
                                                 <button class="att-retry" type="button" title="retry"
                                                     on:click=move |_| act::retry_compose_attachment(s, key)>
-                                                    "↻"
+                                                    <IconRefresh/>
                                                 </button>
                                             </div>
                                         }.into_any()
@@ -1708,7 +1712,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         {overlay}
                                         <button class="att-remove" type="button" title="remove"
                                             on:click=move |_| act::remove_compose_attachment(s, key)>
-                                            "✕"
+                                            <IconClose/>
                                         </button>
                                     </div>
                                 }
@@ -1974,11 +1978,15 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // Orbit's composer pill uses the prototype's compact glyph
                         // send (a-orbit.html #sendBtn ➤); deck/hud keep the word.
                         if s.prefs.skeleton.get().as_deref() == Some("orbit") {
-                            if editing { "✓" } else { "➤" }
+                            if editing {
+                                view! { <IconCheck/> }.into_any()
+                            } else {
+                                view! { <IconSend/> }.into_any()
+                            }
                         } else if editing {
-                            "Save"
+                            view! { "Save" }.into_any()
                         } else {
-                            "Send"
+                            view! { "Send" }.into_any()
                         }
                     }}
                 </button>
@@ -1997,7 +2005,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         <div class="detail-head">
                             <h4>{persona}</h4>
                             <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)>"✕"</button>
+                                on:click=move |_| info.set(None)><IconClose/></button>
                         </div>
                         // Persona's send-time avatar snapshot (#26), monogram fallback.
                         <div class="info-portrait">{portrait}</div>

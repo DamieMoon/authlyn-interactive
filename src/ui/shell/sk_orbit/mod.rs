@@ -30,6 +30,10 @@ use super::{
     act, channel::ChannelPane, emoji_manager::EmojiManagerPane, friends::FriendsPane,
     lorebook::LorebookPane, members::MembersPane, Pane, Shell,
 };
+use crate::ui::icons::{
+    IconBack, IconBook, IconEdit, IconEmoji, IconFriends, IconHold, IconMembers, IconOrb,
+    IconPersonas, IconPlus, IconSettings, IconShout, IconSpell, IconStar, IconSwipe, IconWhisper,
+};
 
 /// Live viewport (width, height) in CSS px. Falls back to the POCO C3 floor
 /// off-DOM / on ssr so the geometry is sane before hydrate.
@@ -167,11 +171,17 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     // Kind-aware sigil, consistent with the W3 shell (`📖 ` lorebook, `# `
     // otherwise — `shell/mod.rs`); no surface renders the bare name.
     let channel_sigil = move || {
-        s.sel
+        let is_lore = s
+            .sel
             .sel_channel
             .get()
-            .map(|c| if c.kind == "lorebook" { "📖 " } else { "# " })
-            .unwrap_or("# ")
+            .map(|c| c.kind == "lorebook")
+            .unwrap_or(false);
+        if is_lore {
+            view! { <IconBook/> }.into_any()
+        } else {
+            view! { "#" }.into_any()
+        }
     };
     let server_name = move || {
         let sid = s.sel.sel_server.get();
@@ -290,14 +300,6 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             .compose
             .with(|c| self::charge::charge_fraction(c))
     });
-    // Armed-effect glyph shown in the orb center. Matches the prototype's orb
-    // badge 1:1 (a-orbit.html:917: 🌫 fog / 📣 / ✨) and the blossom chips below.
-    let armed_glyph = move || match s.composer.effect_mode.get().as_deref() {
-        Some("whisper") => "🌫",
-        Some("shout") => "📣",
-        Some("spell") => "✨",
-        _ => "",
-    };
     // Effect blossom: a 480ms hold on the orb (BlossomHold, move-slop disarmed so
     // a jittery Send tap never blossoms — #47) opens three glass effect chips;
     // the trailing click is guarded so the hold never also sends. KEYBOARD parity
@@ -643,7 +645,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                     }
                                     .into_any(),
                                     None => view! {
-                                        <span class="sk-orbit-core-glyph" aria-hidden="true">"✦"</span>
+                                        <span class="sk-orbit-core-glyph" aria-hidden="true"><IconStar/></span>
                                     }
                                     .into_any(),
                                 }
@@ -685,7 +687,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 let a0 = orbit.y.atan2(orbit.x).to_degrees();
                                 let has_unread = unread.contains(&c.id);
                                 let ch = c.clone();
-                                let sigil = if c.kind == "lorebook" { "📖 " } else { "# " };
+                                let is_lore = c.kind == "lorebook";
                                 view! {
                                     // Per-node revolving frame (a-orbit.html `.orbit`, but
                                     // each node spins at its OWN --orbit-period instead of
@@ -741,7 +743,13 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                             }
                                         }>
                                         <span class="sk-orbit-node-in">
-                                            <span class="sk-orbit-node-hash" aria-hidden="true">{sigil}</span>
+                                            <span class="sk-orbit-node-hash" aria-hidden="true">
+                                                {if is_lore {
+                                                    view! { <IconBook/> }.into_any()
+                                                } else {
+                                                    view! { "#" }.into_any()
+                                                }}
+                                            </span>
                                             <span class="sk-orbit-node-name">{c.name.clone()}</span>
                                             {has_unread.then(|| view! { <span class="sk-orbit-node-dot" aria-hidden="true"></span> })}
                                         </span>
@@ -817,18 +825,18 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         <div class="sk-orbit-map-dock">
                             <button class="sk-orbit-sat" type="button"
                                 on:click=move |_| { close_map(); station_open.set(true); }>
-                                "✦ Personas"
+                                <IconPersonas/>" Personas"
                             </button>
                             <button class="sk-orbit-sat" type="button"
                                 on:click=move |_| { close_map(); station_open.set(true); }>
-                                "⚙ Station"
+                                <IconSettings/>" Station"
                             </button>
                             // Found a new server (orbit's only create-server
                             // entry; M3's rail-add is retired). Opens the
                             // founding dialog over the shell.
                             <button class="sk-orbit-sat" type="button"
                                 on:click=move |_| { new_server_name.set(String::new()); founding.set(true); }>
-                                "✦ New server"
+                                <IconPlus/>" New server"
                             </button>
                         </div>
                         <p class="sk-orbit-map-hint" aria-hidden="true">"tap a node to enter"</p>
@@ -953,23 +961,27 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         <circle class="sk-orbit-ring-arc" cx="26" cy="26" r="24"></circle>
                     </svg>
                     <span class="sk-orbit-orb-glyph">{move || {
-                        // ✎ compose pen when unarmed (the prototype's #orbGlyph,
-                        // a-orbit.html:416) — the orb now opens the composer; the
-                        // armed-effect glyph (🌫/📣/✨) still wins when an effect
-                        // is loaded, so you can see what the next message carries.
-                        let g = armed_glyph();
-                        if g.is_empty() { "✎" } else { g }
+                        // IconEdit compose pen when unarmed (the prototype's
+                        // #orbGlyph, a-orbit.html:416) — the orb opens the composer;
+                        // the armed-effect icon (whisper/shout/spell) still wins when
+                        // an effect is loaded, so you see what the next message carries.
+                        match s.composer.effect_mode.get().as_deref() {
+                            Some("whisper") => view! { <IconWhisper/> }.into_any(),
+                            Some("shout") => view! { <IconShout/> }.into_any(),
+                            Some("spell") => view! { <IconSpell/> }.into_any(),
+                            _ => view! { <IconEdit/> }.into_any(),
+                        }
                     }}</span>
                 </button>
                 {move || blossom_open.get().then(|| {
-                    // (effect name, glyph, English label). Glyphs match the
-                    // prototype's effect ring 1:1 (a-orbit.html:420-422:
-                    // 🌫 fog / 📣 / ✨) and the orb badge below; labels are
-                    // ENGLISH (UI-copy rule) — the SCSS uppercases them.
+                    // (effect name, English label). The per-effect ICON is derived
+                    // from the name below (IconWhisper / IconShout / IconSpell,
+                    // matching the orb badge); labels are ENGLISH (UI-copy rule) —
+                    // the SCSS uppercases them.
                     let chips = [
-                        ("whisper", "🌫", "whisper"),
-                        ("shout", "📣", "shout"),
-                        ("spell", "✨", "spell"),
+                        ("whisper", "whisper"),
+                        ("shout", "shout"),
+                        ("spell", "spell"),
                     ];
                     view! {
                         // Tap-outside dismiss layer (mirrors `.sk-orbit-map-scrim`):
@@ -1027,8 +1039,13 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                     _ => {}
                                 }
                             }>
-                            {chips.into_iter().enumerate().map(|(i, (name, glyph, label))| {
+                            {chips.into_iter().enumerate().map(|(i, (name, label))| {
                                 let name_owned = name.to_string();
+                                let glyph = match name {
+                                    "shout" => view! { <IconShout/> }.into_any(),
+                                    "spell" => view! { <IconSpell/> }.into_any(),
+                                    _ => view! { <IconWhisper/> }.into_any(),
+                                };
                                 view! {
                                     <button class="sk-orbit-chip" role="menuitem"
                                         // Per-effect class so the SCSS can tint
@@ -1093,23 +1110,32 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             <p class="sk-orbit-hints-sub">"You navigate space, not menus"</p>
                             <div class="sk-orbit-hints-rows">
                                 {[
-                                    ("↔", "Swipe sideways", "Switch between channels"),
-                                    ("◉", "The orb", "Tap to write — hold for whisper / shout / spell"),
-                                    ("⏺", "Hold a message", "Reply, react, edit or delete"),
-                                    ("✦", "Tap the pill", "Open the orbit map — pick a channel or world"),
-                                    ("🌫", "Whispers", "Touch a whisper to listen"),
-                                ].into_iter().map(|(g, t, d)| view! {
+                                    ("swipe", "Swipe sideways", "Switch between channels"),
+                                    ("orb", "The orb", "Tap to write — hold for whisper / shout / spell"),
+                                    ("hold", "Hold a message", "Reply, react, edit or delete"),
+                                    ("star", "Tap the pill", "Open the orbit map — pick a channel or world"),
+                                    ("whisper", "Whispers", "Touch a whisper to listen"),
+                                ].into_iter().map(|(g, t, d)| {
+                                    let glyph = match g {
+                                        "swipe" => view! { <IconSwipe/> }.into_any(),
+                                        "orb" => view! { <IconOrb/> }.into_any(),
+                                        "hold" => view! { <IconHold/> }.into_any(),
+                                        "star" => view! { <IconStar/> }.into_any(),
+                                        _ => view! { <IconWhisper/> }.into_any(),
+                                    };
+                                    view! {
                                     <div class="sk-orbit-hint-row">
-                                        <span class="sk-orbit-hint-g" aria-hidden="true">{g}</span>
+                                        <span class="sk-orbit-hint-g" aria-hidden="true">{glyph}</span>
                                         <span class="sk-orbit-hint-t">
                                             <b>{t}</b>
                                             <span>{d}</span>
                                         </span>
                                     </div>
+                                    }
                                 }).collect_view()}
                             </div>
                             <button class="sk-orbit-hints-ok" type="button"
-                                on:click=move |_| help_open.set(false)>"Got it ✦"</button>
+                                on:click=move |_| help_open.set(false)>"Got it "<IconStar/></button>
                         </div>
                     </div>
                 </Portal>
@@ -1140,7 +1166,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                     new_server_name.set(String::new());
                                     founding.set(false);
                                     act::create_server(s, name);
-                                }>"Found ✦"</button>
+                                }>"Found "<IconStar/></button>
                         </div>
                     </div>
                 </Portal>
@@ -1159,7 +1185,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 >
                     <div class="sk-orbit-station">
                         <button class="sk-orbit-station-close" title="Close" aria-label="Close"
-                            on:click=move |_| close_station()>"←"</button>
+                            on:click=move |_| close_station()><IconBack/></button>
                         <h2>{move || {
                             let cn = s.sel.sel_channel.get().map(|c| c.name).unwrap_or_default();
                             format!("Your persona in #{cn}")
@@ -1186,7 +1212,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // (shell/mod.rs); the station grid above only wears/switches.
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_wardrobe(s); }>
-                            "✦ Manage personas"
+                            <IconPersonas/>" Manage personas"
                         </button>
                         // Parity wiring (M5): the Friends / Members / Emoji panes
                         // mount in the orbit pane-dispatch but had NO orbit entry
@@ -1198,15 +1224,15 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         <h2>"Go to"</h2>
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_friends(s); }>
-                            "✦ Friends"
+                            <IconFriends/>" Friends"
                         </button>
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_members(s); }>
-                            "👥 Members"
+                            <IconMembers/>" Members"
                         </button>
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_emoji_manager(s); }>
-                            "😀 Custom emoji"
+                            <IconEmoji/>" Custom emoji"
                         </button>
                         // Parity wiring (M5): owner-only server management lives in
                         // the ServerModal (accent / invitations / channels) — the
@@ -1217,7 +1243,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             <h2>"Server"</h2>
                             <button class="sk-orbit-account-btn" type="button"
                                 on:click=move |_| { close_station(); server_open.set(true); }>
-                                "⚙ Server settings"
+                                <IconSettings/>" Server settings"
                             </button>
                         })}
                         <h2>"Station"</h2>
@@ -1247,7 +1273,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 s.composer.status.set(String::new());
                                 account_open.set(true);
                             }>
-                            "⚙ Account & preferences"
+                            <IconSettings/>" Account & preferences"
                         </button>
                     </div>
                 </HoloPanel>

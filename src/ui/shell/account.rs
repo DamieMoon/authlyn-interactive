@@ -431,7 +431,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                                         <button class="fb-del" title="Delete feedback"
                                                             on:click=move |_| {
                                                                 pending_archive.set(Some(id.clone()));
-                                                            }>"✕"</button>
+                                                            }><IconClose/></button>
                                                     </div>
                                                     <p class="fb-body">{body}</p>
                                                     {context.map(|c| view! {

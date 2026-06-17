@@ -18,6 +18,7 @@ use leptos::prelude::*;
 use crate::protocol::ListFriendsResponse;
 
 use crate::ui::emoji::EmojiResolver;
+use crate::ui::icons::IconClose;
 use crate::ui::modal::Modal;
 use crate::ui::AuthCtx;
 
@@ -392,7 +393,7 @@ fn AppShell() -> impl IntoView {
                 view! {
                     <Modal class="wardrobe-modal" close=move || s.sync.wardrobe_open.set(false)>
                         <button class="modal-x" title="close" aria-label="Close wardrobe"
-                            on:click=move |_| s.sync.wardrobe_open.set(false)>"✕"</button>
+                            on:click=move |_| s.sync.wardrobe_open.set(false)><IconClose/></button>
                         <WardrobePane/>
                     </Modal>
                 }

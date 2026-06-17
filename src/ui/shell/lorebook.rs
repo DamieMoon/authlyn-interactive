@@ -3,6 +3,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
+use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDown, IconUp};
 
 #[component]
 pub(crate) fn LorebookPane() -> impl IntoView {
@@ -62,7 +63,11 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                                         on:click=move |_|
                                             act::patch_lore(s, cid_toggle.clone(), eid_toggle.clone(),
                                                 None, None, None, Some(!enabled), None)>
-                                        {if enabled { "✓" } else { "○" }}
+                                        {if enabled {
+                                            view! { <IconCheck/> }.into_any()
+                                        } else {
+                                            view! { <IconCircle/> }.into_any()
+                                        }}
                                     </button>
                                     // reorder up
                                     <button
@@ -71,7 +76,7 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                                         disabled=move || idx == 0
                                         on:click=move |_|
                                             act::swap_lore(s, cid_up.clone(), eid_up.clone(), position, true)>
-                                        "↑"
+                                        <IconUp/>
                                     </button>
                                     // reorder down
                                     <button
@@ -80,7 +85,7 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                                         disabled=move || idx == len.saturating_sub(1)
                                         on:click=move |_|
                                             act::swap_lore(s, cid_down.clone(), eid_down.clone(), position, false)>
-                                        "↓"
+                                        <IconDown/>
                                     </button>
 
                                     {move || if editing.get() {
@@ -129,7 +134,7 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                                                 view! {
                                                     <button class="lore-edit-btn" on:click=move |_| editing.set(true)>"Edit"</button>
                                                     <button class="lore-delete" on:click=move |_|
-                                                        act::delete_lore(s, cid_d.clone(), eid_d.clone())>"✕"</button>
+                                                        act::delete_lore(s, cid_d.clone(), eid_d.clone())><IconClose/></button>
                                                 }.into_any()
                                             }
                                         }}

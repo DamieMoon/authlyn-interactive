@@ -17,6 +17,7 @@ use leptos::prelude::*;
 
 use super::Shell;
 use crate::protocol::MemberSummary;
+use crate::ui::icons::IconClose;
 use crate::ui::AuthCtx;
 
 // ---------------------------------------------------------------------------
@@ -181,7 +182,7 @@ pub(crate) fn MembersPane() -> impl IntoView {
                                             <button class="member-kick" title="kick"
                                                 on:click=move |_| remove_member(
                                                     s, g_kick.clone(), aid_kick.clone(), members)>
-                                                "✕"
+                                                <IconClose/>
                                             </button>
                                         </span>
                                     }

@@ -1258,6 +1258,32 @@
 .app.sk-orbit .sk-orbit-orb-glyph {
 	font-size: 24px;
 	line-height: 1;
+	// Resting compose-pen is luminous accent-blue like the prototype's #orb
+	// (a-orbit.html:215, color:var(--accent-bright)); the armed whisper/shout/
+	// spell states recolor this below. The orb's own color is --text (the ring
+	// label), so the glyph sets its own accent here for the M6 currentColor glow.
+	color: var(--accent-bright);
+}
+
+// ---- M6 affordance-icon glow (owner directive 2026-06-17) ----
+// The diegetic orbit glyphs — the orb's compose-pen / armed-effect badge, the
+// server nucleus, and the effect-blossom chips — are now inline-SVG `.icon`s
+// (icons.rs). They inherit the accent (and the whisper/shout/spell tint) via
+// `currentColor` already; this restores the luminous bloom the text glyphs
+// carried. `text-shadow` never reaches an SVG's stroke, so glow with
+// `drop-shadow(currentColor)` — it tracks whatever colour the glyph currently
+// is (accent at rest, the armed tint when an effect is loaded). `display:block`
+// drops the inline baseline so the icon sits dead-centre in its disc, matching
+// the prototype's centred glyph. The utilitarian affordance icons (menus, dock,
+// nav, close) deliberately get NO bloom — they mirror the prototype's flat
+// accent-coloured action glyphs.
+.app.sk-orbit {
+	.sk-orbit-orb-glyph .icon,
+	.sk-orbit-core-glyph .icon,
+	.sk-orbit-chip-ic .icon {
+		display: block;
+		filter: drop-shadow(0 0 8px currentColor);
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

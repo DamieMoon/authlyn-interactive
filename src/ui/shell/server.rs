@@ -17,7 +17,7 @@ use leptos::prelude::*;
 
 use super::channel::ChannelManagerBody;
 use super::{act, PendingDelete, Shell};
-use crate::ui::icons::IconClose;
+use crate::ui::icons::{IconClose, IconTrash};
 use crate::ui::inline_rename::InlineRename;
 use crate::ui::modal::Modal;
 
@@ -277,7 +277,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                 }
                             }
                         }>
-                        "🗑 Show trashed channels"
+                        <IconTrash/>" Show trashed channels"
                     </button>
                     {move || chan_trash_open.get().then(|| {
                         let chans = s.trash.deleted_channels.get();

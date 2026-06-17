@@ -11,6 +11,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
+use crate::ui::icons::IconClose;
 use crate::ui::AuthCtx;
 
 /// A custom emoji name is 2..=32 chars, each lowercase ascii / digit / `_`.
@@ -65,7 +66,7 @@ pub(crate) fn EmojiManagerPane() -> impl IntoView {
                                 view! {
                                     <button class="emoji-mgr-delete" title="delete"
                                         on:click=move |_| act::delete_guild_emoji(s, gid(), name.clone())>
-                                        "✕"
+                                        <IconClose/>
                                     </button>
                                 }
                             })}

@@ -16,6 +16,7 @@ use leptos::ev::PointerEvent;
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::GalleryImage;
+use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDisc, IconGrip, IconStar};
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
 
@@ -270,7 +271,7 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                         <div class="detail-head">
                             <h4>{p.name.clone()}</h4>
                             <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)>"✕"</button>
+                                on:click=move |_| info.set(None)><IconClose/></button>
                         </div>
                         <div class="info-portrait" title="persona portrait">
                             {portrait(&p.avatar_id, &p.name)}
@@ -435,7 +436,7 @@ fn PersonaCard(
                     }
                     on:pointercancel=move |_ev| {
                         #[cfg(feature = "hydrate")] on_grip_up(_ev);
-                    }>"⠿"</span>
+                    }><IconGrip/></span>
             })}
             // Portrait slot: the uploaded avatar if set, else the monogram.
             <div class="card-portrait" title="persona portrait">
@@ -462,7 +463,7 @@ fn PersonaCard(
                             </button>
                         }
                     }>
-                    <button class="worn" on:click=move |_| act::unwear(s)>"Worn ✓"</button>
+                    <button class="worn" on:click=move |_| act::unwear(s)>"Worn "<IconCheck/></button>
                 </Show>
                 // Owner and editor alike may edit (the editor's view hides sharing).
                 <button title="edit persona"
@@ -572,7 +573,7 @@ fn PersonaDetail(
             <div class="detail-head">
                 <h4>{if owned { "Edit persona" } else { "Edit shared persona" }}</h4>
                 <button class="row-edit" title="close"
-                    on:click=move |_| selected.set(None)>"✕"</button>
+                    on:click=move |_| selected.set(None)><IconClose/></button>
             </div>
             // Portrait slot — shows the current avatar (or monogram) and an
             // upload control. Picking a file uploads it and sets it as the
@@ -654,12 +655,12 @@ fn PersonaDetail(
                                         <img src=src alt="gallery image"
                                             style="width:100%;height:100%;object-fit:cover;border-radius:inherit"/>
                                         {is_avatar.then(|| view! {
-                                            <span class="gallery-badge" title="Current avatar">"★"</span>
+                                            <span class="gallery-badge" title="Current avatar"><IconStar/></span>
                                         })}
                                     </button>
                                     <button class="gallery-remove danger" title="remove image"
                                         on:click=move |_| pending_remove.set(Some(img_id.clone()))>
-                                        "✕"
+                                        <IconClose/>
                                     </button>
                                 </div>
                             }
@@ -782,7 +783,7 @@ fn PersonaDetail(
                 <div class="color-row">
                     <button class="swatch-pick none" title="Default"
                         class:active=move || edit_color.get().is_empty()
-                        on:click=move |_| edit_color.set(String::new())>"○"</button>
+                        on:click=move |_| edit_color.set(String::new())><IconCircle/></button>
                     {Color::ALL.into_iter().map(|c| {
                         let name = c.name();
                         let pick = name.to_string();
@@ -790,7 +791,7 @@ fn PersonaDetail(
                         view! {
                             <button class=format!("swatch-pick mk-{name}") title=name
                                 class:active=move || edit_color.get() == active_name
-                                on:click=move |_| edit_color.set(pick.clone())>"●"</button>
+                                on:click=move |_| edit_color.set(pick.clone())><IconDisc/></button>
                         }
                     }).collect_view()}
                 </div>
