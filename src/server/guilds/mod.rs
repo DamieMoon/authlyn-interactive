@@ -24,6 +24,7 @@
 
 mod channels;
 mod deletion;
+mod icon;
 mod membership;
 
 // Route-table handlers keep their `crate::server::guilds::<fn>` paths via these
@@ -32,6 +33,7 @@ pub use self::channels::{
     create_channel, delete_channel, list_deleted_channels, patch_channel, restore_channel,
 };
 pub use self::deletion::{delete_guild, restore_guild};
+pub use self::icon::set_guild_icon;
 pub use self::membership::{invite_member, list_members, remove_member, set_member_role};
 
 use axum::extract::rejection::JsonRejection;

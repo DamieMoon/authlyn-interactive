@@ -658,6 +658,15 @@ pub struct SetAvatarRequest {
     pub media_id: String,
 }
 
+/// Body of `PUT /guilds/{id}/icon` — set the guild's icon to an already-uploaded
+/// media blob (the client POSTs the file to `/media` first, then sends the id
+/// here). The server re-derives the per-server `accent_color` from the image
+/// (M6, effect G). Mirrors [`SetAvatarRequest`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetGuildIconRequest {
+    pub media_id: String,
+}
+
 /// Body of `POST /personas/{id}/gallery` — add a gallery image.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AddGalleryImageRequest {

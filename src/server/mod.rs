@@ -99,6 +99,7 @@ fn small_body_routes() -> Router<AppState> {
                 .delete(guilds::delete_guild),
         )
         .route("/guilds/{id}/restore", post(guilds::restore_guild))
+        .route("/guilds/{id}/icon", put(guilds::set_guild_icon))
         .route(
             "/guilds/{id}/trash/channels",
             get(guilds::list_deleted_channels),
