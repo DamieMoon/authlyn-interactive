@@ -17,7 +17,15 @@
 .app.sk-orbit {
 	display: block;
 	position: relative;
-	min-height: 100dvh;
+	// svh, NOT dvh: on the iOS 26.5 standalone PWA `100dvh` resolves to the
+	// VISUAL viewport (778px here) while the document's layout/client height is
+	// the SMALL viewport (`100svh` = 762px — measured). A dvh shell is 16px
+	// taller than the document can show → a thin phantom vertical scroll on top
+	// of the composer-spill one. svh matches the layout viewport exactly, and
+	// the bottom chrome (orb/help/stars) is all `position: fixed` to the visual
+	// viewport, so the shorter shell leaves no visible gap.
+	min-height: 100vh; // fallback first
+	min-height: 100svh;
 	// iOS WebKit: suppress native text-selection + the long-press callout so the
 	// long-press radial action menu (channel/radial.rs) is NOT hijacked into
 	// selecting the whole screen blue (owner found this on his real iPhone;
@@ -36,7 +44,9 @@
 }
 .app.sk-orbit .content.sk-orbit-content {
 	height: 100vh; // fallback first
-	height: 100dvh; // dvh wins where supported (mobile chrome + standalone PWA safe-area)
+	height: 100svh; // svh = the layout viewport (=document client height) on the
+	// iOS standalone PWA; dvh resolved 16px TALLER than the document could show
+	// → a phantom vertical scroll (see the `.app.sk-orbit` min-height note).
 	display: flex;
 	flex-direction: column;
 	// Positioning context for the scene-light ::before (so its inset:0 maps to
