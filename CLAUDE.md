@@ -8,7 +8,7 @@ Behavior, communication language, persistence philosophy, novelty handling, and 
 - **Stack + directory layout:** `README.md`.
 - **Every dependency's purpose + the ssr/hydrate/nova graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
 - **Toolchain probe, Bash allowlist, hooks:** `.claude/settings.json`.
-- **Project knowledge (architecture, invariant rationale, incidents, decisions):** **ctx** is canonical (global rule). ctx was reset to a clean slate on 2026-06-16 and re-accumulates here going forward — pre-reboot blocks are tombstoned; don't cite them.
+- **Project knowledge (architecture, invariant rationale, incidents, decisions):** **ctx** is canonical (global rule). Tombstoned blocks are dead — don't cite them.
 
 ## Toolchain prereqs
 `cargo-leptos` installed, and `rustup target add wasm32-unknown-unknown` (the hydrate clippy step and `cargo leptos build` both need it). The `SessionStart` hook prints cargo / cargo-leptos / surreal presence + dev-DB status each session.
@@ -54,17 +54,17 @@ The behavioral-calibration block owns the **`W#`** namespace (W1–W19, incl. W6
 Reading a bare token: a `/P#` or `/T#` suffix in a feature/release context = project (use `M#`); "drift / axis / warning" wording or the calibration block = `W#`.
 
 ## Operating invariants & footguns (the tests are canonical — read the test, not memory)
-The full numbered catalogue was in the now-deleted `docs/ARCHITECTURE.md` (commit `68b65bd`) and the ctx ledger; both were intentionally cleared in the reboot. The surviving source of truth is **the integration tests (`tests/*.rs`) and the code**. The few that crash boot / break security / waste hours and aren't caught until too late:
+The full numbered catalogue was in the now-deleted `docs/ARCHITECTURE.md` (commit `68b65bd`). The surviving source of truth is **the integration tests (`tests/*.rs`) and the code**. The few that crash boot / break security / waste hours and aren't caught until too late:
 - **Server-trusted + privacy-404:** identity comes from the session cookie only (never client-supplied); authorization is re-derived per mutate; non-membership is a **404, not a 403**. (`tests/{auth,guilds,personas}.rs`.)
 - **Schema migration** (`src/storage/schema.surql`, pinned by `tests/schema_apply.rs`): a new field on a populated table must be `option<>` **or** get an idempotent backfill UPDATE *before* any row-revalidating UPDATE, or schema-apply crash-loops on boot. Widening an enum ASSERT needs `DEFINE FIELD OVERWRITE`, not `IF NOT EXISTS` (which silently keeps the old narrower ASSERT and rejects the new value).
 - **SSE bus is id-only:** every mutation calls `AppState::emit`/`emit_for`; frames carry ids, never content (typing drafts especially). `/events` re-checks the session every frame and ≥ every 30s. Extend this to any new realtime surface. (`tests/sync_events.rs`.)
 - **Write-conflict retry:** racy `CREATE` → `with_write_conflict_retry` → idempotent **409, never 500**. The error-string matchers in `src/server/retry.rs` are load-bearing and pinned against live DB text by `tests/retry_canary.rs`.
 - **SurrealDB pin:** SDK `=3.1.0-beta.3`; the on-machine `surreal` CLI and the SDK must share the **3.x** major (divergent write-conflict error texts otherwise).
-- **WebKit Secure-cookie trap:** Safari/WebKit drops the `Secure` session cookie over `http://localhost` (Chromium accepts it) → the browser "logs in" 200 but `/auth/me` stays 401. For local WebKit/iOS testing inject `authlyn_session` with `secure:false`, or front it with HTTPS.
+- **WebKit Secure-cookie trap:** Safari/WebKit drops the `Secure` session cookie over `http://localhost` (Chromium accepts it) → the browser "logs in" 200 but `/auth/me` stays 401. **Test WebKit/iOS over HTTPS with the dev root CA** (`authlyn-dev-rootCA.pem`, gitignored at the repo root) — the deck `https://192.168.0.239:3434`, or a local HTTPS front. The old `http://localhost` + `authlyn_session secure:false` injection is **retired** (owner ruling 2026-06-17): the root CA makes WebKit trust the HTTPS cert, so the `Secure` cookie is accepted.
 - **Never** point smoke / health / load / registration flows at the prod URL or `SURREAL_DB=prod` — use `localhost:3000` + the dev DB, a disposable namespace, or the deck.
 
 ## ctx persistence triggers (project-specific)
-Proactively `ctx save` (and say where) after: a new/changed invariant or its rationale; a schema-apply / migration hazard; a SurrealDB version-skew or error-text finding; a perf measurement for a sync/realtime change (measure end-to-end — rows, bytes, client work — never assume); a deploy/infra fact (novahome repoint, deck coordinates); or a lesson from a review/incident. ctx was reset to clean-slate 2026-06-16 — this is where project knowledge rebuilds.
+Proactively `ctx save` (and say where) after: a new/changed invariant or its rationale; a schema-apply / migration hazard; a SurrealDB version-skew or error-text finding; a perf measurement for a sync/realtime change (measure end-to-end — rows, bytes, client work — never assume); a deploy/infra fact (novahome repoint, deck coordinates); or a lesson from a review/incident.
 
 ## UI fidelity
 Compile-green is necessary, never sufficient, for UI. The visual oracle is the surviving skeleton prototypes in `docs/superpowers/specs/assets/2026-06-12-skelettvagen/` (`a-orbit.html`, `b-deck.html`, `c-hud.html`). The deleted `visual-gate/` Playwright tooling must not be re-created; a fidelity-gate method is owner-driven.

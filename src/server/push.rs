@@ -80,7 +80,7 @@ impl PushSender {
         let subject = std::env::var("VAPID_SUBJECT")
             .ok()
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "mailto:admin@authlyn.tplinkdns.com".to_string());
+            .unwrap_or_else(|| "mailto:admin@damienmoon.sh".to_string());
         let client = match IsahcWebPushClient::new() {
             Ok(c) => c,
             Err(e) => {
