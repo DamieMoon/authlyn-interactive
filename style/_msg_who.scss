@@ -13,3 +13,13 @@
 		text-decoration: underline;
 	}
 }
+
+// M6: the controlling account shown subtly beside a worn persona's name
+// ("· Damien") — muted + lighter + smaller so the persona stays dominant.
+// Non-interactive span, so the 44px tap floor does not apply.
+.msg .who-account {
+	color: var(--text-soft);
+	opacity: 0.75;
+	font-weight: 400;
+	font-size: 0.85em;
+}

@@ -48,7 +48,17 @@ pub(super) fn message_meta(
     } else {
         format_local_time(&m.sent_at)
     };
-    let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
+    // Avatar: a worn persona keeps its send-time SNAPSHOT (frozen); a bare
+    // account shows its LIVE avatar (author_avatar_id, resolved at read). M6/P2.
+    let avatar_id = if m.persona_name.is_some() {
+        &m.persona_avatar_id
+    } else {
+        &m.author_avatar_id
+    };
+    let avatar_el = chat_avatar(avatar_id, &who, false);
+    // When a persona dominates, surface the controlling account subtly ("· name")
+    // so the speaker stays identifiable without stealing from the persona.
+    let account_marker = m.persona_name.is_some().then(|| m.author_display.clone());
 
     let info_m = m.clone();
     // Affordances from the shared kind predicate (`message_actions` in
@@ -62,6 +72,9 @@ pub(super) fn message_meta(
             {avatar_el}
             <button class=who_class title="persona info"
                 on:click=move |_| info.set(Some(info_m.clone()))>{who}</button>
+            {account_marker.map(|name| view! {
+                <span class="who-account">{format!(" · {name}")}</span>
+            })}
             <time class="when">{when}</time>
             // Action row — reply/copy are available on every user message
             // (own AND others): copy so the markup source can be re-pasted

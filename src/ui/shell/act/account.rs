@@ -95,6 +95,49 @@ pub fn change_password(s: Shell, current: String, new: String) {
     });
 }
 
+/// Save the account display name (M6), then refetch /auth/me so the local
+/// AuthCtx (name + avatar) updates immediately; the patch_account broadcast
+/// refreshes OTHER devices via SSE.
+#[cfg(feature = "hydrate")]
+pub fn save_display_name(s: Shell, auth: AuthCtx, name: String) {
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        match api::patch_account(Some(&name), None).await {
+            Ok(()) => {
+                if let Ok(me) = api::current_user().await {
+                    auth.user.set(Some(me));
+                }
+                s.composer.status.set("profile saved".to_string());
+            }
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+/// Upload a picture and set it as the account avatar (M6), then refetch /auth/me
+/// to refresh the local AuthCtx. Mirrors `persona::set_persona_avatar`.
+#[cfg(feature = "hydrate")]
+pub fn set_account_avatar(s: Shell, auth: AuthCtx, file: web_sys::File) {
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        let media_id = match api::upload_media(&file).await {
+            Ok(id) => id,
+            Err(e) => {
+                s.composer.status.set(api::humanize(&e));
+                return;
+            }
+        };
+        match api::patch_account(None, Some(&media_id)).await {
+            Ok(()) => {
+                if let Ok(me) = api::current_user().await {
+                    auth.user.set(Some(me));
+                }
+            }
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
 /// Set/replace the caller's self-service recovery question + answer.
 #[cfg(feature = "hydrate")]
 pub fn set_security_question(s: Shell, question: String, answer: String) {
@@ -135,3 +178,7 @@ pub fn change_password(_s: Shell, _current: String, _new: String) {}
 pub fn set_security_question(_s: Shell, _question: String, _answer: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn admin_reset_password(_s: Shell, _username: String, _new_password: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn save_display_name(_s: Shell, _auth: AuthCtx, _name: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn set_account_avatar(_s: Shell, _auth: AuthCtx) {}

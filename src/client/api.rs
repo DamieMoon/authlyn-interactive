@@ -98,6 +98,22 @@ pub async fn change_password(current: &str, new: &str) -> Result<(), ApiError> {
     .await
 }
 
+/// PATCH /account — update the signed-in account's profile (M6). Either field may
+/// be `None` (left untouched); `avatar` is a media id from a prior `POST /media`.
+pub async fn patch_account(
+    display_name: Option<&str>,
+    avatar: Option<&str>,
+) -> Result<(), ApiError> {
+    patch_json(
+        "/account",
+        &crate::protocol::PatchAccountRequest {
+            display_name: display_name.map(str::to_string),
+            avatar: avatar.map(str::to_string),
+        },
+    )
+    .await
+}
+
 /// POST /auth/admin/reset-password — set another user's password by username.
 /// Admin-only.
 pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<(), ApiError> {

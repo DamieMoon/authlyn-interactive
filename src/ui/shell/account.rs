@@ -47,6 +47,13 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // Gated on the caller's `is_admin` flag (from /auth/me); the server re-checks.
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_admin = move || auth.user.get().map(|u| u.is_admin).unwrap_or(false);
+    // ---- profile section (M6): display_name input seeded from the live AuthCtx ----
+    let dn = RwSignal::new(
+        auth.user
+            .get_untracked()
+            .map(|u| u.display_name)
+            .unwrap_or_default(),
+    );
     let broadcast_body = RwSignal::new(String::new());
     // `Some`/`true` shows the irreversible-broadcast confirm dialog.
     let pending_broadcast = RwSignal::new(false);
@@ -151,6 +158,66 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     <button class="row-edit" title="Close"
                         on:click=move |_| open.set(false)><IconClose/></button>
                 </header>
+
+                // ---- Profile (M6): display name + account avatar ----
+                <section class="account-section">
+                    <h3>"Profile"</h3>
+                    <div class="server-icon-row">
+                        <span class="server-icon-preview" aria-hidden="true">
+                            {move || match auth.user.get().and_then(|u| u.avatar_id) {
+                                Some(id) => view! {
+                                    <img src=format!("/media/{id}?w=128") alt=""/>
+                                }
+                                .into_any(),
+                                None => {
+                                    let name = auth
+                                        .user
+                                        .get()
+                                        .map(|u| {
+                                            if u.display_name.is_empty() {
+                                                u.username
+                                            } else {
+                                                u.display_name
+                                            }
+                                        })
+                                        .unwrap_or_default();
+                                    view! {
+                                        <span class="server-icon-mono">
+                                            {crate::ui::avatar::monogram(&name, '?')}
+                                        </span>
+                                    }
+                                    .into_any()
+                                }
+                            }}
+                        </span>
+                        <label class="server-icon-upload">
+                            <span>"Upload avatar"</span>
+                            <input type="file" accept="image/*"
+                                on:change=move |_ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    {
+                                        use leptos::wasm_bindgen::JsCast;
+                                        if let Some(input) = _ev.target().and_then(|t| {
+                                            t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
+                                        }) {
+                                            if let Some(file) =
+                                                input.files().and_then(|fl| fl.get(0))
+                                            {
+                                                act::set_account_avatar(s, auth, file);
+                                            }
+                                        }
+                                    }
+                                }/>
+                        </label>
+                    </div>
+                    <input type="text" maxlength="32" placeholder="display name"
+                        prop:value=move || dn.get()
+                        on:input=move |ev| dn.set(event_target_value(&ev))/>
+                    <button class="account-save"
+                        on:click=move |_| act::save_display_name(s, auth, dn.get_untracked())>
+                        "Save profile"
+                    </button>
+                </section>
 
                 // ---- Change password ----
                 <section class="account-section">
