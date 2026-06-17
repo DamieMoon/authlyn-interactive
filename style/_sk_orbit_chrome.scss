@@ -42,6 +42,13 @@
 	// Positioning context for the scene-light ::before (so its inset:0 maps to
 	// the content box, not the grandparent .app.sk-orbit).
 	position: relative;
+	// Clip the 300vw swipe-strip's off-screen prev/next panes (side-scroller
+	// bug, owner 2026-06-17 — every channel let the page scroll right by 1
+	// viewport). `clip`, NOT `hidden`: per CSS Overflow L3 (MDN), `clip` on one
+	// axis does NOT force the other to `auto`, so overflow-y stays `visible` and
+	// the per-pane vertical scroll is untouched (hidden here would have made
+	// this a y-scroll container).
+	overflow-x: clip;
 }
 // Scene-light (#B, ÖG): an ambient wash from the active speaker's tint. Only
 // at the eye-candy tier (.fx-max) — NEVER at Standard. Static gradient (no
