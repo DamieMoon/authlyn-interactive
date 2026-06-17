@@ -121,6 +121,10 @@
 // .roll .chip / .whint, a-orbit.html:79-123) ----
 // Avatars: the prototype's chat is name-only — hide the reused ChannelPane
 // avatar disc under orbit ONLY (deck/hud + the persona-info popup keep it).
+// NOTE (M6/P3): this hides `.chat-avatar` ONLY. The Nova DOT orb is a DISTINCT
+// class (`.nova-orb`, system_message_meta) and is intentionally NOT hidden —
+// it is orbit's one deliberate avatar exception, the system-message brand mark.
+// Keep any future name-only broadening scoped to `.chat-avatar`, never `.nova-orb`.
 .app.sk-orbit .messages .chat-avatar {
 	display: none;
 }

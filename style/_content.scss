@@ -1294,6 +1294,52 @@
 	display: flex;
 }
 
+// ---- M6/P3 Nova DOT orb ----
+// The system-message avatar (system_message_meta). Sized to the chat-avatar
+// slot so system rows align with ordinary ones, but it is a DISTINCT class:
+// `.chat-avatar { display:none }` under .app.sk-orbit must never reach it (the
+// orb is orbit's deliberate name-only exception — confirmed in
+// _sk_orbit_chat.scss). The hue is inherited via `color` → the SVG's
+// `currentColor`; the dashed ring spins (fx-nova-ring, _motion.scss). Glow is a
+// STATIC box-shadow on `::before` per the pre-rendered-glow doctrine (never
+// animated). Decorative/non-interactive → no 44px touch floor.
+.nova-orb {
+	position: relative; // anchors the glow ::before
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	flex: 0 0 auto;
+	margin-right: 0.5rem;
+	vertical-align: middle;
+	color: var(--accent); // drives the SVG currentColor
+
+	svg {
+		width: 100%;
+		height: 100%;
+		display: block;
+		overflow: visible; // the ring stroke + glow may exceed the viewBox
+	}
+
+	// Static pre-rendered glow (doctrine: never animate box-shadow).
+	&::before {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		pointer-events: none;
+		box-shadow: 0 0 10px var(--glow-accent);
+		opacity: 0.5;
+	}
+
+	.nova-orb-ring {
+		transform-box: fill-box; // rotate about the ring's own centre, not the
+		transform-origin: center; // SVG user-space origin (0,0)
+		animation: fx-nova-ring 9s linear infinite;
+	}
+}
+
 // ---- W4/T4 radial long-press action menu (touch) ----
 // Opened by a ~450ms press on a .msg (shell/channel/radial.rs). The menu
 // element itself is a ZERO-SIZE anchor fixed at the (viewport-clamped) press
