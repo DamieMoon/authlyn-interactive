@@ -74,6 +74,7 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
         id_key: String,
         name: String,
         accent_color: Option<String>,
+        icon_id: Option<String>,
     }
     #[derive(SurrealValue)]
     struct OrderRow {
@@ -88,7 +89,8 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(guild) AS id_key, guild.name AS name, guild.accent_color AS accent_color FROM guild_member
+            "SELECT meta::id(guild) AS id_key, guild.name AS name, guild.accent_color AS accent_color,
+                    (IF guild.icon != NONE THEN meta::id(guild.icon) ELSE NONE END) AS icon_id FROM guild_member
                 WHERE account = type::record('account', $account)
                   AND guild.deleted_at = NONE;
              SELECT meta::id(guild) AS guild_key, position FROM user_guild_order
@@ -111,6 +113,7 @@ async fn load_my_guilds(state: &AppState, account: &str) -> surrealdb::Result<Ve
             id: r.id_key,
             name: r.name,
             accent_color: r.accent_color.unwrap_or_default(),
+            icon_id: r.icon_id,
         })
         .collect();
     guilds.sort_by(|a, b| {
@@ -267,6 +270,7 @@ pub async fn create_guild(
                     id,
                     name,
                     accent_color: String::new(),
+                    icon_id: None,
                 }),
             )
                 .into_response()
@@ -356,6 +360,7 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
         name: String,
         owner_key: String,
         accent_color: Option<String>,
+        icon_id: Option<String>,
     }
     #[derive(SurrealValue)]
     struct ChanRow {
@@ -367,7 +372,8 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
     let mut resp = state
         .db
         .query(
-            "SELECT name, meta::id(owner) AS owner_key, accent_color FROM type::record('guild', $gid)
+            "SELECT name, meta::id(owner) AS owner_key, accent_color,
+                    (IF icon != NONE THEN meta::id(icon) ELSE NONE END) AS icon_id FROM type::record('guild', $gid)
                 WHERE deleted_at = NONE;
              SELECT meta::id(id) AS id_key, name, kind, position, created_at FROM channel
                 WHERE guild = type::record('guild', $gid)
@@ -385,6 +391,7 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
         name: g.name,
         owner_id: g.owner_key,
         accent_color: g.accent_color.unwrap_or_default(),
+        icon_id: g.icon_id,
         channels: chans
             .into_iter()
             .map(|c| ChannelSummary {
@@ -492,6 +499,7 @@ pub async fn list_deleted_guilds(State(state): State<AppState>, account: AuthAcc
                 id: r.id_key,
                 name: r.name,
                 accent_color: String::new(),
+                icon_id: None,
             })
             .collect(),
         Err(e) => {

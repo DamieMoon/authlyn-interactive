@@ -55,6 +55,40 @@ async fn create_lists_and_details_with_default_channel() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn fresh_guild_has_null_icon_id_in_summary_and_detail() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Iconless").await;
+
+    // Summary (GET /guilds): a guild with no icon projects icon_id = null
+    // (the NONE arm of the meta::id(guild.icon) projection).
+    let (status, _, body) =
+        common::send(&a.router, Method::GET, "/guilds", Some(&owner), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let g = &body["guilds"][0];
+    assert!(
+        g["icon_id"].is_null(),
+        "fresh guild summary icon_id is null: {g:?}"
+    );
+
+    // Detail (GET /guilds/{id}): same NONE projection.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["icon_id"].is_null(),
+        "fresh guild detail icon_id is null: {body:?}"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn nonmember_get_guild_is_404() {
     let a = common::arena().await;
     let owner = common::register_account(&a.router, "Owner", "password123").await;

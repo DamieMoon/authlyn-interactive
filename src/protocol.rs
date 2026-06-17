@@ -151,6 +151,12 @@ pub struct GuildSummary {
     /// wire-compat (older/native clients deserialize cleanly).
     #[serde(default)]
     pub accent_color: String,
+    /// The guild's icon media id, used directly as a `/media/{id}` `<img>`
+    /// source; `None` renders the monogram fallback. The server derives
+    /// `accent_color` from this icon at upload (M6). `#[serde(default)]` for the
+    /// same post-ship wire-compat reason as `accent_color`.
+    #[serde(default)]
+    pub icon_id: Option<String>,
 }
 
 /// Response from `GET /guilds`.
@@ -186,6 +192,9 @@ pub struct GuildDetail {
     /// Per-server accent (see `GuildSummary::accent_color`).
     #[serde(default)]
     pub accent_color: String,
+    /// Guild icon media id (see `GuildSummary::icon_id`).
+    #[serde(default)]
+    pub icon_id: Option<String>,
     pub channels: Vec<ChannelSummary>,
 }
 
