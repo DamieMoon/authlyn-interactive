@@ -199,6 +199,17 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             }
         }
     });
+    // Boot lands in the orbit view (owner ruling 2026-06-17): open the map on
+    // first client mount so the app opens to the channels orbiting the restored
+    // last server, not a flat pane. Client-only Effect — runs once after
+    // hydration (Leptos effects never run on ssr, so the map is rendered closed
+    // server-side → no hydration mismatch; its geometry needs the real viewport
+    // anyway). Writes-only (reads no signal) ⇒ fires exactly once, and never
+    // re-opens after the user dives into a channel.
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        map_open.set(true);
+    });
     // Strip geometry: the current channel's index in the sidebar order.
     let cur_idx = move || {
         let chans = s.sel.channels.get();
@@ -717,8 +728,14 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                             )
                                             title=gd.name.clone()
                                             on:click=move |_| {
-                                                act::open_server(s, gid.clone());
-                                                close_map();
+                                                // Switch worlds but STAY in the orbit
+                                                // view (owner ruling): select + load
+                                                // the server's channels, no dive, map
+                                                // stays open so its channels orbit.
+                                                // `select_server_for_sheet` is the
+                                                // select-without-auto-open primitive
+                                                // (tap a node to enter).
+                                                act::select_server_for_sheet(s, gid.clone());
                                             }>
                                             // Mini-nucleus: the monogram emblem
                                             // distinguishes each far server (authlyn has
@@ -749,7 +766,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             // entry; M3's rail-add is retired). Opens the
                             // founding dialog over the shell.
                             <button class="sk-orbit-sat" type="button"
-                                on:click=move |_| { close_map(); new_server_name.set(String::new()); founding.set(true); }>
+                                on:click=move |_| { new_server_name.set(String::new()); founding.set(true); }>
                                 "✦ New server"
                             </button>
                         </div>

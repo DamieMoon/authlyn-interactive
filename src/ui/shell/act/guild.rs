@@ -159,7 +159,10 @@ pub fn create_server(s: Shell, name: String) {
         match api::create_guild(&name).await {
             Ok(g) => {
                 refresh_guilds(s);
-                open_server(s, g.id);
+                // Land in the orbit map on the new world — select + load its
+                // channels WITHOUT auto-diving into #general (owner ruling:
+                // "create → orbit view"). The open map shows them orbiting.
+                load_server(s, g.id, false);
             }
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
