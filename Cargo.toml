@@ -18,13 +18,6 @@ name = "nova-mcp"
 path = "src/bin/nova-mcp.rs"
 required-features = ["nova"]
 
-# Native desktop/Android client (Freya). Only built with the `freya` feature,
-# so the default build / cargo-leptos never compiles it (mirrors nova-mcp).
-[[bin]]
-name = "authlyn-native"
-path = "src/bin/authlyn-native.rs"
-required-features = ["freya"]
-
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
@@ -32,7 +25,7 @@ axum = { version = "0.8.0", optional = true, features = ["multipart"] }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 leptos_meta = { version = "0.8.0" }
-# Async runtime for the axum server (ssr; nova/freya add their own features
+# Async runtime for the axum server (ssr; nova adds its own features
 # below). `sync` enables `tokio::sync::broadcast` — the process-wide W1
 # realtime event hub on `AppState` that fans mutation events out to SSE.
 # `time` backs the SSE quiet-stream session re-check (`tokio::time::timeout`
@@ -145,18 +138,6 @@ rmcp     = { version = "0.8", features = ["server", "macros", "transport-streama
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart"], optional = true }
 anyhow   = { version = "1", optional = true }
 
-# Native GUI for the desktop/Android client (the `freya` feature + the
-# `authlyn-native` bin). True no-webview, Skia-rendered, own reactive core
-# (0.4 dropped Dioxus). Pinned to the exact rc that Phase 0 de-risked — rc
-# churn is real. Native-only; never in the leptos ssr/hydrate graph.
-freya    = { version = "=0.4.0-rc.21", optional = true }
-
-# Native OS file picker for the composer's attach button (the `freya` feature).
-# `AsyncFileDialog` is driven from a Freya `spawn` task on the tokio runtime —
-# the sync dialog would block winit/Skia. 0.17 dropped the tokio/async-std
-# feature split, so default features suffice (XDG portal backend on Linux; no
-# libgtk-3 build dep). Native-only; never in the ssr/hydrate/nova graph.
-rfd      = { version = "0.17", optional = true }
 
 # `Send + Sync` shim for !Send wasm types. Already vendored transitively via
 # leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
@@ -240,21 +221,6 @@ nova = [
     "tokio/rt-multi-thread",
     "dep:tracing",
     "dep:tracing-subscriber",
-]
-# The native desktop/Android client (Freya). Standalone bin behind a disjoint
-# feature, like `nova`: it imports zero ssr/hydrate crates and reuses only the
-# always-on `protocol`/`markup` modules. Build with
-# `cargo build --bin authlyn-native --features freya`. Pulls Freya (Skia/winit)
-# + reqwest (loopback http; no TLS yet) + a tokio runtime — all native-only,
-# never in the leptos ssr/hydrate graph.
-freya = [
-    "dep:freya",
-    "dep:reqwest",
-    "dep:bytes",
-    "dep:rfd",
-    "dep:tokio",
-    "tokio/macros",
-    "tokio/rt-multi-thread",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode

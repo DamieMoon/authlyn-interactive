@@ -18,12 +18,6 @@ pub mod server;
 #[cfg(feature = "ssr")]
 pub mod storage;
 
-// Native desktop/Android client (Freya). Disjoint from ssr/hydrate, like the
-// nova bridge: compiled only under the `freya` feature, importing zero
-// ssr/hydrate crates and reusing the always-on `protocol`/`markup` modules.
-#[cfg(feature = "freya")]
-pub mod native;
-
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {

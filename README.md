@@ -10,7 +10,6 @@ Work in progress. Private / internal use.
 - **Frontend:** Leptos 0.8 (`hydrate`, WASM)
 - **Database:** SurrealDB (external server)
 - **Auth:** session cookies (argon2 password hashing); no browser-side cryptography
-- **Native client:** Freya (Skia-rendered, no webview) — standalone `authlyn-native` bin behind the optional `freya` feature; shares only `protocol` + `markup` with the web app
 - **MCP bridge:** standalone `nova-mcp` bin behind the optional `nova` feature — talks to the running HTTP API as the "Nova" account and exposes it over MCP
 
 ## Versioning
@@ -53,7 +52,5 @@ src/
                          push, events (SSE), feedback, system messages
   storage/               SurrealDB schema (schema.surql)
   ui/                    Leptos UI: auth + shell/ (Discord-style app shell)
-  native/                Freya native desktop/Android client (`freya` feature)
   bin/nova-mcp.rs        standalone MCP bridge (optional `nova` feature)
-  bin/authlyn-native.rs  native client entrypoint (optional `freya` feature)
 ```
