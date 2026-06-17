@@ -65,7 +65,13 @@
 // `.msg`), and bump the prose bold + brighter warm ink (→ `.text`). STATIC paint
 // (no keyframe touched). Restated after the base rule so it wins the cascade.
 .app.sk-orbit .messages .msg.effect-shout {
-	background: linear-gradient(
+	// `background-image:`, NOT the `background:` shorthand — the shorthand resets
+	// background-color to its initial `transparent` (MDN/CSS Backgrounds L3),
+	// which stripped the base `.msg` `--card` / `.msg.own` `--mention-bg` fill and
+	// let the dark void show through (the "codeblock box" on iOS-WebKit). This
+	// layers the warm wash OVER the base fill, exactly like the prototype's
+	// `.bubble` wash (a-orbit.html:98-100).
+	background-image: linear-gradient(
 		160deg,
 		rgba(255, 180, 127, 0.16),
 		rgba(255, 180, 127, 0.05)
@@ -84,7 +90,11 @@
 // border, the exact purple gradient fill, and the 0 0 24px purple halo.
 .app.sk-orbit .messages .msg.effect-spell {
 	border-color: var(--tint-purple);
-	background: linear-gradient(
+	// `background-image:`, NOT `background:` — same shorthand-reset trap as
+	// `.effect-shout` above: the shorthand wiped the base `.msg` fill to
+	// transparent and the dark void read as a codeblock box. Layer the purple
+	// wash over the base fill (a-orbit.html:106-115).
+	background-image: linear-gradient(
 		150deg,
 		rgba(196, 168, 255, 0.14),
 		rgba(77, 159, 255, 0.06)
