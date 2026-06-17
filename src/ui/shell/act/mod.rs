@@ -76,7 +76,8 @@ pub use emoji::{create_guild_emoji, delete_guild_emoji, upload_emoji_image};
 pub use feedback::{archive_feedback, build_feedback_context, submit_feedback};
 pub use guild::{
     create_server, load_deleted_guilds, move_guild_to_bounds, open_server, refresh_guilds,
-    rename_server, restore_deleted_guild, select_server_for_sheet, set_guild_accent, swap_guild,
+    rename_server, restore_deleted_guild, select_server_for_sheet, set_guild_accent,
+    set_guild_icon, swap_guild,
 };
 // `move_guild` (drag drop target) is hydrate-only — see `move_channel` above.
 #[cfg(feature = "hydrate")]

@@ -61,6 +61,19 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             .unwrap_or_default()
     };
 
+    // The open guild's icon media id (None = no icon → monogram), derived live
+    // from the rail list like `accent_name`/`server_name` so an upload's
+    // refresh_guilds re-renders the preview without extra wiring.
+    let icon_id = move || {
+        let sid = s.sel.sel_server.get();
+        s.sel
+            .guilds
+            .get()
+            .into_iter()
+            .find(|g| Some(&g.id) == sid.as_ref())
+            .and_then(|g| g.icon_id)
+    };
+
     // Trashed-channels disclosure.
     let chan_trash_open = RwSignal::new(false);
 
@@ -71,6 +84,51 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                 <button class="row-edit" title="Close"
                     on:click=move |_| open.set(false)><IconClose/></button>
             </header>
+
+            // ---- Server icon ----
+            // Upload a guild icon (owner/admin); the server re-derives the
+            // per-server accent from the image, so the swatches below update
+            // after an upload. Preview shows the current icon or a monogram.
+            <section class="account-section">
+                <h3>"Server icon"</h3>
+                <div class="server-icon-row">
+                    <span class="server-icon-preview" aria-hidden="true">
+                        {move || match icon_id() {
+                            Some(id) => view! {
+                                <img src=format!("/media/{id}?w=128") alt=""/>
+                            }
+                            .into_any(),
+                            None => view! {
+                                <span class="server-icon-mono">
+                                    {crate::ui::avatar::monogram(&server_name(), '#')}
+                                </span>
+                            }
+                            .into_any(),
+                        }}
+                    </span>
+                    <label class="server-icon-upload">
+                        <span>"Upload icon"</span>
+                        <input type="file" accept="image/*"
+                            on:change=move |_ev| {
+                                #[cfg(feature = "hydrate")]
+                                {
+                                    use leptos::wasm_bindgen::JsCast;
+                                    if let Some(input) = _ev.target().and_then(|t| {
+                                        t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
+                                    }) {
+                                        if let Some(file) =
+                                            input.files().and_then(|fl| fl.get(0))
+                                        {
+                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
+                                                act::set_guild_icon(s, gid, file);
+                                            }
+                                        }
+                                    }
+                                }
+                            }/>
+                    </label>
+                </div>
+            </section>
 
             // ---- Server accent ----
             // The 8 palette swatches + a Default clear; each calls

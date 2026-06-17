@@ -596,7 +596,29 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             // solar system, NOT a letter-monogram. Server identity rides the
                             // `.sk-orbit-core-name` label below; authlyn has no per-guild
                             // glyph field yet, so a fixed ✦ is the faithful nucleus.
-                            <span class="sk-orbit-core-glyph" aria-hidden="true">"✦"</span>
+                            {move || {
+                                // Per-server icon as the nucleus when one is set; the ✦
+                                // star stays the faithful no-icon fallback (M6/P1).
+                                let sid = s.sel.sel_server.get();
+                                let icon = s
+                                    .sel
+                                    .guilds
+                                    .get()
+                                    .into_iter()
+                                    .find(|g| Some(&g.id) == sid.as_ref())
+                                    .and_then(|g| g.icon_id);
+                                match icon {
+                                    Some(id) => view! {
+                                        <img class="sk-orbit-core-icon"
+                                            src=format!("/media/{id}?w=128") alt=""/>
+                                    }
+                                    .into_any(),
+                                    None => view! {
+                                        <span class="sk-orbit-core-glyph" aria-hidden="true">"✦"</span>
+                                    }
+                                    .into_any(),
+                                }
+                            }}
                             <span class="sk-orbit-core-name">{server_name}</span>
                             <span class="sk-orbit-core-sub">
                                 {move || {
@@ -741,9 +763,19 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                             // distinguishes each far server (authlyn has
                                             // no per-guild glyph; the active core keeps
                                             // the ✦ star), name labelled below the disc.
-                                            <span class="sk-orbit-far-glyph" aria-hidden="true">
-                                                {crate::ui::avatar::monogram(&gd.name, '#')}
-                                            </span>
+                                            {match gd.icon_id.clone() {
+                                                Some(id) => view! {
+                                                    <img class="sk-orbit-far-icon"
+                                                        src=format!("/media/{id}?w=64") alt=""/>
+                                                }
+                                                .into_any(),
+                                                None => view! {
+                                                    <span class="sk-orbit-far-glyph" aria-hidden="true">
+                                                        {crate::ui::avatar::monogram(&gd.name, '#')}
+                                                    </span>
+                                                }
+                                                .into_any(),
+                                            }}
                                             <span class="sk-orbit-far-name">{gd.name.clone()}</span>
                                         </button>
                                     }
