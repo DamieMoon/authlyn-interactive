@@ -78,6 +78,48 @@ async fn member_receives_message_created_over_sse() {
     assert_eq!(ev["channel_id"], cid.as_str());
 }
 
+/// M6/P2: an account profile change (display_name/avatar) is live-resolved on
+/// every message the account authored, so it alters `author_display` /
+/// `author_avatar_id` on shared messages other members can see — patch_account
+/// broadcasts `lists_changed` so every connected client refetches (id-only).
+#[tokio::test]
+async fn account_profile_change_broadcasts_lists_changed_to_other_members() {
+    let a = common::arena().await;
+    let (owner, gid, _cid) = owner_with_channel(&a.router, "ProfileOwner").await;
+
+    // A second member shares the guild (and thus sees the owner's messages).
+    let member = common::register_account(&a.router, "Member", "password123").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Member" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    // The member subscribes, THEN the owner renames their account.
+    let (status, _h, mut member_body) = common::open_sse(&a.router, "/events", Some(&member)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        "/account",
+        Some(&owner),
+        Some(&json!({ "display_name": "Renamed" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let ev = match common::next_sse_data(&mut member_body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        other => panic!("expected a lists_changed frame, got {other:?}"),
+    };
+    assert_eq!(ev["type"], "lists_changed");
+}
+
 #[tokio::test]
 async fn outsider_never_receives_events_for_a_channel_they_cannot_see() {
     let a = common::arena().await;
