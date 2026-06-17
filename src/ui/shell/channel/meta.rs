@@ -13,6 +13,7 @@ use super::avatar::{chat_avatar, format_clock_time, format_local_time};
 use super::display_name;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
+use crate::ui::icons::NovaOrb;
 
 /// Render the `<div class="meta">` block for a single message row.
 ///
@@ -135,21 +136,27 @@ pub(super) fn message_meta(
     }
 }
 
-/// Meta row for a `kind='system'` ("Nova DOT") message: avatar + name + a SYSTEM
-/// badge + time, with NO action row and NO persona-info popup — system messages
-/// are immutable, author-less in the persona sense, and not repliable/editable.
-/// Kept separate from [`message_meta`] for the same reason as `deleted_message_row`:
-/// folding the branches would tangle two unrelated shapes.
+/// Meta row for a `kind='system'` ("Nova DOT") message: the Nova orb + name + a
+/// SYSTEM badge chip + time, with NO action row and NO persona-info popup —
+/// system messages are immutable, author-less in the persona sense, and not
+/// repliable/editable. Kept separate from [`message_meta`] for the same reason
+/// as `deleted_message_row`: folding the branches would tangle two unrelated
+/// shapes.
+///
+/// The avatar is the [`NovaOrb`] brand asset, NOT `chat_avatar`: it carries the
+/// `.nova-orb` class, NOT `.chat-avatar`, on purpose — `_sk_orbit_chat.scss`
+/// hides `.chat-avatar` under `.app.sk-orbit` (the sole release shell), so an
+/// orb on the avatar class would vanish on the only shipping surface. The orb
+/// is the deliberate exception to orbit's name-only chat (M6/P3).
 pub(super) fn system_message_meta(m: &MessageEnvelope) -> impl IntoView {
     // No persona on a system message, so `display_name` falls back to the bot's
-    // account display name ("Nova DOT"); the avatar falls back to its monogram.
+    // account display name ("Nova DOT").
     let who = display_name(m);
     let when = format_local_time(&m.sent_at);
-    let avatar_el = chat_avatar(&m.persona_avatar_id, &who, false);
 
     view! {
         <div class="meta">
-            {avatar_el}
+            <NovaOrb/>
             <span class="who system-author">{who}</span>
             <span class="system-badge" title="System message">"SYSTEM"</span>
             <time class="when">{when}</time>
