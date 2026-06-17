@@ -163,6 +163,60 @@ async fn guild_icon_set_round_trips_and_is_manager_gated() {
     assert_eq!(status, StatusCode::NOT_FOUND, "non-member gets privacy 404");
 }
 
+/// Encode an 8x8 solid-color PNG in-memory (via the `image` dev-dep) so the
+/// guild-icon accent derivation has an unambiguous dominant color to classify.
+#[cfg(feature = "ssr")]
+fn solid_png(r: u8, g: u8, b: u8) -> Vec<u8> {
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+    let buf: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_pixel(8, 8, Rgb([r, g, b]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(buf)
+        .write_to(&mut out, ImageFormat::Png)
+        .unwrap();
+    out.into_inner()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn guild_icon_upload_derives_per_server_accent() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Tinted").await;
+
+    // A strong-red icon derives accent "red", green → "green", flat gray → "gray"
+    // (the grayscale saturation gate). Each PUT re-derives and overwrites.
+    for ((r, g, b), expected) in [
+        ((200u8, 30u8, 40u8), "red"),
+        ((30u8, 180u8, 70u8), "green"),
+        ((128u8, 128u8, 128u8), "gray"),
+    ] {
+        let mid = upload_image(&a.router, &owner, "image/png", &solid_png(r, g, b)).await;
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::PUT,
+            &format!("/guilds/{gid}/icon"),
+            Some(&owner),
+            Some(&json!({ "media_id": mid })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (_, _, detail) = common::send(
+            &a.router,
+            Method::GET,
+            &format!("/guilds/{gid}"),
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(
+            detail["accent_color"].as_str(),
+            Some(expected),
+            "rgb ({r},{g},{b}) should derive accent {expected}"
+        );
+    }
+}
+
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn create_lists_and_details_with_default_channel() {

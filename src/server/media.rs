@@ -467,6 +467,22 @@ async fn load_media_row(state: &AppState, id: &str) -> surrealdb::Result<Option<
     resp.take(0)
 }
 
+/// Read a media blob's raw bytes by id, applying the same path-traversal guard
+/// as [`download_media`]: canonicalize the stored path and verify it lives
+/// inside `media_dir`. Returns `None` if the row/file is missing or the path
+/// escapes — callers treat that as "no bytes". For server-side image analysis
+/// that needs the original bytes off the HTTP serve path (e.g. M6 guild-icon
+/// accent derivation).
+pub(crate) async fn read_media_blob_bytes(state: &AppState, id: &str) -> Option<Vec<u8>> {
+    let row = load_media_row(state, id).await.ok().flatten()?;
+    let canonical = PathBuf::from(&row.storage_path).canonicalize().ok()?;
+    if !canonical.starts_with(state.media_dir.as_ref()) {
+        tracing::error!(path = %canonical.display(), "media path escapes media_dir");
+        return None;
+    }
+    fs::read(&canonical).await.ok()
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

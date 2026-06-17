@@ -172,6 +172,12 @@ emojis = "0.8.2"
 
 http-body-util = "0.1"   # frame-by-frame reading of SSE test responses (W1)
 
+# Generates solid-color PNG fixtures in `tests/guilds.rs` to pin the M6 guild-icon
+# server-side accent derivation (a red icon → "red", flat gray → "gray"). Dev-dep
+# only: the lib's own `image` dep is ssr-optional, so the integration-test crate
+# needs its own edge; stays out of the shipping lib/bin graph (no-extra-runtime-deps).
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [features]
 hydrate = [
     "leptos/hydrate",
