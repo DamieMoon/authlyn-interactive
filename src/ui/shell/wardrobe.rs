@@ -10,6 +10,9 @@
 
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use leptos::ev::PointerEvent;
+
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::GalleryImage;
@@ -218,9 +221,13 @@ pub(crate) fn WardrobePane() -> impl IntoView {
     // description, case-insensitive). Reorder controls are hidden while a query
     // is active, since card indices then wouldn't map to the full list.
     let search = RwSignal::new(String::new());
-    // L-5: shared drag-source index for HTML5 drag-to-reorder across cards.
-    // `None` between drags. Only live while not filtering (see PersonaCard).
+    // Finger-drag reorder state, shared across cards (the channel-manager
+    // pattern): `drag_from` is the grabbed card's index (set on the grip's
+    // pointerdown), `drag_over` the card the finger is currently over (the live
+    // drop target). `None` between drags; only live while not filtering (see
+    // PersonaCard), so indices map to the full list.
     let drag_from = RwSignal::new(None::<usize>);
+    let drag_over = RwSignal::new(None::<usize>);
 
     view! {
         <div class="pane wardrobe">
@@ -296,7 +303,8 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                         .map(|(idx, p)| {
                             view! {
                                 <PersonaCard s=s p=p selected=selected info=info
-                                    idx=idx len=len reorder=!filtering drag_from=drag_from/>
+                                    idx=idx len=len reorder=!filtering
+                                    drag_from=drag_from drag_over=drag_over/>
                             }
                         })
                         .collect_view()
@@ -320,9 +328,11 @@ fn PersonaCard(
     idx: usize,
     len: usize,
     reorder: bool,
-    // L-5: shared drag-source index for HTML5 drag-to-reorder. Drag is only
-    // wired when `reorder` (filtering off), so indices map to the full list.
+    // Finger-drag reorder (the channel-manager grip pattern): `drag_from` is the
+    // grabbed card's index, `drag_over` the card the finger is over. Wired only
+    // when `reorder` (filtering off), so indices map to the full list.
     drag_from: RwSignal<Option<usize>>,
+    drag_over: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let pid = p.id.clone();
     let pid_worn = pid.clone();
@@ -338,37 +348,95 @@ fn PersonaCard(
     let info_p = p.clone();
     let remove_name = p.name.clone();
 
+    // Finger-drag reorder handlers (hydrate-only; no-op on ssr). The grip
+    // captures the pointer on `down`, hit-tests the card under the finger on
+    // `move` (elementFromPoint → the `.persona-card[data-idx]` it lands in — a
+    // 2-D test for the wrapping grid, vs the channel list's y-only row scan),
+    // and commits via `act::move_persona` on `up`. Mirrors `channel/manager.rs`.
+    #[cfg(feature = "hydrate")]
+    let on_grip_down = move |ev: PointerEvent| {
+        use leptos::wasm_bindgen::JsCast as _;
+        // Don't let the press bubble to an enclosing swipe-close surface that
+        // would set_pointer_capture and steal the move stream (the channel grip
+        // guards the same way against the orbit Server window's swipe_close).
+        ev.stop_propagation();
+        if let Some(el) = ev
+            .current_target()
+            .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+        {
+            let _ = el.set_pointer_capture(ev.pointer_id());
+        }
+        drag_from.set(Some(idx));
+        drag_over.set(Some(idx));
+        ev.prevent_default();
+    };
+    #[cfg(feature = "hydrate")]
+    let on_grip_move = move |ev: PointerEvent| {
+        if drag_from.get_untracked().is_none() {
+            return;
+        }
+        // Keep the touch on the reorder gesture instead of scrolling the grid.
+        ev.prevent_default();
+        let Some(doc) = leptos::web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        // elementFromPoint is a pure coordinate hit-test (pointer capture doesn't
+        // affect it), so it finds the card under the finger even though the grip
+        // captured the pointer. closest() climbs from the hit child to the card.
+        if let Some(el) = doc.element_from_point(ev.client_x() as f32, ev.client_y() as f32) {
+            if let Ok(Some(card)) = el.closest(".persona-card") {
+                if let Some(t) = card
+                    .get_attribute("data-idx")
+                    .and_then(|v| v.parse::<usize>().ok())
+                {
+                    drag_over.set(Some(t));
+                }
+            }
+        }
+    };
+    #[cfg(feature = "hydrate")]
+    let on_grip_up = move |_ev: PointerEvent| {
+        if let (Some(from), Some(to)) = (drag_from.get_untracked(), drag_over.get_untracked()) {
+            if from != to {
+                act::move_persona(s, from, to);
+            }
+        }
+        drag_from.set(None);
+        drag_over.set(None);
+    };
+
     // Suppress spurious "unused" warnings: clippy can't always trace captures
-    // through the view! macro (mirrors the lorebook reorder workaround).
-    let _ = (idx, len, reorder, drag_from);
+    // through the view! macro (mirrors the lorebook reorder workaround). `len`
+    // is no longer button-driven but kept for the call site; the rest ride the grip.
+    let _ = (idx, len, reorder, drag_from, drag_over);
 
     view! {
-        // Drag-to-reorder (only when not filtering). dragstart records this
-        // card, dragover allows the drop, drop moves the dragged card here.
-        <div class="persona-card" class:worn=move || worn.get()
-            draggable=move || if reorder { "true" } else { "false" }
-            on:dragstart=move |_ev| {
-                if reorder {
-                    drag_from.set(Some(idx));
-                }
-            }
-            on:dragover=move |_ev| {
-                #[cfg(feature = "hydrate")]
-                if reorder {
-                    _ev.prevent_default();
-                }
-            }
-            on:drop=move |_ev| {
-                #[cfg(feature = "hydrate")]
-                if reorder {
-                    _ev.prevent_default();
-                    if let Some(from) = drag_from.get_untracked() {
-                        act::move_persona(s, from, idx);
+        // Finger-drag reorder on the grip (the channel-manager pattern), keyed
+        // off `data-idx` for the elementFromPoint hit-test. `.dragging` lifts the
+        // grabbed card; `.drag-over` marks the live drop target.
+        <div class="persona-card"
+            attr:data-idx=move || idx.to_string()
+            class:worn=move || worn.get()
+            class:dragging=move || drag_from.get() == Some(idx)
+            class:drag-over=move || drag_over.get() == Some(idx) && drag_from.get() != Some(idx)>
+            // Drag handle — replaces the M3 ↑/↓/⤒/⤓ buttons AND the HTML5 drag
+            // (iOS WebKit ignores HTML5 DnD), matching channel reorder (owner
+            // directive 2026-06-17). Shown only when not filtering.
+            {reorder.then(|| view! {
+                <span class="persona-grip" title="Drag to reorder"
+                    on:pointerdown=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_down(_ev);
                     }
-                    drag_from.set(None);
-                }
-            }
-            on:dragend=move |_ev| drag_from.set(None)>
+                    on:pointermove=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_move(_ev);
+                    }
+                    on:pointerup=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                    }
+                    on:pointercancel=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                    }>"⠿"</span>
+            })}
             // Portrait slot: the uploaded avatar if set, else the monogram.
             <div class="card-portrait" title="persona portrait">
                 {portrait(&p.avatar_id, &p.name)}
@@ -385,23 +453,6 @@ fn PersonaCard(
                 }}
             </button>
             <div class="card-actions">
-                // Reorder ↑/↓ — mirrors the lorebook `.lore-reorder` pattern.
-                // Hidden while a search filter is active (indices wouldn't map
-                // to the full list). ↑ disabled on the first card, ↓ on the last.
-                {reorder.then(|| view! {
-                    <button class="persona-reorder" title="Move up"
-                        disabled=move || idx == 0
-                        on:click=move |_| act::swap_persona(s, idx, true)>"↑"</button>
-                    <button class="persona-reorder" title="Move down"
-                        disabled=move || idx == len.saturating_sub(1)
-                        on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
-                    <button class="persona-reorder" title="Bring to top"
-                        disabled=move || idx == 0
-                        on:click=move |_| act::move_persona_to_bounds(s, idx, true)>"⤒"</button>
-                    <button class="persona-reorder" title="Bring to bottom"
-                        disabled=move || idx == len.saturating_sub(1)
-                        on:click=move |_| act::move_persona_to_bounds(s, idx, false)>"⤓"</button>
-                })}
                 <Show when=move || worn.get()
                     fallback=move || {
                         let pid = pid_wear.clone();

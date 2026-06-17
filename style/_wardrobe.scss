@@ -81,31 +81,30 @@
 	}
 }
 
-// Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
-.persona-reorder {
-	// Touch floor (owner ruling 2026-06-17): the ↑/↓ a11y reorder fallback ≥ 44px.
-	min-width: 2.75rem;
-	min-height: 2.75rem;
+// Finger-drag reorder grip on each card — replaces the M3 ↑/↓/⤒/⤓ buttons AND
+// the HTML5 drag (iOS WebKit ignores HTML5 DnD), matching the channel-manager
+// grip (owner directive 2026-06-17, mirrors `.manager-grip` in _modal.scss).
+.persona-grip {
+	align-self: flex-start;
+	cursor: grab;
+	opacity: 0.6;
+	user-select: none;
+	// The grip owns the touch for the reorder drag — without this the browser
+	// scrolls the grid instead of dragging the card.
+	touch-action: none;
+	// Finger-friendly 44px hit area around the ⠿ glyph (Mendicant Bias touch
+	// floor — a finger-drag needs a real target, not a bare glyph).
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	padding: 0.1rem 0.45rem;
-	border: 1px solid var(--line);
-	border-radius: 0.3rem;
-	background: var(--surface);
-	color: var(--text);
-	cursor: pointer;
-	font-size: 0.8rem;
-	line-height: 1.5;
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	font-size: 1.1rem;
+	line-height: 1;
 
-	&:hover:not(:disabled) {
-		border-color: var(--accent);
+	&:hover {
+		opacity: 1;
 		color: var(--accent);
-	}
-
-	&:disabled {
-		opacity: 0.4;
-		cursor: default;
 	}
 }
 
@@ -118,18 +117,28 @@
 	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 
+	// Finger-drag reorder feedback (the channel-manager pattern): smooth the
+	// lift + drop-target accent as the drag moves between cards.
+	transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+
 	&.worn {
 		border-color: var(--accent);
 		box-shadow: 0 0 0 1px var(--accent) inset;
 	}
 
-	// L-5: cards are draggable to reorder (only when not filtering); hint grab.
-	&[draggable="true"] {
-		cursor: grab;
+	// The card being dragged: lifted (translucent); its grip shows grabbing.
+	&.dragging {
+		opacity: 0.5;
+
+		.persona-grip {
+			cursor: grabbing;
+		}
 	}
 
-	&[draggable="true"]:active {
-		cursor: grabbing;
+	// The drop target the finger is over: an accent ring marks where it lands.
+	&.drag-over {
+		border-color: var(--accent);
+		box-shadow: inset 0 0 0 2px var(--accent);
 	}
 
 	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
