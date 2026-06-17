@@ -258,6 +258,76 @@ async fn broadcast_emits_message_created_per_fanned_out_message_over_sse() {
     );
 }
 
+/// M6/P3: pin the wire contract the Nova DOT orb renders on. `system_message_meta`
+/// (shell/channel/meta.rs) swaps the `.nova-orb` brand SVG in for `chat_avatar`
+/// keyed PURELY on `kind=='system'`, and falls the author name back to "Nova DOT"
+/// because a system message wears NO persona. If a future change ever attached a
+/// persona to a broadcast (or dropped `kind='system'`), the orb path would render
+/// the wrong avatar/name — this guards that the broadcast envelope stays
+/// orb-shaped: system kind, no persona snapshot, Nova DOT display.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn system_message_envelope_carries_the_nova_orb_render_contract() {
+    let a = common::arena().await;
+    let state = AppState::new(a.db.clone(), a.media_dir.clone());
+
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (st, _, guild) = common::send(
+        &a.router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "Guild" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (st, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+
+    let result = broadcast_system_message(&state, "Nova surveys the channel")
+        .await
+        .expect("broadcast");
+    assert_eq!(result.messages_sent, 1);
+
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let msg = &body["messages"].as_array().unwrap()[0];
+
+    // The orb branch keys on this exact shape:
+    assert_eq!(
+        msg["kind"], "system",
+        "the orb is rendered iff kind=='system'"
+    );
+    assert_eq!(
+        msg["author_display"], "Nova DOT",
+        "no persona ⇒ display_name falls back to the bot account → the orb's label"
+    );
+    assert!(
+        msg.get("persona_name").map_or(true, |v| v.is_null()),
+        "a system broadcast wears NO persona (else the row would show a persona avatar, not the orb)"
+    );
+    assert!(
+        msg.get("persona_avatar_id").map_or(true, |v| v.is_null()),
+        "no frozen persona snapshot on a system message"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Admin gate — fail-closed (empty admin set authorizes no one)
 // ---------------------------------------------------------------------------
