@@ -58,6 +58,12 @@
 	cursor: pointer;
 	font-size: 0.8rem;
 	line-height: 1.5;
+	// Touch floor (owner ruling 2026-06-17): reorder arrows + entry actions ≥ 44px.
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 
 	&:hover:not(:disabled) {
 		border-color: var(--accent);

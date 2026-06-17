@@ -74,8 +74,9 @@
 	gap: 0.3rem;
 
 	.swatch-pick {
-		width: 1.6rem;
-		height: 1.6rem;
+		// Touch floor (owner ruling 2026-06-17).
+		width: 2.75rem;
+		height: 2.75rem;
 		padding: 0;
 		font-size: 1rem;
 		line-height: 1;

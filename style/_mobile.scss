@@ -116,15 +116,15 @@
 	.channel-reorder,
 	.persona-reorder,
 	.lore-reorder {
-		min-height: 32px;
+		min-height: 2.75rem; // raised to the touch floor; base owns it too (owner ruling 2026-06-17)
 		padding-top: 0.3rem;
 		padding-bottom: 0.3rem;
 	}
 
 	// Color swatches: bigger tap targets on mobile.
 	.persona-detail .color-row .swatch-pick {
-		width: 2.2rem;
-		height: 2.2rem;
+		width: 2.75rem;
+		height: 2.75rem;
 	}
 
 	// Share-row labels: at least 44px tall so the checkbox + name hit target is

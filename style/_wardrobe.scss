@@ -83,6 +83,12 @@
 
 // Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
 .persona-reorder {
+	// Touch floor (owner ruling 2026-06-17): the ↑/↓ a11y reorder fallback ≥ 44px.
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	padding: 0.1rem 0.45rem;
 	border: 1px solid var(--line);
 	border-radius: 0.3rem;
@@ -372,6 +378,8 @@
 	position: absolute;
 	top: -0.4rem;
 	right: -0.4rem;
+	// Touch floor (owner ruling 2026-06-17): keep the ✕ disc at 1.4rem but expand
+	// the tap target to ≥ 44px via a transparent ::before (WCAG 2.5.8).
 	width: 1.4rem;
 	height: 1.4rem;
 	padding: 0;
@@ -383,4 +391,10 @@
 	line-height: 1;
 	font-size: 0.75rem;
 	z-index: 1;
+
+	&::before {
+		content: "";
+		position: absolute;
+		inset: calc((2.75rem - 1.4rem) / -2);
+	}
 }
