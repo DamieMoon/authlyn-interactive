@@ -1,5 +1,5 @@
 //! localStorage-backed user toggle prefs (compose-preview, dialogue-style,
-//! eyecandy, ghost-quill). Pure read/write helpers — no Shell interaction.
+//! ghost-quill). Pure read/write helpers — no Shell interaction.
 //!
 //! (The old "ask before deleting a message" toggle and its
 //! `authlyn.confirm_delete_message` key were retired by the undo-toast
@@ -116,25 +116,6 @@ pub fn set_rp_dialogue_style(on: bool) {
 
 // ---- Eye-candy appearance tier toggle ----
 //
-// localStorage key for the Eye-candy appearance tier (`.fx-max`) toggle. "1"
-// = on; absent or anything else = off (Standard is the default).
-#[cfg(feature = "hydrate")]
-const KEY_EYECANDY: &str = "authlyn.eyecandy";
-
-/// Eye-candy appearance tier (`.fx-max`). Default OFF (Standard).
-#[cfg(feature = "hydrate")]
-pub fn eyecandy_enabled() -> bool {
-    LocalStorage::get::<String>(KEY_EYECANDY)
-        .map(|v| v == "1")
-        .unwrap_or(false)
-}
-
-/// Persist the Eye-candy appearance-tier toggle.
-#[cfg(feature = "hydrate")]
-pub fn set_eyecandy(on: bool) {
-    let _ = LocalStorage::set(KEY_EYECANDY, if on { "1" } else { "0" });
-}
-
 // ---- Ghost Quill live co-writer toggle (W4/T7) ----
 //
 // localStorage key for the Ghost Quill toggle. "1" = on; absent or anything
@@ -177,14 +158,6 @@ pub fn rp_dialogue_style_enabled() -> bool {
 
 #[cfg(not(feature = "hydrate"))]
 pub fn set_rp_dialogue_style(_on: bool) {}
-
-#[cfg(not(feature = "hydrate"))]
-pub fn eyecandy_enabled() -> bool {
-    false
-}
-
-#[cfg(not(feature = "hydrate"))]
-pub fn set_eyecandy(_on: bool) {}
 
 #[cfg(not(feature = "hydrate"))]
 pub fn ghost_quill_enabled() -> bool {

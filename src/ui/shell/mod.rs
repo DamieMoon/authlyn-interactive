@@ -215,7 +215,6 @@ fn AppShell() -> impl IntoView {
 
     let prefs = Prefs {
         dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
-        eyecandy: RwSignal::new(act::eyecandy_enabled()),
         ghost_quill: RwSignal::new(act::ghost_quill_enabled()),
         haptic_vibrate: RwSignal::new(act::haptic_vibrate_enabled()),
         // v27 (M5/P2): orbit is the sole + default shell — forced here
@@ -355,9 +354,8 @@ fn AppShell() -> impl IntoView {
     });
 
     view! {
-        <div class="app"
+        <div class="app fx-max"
             class:dialogue-style=move || s.prefs.dialogue_style.get()
-            class:fx-max=move || s.prefs.eyecandy.get()
             class:sk-orbit=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
             style:--glow-accent=move || crate::ui::accent::accent_glow_css(&accent_name())
             style:--accent=move || crate::ui::accent::accent_var_css(&accent_name())

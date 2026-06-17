@@ -118,10 +118,9 @@ pub use persona::{
 #[cfg(feature = "hydrate")]
 pub use persona::move_persona;
 pub use prefs::{
-    clear_skeleton, compose_preview_enabled, eyecandy_enabled, ghost_quill_enabled,
-    is_valid_skeleton, local_storage_writable, rp_dialogue_style_enabled, set_compose_preview,
-    set_eyecandy, set_ghost_quill, set_rp_dialogue_style, set_skeleton, skeleton_pref,
-    SKELETON_FALLBACK, SKELETON_IDS,
+    clear_skeleton, compose_preview_enabled, ghost_quill_enabled, is_valid_skeleton,
+    local_storage_writable, rp_dialogue_style_enabled, set_compose_preview, set_ghost_quill,
+    set_rp_dialogue_style, set_skeleton, skeleton_pref, SKELETON_FALLBACK, SKELETON_IDS,
 };
 // W5/P0 #19 Visual Haptics. `vh` is the hydrate-real fire helper (no ssr stub —
 // the ssr graph never animates a DOM element) and `Vh` is its kind argument, so

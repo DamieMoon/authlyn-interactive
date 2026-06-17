@@ -1170,16 +1170,6 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 }/>
                             "Ghost Quill (live co-writer)"
                         </label>
-                        <label class="sk-orbit-toggle">
-                            <input type="checkbox"
-                                prop:checked=move || s.prefs.eyecandy.get()
-                                on:change=move |ev| {
-                                    let on = event_target_checked(&ev);
-                                    s.prefs.eyecandy.set(on);
-                                    act::set_eyecandy(on);
-                                }/>
-                            "Aurora-max (eye-candy tier)"
-                        </label>
                         // F2 account-trap fix: the orbit chrome has NO topbar
                         // gear, so WITHOUT this the user is trapped — no way to
                         // reach Account & preferences (and therefore no Log out

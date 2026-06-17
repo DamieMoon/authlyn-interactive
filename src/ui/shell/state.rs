@@ -411,10 +411,6 @@ pub(crate) struct Prefs {
     /// When on, `"…"` dialogue is styled at render via a `.dialogue-style`
     /// root class. Persisted to localStorage.
     pub(crate) dialogue_style: RwSignal<bool>,
-    /// When on, the `.fx-max` root class unlocks the Eye-candy appearance
-    /// tier (animated aurora, stronger glows; W5/W11 add the full set).
-    /// Standard is the default. Persisted to localStorage.
-    pub(crate) eyecandy: RwSignal<bool>,
     /// Ghost Quill (W4/T7): opt-in live co-writer draft preview. Governs BOTH
     /// directions for this client — sending the compose text with the typing
     /// ping AND fetching/rendering other members' ghost rows. Default OFF

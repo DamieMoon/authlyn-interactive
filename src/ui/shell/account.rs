@@ -199,15 +199,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Style roleplay dialogue"</span>
                     </label>
-                    <label class="pref-row">
-                        <input type="checkbox" prop:checked=move || s.prefs.eyecandy.get()
-                            on:change=move |ev| {
-                                let on = event_target_checked(&ev);
-                                s.prefs.eyecandy.set(on);
-                                act::set_eyecandy(on);
-                            }/>
-                        <span>"Eye-candy appearance (extra glow & motion)"</span>
-                    </label>
                     // Ghost Quill (W4/T7): opt-in BOTH ways — this toggle
                     // governs sharing your own in-progress text AND seeing
                     // others'. Default OFF; the label spells out the privacy
