@@ -225,6 +225,21 @@
 	}
 }
 
+// M6/P3 Nova DOT orb ring (spec §3:98 "CSS-animated ring"). A slow, steady
+// rotation of the dashed `.nova-orb-ring` element inside public/nova-dot.svg —
+// transform/rotate ONLY (composite-cheap, doctrine-clean). Resting transform is
+// identity, so the reduced-motion kill below leaves the ring a static dashed
+// halo (state). Any orb glow is a STATIC box-shadow on `.nova-orb::before`
+// (_content.scss), never animated here (house "pre-rendered glow" technique).
+@keyframes fx-nova-ring {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 // W5/P0 #19 Visual Haptics — the app's sound-free, vibration-free feedback
 // VOCABULARY. The visual form is PRIMARY (iOS PWAs have no navigator.vibrate);
 // Android mirrors each to a designed vibration behind a user toggle, never
@@ -383,6 +398,10 @@
 // string. Killed, the dot sits static at full opacity and still
 // appears/disappears with its ~8s decay — presence is state; only the
 // twinkle is motion.
+// The Nova DOT orb ring (`.nova-orb-ring`, M6/P3) is explicit too: it consumes
+// fx-nova-ring (rotation) but its class carries no "fx-". Killed, the ring sits
+// at its identity transform — a static dashed halo (state); the orb body never
+// moved.
 @media (prefers-reduced-motion: reduce) {
 	.app::before,
 	.app.fx-max::before,
@@ -402,6 +421,7 @@
 	.msg.effect-spell .text::before,
 	.msg.roll,
 	.msg.roll .roll-die,
+	.nova-orb-ring,
 	[class*="fx-"] {
 		animation: none !important;
 	}
