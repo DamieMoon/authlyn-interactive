@@ -49,4 +49,4 @@ pub use self::admin::admin_reset_password;
 pub use self::password::{
     change_password, confirm_password_reset, get_reset_question, set_security_question,
 };
-pub use self::registration::{login, logout, me, register};
+pub use self::registration::{login, logout, me, patch_account, register};

@@ -28,6 +28,25 @@ pub(crate) fn validate_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Maximum length, in characters, of an account display name (spec §3 Identity).
+const MAX_DISPLAY_NAME_CHARS: usize = 32;
+
+/// Validate an account display name (M6): non-empty, at most
+/// [`MAX_DISPLAY_NAME_CHARS`] **characters** (Unicode scalar count). Trimming is
+/// the caller's job (as with [`validate_name`]). Kept separate from
+/// `validate_name` (1..=100) on purpose — see the module docs; the account
+/// nickname is a tighter bound than a guild/persona name.
+pub(crate) fn validate_display_name(name: &str) -> Result<(), &'static str> {
+    let n = name.chars().count();
+    if n == 0 {
+        return Err("display name must not be empty");
+    }
+    if n > MAX_DISPLAY_NAME_CHARS {
+        return Err("display name too long");
+    }
+    Ok(())
+}
+
 /// `^[a-z0-9_]{2,32}$` validated in Rust (no regex dependency needed).
 ///
 /// Length is measured in **bytes** (`name.len()`); since the allowed

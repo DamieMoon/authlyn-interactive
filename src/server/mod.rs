@@ -70,6 +70,7 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/logout", post(auth::logout))
         .route("/auth/change-password", post(auth::change_password))
         .route("/auth/me", get(auth::me))
+        .route("/account", patch(auth::patch_account))
         // Password recovery: admin reset (admin-only), set the self-service
         // security question (authed), and the public reset flow.
         .route(

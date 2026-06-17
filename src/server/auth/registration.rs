@@ -10,7 +10,9 @@ use axum::Json;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use surrealdb::types::SurrealValue;
 
-use crate::protocol::{AuthResponse, LoginRequest, MeResponse, RegisterRequest};
+use crate::protocol::{
+    AuthResponse, LoginRequest, MeResponse, PatchAccountRequest, RegisterRequest, SyncEvent,
+};
 use crate::server::db_helpers::IdRow;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -196,8 +198,97 @@ pub async fn me(State(state): State<AppState>, account: AuthAccount) -> Response
 }
 
 // ---------------------------------------------------------------------------
+// PATCH /account
+// ---------------------------------------------------------------------------
+
+/// PATCH /account (auth-required) — update the caller's own profile (M6/P2):
+/// `display_name` (trimmed, 1–32) and/or `avatar` (a media id from `POST /media`).
+/// Account-scoped: the `AuthAccount` extractor proves the caller and the UPDATE
+/// targets only their own row, so there is no membership/manager gate and no
+/// privacy-404 surface (you can only edit yourself). An empty body is a 204
+/// no-op. On any change, broadcast `ListsChanged`: account identity is
+/// live-resolved on every message (`author_display`/`author_avatar_id`), so a
+/// rename/re-avatar alters this account's OLD messages in every shared channel —
+/// other members must refetch (the frame carries ids only, never the new name).
+#[tracing::instrument(skip_all, fields(account = %account.0))]
+pub async fn patch_account(
+    State(state): State<AppState>,
+    account: AuthAccount,
+    payload: Result<Json<PatchAccountRequest>, JsonRejection>,
+) -> Response {
+    let Json(req) = match payload {
+        Ok(json) => json,
+        Err(rej) => return json_rejection_response(rej),
+    };
+    let aid = account.0;
+    let mut changed = false;
+
+    if let Some(raw) = req.display_name {
+        let name = raw.trim().to_string();
+        if let Err(msg) = crate::server::validate::validate_display_name(&name) {
+            return error_response(StatusCode::BAD_REQUEST, msg);
+        }
+        if let Err(e) = state
+            .db
+            .query("UPDATE type::record('account', $aid) SET display_name = $name;")
+            .bind(("aid", aid.clone()))
+            .bind(("name", name))
+            .await
+            .and_then(|r| r.check())
+        {
+            tracing::error!(error = %e, "patch_account display_name update failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+        changed = true;
+    }
+
+    if let Some(media_id) = req.avatar {
+        // Existence-check the media (privacy-404), same contract as set_avatar.
+        match media_exists(&state, &media_id).await {
+            Ok(true) => {}
+            Ok(false) => return error_response(StatusCode::NOT_FOUND, "media not found"),
+            Err(e) => {
+                tracing::error!(error = %e, "media_exists failed");
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+            }
+        }
+        if let Err(e) = state
+            .db
+            .query(
+                "UPDATE type::record('account', $aid) SET avatar = type::record('media_blob', $mid);",
+            )
+            .bind(("aid", aid.clone()))
+            .bind(("mid", media_id))
+            .await
+            .and_then(|r| r.check())
+        {
+            tracing::error!(error = %e, "patch_account avatar update failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+        changed = true;
+    }
+
+    if changed {
+        state.emit(SyncEvent::ListsChanged);
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+// ---------------------------------------------------------------------------
 // DB helpers
 // ---------------------------------------------------------------------------
+
+/// True iff a `media_blob` row exists for `mid` (the privacy-404 probe for the
+/// account-avatar set; mirrors the persona-gallery / guild-icon checks).
+async fn media_exists(state: &AppState, mid: &str) -> surrealdb::Result<bool> {
+    let mut resp = state
+        .db
+        .query("SELECT meta::id(id) AS id_key FROM type::record('media_blob', $mid);")
+        .bind(("mid", mid.to_string()))
+        .await?
+        .check()?;
+    Ok(resp.take::<Option<IdRow>>(0)?.is_some())
+}
 
 async fn create_account(
     state: &AppState,
