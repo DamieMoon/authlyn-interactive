@@ -63,3 +63,27 @@ icon!(/// Personas tab (W3 mobile nav).
     IconPersonas, r#"<path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9L9.5 8z"/>"#);
 icon!(/// Notifications / bell.
     IconBell, r#"<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0"/>"#);
+
+/// Nova DOT system avatar — the Superintendent-inspired civic-AI orb (spec
+/// §3:98, M6/P3). Unlike the stroke icons above this is the bundled BRAND
+/// asset: the art lives in `public/nova-dot.svg` (the owner is the visual
+/// oracle — retune it there, no Rust edit) and is `include_str!`'d so SSR and
+/// hydrate emit byte-identical markup. The SVG keeps the static body and the
+/// `.nova-orb-ring` as DISTINCT elements so CSS (`fx-nova-ring`, _motion.scss)
+/// spins the ring without touching the body. Decorative → the wrapper is
+/// `aria-hidden`; the adjacent author name ("Nova DOT") is the accessible
+/// label. Always-on view code: zero ssr/hydrate-only crates, no media upload —
+/// it is a brand asset, not user content.
+#[component]
+pub fn NovaOrb(
+    /// Extra CSS classes merged after the base `nova-orb` class, mirroring the
+    /// `icon!` convention so call sites can size/position the orb. Defaults to
+    /// empty — `<NovaOrb/>` stays valid.
+    #[prop(optional, into)]
+    class: String,
+) -> impl IntoView {
+    view! {
+        <span class=format!("nova-orb {class}") aria-hidden="true"
+            inner_html=include_str!("../../public/nova-dot.svg")></span>
+    }
+}
