@@ -763,8 +763,14 @@
 			border-color: var(--accent-soft);
 			box-shadow: 0 0 10px var(--glow-accent);
 
-			&::before,
-			&::after {
+			// s2 + s1 share the spark base (s3 carries its own below). s1 moves
+			// from the row's ::before to `.text::before` so the row's ::before is
+			// FREE for the fx-max breathing halo — that halo must be a
+			// BUBBLE-anchored pseudo so `border-radius: inherit` resolves to the
+			// bubble radius; on `.text` it inherits 0 and paints a sharp inner
+			// rectangle that reads as a dark inset codeblock box.
+			&::after,
+			.text::before {
 				content: "";
 				position: absolute;
 				width: 5px;
@@ -777,9 +783,9 @@
 				animation: fx-spark 2.2s ease-in-out infinite;
 			}
 
-			// s1: top-right, no delay.
-			&::before {
-				top: 0.45rem;
+			// s1: top-right, no delay (relocated to `.text::before`).
+			.text::before {
+				top: -0.35rem;
 				right: 0.7rem;
 			}
 
@@ -813,26 +819,28 @@
 				animation: fx-spark 2.2s ease-in-out infinite 1.3s;
 			}
 
-			// W5/P0 #43: the fx-max spell glow breathes via a static-glow
-			// `::before` + opacity keyframe (was relying on fx-glow-pulse
-			// animating box-shadow — a paint property). The row keeps a
-			// stronger STATIC halo (state, stays under reduced-motion); the
-			// breathe rides the keyframe's opacity. The row's own
-			// `::before`/`::after` carry the spark dots, so the breathing halo
-			// takes the `.text` child's free `::before` (the `.text` span is
-			// already `position: relative` for the fx-max third spark on
-			// `.text::after`; reduced-motion kills it in _motion.scss).
+			// W5/P0 #43: the fx-max spell glow breathes via an opacity-keyframed
+			// pseudo (was animating box-shadow — a paint property). The row keeps
+			// a stronger STATIC halo (state, stays under reduced-motion); the
+			// breathe rides the keyframe's opacity. The halo lives on the row's
+			// OWN `::before` (freed above by moving s1 to `.text::before`) so
+			// `border-radius: inherit` picks up the bubble radius and the glow
+			// wraps the rounded bubble. A `.text`-anchored pseudo inherited 0 →
+			// a sharp rectangle glow inside the bubble = the dark codeblock box,
+			// worst at the pulse peak. Reduced-motion kills it (_motion.scss,
+			// `.msg.effect-spell::before`), leaving the static halo at full glow.
 			.app.fx-max & {
 				box-shadow: 0 0 18px var(--glow-accent); // MAX glow, STATIC
 			}
 
-			.app.fx-max & .text::before {
+			.app.fx-max &::before {
 				content: "";
 				position: absolute;
-				inset: -0.25rem;
+				inset: 0;
 				border-radius: inherit;
+				background: none;
 				pointer-events: none;
-				box-shadow: 0 0 18px var(--glow-accent); // MAX glow, STATIC
+				box-shadow: 0 0 18px var(--glow-accent); // MAX glow
 				animation: fx-glow-pulse 2.4s ease-in-out infinite;
 			}
 
