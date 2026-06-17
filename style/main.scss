@@ -12,17 +12,12 @@
 @use "foundation";
 @use "motion";
 @use "auth";
-@use "layout";
-@use "rail";
-@use "sidebar";
 @use "content";
 @use "wardrobe";
 @use "markup";
 @use "modal";
-@use "ceremony"; // W5/P1 onboarding ceremony — skeleton-neutral, after modal layer
 @use "msg_who";
 @use "mobile";
-@use "nav"; // hybrid mobile nav (W3/T5) — after mobile so its @media wins
 @use "sk_orbit_chrome"; // W5/P2 Omloppsbana chrome (pill/composer/orb/map/station) — after the W3 scaffolding it overrides
 @use "sk_orbit_chat"; // W5/P2 Omloppsbana chat-card look — split from sk_orbit, loads right after chrome to preserve cascade
 @use "attachments";
