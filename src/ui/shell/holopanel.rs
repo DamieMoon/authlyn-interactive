@@ -156,12 +156,31 @@ impl PanelDrag {
     /// and record the start coord/time along the open axis.
     fn down(&self, ev: &leptos::ev::PointerEvent) {
         use leptos::wasm_bindgen::JsCast as _;
-        if let Some(el) = self.panel_ref.get_untracked() {
-            // Open Question #6: `set_pointer_capture` binding name confirmed at
-            // execution (web-sys `Element::set_pointer_capture`, as in
-            // lightbox.rs:530).
-            let el: &leptos::web_sys::Element = (*el).unchecked_ref();
-            let _ = el.set_pointer_capture(ev.pointer_id());
+        // Capture the pointer so a drag whose finger leaves the panel keeps
+        // feeding the gesture — but NOT when the press starts on an interactive
+        // control. On DESKTOP a captured pointer redirects the trailing `click`
+        // to the capture target, so a tapped Station button's on:click never
+        // fired (the M6 deck regression; touch dispatches the tap before the
+        // capture override, so iOS was unaffected). Same trap sk_orbit/drag.rs
+        // dodges for the composer. A tap never drags, so skipping it costs nothing;
+        // a real drag from blank panel area still captures.
+        let on_control = ev
+            .target()
+            .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+            .and_then(|e| {
+                e.closest("button, a[href], input, textarea, select, label, [role=\"button\"]")
+                    .ok()
+                    .flatten()
+            })
+            .is_some();
+        if !on_control {
+            if let Some(el) = self.panel_ref.get_untracked() {
+                // Open Question #6: `set_pointer_capture` binding name confirmed at
+                // execution (web-sys `Element::set_pointer_capture`, as in
+                // lightbox.rs:530).
+                let el: &leptos::web_sys::Element = (*el).unchecked_ref();
+                let _ = el.set_pointer_capture(ev.pointer_id());
+            }
         }
         self.start.set(Some((
             self.axis_coord(ev),

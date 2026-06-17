@@ -63,15 +63,24 @@ impl StripDrag {
 
     pub fn down(&self, ev: &leptos::ev::PointerEvent) {
         use leptos::wasm_bindgen::JsCast as _;
-        // A press that STARTS inside the composer (textarea / send / 📎 / 😀) must
-        // reach that control — bail before pointer-capture, or the captured stream
-        // redirects the trailing click to the strip and the control never fires.
-        // (Under the W5/P2 orbit choreography the composer is a strip descendant,
-        // so its taps would otherwise be swallowed by the swipe drag.)
+        // A press that STARTS on an interactive control — the composer, or any
+        // button / link / input / toggle that is a strip descendant — must reach
+        // that control: bail before pointer-capture, or the captured stream
+        // redirects the trailing `click` to the strip and the control never fires
+        // on DESKTOP (touch dispatches the tap's click before the capture override,
+        // so iOS was unaffected — the M6 deck regression where Station/orbit
+        // buttons were dead on desktop Safari/Chrome). Generalised from the
+        // original `.composer`-only bail.
         if ev
             .target()
             .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
-            .and_then(|e| e.closest(".composer").ok().flatten())
+            .and_then(|e| {
+                e.closest(
+                    ".composer, button, a[href], input, textarea, select, label, [role=\"button\"]",
+                )
+                .ok()
+                .flatten()
+            })
             .is_some()
         {
             return;

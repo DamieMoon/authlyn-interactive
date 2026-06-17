@@ -134,9 +134,26 @@ impl SwipeClose {
         if !self.enabled {
             return;
         }
-        if let Some(el) = self.dialog_ref.get_untracked() {
-            let el: &web_sys::Element = el.as_ref();
-            let _ = el.set_pointer_capture(ev.pointer_id());
+        // Don't capture when the press starts on an interactive control — on
+        // DESKTOP a captured pointer redirects the trailing `click` to the capture
+        // target, so a tapped button/input inside a swipe-close modal never fires
+        // its on:click (the M6 desktop regression; mirrors the holopanel.rs /
+        // sk_orbit drag fix; touch was unaffected). A tap never drags, so it costs
+        // nothing; a real swipe from blank dialog area still captures.
+        let on_control = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|e| {
+                e.closest("button, a[href], input, textarea, select, label, [role=\"button\"]")
+                    .ok()
+                    .flatten()
+            })
+            .is_some();
+        if !on_control {
+            if let Some(el) = self.dialog_ref.get_untracked() {
+                let el: &web_sys::Element = el.as_ref();
+                let _ = el.set_pointer_capture(ev.pointer_id());
+            }
         }
         self.start
             .set(Some((ev.client_x() as f64, ev.client_y() as f64)));
