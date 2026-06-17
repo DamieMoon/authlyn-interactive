@@ -42,13 +42,20 @@
 	// Positioning context for the scene-light ::before (so its inset:0 maps to
 	// the content box, not the grandparent .app.sk-orbit).
 	position: relative;
-	// Clip the 300vw swipe-strip's off-screen prev/next panes (side-scroller
-	// bug, owner 2026-06-17 — every channel let the page scroll right by 1
-	// viewport). `clip`, NOT `hidden`: per CSS Overflow L3 (MDN), `clip` on one
-	// axis does NOT force the other to `auto`, so overflow-y stays `visible` and
-	// the per-pane vertical scroll is untouched (hidden here would have made
-	// this a y-scroll container).
-	overflow-x: clip;
+	// Clip BOTH axes at the 100dvh shell. `clip`, NOT `hidden`: per CSS Overflow
+	// L3 (MDN), `clip` forbids all scrolling and creates NO scroll container, so
+	// the sticky pill and the per-pane `.messages` auto-scroll are untouched
+	// (`hidden` would have made this a scroll container and trapped both).
+	//   - overflow-x: the 300vw swipe-strip's off-screen prev/next panes (owner
+	//     2026-06-17 side-scroller — every channel let the page scroll right 1vw).
+	//   - overflow-y: the at-rest `.composer` is `position:absolute` and hidden by
+	//     translating DOWN; its translated box stayed in the document's scrollable
+	//     overflow (iOS 26.5 keeps overflow-y VISIBLE under an x-only clip —
+	//     measured, contra the "Safari clips both axes" claim), spilling ~150px
+	//     below 100dvh → a phantom vertical scrollbar on near-empty channels.
+	//     Clipping y contains that spill at the shell. (When composing, the
+	//     composer slides to translateY(0) inside the viewport, so it's not clipped.)
+	overflow: clip;
 }
 // Scene-light (#B, ÖG): an ambient wash from the active speaker's tint. Only
 // at the eye-candy tier (.fx-max) — NEVER at Standard. Static gradient (no
