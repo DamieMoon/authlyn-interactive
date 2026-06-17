@@ -412,6 +412,91 @@ async fn applying_accent_color_over_populated_guilds_keeps_legacy_rows_with_acce
     );
 }
 
+/// M6/P2 schema guard: `account.display_name` + `account.avatar` already exist
+/// and are NONE-safe, so re-applying the schema over a legacy account row
+/// (predating both) must NOT crash-loop; the `display_name` backfill must
+/// materialize `''` (so a later account UPDATE doesn't hit the SCHEMAFULL
+/// NONE-coercion 500), and `avatar` reads back NONE. Documents that M6/P2 adds
+/// no account schema. Mirrors the accent/effect over-populated guards above.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_schema_over_legacy_account_backfills_display_name_and_keeps_avatar_none() {
+    let db = common::raw_db().await;
+
+    // A minimal pre-display_name / pre-avatar account schema.
+    db.query(
+        "DEFINE TABLE account SCHEMAFULL;\
+         DEFINE FIELD username ON account TYPE string;\
+         DEFINE FIELD username_ci ON account TYPE string;\
+         DEFINE FIELD password_hash ON account TYPE string;\
+         DEFINE FIELD created_at ON account TYPE datetime DEFAULT time::now();",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy account holding NONE in the not-yet-defined fields.
+    db.query(
+        "CREATE account:legacy SET username = 'Legacy', username_ci = 'legacy', password_hash = 'x';",
+    )
+    .await
+    .expect("seed legacy transport")
+    .check()
+    .expect("seed legacy account");
+
+    // Apply the REAL schema over the populated table: adds display_name (+ its
+    // backfill), avatar (option), the security fields, the UNIQUE index, and the
+    // nova_dot seed. Must not crash-loop.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over a legacy account");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        username: String,
+        display_name: String,
+        avatar_id: Option<String>,
+    }
+    let mut resp = db
+        .query(
+            "SELECT username, display_name,
+                (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
+                FROM account:legacy;",
+        )
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Row = resp
+        .take::<Option<Row>>(0)
+        .expect("take")
+        .expect("legacy account survives the migration");
+    assert_eq!(row.username, "Legacy", "username survives untouched");
+    assert_eq!(
+        row.display_name, "",
+        "display_name backfilled to '' (NONE-coercion guard)"
+    );
+    assert_eq!(
+        row.avatar_id, None,
+        "avatar reads back NONE on a legacy row"
+    );
+
+    // The guard's point: a subsequent account UPDATE must not 500 on the
+    // previously-NONE display_name (this is the change-profile / change-password
+    // path on a legacy account).
+    db.query(
+        "UPDATE account:legacy SET display_name = 'Renamed';\
+         SELECT VALUE display_name FROM account:legacy;",
+    )
+    .await
+    .expect("update transport")
+    .check()
+    .expect("updating display_name on a backfilled legacy account must be accepted");
+}
+
 /// W4/T5: the `message.effect` enum guard — `option<string>` with
 /// `ASSERT $value = NONE OR $value IN ['whisper','shout','spell']` on the
 /// pinned beta. NONE (the everyday effect-less send) and each known effect are

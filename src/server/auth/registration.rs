@@ -165,7 +165,7 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn me(State(state): State<AppState>, account: AuthAccount) -> Response {
-    let (username, display_name) = match account_profile(&state, &account.0).await {
+    let (username, display_name, avatar_id) = match account_profile(&state, &account.0).await {
         Ok(Some(profile)) => profile,
         Ok(None) => return error_response(StatusCode::UNAUTHORIZED, "authentication required"),
         Err(e) => {
@@ -189,6 +189,7 @@ pub async fn me(State(state): State<AppState>, account: AuthAccount) -> Response
             username,
             display_name,
             is_admin,
+            avatar_id,
         }),
     )
         .into_response()
@@ -234,18 +235,23 @@ async fn create_account(
 async fn account_profile(
     state: &AppState,
     account_id: &str,
-) -> surrealdb::Result<Option<(String, String)>> {
+) -> surrealdb::Result<Option<(String, String, Option<String>)>> {
     #[derive(SurrealValue)]
     struct Row {
         username: String,
         display_name: String,
+        avatar_id: Option<String>,
     }
     let mut resp = state
         .db
-        .query("SELECT username, display_name FROM type::record('account', $account_id);")
+        .query(
+            "SELECT username, display_name,
+                (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
+                FROM type::record('account', $account_id);",
+        )
         .bind(("account_id", account_id.to_string()))
         .await?
         .check()?;
     let row: Option<Row> = resp.take(0)?;
-    Ok(row.map(|r| (r.username, r.display_name)))
+    Ok(row.map(|r| (r.username, r.display_name, r.avatar_id)))
 }

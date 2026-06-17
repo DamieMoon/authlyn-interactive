@@ -20,6 +20,13 @@ async fn register_sets_cookie_and_me_resolves_it() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["username"], "Alice");
     assert!(body["account_id"].is_string());
+    // M6/P2: /auth/me carries the live profile — display_name (empty until set)
+    // and avatar_id (null until an avatar is set).
+    assert_eq!(body["display_name"], "");
+    assert!(
+        body["avatar_id"].is_null(),
+        "no avatar set → avatar_id null"
+    );
 }
 
 #[cfg(feature = "ssr")]

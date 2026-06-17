@@ -69,6 +69,12 @@ pub struct MeResponse {
     /// post-ship wire-compat (older/native clients deserialize cleanly).
     #[serde(default)]
     pub is_admin: bool,
+    /// The caller's account-avatar media id (a `/media/{id}` `<img>` source), or
+    /// `None` for the monogram fallback. Account identity (display_name + avatar)
+    /// is the only LIVE-resolved display data (spec §3, M6). `#[serde(default)]`
+    /// for the same post-ship wire-compat reason as `is_admin`.
+    #[serde(default)]
+    pub avatar_id: Option<String>,
 }
 
 /// Body of `POST /admin/system-message` (admin-only): broadcast `body` as a
@@ -96,6 +102,20 @@ pub struct SystemBroadcastResult {
 pub struct ChangePasswordRequest {
     pub current_password: String,
     pub new_password: String,
+}
+
+/// Body of `PATCH /account` (auth-required) — partial profile update (M6). Every
+/// field optional; an absent field is left untouched. PATCH-shaped per convention
+/// (derives `Default`, all-`Option<>`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchAccountRequest {
+    /// New display name (1–32 chars after trim); validated server-side.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Account-avatar media id from a prior `POST /media` (mirrors
+    /// [`SetAvatarRequest::media_id`]); validated to exist server-side.
+    #[serde(default)]
+    pub avatar: Option<String>,
 }
 
 /// Body of `POST /auth/admin/reset-password` (admin-only). Sets `username`'s
