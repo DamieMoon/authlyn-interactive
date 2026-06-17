@@ -204,6 +204,29 @@ pub fn set_guild_accent(s: Shell, gid: String, accent: String) {
     });
 }
 
+/// Upload a picture and set it as the guild's icon (owner/admin): POST the file
+/// to `/media`, PUT the returned id, then refresh the rail so BOTH the new icon
+/// and the server-derived accent re-render (the accent var binds off
+/// `s.sel.guilds`). Errors surface via `s.composer.status`. Mirrors
+/// [`super::persona::set_persona_avatar`].
+#[cfg(feature = "hydrate")]
+pub fn set_guild_icon(s: Shell, gid: String, file: web_sys::File) {
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        let media_id = match api::upload_media(&file).await {
+            Ok(id) => id,
+            Err(e) => {
+                s.composer.status.set(api::humanize(&e));
+                return;
+            }
+        };
+        match api::set_guild_icon(&gid, &media_id).await {
+            Ok(()) => refresh_guilds(s),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
 /// Delete a guild (owner only). On success, clear the server selection and
 /// refresh the rail so it no longer points at a dead id.
 #[cfg(feature = "hydrate")]
@@ -276,6 +299,8 @@ pub fn create_server(_s: Shell, _name: String) {}
 pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn set_guild_accent(_s: Shell, _gid: String, _accent: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn set_guild_icon(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_server(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]

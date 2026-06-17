@@ -667,6 +667,18 @@ pub async fn set_persona_avatar(pid: &str, media_id: &str) -> Result<(), ApiErro
     .await
 }
 
+/// PUT /guilds/{gid}/icon — set a guild's icon to an already-uploaded media id.
+/// The server re-derives the per-server accent from the image (M6, effect G).
+pub async fn set_guild_icon(gid: &str, media_id: &str) -> Result<(), ApiError> {
+    put_json(
+        &format!("/guilds/{gid}/icon"),
+        &crate::protocol::SetGuildIconRequest {
+            media_id: media_id.to_string(),
+        },
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Media
 // ---------------------------------------------------------------------------
