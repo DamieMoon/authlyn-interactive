@@ -827,6 +827,11 @@ pub struct DmSummary {
     #[serde(default)]
     pub title: Option<String>,
     pub members: Vec<DmMemberSummary>,
+    /// M7/P1 (review M2): true when the thread is read-only — a 1:1 whose two
+    /// friends unfriended. History stays readable; posting is server-rejected.
+    /// Always false for groups. The server is the source of truth.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 /// Response from `GET /dms` — every DM thread the caller is a member of.

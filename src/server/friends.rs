@@ -126,6 +126,14 @@ pub async fn add_friend(
             // reverse pending → accept it
             return match set_accepted(&state, &target, &account.0).await {
                 Ok(_) => {
+                    // M7/P1 (review M2): the auto-accept path also unlocks a
+                    // previously-locked 1:1 DM between the pair. Best-effort.
+                    if let Err(e) =
+                        crate::server::dms::set_one_to_one_lock(&state, &target, &account.0, false)
+                            .await
+                    {
+                        tracing::error!(error = %e, "unlocking the 1:1 DM on re-friend failed");
+                    }
                     emit_friends_changed(&state, &account.0, &target);
                     StatusCode::OK.into_response()
                 }
@@ -210,6 +218,13 @@ pub async fn accept_friend(
         .and_then(|mut r| r.take::<Vec<IdRow>>(0));
     match updated {
         Ok(rows) if !rows.is_empty() => {
+            // M7/P1 (review M2): re-friending unlocks the previously-locked 1:1 DM
+            // (if one survived the unfriend), restoring posting. Best-effort.
+            if let Err(e) =
+                crate::server::dms::set_one_to_one_lock(&state, &account.0, &aid, false).await
+            {
+                tracing::error!(error = %e, "unlocking the 1:1 DM on re-friend failed");
+            }
             emit_friends_changed(&state, &account.0, &aid);
             StatusCode::OK.into_response()
         }
@@ -248,6 +263,15 @@ pub async fn remove_friend(
         .and_then(|r| r.check())
     {
         Ok(_) => {
+            // M7/P1 (review M2): unfriending makes the shared 1:1 DM read-only
+            // (history preserved, posting server-rejected). Best-effort — the
+            // unfriend already committed, so a lock failure is logged, not
+            // surfaced; groups have no 1:1 pair and are untouched.
+            if let Err(e) =
+                crate::server::dms::set_one_to_one_lock(&state, &account.0, &aid, true).await
+            {
+                tracing::error!(error = %e, "locking the 1:1 DM on unfriend failed");
+            }
             // Emitted even when nothing matched (idempotent DELETE): a spare
             // id-only nudge costs the target one refetch; detecting no-op
             // deletes would need a RETURN clause and buys nothing. Side

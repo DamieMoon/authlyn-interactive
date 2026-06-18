@@ -68,13 +68,16 @@ async fn load_dms(state: &AppState, account: &str) -> surrealdb::Result<Vec<DmSu
     struct ThreadRow {
         id: String,
         title: Option<String>,
+        locked: bool,
     }
     let mut resp = state
         .db
         .query(
             "LET $tids = (SELECT VALUE channel FROM dm_member
                 WHERE account = type::record('account', $me));
-             SELECT meta::id(id) AS id, (IF name = '' THEN NONE ELSE name END) AS title
+             SELECT meta::id(id) AS id,
+                    (IF name = '' THEN NONE ELSE name END) AS title,
+                    (locked_at != NONE) AS locked
                 FROM channel
                 WHERE id IN $tids AND kind = 'dm' AND deleted_at = NONE;",
         )
@@ -94,6 +97,7 @@ async fn load_dms(state: &AppState, account: &str) -> surrealdb::Result<Vec<DmSu
             members: members.remove(&t.id).unwrap_or_default(),
             id: t.id,
             title: t.title,
+            locked: t.locked,
         })
         .collect())
 }
@@ -144,11 +148,13 @@ async fn dm_summary(state: &AppState, tid: &str) -> surrealdb::Result<Option<DmS
     #[derive(SurrealValue)]
     struct ThreadRow {
         title: Option<String>,
+        locked: bool,
     }
     let mut resp = state
         .db
         .query(
-            "SELECT (IF name = '' THEN NONE ELSE name END) AS title
+            "SELECT (IF name = '' THEN NONE ELSE name END) AS title,
+                    (locked_at != NONE) AS locked
                 FROM ONLY type::record('channel', $cid)
                 WHERE kind = 'dm' AND deleted_at = NONE;",
         )
@@ -163,6 +169,7 @@ async fn dm_summary(state: &AppState, tid: &str) -> surrealdb::Result<Option<DmS
         id: tid.to_string(),
         title: t.title,
         members: members.remove(tid).unwrap_or_default(),
+        locked: t.locked,
     }))
 }
 
@@ -608,4 +615,29 @@ async fn notify_members(state: &AppState, tid: &str) {
         Ok(ids) => state.emit_for(ids, SyncEvent::ListsChanged),
         Err(e) => tracing::error!(error = %e, "notify_members lookup failed (nudge skipped)"),
     }
+}
+
+/// Lock (read-only) or unlock the live 1:1 DM between two accounts, if one
+/// exists (review M2). Unfriending locks the shared 1:1 thread — history is
+/// preserved but posting is server-rejected; re-friending unlocks it. Groups are
+/// never touched (a pair key is meaningless for 3+, so they have no dm_pair row).
+/// No-op when no live 1:1 exists between the two. Called from the friends
+/// lifecycle (`server::friends`).
+pub(crate) async fn set_one_to_one_lock(
+    state: &AppState,
+    a: &str,
+    b: &str,
+    locked: bool,
+) -> surrealdb::Result<()> {
+    let pk = pair_key(a, b);
+    let Some(cid) = live_pair_channel(state, &pk).await? else {
+        return Ok(());
+    };
+    let sql = if locked {
+        "UPDATE type::record('channel', $cid) SET locked_at = time::now();"
+    } else {
+        "UPDATE type::record('channel', $cid) SET locked_at = NONE;"
+    };
+    state.db.query(sql).bind(("cid", cid)).await?.check()?;
+    Ok(())
 }

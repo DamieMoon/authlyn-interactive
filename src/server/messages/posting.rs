@@ -100,6 +100,11 @@ pub async fn post_message(
                     "cannot post messages to a non-text channel",
                 );
             }
+            // M7/P1 (review M2): a locked DM (the two friends unfriended) is
+            // read-only — the history stays readable, but new posts are rejected.
+            if ctx.locked {
+                return error_response(StatusCode::FORBIDDEN, "this conversation is locked");
+            }
             ctx.active_persona
         }
         AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {

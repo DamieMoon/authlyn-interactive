@@ -148,6 +148,11 @@ DEFINE FIELD IF NOT EXISTS position   ON channel TYPE int DEFAULT 0;
 DEFINE FIELD IF NOT EXISTS created_at ON channel TYPE datetime DEFAULT time::now();
 -- Soft-delete (#22): NONE = live (purge window: channel 1d). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON channel TYPE option<datetime>;
+-- Read-only lock (M7/P1, review M2): NONE = live; a timestamp = locked. Set on a
+-- 1:1 DM when the two friends unfriend (owner ruling: history is preserved but
+-- posting is blocked), cleared on re-friend. New optional field → no backfill.
+-- Only ever set on kind='dm' channels today; guild channels stay NONE.
+DEFINE FIELD IF NOT EXISTS locked_at ON channel TYPE option<datetime>;
 DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 
 -- Guild membership (the worn persona lives here, per-guild) -------------

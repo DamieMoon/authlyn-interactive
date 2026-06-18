@@ -69,6 +69,9 @@ pub(super) const MAX_ATTACHMENTS: usize = 100;
 pub(super) struct ChannelCtx {
     pub kind: String,
     pub active_persona: Option<String>,
+    /// M7/P1 (review M2): true when the channel is read-only (a 1:1 DM whose
+    /// friends unfriended). `post_message` rejects writes; reads are unaffected.
+    pub locked: bool,
 }
 
 pub(super) enum AccessOutcome {
@@ -109,6 +112,9 @@ pub(super) async fn channel_access(
         /// The caller's worn persona id IN THIS CHANNEL (no row → speak as
         /// the account).
         active_persona: Option<String>,
+        /// M7/P1 (review M2): true when the channel carries a `locked_at` stamp
+        /// (a read-only 1:1 DM). False for a missing channel or any live channel.
+        locked: bool,
     }
 
     // One round-trip, two SurrealQL statements:
@@ -118,12 +124,13 @@ pub(super) async fn channel_access(
     // still indexes through the LET — hence `.take(1)` for the object.
     let sql = "
         LET $chan = (
-            SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind
+            SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind, locked_at
             FROM ONLY type::record('channel', $cid)
             WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE)
         );
         RETURN {
             chan_kind: $chan.kind,
+            locked: (IF $chan = NONE THEN false ELSE $chan.locked_at != NONE END),
             is_member: IF $chan = NONE THEN NONE ELSE
                 (IF $chan.kind = 'dm' THEN
                     (SELECT VALUE true FROM ONLY dm_member
@@ -159,6 +166,7 @@ pub(super) async fn channel_access(
         (Some(kind), Some(_)) => Ok(AccessOutcome::Ok(ChannelCtx {
             kind,
             active_persona: row.active_persona,
+            locked: row.locked,
         })),
     }
 }
