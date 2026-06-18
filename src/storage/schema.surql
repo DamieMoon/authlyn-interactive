@@ -193,6 +193,23 @@ DEFINE INDEX IF NOT EXISTS dm_member_pair ON dm_member FIELDS channel, account U
 -- (guarded by tests/schema_apply.rs).
 DEFINE INDEX IF NOT EXISTS dm_member_account ON dm_member FIELDS account;
 
+-- DM 1:1 dedup lock (M7/P1, review H1): one row per LIVE 1:1 DM, keyed by the
+-- sorted account-id pair so concurrent "message X" double-taps (or both parties
+-- initiating at once) converge on ONE thread. A check-then-create read can't do
+-- this — the two racing creates touch disjoint records, so MVCC never arbitrates
+-- without a shared UNIQUE key. Groups never get a row (a pair key is meaningless
+-- for 3+), so this table only ever holds distinct non-NONE keys → the UNIQUE
+-- index never sees a NONE collision. THAT is why this is a side table, not a
+-- channel.pair_key column: a UNIQUE index on such a column would reject the many
+-- guild/group/soft-deleted channels sharing pair_key=NONE and crash schema-apply
+-- on the populated channel table. Lifecycle: created inside the 1:1 thread's
+-- create transaction; deleted when the thread is soft-deleted (leave_dm last
+-- member) or hard-purged — so a dm_pair row exists iff a live 1:1 thread does.
+DEFINE TABLE IF NOT EXISTS dm_pair SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS pair_key ON dm_pair TYPE string;
+DEFINE FIELD IF NOT EXISTS channel  ON dm_pair TYPE record<channel>;
+DEFINE INDEX IF NOT EXISTS dm_pair_key ON dm_pair FIELDS pair_key UNIQUE;
+
 -- Messages (channel-scoped, plaintext, persona-aware) ------------------
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS channel ON message TYPE record<channel>;

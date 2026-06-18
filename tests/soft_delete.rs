@@ -1070,3 +1070,170 @@ async fn purge_cascades_channel_to_its_messages() {
         "the live guild is untouched by a channel purge"
     );
 }
+
+// ---------------------------------------------------------------------------
+// DM purge cascade (M7/P1): a purged kind='dm' channel must take its dm_member
+// rows, symmetric with the guild_member cascade. The LEAVE path hard-deletes
+// each leaver's row and soft-deletes the thread only at zero members, so it
+// never orphans — the first test pins that. The cascade itself guards any
+// NON-leave soft-delete path (a future admin thread-delete / moderation tool /
+// an unfriend-driven soft-delete), exercised directly in the second test so it
+// cannot silently regress; without the purge's `DELETE dm_member` arm the rows
+// would survive their channel.
+// ---------------------------------------------------------------------------
+
+/// Register an account, returning `(session_cookie, account_id)`.
+#[cfg(feature = "ssr")]
+async fn register_with_id(router: &axum::Router, name: &str) -> (String, String) {
+    let (st, cookie, body) = common::send(
+        router,
+        Method::POST,
+        "/auth/register",
+        None,
+        Some(&json!({ "username": name, "password": "password123" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "register({name})");
+    (
+        cookie.unwrap(),
+        body["account_id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// The dm_member row ids still attached to a channel.
+#[cfg(feature = "ssr")]
+async fn dm_member_ids(
+    db: &surrealdb::Surreal<surrealdb::engine::remote::ws::Client>,
+    cid: &str,
+) -> Vec<String> {
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(id) FROM dm_member
+                WHERE channel = type::record('channel', $cid);",
+        )
+        .bind(("cid", cid.to_string()))
+        .await
+        .expect("dm_member query")
+        .check()
+        .expect("dm_member check");
+    resp.take(0).expect("take dm_member ids")
+}
+
+/// Register Alice + Bob, make them friends, and open a 1:1 DM. Returns
+/// `(alice_cookie, bob_cookie, dm_channel_id)`.
+#[cfg(feature = "ssr")]
+async fn one_to_one_dm(a: &common::Arena) -> (String, String, String) {
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    // Alice friend-requests Bob; Bob accepts.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/friends",
+        Some(&alice),
+        Some(&json!({ "username": "Bob" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "friend request");
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/friends/{alice_id}/accept"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "friend accept");
+    let (st, _, dm) = common::send(
+        &a.router,
+        Method::POST,
+        "/dms",
+        Some(&alice),
+        Some(&json!({ "members": [bob_id] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "create 1:1 DM: {dm:?}");
+    let cid = dm["id"].as_str().unwrap().to_string();
+    (alice, bob, cid)
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn leaving_a_dm_removes_member_rows_so_the_leave_path_never_orphans() {
+    // leave_dm hard-deletes the leaver's dm_member row; the thread is soft-deleted
+    // only once membership hits zero. So at the moment the channel is soft-deleted
+    // there are already zero dm_member rows — the leave path cannot orphan any.
+    let a = common::arena().await;
+    let (alice, bob, cid) = one_to_one_dm(&a).await;
+    assert_eq!(dm_member_ids(&a.db, &cid).await.len(), 2, "two members");
+
+    for who in [&alice, &bob] {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::DELETE,
+            &format!("/dms/{cid}/members/me"),
+            Some(who),
+            None,
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    assert!(
+        dm_member_ids(&a.db, &cid).await.is_empty(),
+        "both leaves hard-deleted every dm_member row before soft-delete"
+    );
+    // The channel row itself still exists (soft-deleted, not yet purged); only
+    // its membership rows are gone.
+    assert!(
+        row_exists(&a.db, "channel", &cid).await,
+        "the soft-deleted DM channel row survives until purge"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn purge_should_cascade_dm_member_rows() {
+    // Cascade guard: a kind='dm' channel soft-deleted while it STILL has members
+    // (the shape a non-leave soft-delete path produces) must take its dm_member
+    // rows on purge — exactly as the 30d guild purge takes guild_member. Without
+    // the purge's `DELETE dm_member` arm these rows would orphan onto the
+    // dm_member_account index forever.
+    let a = common::arena().await;
+    let (alice, _bob, cid) = one_to_one_dm(&a).await;
+    let mid = post_message(&a.router, &alice, &cid, "in the doomed DM").await;
+
+    let members = dm_member_ids(&a.db, &cid).await;
+    assert_eq!(members.len(), 2, "two dm_member rows before purge");
+
+    // Soft-delete the channel directly, members still attached, and backdate it
+    // past the 1d window (members present is the contrast with the leave path).
+    a.db.query("UPDATE type::record('channel', $cid) SET deleted_at = time::now() - 2d;")
+        .bind(("cid", cid.clone()))
+        .await
+        .expect("backdate")
+        .check()
+        .expect("backdate check");
+
+    let state = AppState::new(a.db.clone(), a.media_dir.clone());
+    purge_soft_deleted(&state).await.expect("purge");
+
+    assert!(
+        !row_exists(&a.db, "channel", &cid).await,
+        "the DM channel past 1d is hard-deleted"
+    );
+    assert!(
+        !row_exists(&a.db, "message", &mid).await,
+        "cascade: the DM's message is hard-deleted"
+    );
+    for id in &members {
+        assert!(
+            !row_exists(&a.db, "dm_member", id).await,
+            "cascade: the purged DM's dm_member row {id} must be hard-deleted"
+        );
+    }
+    assert!(
+        dm_member_ids(&a.db, &cid).await.is_empty(),
+        "no orphan dm_member rows survive the purged DM channel"
+    );
+}

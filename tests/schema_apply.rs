@@ -983,3 +983,66 @@ async fn new_dm_member_account_index_applies_over_populated_rows() {
         "pre-existing DM memberships are served through the new index"
     );
 }
+
+/// M7/P1 review H1: the `dm_pair` 1:1 dedup lock. Its `dm_pair_key` UNIQUE index
+/// is the single arbiter that makes concurrent 1:1 creates converge — so apply
+/// must (a) create the index, (b) the index must actually reject a duplicate
+/// `pair_key` (the property the race-safe create_dm relies on), and (c) re-apply
+/// idempotently over an already-populated dm_pair table (it builds over existing
+/// rows). Because dm_pair only ever holds distinct non-NONE keys, the index never
+/// hits the repeated-NONE collision a channel.pair_key column would.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn dm_pair_unique_index_rejects_duplicate_pair_and_reapplies() {
+    let db = common::raw_db().await;
+
+    // First apply creates dm_pair + the UNIQUE index.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("first apply transport")
+        .check()
+        .expect("first apply");
+
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE dm_pair); RETURN object::keys($i.indexes);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let indexes: Vec<String> = resp.take(1).expect("take index names");
+    assert!(
+        indexes.contains(&"dm_pair_key".to_string()),
+        "the UNIQUE dedup index must exist after apply, got: {indexes:?}"
+    );
+
+    // One row per pair is fine.
+    db.query("CREATE dm_pair SET pair_key = 'alpha\u{1f}beta', channel = channel:t1;")
+        .await
+        .expect("first pair transport")
+        .check()
+        .expect("first pair inserts");
+
+    // The SAME pair_key (a second thread racing the same pair) must be rejected.
+    let dup = db
+        .query("CREATE dm_pair SET pair_key = 'alpha\u{1f}beta', channel = channel:t2;")
+        .await
+        .expect("dup transport");
+    assert!(
+        dup.check().is_err(),
+        "dm_pair_key UNIQUE must reject a duplicate pair_key (the dedup arbiter)"
+    );
+
+    // Re-apply over the populated table: idempotent, no crash, index intact.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("re-apply transport")
+        .check()
+        .expect("re-apply over populated dm_pair");
+
+    // A DIFFERENT pair still inserts after re-apply.
+    db.query("CREATE dm_pair SET pair_key = 'gamma\u{1f}delta', channel = channel:t3;")
+        .await
+        .expect("third pair transport")
+        .check()
+        .expect("a distinct pair still inserts after re-apply");
+}

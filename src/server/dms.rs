@@ -237,21 +237,19 @@ pub async fn create_dm(
         }
     }
 
-    // 1:1 dedup — return the existing live thread between the two, if any.
-    if members.len() == 1 {
-        match existing_one_to_one(&state, &account.0, &members[0]).await {
-            Ok(Some(cid)) => return dm_summary_response(&state, &cid, StatusCode::OK).await,
-            Ok(None) => {}
-            Err(e) => {
-                tracing::error!(error = %e, "1:1 dedup lookup failed");
-                return storage_error();
-            }
-        }
-    }
-
-    // Create the thread + a dm_member per participant atomically.
     let mut participants = members.clone();
     participants.push(account.0.clone());
+
+    // 1:1 threads dedup to one canonical thread per pair; groups never do. The
+    // dedup is race-safe via the dm_pair UNIQUE lock (review H1) — a plain
+    // check-then-create read can't be, since two concurrent creates write
+    // disjoint records and MVCC has no shared key to arbitrate.
+    if members.len() == 1 {
+        return create_or_open_one_to_one(&state, &account.0, &members[0], &title, participants)
+            .await;
+    }
+
+    // Group: create the thread + a dm_member per participant atomically.
     let title_q = title.clone();
     let parts_q = participants.clone();
     let created = with_write_conflict_retry(|| async {
@@ -411,6 +409,10 @@ pub async fn leave_dm(
                     WHERE channel = type::record('channel', $cid));
                  IF array::len($left) = 0 {
                     UPDATE type::record('channel', $cid) SET deleted_at = time::now();
+                    -- Release the 1:1 dedup lock (review H1) so a future DM
+                    -- between the same pair mints a fresh thread instead of
+                    -- deduping to this dead one. No-op for a group (no dm_pair row).
+                    DELETE dm_pair WHERE channel = type::record('channel', $cid);
                  };",
             )
             .bind(("cid", tid_q.clone()))
@@ -464,36 +466,111 @@ async fn accepted_friends_among(
     Ok(ids.into_iter().collect())
 }
 
-/// The live 1:1 DM thread between `me` and `other` (a dm channel both belong to
-/// with exactly two members), if any.
-async fn existing_one_to_one(
+/// Open the canonical 1:1 DM between `me` and `other`, creating it if absent.
+/// Race-safe: the `dm_pair` UNIQUE index on the sorted [`pair_key`] is the single
+/// arbiter, so two concurrent creators converge on one thread. Returns the
+/// existing thread (200) or a freshly-created one (201).
+async fn create_or_open_one_to_one(
     state: &AppState,
     me: &str,
     other: &str,
-) -> surrealdb::Result<Option<String>> {
-    #[derive(SurrealValue)]
-    struct Row {
-        id: String,
-        n: i64,
+    title: &str,
+    participants: Vec<String>,
+) -> Response {
+    let pk = pair_key(me, other);
+    let title_q = title.to_string();
+    let me_q = me.to_string();
+    let other_q = other.to_string();
+
+    // Ok(Some((cid, created_new))) on success; Ok(None) if a won create can't be
+    // read back (→ storage error); Err is a genuine MVCC conflict (→ the wrapper
+    // retries on a fresh snapshot).
+    let outcome = with_write_conflict_retry(|| async {
+        // Fresh-snapshot dedup check. On the first attempt this is the common
+        // "reopen an existing DM" fast path; on a retry it is how the racer that
+        // LOST the dm_pair collision discovers the winner's thread.
+        if let Some(cid) = live_pair_channel(state, &pk).await? {
+            return Ok(Some((cid, false)));
+        }
+        // Atomic create: one transaction, so a dm_pair UNIQUE collision rolls the
+        // channel + member rows back (no orphan). On 3.1.x that collision surfaces
+        // as the generic aborted-transaction text, NOT "already contains" (see
+        // server::retry) — so we do NOT match on error text. Instead, on ANY
+        // failure we re-read the pair: a now-present pair means the collision was
+        // a successful dedup; absence means a genuine conflict → propagate (retry).
+        let res = state
+            .db
+            .query(
+                "BEGIN;
+                 LET $cid = (CREATE ONLY channel SET
+                    guild = NONE, kind = 'dm', name = $title, position = 0).id;
+                 CREATE dm_pair SET pair_key = $pk, channel = $cid;
+                 CREATE dm_member SET channel = $cid, account = type::record('account', $me);
+                 CREATE dm_member SET channel = $cid, account = type::record('account', $other);
+                 COMMIT;",
+            )
+            .bind(("title", title_q.clone()))
+            .bind(("pk", pk.clone()))
+            .bind(("me", me_q.clone()))
+            .bind(("other", other_q.clone()))
+            .await
+            .and_then(|r| r.check());
+        match res {
+            Ok(_) => Ok(live_pair_channel(state, &pk).await?.map(|cid| (cid, true))),
+            Err(e) => match live_pair_channel(state, &pk).await? {
+                Some(cid) => Ok(Some((cid, false))),
+                None => Err(e),
+            },
+        }
+    })
+    .await;
+
+    match outcome {
+        Ok(Some((cid, true))) => {
+            state.emit_for(participants, SyncEvent::ListsChanged);
+            dm_summary_response(state, &cid, StatusCode::CREATED).await
+        }
+        Ok(Some((cid, false))) => dm_summary_response(state, &cid, StatusCode::OK).await,
+        Ok(None) => {
+            tracing::error!("create_or_open_one_to_one: won create not readable");
+            storage_error()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "create_or_open_one_to_one failed");
+            storage_error()
+        }
     }
+}
+
+/// Deterministic 1:1 dedup key: the two account ids sorted then joined with a
+/// unit separator, so it is identical no matter who initiates. Meaningful only
+/// for a 1:1 (exactly two participants).
+fn pair_key(a: &str, b: &str) -> String {
+    if a <= b {
+        format!("{a}\u{1f}{b}")
+    } else {
+        format!("{b}\u{1f}{a}")
+    }
+}
+
+/// The live 1:1 DM channel id for a sorted pair key, if one exists. `channel.kind
+/// = 'dm'` is false for a dangling link (the linked channel was purged) and the
+/// `deleted_at = NONE` clause excludes the soft-deleted window, so a stale
+/// dm_pair row can never resolve to a dead thread.
+async fn live_pair_channel(state: &AppState, pk: &str) -> surrealdb::Result<Option<String>> {
     let mut resp = state
         .db
         .query(
-            "LET $both = array::intersect(
-                (SELECT VALUE channel FROM dm_member WHERE account = type::record('account', $me)),
-                (SELECT VALUE channel FROM dm_member WHERE account = type::record('account', $other))
-             );
-             SELECT meta::id(channel) AS id, count() AS n FROM dm_member
-                WHERE channel IN $both AND channel.deleted_at = NONE
-                GROUP BY id;",
+            "SELECT VALUE meta::id(channel) FROM dm_pair
+                WHERE pair_key = $pk
+                  AND channel.kind = 'dm'
+                  AND channel.deleted_at = NONE;",
         )
-        .bind(("me", me.to_string()))
-        .bind(("other", other.to_string()))
+        .bind(("pk", pk.to_string()))
         .await?
         .check()?;
-    // Statement 0 is the LET; the grouped SELECT is take(1).
-    let rows: Vec<Row> = resp.take(1)?;
-    Ok(rows.into_iter().find(|r| r.n == 2).map(|r| r.id))
+    let ids: Vec<String> = resp.take(0)?;
+    Ok(ids.into_iter().next())
 }
 
 /// Every member account-id of a thread (for the SSE nudge).

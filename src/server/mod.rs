@@ -321,8 +321,9 @@ pub fn api_router() -> Router<AppState> {
 }
 
 /// Hard-delete soft-deleted rows past their rollback window (#22): message 1h,
-/// channel 1d, guild 30d. Cascades a purged channel's messages and a purged
-/// guild's channels/members/messages. Idempotent; safe on an interval.
+/// channel 1d, guild 30d. Cascades a purged channel's messages + dm_member rows
+/// (M7/P1) and a purged guild's channels/members/messages. Idempotent; safe on
+/// an interval.
 pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
     state
         .db
@@ -342,6 +343,25 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
             DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- DM membership (M7/P1): a purged kind='dm' channel takes its
+            -- dm_member rows, symmetric with the 30d guild_member cascade (below).
+            -- The leave_dm path already hard-deletes each leaver's row and
+            -- soft-deletes the thread only at zero members, so it never orphans;
+            -- this arm guards any NON-leave soft-delete of a still-populated DM
+            -- channel (a future admin thread-delete / moderation tool) so its
+            -- dm_member rows can't survive onto the dm_member_account index that
+            -- visible_channels/list_dms scan. INLINE guild-style subquery (channel
+            -- is the leading column of the composite dm_member_pair index), NOT a
+            -- LET var — the same beta.3 mis-plan dodge documented above. Guard:
+            -- tests/soft_delete.rs::purge_should_cascade_dm_member_rows.
+            DELETE dm_member WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- DM 1:1 dedup lock (M7/P1, review H1): leave_dm already drops it at
+            -- last-member soft-delete, so this only fires for a non-leave
+            -- soft-delete of a still-populated 1:1 — same defensive arm as
+            -- dm_member above. Inline subquery (composite-index dodge).
+            DELETE dm_pair WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
             -- Guild 30d purge: cascade channels + their children + guild children.
