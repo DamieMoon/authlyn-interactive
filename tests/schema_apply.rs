@@ -497,6 +497,119 @@ async fn applying_schema_over_legacy_account_backfills_display_name_and_keeps_av
     .expect("updating display_name on a backfilled legacy account must be accepted");
 }
 
+/// M6 security fix (be2fb18, account-takeover purge): the self-service
+/// recovery fields `security_question` + `security_answer_hash` were dropped.
+/// On prod they exist as POPULATED `option<string>` fields, so the schema purge
+/// must, over a populated table, (1) `UPDATE … UNSET` the stale values and
+/// (2) `REMOVE FIELD` the definitions WITHOUT crash-looping boot — and that
+/// full-table account UPDATE must run AFTER the `display_name` backfill, or it
+/// 500s the SCHEMAFULL NONE-coercion on a pre-`display_name` row (the load-
+/// bearing ordering claim in `schema.surql:33-34`). This seeds the hardest prod
+/// shape — a row that BOTH predates `display_name` AND holds security values —
+/// so a future reorder of those two statements regresses here, not on prod boot.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_schema_over_account_with_security_fields_purges_them_without_crashing() {
+    let db = common::raw_db().await;
+
+    // Pre-fix account schema: NO `display_name` (forces the backfill), WITH the
+    // two security fields defined as `option<string>` — exactly what the purge
+    // must remove on prod.
+    db.query(
+        "DEFINE TABLE account SCHEMAFULL;\
+         DEFINE FIELD username ON account TYPE string;\
+         DEFINE FIELD username_ci ON account TYPE string;\
+         DEFINE FIELD password_hash ON account TYPE string;\
+         DEFINE FIELD created_at ON account TYPE datetime DEFAULT time::now();\
+         DEFINE FIELD security_question ON account TYPE option<string>;\
+         DEFINE FIELD security_answer_hash ON account TYPE option<string>;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy account that actually HOLDS recovery credentials — the
+    // row the purge has to clean (display_name is NONE here: pre-display_name).
+    db.query(
+        "CREATE account:legacy SET username = 'Legacy', username_ci = 'legacy', \
+         password_hash = 'x', security_question = 'first pet', \
+         security_answer_hash = 'argon2-of-the-answer';",
+    )
+    .await
+    .expect("seed legacy transport")
+    .check()
+    .expect("seed legacy account with security fields");
+
+    // Apply the REAL schema: backfills display_name, then UNSETs + REMOVEs the
+    // security fields over the populated table. Must not crash-loop (the boot
+    // path `.expect()`s this in main.rs — a failure panics the server).
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over an account holding security fields");
+
+    // The field DEFINITIONS are gone (REMOVE FIELD landed).
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE account); RETURN object::keys($i.fields);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let fields: Vec<String> = resp.take(1).expect("take field names");
+    assert!(
+        !fields.contains(&"security_question".to_string())
+            && !fields.contains(&"security_answer_hash".to_string()),
+        "both security fields must be removed from the schema, got: {fields:?}"
+    );
+
+    // The row survived and display_name backfilled to '' — proving the backfill
+    // ran BEFORE the security UNSET (else that UPDATE 500s the NONE display_name).
+    #[derive(SurrealValue)]
+    struct Row {
+        username: String,
+        display_name: String,
+        password_hash: String,
+    }
+    let mut resp = db
+        .query("SELECT username, display_name, password_hash FROM account:legacy;")
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Row = resp
+        .take::<Option<Row>>(0)
+        .expect("take")
+        .expect("legacy account survives the purge migration");
+    assert_eq!(row.username, "Legacy", "username survives untouched");
+    assert_eq!(row.password_hash, "x", "password_hash survives untouched");
+    assert_eq!(
+        row.display_name, "",
+        "display_name backfilled to '' (purge ran after the NONE-coercion guard)"
+    );
+
+    // The stale recovery values are unreachable: on a SCHEMAFULL table the
+    // removed field can no longer be written, so a stray reset attempt errors
+    // rather than re-populating a recovery credential.
+    let revived = db
+        .query("UPDATE account:legacy SET security_answer_hash = 'sneaky';")
+        .await
+        .expect("transport");
+    assert!(
+        revived.check().is_err(),
+        "the removed security field must reject writes (SCHEMAFULL undefined-field)"
+    );
+
+    // The change-password path (a revalidating account UPDATE) still succeeds
+    // post-purge — no 500 on the migrated row.
+    db.query("UPDATE account:legacy SET password_hash = 'rotated';")
+        .await
+        .expect("update transport")
+        .check()
+        .expect("change-password on a purged legacy account must be accepted");
+}
+
 /// W4/T5: the `message.effect` enum guard — `option<string>` with
 /// `ASSERT $value = NONE OR $value IN ['whisper','shout','spell']` on the
 /// pinned beta. NONE (the everyday effect-less send) and each known effect are
