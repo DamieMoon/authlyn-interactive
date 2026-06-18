@@ -333,6 +333,21 @@ pub async fn invite_to_dm(
         }
     }
 
+    // Member cap (review M1): enforce DM_MAX_MEMBERS at invite, not only at
+    // create — otherwise a group grows unbounded via repeated invites. (A sanity
+    // bound, so the count→create window is acceptable; the UNIQUE pair index
+    // already makes the re-add of an existing member idempotent below.)
+    match dm_member_ids(&state, &tid).await {
+        Ok(ids) if ids.len() >= DM_MAX_MEMBERS && !ids.contains(&invitee) => {
+            return error_response(StatusCode::BAD_REQUEST, "too many members");
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(error = %e, "member-cap lookup failed");
+            return storage_error();
+        }
+    }
+
     let tid_q = tid.clone();
     let inv_q = invitee.clone();
     let result = with_write_conflict_retry(|| async {
