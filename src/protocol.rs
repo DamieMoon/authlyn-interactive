@@ -786,6 +786,56 @@ pub struct ListFriendsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Direct messages (M7/P1 — guild-less DM threads, 1:1 + groups)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /dms` — start a DM thread. `members` are the *other*
+/// participants' account ids (the creator is added implicitly); each must be an
+/// accepted friend of the creator. One other member = a 1:1 DM (deduped to the
+/// existing thread if any); 2+ = a group. `title` is optional and only
+/// meaningful for groups.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CreateDmRequest {
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// Body of `POST /dms/{tid}/members` — invite one accepted friend into a group.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteToDmRequest {
+    pub account_id: String,
+}
+
+/// One participant of a DM thread, with the live account identity needed to
+/// render the thread row (account identity resolves live, like everywhere else).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DmMemberSummary {
+    pub account_id: String,
+    pub username: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub avatar_id: Option<String>,
+}
+
+/// One DM thread the caller belongs to. `id` is the underlying channel id, so
+/// messages/read-state/active-persona ride the existing `/channels/{id}/…`
+/// routes unchanged. `title` is the optional group name (None / empty for 1:1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DmSummary {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub members: Vec<DmMemberSummary>,
+}
+
+/// Response from `GET /dms` — every DM thread the caller is a member of.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListDmsResponse {
+    pub dms: Vec<DmSummary>,
+}
+
+// ---------------------------------------------------------------------------
 // Web Push (#30 background notifications)
 // ---------------------------------------------------------------------------
 
