@@ -444,3 +444,521 @@ async fn persona_wear_works_per_dm_channel() {
     .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 }
+
+/// Count of live `kind='dm'` channels in the DB (orphan-/duplicate-thread probe).
+#[cfg(feature = "ssr")]
+async fn live_dm_channel_count(a: &common::Arena) -> usize {
+    let mut resp = a
+        .db
+        .query("SELECT VALUE meta::id(id) FROM channel WHERE kind = 'dm' AND deleted_at = NONE;")
+        .await
+        .expect("dm channel query")
+        .check()
+        .expect("dm channel check");
+    let ids: Vec<String> = resp.take(0).expect("take dm channel ids");
+    ids.len()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_one_to_one_creates_converge_on_one_thread() {
+    // review H1: the 1:1 dedup must be race-safe. Alice and Bob open the DM at
+    // the same instant (the mobile double-tap / both-parties-initiate race) — the
+    // dm_pair UNIQUE lock collapses it to ONE thread. A check-then-create read
+    // would mint two (disjoint records, nothing for MVCC to arbitrate).
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+
+    let alice_members = [bob_id.as_str()];
+    let bob_members = [alice_id.as_str()];
+    let (r1, r2) = tokio::join!(
+        create_dm(&a.router, &alice, &alice_members, None),
+        create_dm(&a.router, &bob, &bob_members, None),
+    );
+    let (st1, dm1) = r1;
+    let (st2, dm2) = r2;
+
+    assert!(
+        st1.is_success() && st2.is_success(),
+        "both concurrent creates succeed: {st1} {dm1:?} / {st2} {dm2:?}"
+    );
+    assert_eq!(
+        dm1["id"], dm2["id"],
+        "concurrent creates converge on one thread id"
+    );
+    assert_eq!(
+        list_dms(&a.router, &alice).await.len(),
+        1,
+        "Alice: one thread"
+    );
+    assert_eq!(list_dms(&a.router, &bob).await.len(), 1, "Bob: one thread");
+    assert_eq!(
+        live_dm_channel_count(&a).await,
+        1,
+        "exactly one DM channel exists — no duplicate, no orphan"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn one_to_one_recreate_after_both_leave_mints_a_new_thread() {
+    // review L2: dedup must NOT resurrect a soft-deleted thread. After both
+    // members leave (thread soft-deleted, dedup lock released), re-creating the
+    // same pair mints a NEW thread (201) — not the dead one.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+
+    let (st1, dm1) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    assert_eq!(st1, StatusCode::CREATED);
+    let first = dm1["id"].as_str().unwrap().to_string();
+
+    for who in [&alice, &bob] {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::DELETE,
+            &format!("/dms/{first}/members/me"),
+            Some(who),
+            None,
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    let (st2, dm2) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    assert_eq!(
+        st2,
+        StatusCode::CREATED,
+        "re-create after both leave mints a new thread, not a 200 dedup"
+    );
+    assert_ne!(
+        dm2["id"].as_str().unwrap(),
+        first,
+        "the new thread is not the soft-deleted one"
+    );
+    assert_eq!(
+        list_dms(&a.router, &alice).await.len(),
+        1,
+        "only the new thread is live"
+    );
+    assert_eq!(
+        live_dm_channel_count(&a).await,
+        1,
+        "the soft-deleted thread is gone from the live set"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn inviting_past_the_member_cap_is_rejected() {
+    // review M1: DM_MAX_MEMBERS (16) must hold at invite, not only at create,
+    // so a group can't grow unbounded via repeated invites.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    let (dave, dave_id) = register_with_id(&a.router, "Dave").await;
+    let (erin, erin_id) = register_with_id(&a.router, "Erin").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &dave, "Dave").await;
+    befriend(&a.router, &alice, &alice_id, &erin, "Erin").await;
+
+    // A group: Alice + Bob + Dave = 3 members.
+    let (st, dm) = create_dm(&a.router, &alice, &[&bob_id, &dave_id], Some("Group")).await;
+    assert_eq!(st, StatusCode::CREATED, "create group: {dm:?}");
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    // Pad up to the 16-member cap with placeholder members (record links aren't
+    // referentially enforced, so fake account ids are fine for the count).
+    for i in 0..13 {
+        a.db.query(
+            "CREATE dm_member SET channel = type::record('channel', $cid),
+                account = type::record('account', $a);",
+        )
+        .bind(("cid", tid.clone()))
+        .bind(("a", format!("pad{i}")))
+        .await
+        .expect("pad transport")
+        .check()
+        .expect("pad dm_member");
+    }
+
+    // At the cap (16) → inviting a 17th (real friend Erin) is rejected.
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/dms/{tid}/members"),
+        Some(&alice),
+        Some(&json!({ "account_id": erin_id })),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::BAD_REQUEST,
+        "inviting past the member cap is rejected: {body:?}"
+    );
+}
+
+#[cfg(feature = "ssr")]
+async fn post_dm(router: &axum::Router, cookie: &str, tid: &str, body: &str) -> StatusCode {
+    let (st, _, _) = common::send(
+        router,
+        Method::POST,
+        &format!("/channels/{tid}/messages"),
+        Some(cookie),
+        Some(&json!({ "body": body })),
+    )
+    .await;
+    st
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn unfriending_locks_the_one_to_one_then_refriending_unlocks_it() {
+    // review M2 (owner ruling): unfriending makes the shared 1:1 DM read-only —
+    // history stays readable, new posts are server-rejected — and re-friending
+    // restores it.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    let (_, dm) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    // Both can post while friends.
+    assert_eq!(
+        post_dm(&a.router, &alice, &tid, "hej").await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_dm(&a.router, &bob, &tid, "hej själv").await,
+        StatusCode::CREATED
+    );
+
+    // Alice unfriends Bob → the 1:1 locks.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/friends/{bob_id}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // Posting is now rejected for BOTH parties (read-only).
+    assert_eq!(
+        post_dm(&a.router, &alice, &tid, "still there?").await,
+        StatusCode::FORBIDDEN,
+        "locked DM rejects the unfriender's posts"
+    );
+    assert_eq!(
+        post_dm(&a.router, &bob, &tid, "hello?").await,
+        StatusCode::FORBIDDEN,
+        "locked DM rejects the other party's posts"
+    );
+
+    // History is still readable, and the thread reports locked=true.
+    let (st, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{tid}/messages"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "a locked DM is still readable");
+    assert!(
+        !list["messages"].as_array().unwrap().is_empty(),
+        "the pre-lock history survives"
+    );
+    let dms = list_dms(&a.router, &alice).await;
+    assert_eq!(dms[0]["locked"], json!(true), "thread reports locked=true");
+
+    // Re-friend (Alice requests, Bob accepts) → unlock, posting restored.
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    assert_eq!(
+        post_dm(&a.router, &alice, &tid, "we're back").await,
+        StatusCode::CREATED,
+        "re-friending unlocks the thread"
+    );
+    let dms = list_dms(&a.router, &alice).await;
+    assert_eq!(
+        dms[0]["locked"],
+        json!(false),
+        "thread reports locked=false"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn unfriending_does_not_lock_a_group_thread() {
+    // review M2 scope: the lock is 1:1-only (it keys on the dm_pair lock, which
+    // groups never have). Unfriending one group member must not freeze the group.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    let (carol, carol_id) = register_with_id(&a.router, "Carol").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &carol, "Carol").await;
+
+    // A group (Alice + Bob + Carol).
+    let (st, dm) = create_dm(&a.router, &alice, &[&bob_id, &carol_id], Some("Group")).await;
+    assert_eq!(st, StatusCode::CREATED);
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    // Alice unfriends Bob — they share no 1:1, so there is no pair lock to set.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/friends/{bob_id}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The group is unaffected: Bob (still a member) can still post.
+    assert_eq!(
+        post_dm(&a.router, &bob, &tid, "group lives").await,
+        StatusCode::CREATED,
+        "an unfriend between two group members must not lock the group"
+    );
+    let dms = list_dms(&a.router, &bob).await;
+    assert_eq!(dms[0]["locked"], json!(false), "group reports locked=false");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn dm_lifecycle_emits_lists_changed_to_members_over_sse() {
+    // review M3: the id-only realtime invariant for DMs — create + leave must
+    // each deliver a `lists_changed` frame to every affected member's open
+    // /events stream (ListsChanged is a bare tag: ids only, no content).
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+
+    let (st, _h, mut alice_body) = common::open_sse(&a.router, "/events", Some(&alice)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _h, mut bob_body) = common::open_sse(&a.router, "/events", Some(&bob)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Create → both members receive lists_changed.
+    let (st, dm) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    assert_eq!(st, StatusCode::CREATED);
+    let tid = dm["id"].as_str().unwrap().to_string();
+    for (who, body) in [("alice", &mut alice_body), ("bob", &mut bob_body)] {
+        match common::next_sse_data(body, std::time::Duration::from_secs(3)).await {
+            common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed", "{who} create"),
+            other => panic!("{who} should receive lists_changed on create, got {other:?}"),
+        }
+    }
+
+    // Leave (Alice) → both remaining + leaver receive lists_changed.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/dms/{tid}/members/me"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    for (who, body) in [("alice", &mut alice_body), ("bob", &mut bob_body)] {
+        match common::next_sse_data(body, std::time::Duration::from_secs(3)).await {
+            common::SseRead::Data(v) => assert_eq!(v["type"], "lists_changed", "{who} leave"),
+            other => panic!("{who} should receive lists_changed on leave, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn dm_privacy_404_body_is_byte_identical_to_the_guild_channel_404() {
+    // review L1: an outsider probing a DM thread must get a 404 whose body is
+    // byte-identical to the guild-channel 404 — no DM-vs-guild existence oracle.
+    // (The existing test pins against a literal; this pins against a LIVE guild
+    // 404, so a future drift on either side is caught.)
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    let (_, dm) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    let dm_tid = dm["id"].as_str().unwrap().to_string();
+
+    // A guild + its default channel that the outsider is NOT a member of.
+    let owner = common::register_account(&a.router, "GuildOwner", "password123").await;
+    let (st, _, guild) = common::send(
+        &a.router,
+        Method::POST,
+        "/guilds",
+        Some(&owner),
+        Some(&json!({ "name": "Guild" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let gid = guild["id"].as_str().unwrap().to_string();
+    let (_, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let guild_cid = detail["channels"][0]["id"].as_str().unwrap().to_string();
+
+    let outsider = common::register_account(&a.router, "Outsider", "password123").await;
+    let (st_g, _, body_g) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{guild_cid}/messages"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+    let (st_d, _, body_d) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{dm_tid}/messages"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+    assert_eq!(st_g, StatusCode::NOT_FOUND);
+    assert_eq!(st_d, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body_d, body_g,
+        "a DM non-member 404 must be byte-identical to the guild-channel 404"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn dm_mention_pings_a_thread_member_per_reader() {
+    // review L3: resolve_mentions' dm_member arm must resolve @ping inside a DM
+    // (guild-members-only would resolve to nobody), and stay per-reader.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    let (carol, carol_id) = register_with_id(&a.router, "Carol").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &carol, "Carol").await;
+    let (_, dm) = create_dm(&a.router, &alice, &[&bob_id, &carol_id], Some("Group")).await;
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    // Alice pings Bob in the DM.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{tid}/messages"),
+        Some(&alice),
+        Some(&json!({ "body": "look @Bob" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    let messages_of = |cookie: String, tid: String| {
+        let router = a.router.clone();
+        async move {
+            let (_, _, body) = common::send(
+                &router,
+                Method::GET,
+                &format!("/channels/{tid}/messages"),
+                Some(&cookie),
+                None,
+            )
+            .await;
+            body["messages"].as_array().unwrap().clone()
+        }
+    };
+
+    let bob_view = messages_of(bob.clone(), tid.clone()).await;
+    assert_eq!(
+        bob_view[0]["is_pinged"], true,
+        "the mentioned DM member is pinged"
+    );
+    let carol_view = messages_of(carol.clone(), tid.clone()).await;
+    assert_eq!(
+        carol_view[0]["is_pinged"], false,
+        "a non-mentioned DM member is not pinged"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn dm_push_notification_info_has_no_guild() {
+    // review L4: the push projection over a DM message must resolve (the
+    // meta::id(channel.guild) guard means a NONE guild is not a 500) and report
+    // guild_key = None — which is what steers notify_inner to the dm_member
+    // recipient query + the no-"#channel" DM title.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+    let (_, dm) = create_dm(&a.router, &alice, &[&bob_id], None).await;
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    let (st, _, msg) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{tid}/messages"),
+        Some(&alice),
+        Some(&json!({ "body": "psst" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let mid = msg["id"].as_str().unwrap().to_string();
+
+    let info = authlyn_interactive::server::push::load_notification_info(&a.state, &mid)
+        .await
+        .expect("notification row read (a NONE guild must not error the projection)")
+        .expect("the just-posted DM message must resolve");
+    assert!(
+        info.guild_key.is_none(),
+        "a DM message carries no guild — guild_key must be None, got {:?}",
+        info.guild_key
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn self_dm_and_self_invite_are_rejected() {
+    // review L5: the obvious adversarial inputs for a social-create endpoint.
+    let a = common::arena().await;
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    befriend(&a.router, &alice, &alice_id, &bob, "Bob").await;
+
+    // members=[self] collapses to empty → 400.
+    let (st, _) = create_dm(&a.router, &alice, &[&alice_id], None).await;
+    assert_eq!(
+        st,
+        StatusCode::BAD_REQUEST,
+        "a DM with only yourself is rejected"
+    );
+
+    // members=[self, friend] dedups the self out → a normal 2-member 1:1.
+    let (st, dm) = create_dm(&a.router, &alice, &[&alice_id, &bob_id], None).await;
+    assert_eq!(st, StatusCode::CREATED);
+    assert_eq!(
+        dm["members"].as_array().unwrap().len(),
+        2,
+        "self is filtered, leaving exactly the 1:1 pair"
+    );
+    let tid = dm["id"].as_str().unwrap().to_string();
+
+    // Inviting yourself into a thread you're in → 400.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/dms/{tid}/members"),
+        Some(&alice),
+        Some(&json!({ "account_id": alice_id })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "inviting yourself is rejected");
+}
