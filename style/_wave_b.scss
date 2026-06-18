@@ -295,6 +295,27 @@
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
+// M7/P1 review H3: Friends/DM .add-row action buttons (Direktmeddelanden →,
+// ← Vänner, Starta DM, Add friend) inherit no min-height from the base `button`
+// (there is no blanket button floor by design) — raise them here, at the shared
+// .add-row definition, to the 44px tap target (owner ruling 2026-06-17, product-
+// wide; NOT an .sk-orbit override). Safe scope: .add-row is the form-row pattern,
+// not the bespoke composer-orb / map-node chrome the blanket floor would distort.
+.add-row button {
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+}
+
+// M7/P1 review H4: a friend-picker row is a checkbox + name inside a bare
+// <label> (not a button), so `.flist button` above never reaches it. Floor the
+// label itself — the same "checkbox + name hit target" shape share-rows already
+// floor (_mobile.scss) — and center the checkbox + text in the 44px row.
+.flist label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+}
+
 // Member-management pane (#16/FB5): a roster of the open guild's members.
 .member-list {
 	display: flex;
