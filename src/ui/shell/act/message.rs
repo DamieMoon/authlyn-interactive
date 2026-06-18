@@ -1303,7 +1303,11 @@ pub(super) fn refresh_unread(s: Shell) {
             // for me (L-4).
             let has_ping = row.pinged;
             if has_new {
-                unread_guilds.insert(row.guild_id.clone());
+                // M7/P1: DM rows have no guild (guild_id = None) — they feed the
+                // per-channel unread set below, not a guild rail dot.
+                if let Some(gid) = &row.guild_id {
+                    unread_guilds.insert(gid.clone());
+                }
             }
             let marked = s
                 .notify

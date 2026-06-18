@@ -967,11 +967,14 @@ impl SyncEvent {
 // Batched unread summary (W1 — GET /unread)
 // ---------------------------------------------------------------------------
 
-/// W1: one row per visible text channel in `GET /unread`.
+/// W1: one row per visible text channel in `GET /unread`. M7/P1: also DM
+/// threads (`kind='dm'`), which have no guild — `guild_id` is then `None`, and
+/// the client routes that row to the DM-list badge instead of a guild rail dot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelUnread {
     pub channel_id: String,
-    pub guild_id: String,
+    #[serde(default)]
+    pub guild_id: Option<String>,
     /// Messages newer than the caller's read cursor (capped at 100). 0 when
     /// the channel has no cursor yet — the client baselines instead of glowing.
     pub unread: usize,

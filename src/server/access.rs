@@ -52,7 +52,8 @@ pub(crate) async fn resolve_membership(
 ) -> surrealdb::Result<Membership> {
     #[derive(SurrealValue)]
     struct ChanRow {
-        guild_key: String,
+        // M7/P1: NONE for a DM thread (a channel with no guild).
+        guild_key: Option<String>,
         kind: String,
     }
     #[derive(SurrealValue)]
@@ -61,10 +62,11 @@ pub(crate) async fn resolve_membership(
     }
 
     // The soft-delete filter is the only varying fragment; both branches are
-    // static SQL (no user input interpolated).
+    // static SQL (no user input interpolated). M7/P1: `guild = NONE OR …` keeps
+    // guild-less DM threads live (a DM is never "guild-soft-deleted").
     let chan_sql = if filter_deleted {
         "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid)
-            WHERE deleted_at = NONE AND guild.deleted_at = NONE;"
+            WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE);"
     } else {
         "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid);"
     };
@@ -79,32 +81,59 @@ pub(crate) async fn resolve_membership(
         return Ok(Membership::ChannelNotFound);
     };
 
-    let mut resp = state
-        .db
-        .query(
-            "SELECT true AS member
-                FROM guild_member
-                WHERE guild = type::record('guild', $gid)
-                  AND account = type::record('account', $account);",
-        )
-        .bind(("gid", chan.guild_key))
-        .bind(("account", account.to_string()))
-        .await?
-        .check()?;
-    if resp.take::<Option<MemRow>>(0)?.is_none() {
+    // M7/P1: membership lives in a different table per channel kind. A DM thread
+    // (`kind='dm'`, no guild) is gated by `dm_member`; a guild text/lorebook
+    // channel by `guild_member`. The three-outcome contract is identical, so the
+    // privacy-404 callers don't change.
+    let is_member = if chan.kind == "dm" {
+        let mut resp = state
+            .db
+            .query(
+                "SELECT true AS member
+                    FROM dm_member
+                    WHERE channel = type::record('channel', $cid)
+                      AND account = type::record('account', $account);",
+            )
+            .bind(("cid", cid.to_string()))
+            .bind(("account", account.to_string()))
+            .await?
+            .check()?;
+        resp.take::<Option<MemRow>>(0)?.is_some()
+    } else {
+        // A guild channel always has a guild; defend against a malformed row.
+        let Some(gid) = chan.guild_key else {
+            return Ok(Membership::NotMember);
+        };
+        let mut resp = state
+            .db
+            .query(
+                "SELECT true AS member
+                    FROM guild_member
+                    WHERE guild = type::record('guild', $gid)
+                      AND account = type::record('account', $account);",
+            )
+            .bind(("gid", gid))
+            .bind(("account", account.to_string()))
+            .await?
+            .check()?;
+        resp.take::<Option<MemRow>>(0)?.is_some()
+    };
+    if !is_member {
         return Ok(Membership::NotMember);
     }
 
     Ok(Membership::Member { kind: chan.kind })
 }
 
-/// One channel the account may currently see (live text channel in a guild
-/// where they are a member). Shared by GET /events (filtering) and GET /unread
-/// (Task 8, aggregation).
+/// One channel the account may currently see: a live `kind='text'` channel in a
+/// guild where they are a member, or (M7/P1) a live `kind='dm'` thread where they
+/// are a `dm_member` (`guild_id` then `None`). Shared by GET /events (filtering)
+/// and GET /unread (Task 8, aggregation).
 #[derive(SurrealValue)]
 pub(crate) struct VisibleChannel {
     pub(crate) channel_id: String,
-    pub(crate) guild_id: String,
+    // M7/P1: NONE for a DM thread (a channel with no guild).
+    pub(crate) guild_id: Option<String>,
 }
 
 /// Load every [`VisibleChannel`] for `account`. Two parameterized statements,
@@ -122,13 +151,17 @@ pub(crate) async fn visible_channels(
         .query(
             "LET $gids = (SELECT VALUE guild FROM guild_member
                  WHERE account = type::record('account', $account));
+             LET $dms = (SELECT VALUE channel FROM dm_member
+                 WHERE account = type::record('account', $account));
              SELECT meta::id(id) AS channel_id, meta::id(guild) AS guild_id FROM channel
-                 WHERE deleted_at = NONE AND kind = 'text'
-                   AND guild IN $gids AND guild.deleted_at = NONE;",
+                 WHERE deleted_at = NONE
+                   AND ( (kind = 'text' AND guild IN $gids AND guild.deleted_at = NONE)
+                         OR (kind = 'dm' AND id IN $dms) );",
         )
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    // Statement 0 is the LET (no materialized rows); the SELECT is take(1).
-    resp.take(1)
+    // Statements 0 and 1 are the LETs (no materialized rows); the SELECT is
+    // take(2). DM rows project `guild_id = NONE` (no guild) → Option::None.
+    resp.take(2)
 }
