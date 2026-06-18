@@ -27,8 +27,13 @@ use leptos::prelude::*;
 use self::orbit_map::{channel_orbit, map_geom, seed_of};
 use super::holopanel::{Detent, Edge, HoloPanel};
 use super::{
-    act, channel::ChannelPane, emoji_manager::EmojiManagerPane, friends::FriendsPane,
-    lorebook::LorebookPane, members::MembersPane, Pane, Shell,
+    act,
+    channel::ChannelPane,
+    emoji_manager::EmojiManagerPane,
+    friends::{DirectMessagesPane, FriendsPane},
+    lorebook::LorebookPane,
+    members::MembersPane,
+    Pane, Shell,
 };
 use crate::ui::icons::{
     IconBack, IconBook, IconEdit, IconEmoji, IconFriends, IconHold, IconMembers, IconOrb,
@@ -542,6 +547,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
                 Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
                 Pane::Members => view! { <MembersPane/> }.into_any(),
+                Pane::DirectMessages => view! { <DirectMessagesPane/> }.into_any(),
             }}
             <p class="error">{move || s.composer.status.get()}</p>
             {move || map_open.get().then(|| view! {

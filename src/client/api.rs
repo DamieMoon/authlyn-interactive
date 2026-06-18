@@ -15,17 +15,18 @@ use serde::Serialize;
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
     AddGalleryImagesBatchResponse, AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest,
-    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateEmojiRequest,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateDmRequest, CreateEmojiRequest,
     CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
-    CreatePersonaRequest, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail, GuildSummary,
-    InviteMemberRequest, ListEmojiResponse, ListFeedbackResponse, ListFriendsResponse,
-    ListGuildsResponse, ListLorebookResponse, ListMembersResponse, ListMessagesResponse,
-    ListPersonaEditorsResponse, ListPersonasResponse, LoginRequest, MarkReadRequest, MeResponse,
-    PatchChannelRequest, PatchGuildRequest, PatchLorebookEntryRequest, PatchPersonaRequest,
-    PersonaDetail, PersonaSummary, PushSubscribeRequest, RailOrderRequest, ReadStateResponse,
-    RegisterRequest, RollRequest, SendMessageRequest, SendMessageResponse,
-    SendSystemMessageRequest, SetActivePersonaRequest, SetMemberRoleRequest, SubmitFeedbackRequest,
-    SystemBroadcastResult, TypingDraftEntry, TypingPingRequest, UnreadResponse, VapidKeyResponse,
+    CreatePersonaRequest, DmSummary, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail,
+    GuildSummary, InviteMemberRequest, InviteToDmRequest, ListDmsResponse, ListEmojiResponse,
+    ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
+    ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
+    LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
+    PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest, RollRequest,
+    SendMessageRequest, SendMessageResponse, SendSystemMessageRequest, SetActivePersonaRequest,
+    SetMemberRoleRequest, SubmitFeedbackRequest, SystemBroadcastResult, TypingDraftEntry,
+    TypingPingRequest, UnreadResponse, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -849,6 +850,36 @@ pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
 /// DELETE /friends/{aid} — unfriend, or reject a pending request.
 pub async fn remove_friend(aid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/friends/{aid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Direct messages (M7/P1)
+// ---------------------------------------------------------------------------
+
+/// GET /dms — the caller's DM threads (1:1 + groups).
+pub async fn list_dms() -> Result<ListDmsResponse, ApiError> {
+    get("/dms").await
+}
+
+/// POST /dms — start a DM with friends (one member = 1:1, deduped; 2+ = group).
+pub async fn create_dm(members: Vec<String>, title: Option<String>) -> Result<DmSummary, ApiError> {
+    post_json("/dms", &CreateDmRequest { members, title }).await
+}
+
+/// POST /dms/{tid}/members — invite an accepted friend into a thread.
+pub async fn invite_to_dm(tid: &str, account_id: &str) -> Result<DmSummary, ApiError> {
+    post_json(
+        &format!("/dms/{tid}/members"),
+        &InviteToDmRequest {
+            account_id: account_id.to_string(),
+        },
+    )
+    .await
+}
+
+/// DELETE /dms/{tid}/members/me — leave a thread.
+pub async fn leave_dm(tid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/dms/{tid}/members/me")).await
 }
 
 // ---------------------------------------------------------------------------

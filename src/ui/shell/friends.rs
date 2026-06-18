@@ -10,7 +10,12 @@ pub(crate) fn FriendsPane() -> impl IntoView {
     let username = RwSignal::new(String::new());
     view! {
         <div class="pane">
-            <h3>"Friends"</h3>
+            <div class="add-row">
+                <h3>"Friends"</h3>
+                <button on:click=move |_| s.sync.pane.set(super::Pane::DirectMessages)>
+                    "Direktmeddelanden →"
+                </button>
+            </div>
             <div class="add-row">
                 <input prop:value=move || username.get()
                     on:input=move |ev| username.set(event_target_value(&ev))
@@ -43,6 +48,89 @@ pub(crate) fn FriendsPane() -> impl IntoView {
                                 <li>
                                     <span class="tag ok">"friend"</span>" "{p.username}" "
                                     <button on:click=move |_| act::remove_friend(s, aid.clone())>"Remove"</button>
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                }
+            }}
+        </div>
+    }
+}
+
+/// M7/P1 demo-grade DM surface: existing threads + a friend-picker to start a
+/// 1:1 or group. Reachable from FriendsPane; the orbit placement + visual
+/// treatment are deck-pass decisions (the function is placement-agnostic — a
+/// thread opens through the shared ChannelPane). NOT end-to-end encrypted, so
+/// there is deliberately no lock/encryption affordance here.
+#[component]
+pub(crate) fn DirectMessagesPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    // Fresh on mount; `message::refresh_lists` keeps it live via ListsChanged.
+    act::refresh_dms(s);
+    let title = RwSignal::new(String::new());
+    let selected = RwSignal::new(std::collections::HashSet::<String>::new());
+    view! {
+        <div class="pane">
+            <div class="add-row">
+                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Vänner"</button>
+                <h3>"Direktmeddelanden"</h3>
+            </div>
+            {move || {
+                let dms = s.sel.dms.get();
+                view! {
+                    <ul class="flist">
+                        {dms.into_iter().map(|dm| {
+                            let dm_open = dm.clone();
+                            let tid = dm.id.clone();
+                            let label = dm.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| {
+                                dm.members.iter().map(|m| {
+                                    if m.display_name.is_empty() { m.username.clone() } else { m.display_name.clone() }
+                                }).collect::<Vec<_>>().join(", ")
+                            });
+                            view! {
+                                <li>
+                                    <button on:click=move |_| act::open_dm(s, dm_open.clone())>{label}</button>
+                                    " "
+                                    <button on:click=move |_| act::leave_dm(s, tid.clone())>"Leave"</button>
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                }
+            }}
+            <h3>"Ny DM"</h3>
+            <div class="add-row">
+                <input prop:value=move || title.get()
+                    on:input=move |ev| title.set(event_target_value(&ev))
+                    placeholder="grupptitel (valfritt)"/>
+                <button on:click=move |_| {
+                    let members: Vec<String> = selected.get_untracked().into_iter().collect();
+                    if members.is_empty() { return; }
+                    let t = title.get_untracked();
+                    let t = (!t.trim().is_empty()).then_some(t);
+                    title.set(String::new());
+                    selected.set(std::collections::HashSet::new());
+                    act::create_dm_thread(s, members, t);
+                }>"Starta DM"</button>
+            </div>
+            {move || {
+                let friends = s.social.friends.get().friends;
+                view! {
+                    <ul class="flist">
+                        {friends.into_iter().map(|p| {
+                            let aid = p.account_id.clone();
+                            let aid_checked = aid.clone();
+                            view! {
+                                <li>
+                                    <label>
+                                        <input type="checkbox"
+                                            prop:checked=move || selected.get().contains(&aid_checked)
+                                            on:change=move |_| selected.update(|set| {
+                                                if !set.insert(aid.clone()) { set.remove(&aid); }
+                                            })/>
+                                        " "{p.username}
+                                    </label>
                                 </li>
                             }
                         }).collect_view()}

@@ -24,8 +24,8 @@ use std::collections::{HashMap, HashSet};
 use leptos::prelude::{RwSignal, StoredValue};
 
 use crate::protocol::{
-    Attachment, ChannelSummary, CustomEmoji, GuildSummary, ListFriendsResponse, LorebookEntry,
-    MessageEnvelope, PersonaSummary, ReplyPreview, TypingDraftEntry,
+    Attachment, ChannelSummary, CustomEmoji, DmSummary, GuildSummary, ListFriendsResponse,
+    LorebookEntry, MessageEnvelope, PersonaSummary, ReplyPreview, TypingDraftEntry,
 };
 
 use super::{Pane, PendingDelete};
@@ -51,6 +51,11 @@ pub(crate) struct Selection {
     /// context built in `AppShell`.
     pub(crate) guild_emoji: RwSignal<Vec<CustomEmoji>>,
     pub(crate) sel_channel: RwSignal<Option<ChannelSummary>>,
+    /// M7/P1: the caller's DM threads (1:1 + groups), refreshed alongside the
+    /// guild list in `refresh_lists` (so a `ListsChanged` create/invite/leave
+    /// repaints them). Opening one routes through `sel_channel`/ChannelPane like
+    /// any channel — a DM thread *is* a channel.
+    pub(crate) dms: RwSignal<Vec<DmSummary>>,
 }
 
 /// The open channel's message list + the three-cursor pagination state and

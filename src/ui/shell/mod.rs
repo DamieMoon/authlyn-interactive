@@ -77,6 +77,9 @@ pub(crate) enum Pane {
     Lorebook,
     Emoji,
     Members,
+    /// M7/P1: the DM thread list (demo-grade orbit surface; placement is a
+    /// deck-pass decision).
+    DirectMessages,
 }
 
 /// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
@@ -131,6 +134,7 @@ fn AppShell() -> impl IntoView {
         guild_channels: RwSignal::new(HashMap::new()),
         guild_emoji: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
+        dms: RwSignal::new(Vec::new()),
     };
     provide_context(sel);
 

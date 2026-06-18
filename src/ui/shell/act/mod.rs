@@ -47,6 +47,7 @@ pub mod account;
 pub mod admin;
 pub mod channel;
 pub mod compose_colors;
+pub mod dm;
 pub mod emoji;
 pub mod feedback;
 pub mod guild;
@@ -70,6 +71,7 @@ pub use channel::{
     restore_channel, restore_session, show_current_channel, swap_channel,
 };
 pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
+pub use dm::{create_dm_thread, invite_to_dm, leave_dm, open_dm, refresh_dms};
 // `move_channel` (drag drop target) is only reached from a hydrate-gated drag
 // handler; re-exporting it on ssr fires dead-code since nothing calls it there.
 #[cfg(feature = "hydrate")]

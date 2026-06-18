@@ -1458,6 +1458,16 @@ pub(super) fn refresh_lists(s: Shell) {
                 s.social.friends.set(f);
             }
         }
+        // M7/P1: DM threads ride the same lists refresh — a create/invite/leave
+        // ListsChanged repaints them alongside guilds + friends.
+        if let Ok(d) = api::list_dms().await {
+            let Some(changed) = s.sel.dms.try_with_untracked(|cur| *cur != d.dms) else {
+                return;
+            };
+            if changed {
+                s.sel.dms.set(d.dms);
+            }
+        }
         let Some(gid) = sel else {
             return;
         };
