@@ -793,3 +793,193 @@ async fn new_guild_member_account_index_applies_over_populated_rows() {
         "pre-existing memberships are served through the new index"
     );
 }
+
+/// M7/P1: a DM thread is a `channel` with `guild = NONE` and `kind = 'dm'`. The
+/// schema widens `channel.guild` `record<guild>` → `option<record<guild>>` and
+/// the `channel.kind` ASSERT `['text','lorebook']` → `+['dm']`, BOTH via
+/// `DEFINE FIELD OVERWRITE`. On a populated prod DB the fields already exist with
+/// the strict definitions, so `IF NOT EXISTS` would be a no-op that keeps them —
+/// and then `CREATE channel SET guild = NONE, kind = 'dm'` (every DM) dies on the
+/// strict `record<guild>` type and the narrow enum ASSERT. This applies the real
+/// `storage::SCHEMA` over an old-strict populated channel and proves: legacy rows
+/// survive with their guild + kind, AND a guild-less `kind='dm'` channel is now
+/// accepted (the assertion that fails if either OVERWRITE were `IF NOT EXISTS`).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn widening_channel_guild_to_option_over_populated_channels_admits_guildless_dms() {
+    let db = common::raw_db().await;
+
+    // The pre-M7 channel schema: `guild` STRICT (non-option), `kind` with the
+    // OLD two-value ASSERT — exactly prod's state at deploy time.
+    db.query(
+        "DEFINE TABLE channel SCHEMAFULL;\
+         DEFINE FIELD guild      ON channel TYPE record<guild>;\
+         DEFINE FIELD name       ON channel TYPE string;\
+         DEFINE FIELD kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook'];\
+         DEFINE FIELD position   ON channel TYPE int DEFAULT 0;\
+         DEFINE FIELD created_at ON channel TYPE datetime DEFAULT time::now();\
+         DEFINE FIELD deleted_at ON channel TYPE option<datetime>;\
+         DEFINE INDEX channel_guild ON channel FIELDS guild;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy guild channel (record links are not referentially
+    // enforced, so the dangling guild id is fine).
+    db.query("CREATE channel:legacy SET guild = guild:x, name = 'general', kind = 'text';")
+        .await
+        .expect("seed legacy transport")
+        .check()
+        .expect("seed legacy channel");
+
+    // Apply the REAL schema: OVERWRITEs guild → option<> and kind → +'dm' over the
+    // populated table. Must not crash-loop (existing rows hold a guild + a valid
+    // kind, both still valid; no backfill).
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over a strict-guild populated channel table");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        guild_id: Option<String>,
+        name: String,
+        kind: String,
+    }
+    let mut resp = db
+        .query(
+            "SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_id, name, kind
+                FROM channel:legacy;",
+        )
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Row = resp
+        .take::<Option<Row>>(0)
+        .expect("take")
+        .expect("legacy channel survives the widening");
+    assert_eq!(
+        row.guild_id,
+        Some("x".to_string()),
+        "legacy channel keeps its guild link"
+    );
+    assert_eq!(row.name, "general", "name survives untouched");
+    assert_eq!(row.kind, "text", "kind survives untouched");
+
+    // THE BITE: a guild-less DM channel must now be accepted. This fails if the
+    // strict `record<guild>` survived (NONE rejected) OR the narrow kind ASSERT
+    // survived ('dm' rejected) — i.e. if either OVERWRITE had been IF NOT EXISTS.
+    let mut resp = db
+        .query(
+            "CREATE channel:dm SET guild = NONE, kind = 'dm', name = '';\
+             SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_id, name, kind
+                FROM channel:dm;",
+        )
+        .await
+        .expect("dm create transport")
+        .check()
+        .expect("a guild-less kind='dm' channel must be accepted after the widening");
+    let row: Row = resp
+        .take::<Option<Row>>(1)
+        .expect("take dm")
+        .expect("dm channel row");
+    assert_eq!(row.guild_id, None, "DM channel has no guild");
+    assert_eq!(row.kind, "dm", "DM channel kind persists");
+
+    // And a normal guild channel still validates (the enum widening didn't break
+    // the existing values).
+    db.query("CREATE channel:legacy2 SET guild = guild:x, name = 'two', kind = 'lorebook';")
+        .await
+        .expect("transport")
+        .check()
+        .expect("an existing kind value must stay accepted after the widening");
+
+    // An out-of-set kind is still rejected.
+    let bad = db
+        .query("CREATE channel:bad SET guild = guild:x, name = 'bad', kind = 'bogus';")
+        .await
+        .expect("transport");
+    assert!(
+        bad.check().is_err(),
+        "channel.kind ASSERT must still reject an out-of-set value"
+    );
+}
+
+/// M7/P1 (mirror review M-37 / `guild_member_account`): the account-only
+/// `dm_member_account` index — `access::visible_channels` asks "which DM threads
+/// is this account in?" on every /events connect and GET /unread — must land on a
+/// database whose `dm_member` table is ALREADY POPULATED. `DEFINE INDEX` builds
+/// over existing rows at apply, so the apply must not error, the index must exist
+/// afterwards, and the lookup must serve the pre-existing rows through it.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn new_dm_member_account_index_applies_over_populated_rows() {
+    let db = common::raw_db().await;
+
+    // The pre-index dm_member schema: every real field, but ONLY the
+    // (channel, account) composite — no account-only index.
+    db.query(
+        "DEFINE TABLE dm_member SCHEMAFULL;\
+         DEFINE FIELD channel   ON dm_member TYPE record<channel>;\
+         DEFINE FIELD account   ON dm_member TYPE record<account>;\
+         DEFINE FIELD joined_at ON dm_member TYPE datetime DEFAULT time::now();\
+         DEFINE INDEX dm_member_pair ON dm_member FIELDS channel, account UNIQUE;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // Populated DM membership rows (record links are not referentially enforced).
+    db.query(
+        "CREATE dm_member SET channel = channel:t1, account = account:alpha;\
+         CREATE dm_member SET channel = channel:t2, account = account:alpha;\
+         CREATE dm_member SET channel = channel:t1, account = account:beta;",
+    )
+    .await
+    .expect("seed transport")
+    .check()
+    .expect("seed dm_member rows");
+
+    // Apply the REAL schema: must not error, and must add the new index.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over populated dm_member");
+
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE dm_member); RETURN object::keys($i.indexes);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let indexes: Vec<String> = resp.take(1).expect("take index names");
+    assert!(
+        indexes.contains(&"dm_member_account".to_string()),
+        "the account-only index must exist after apply, got: {indexes:?}"
+    );
+
+    // The visible_channels lookup shape serves the pre-existing rows.
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(channel) FROM dm_member
+                WHERE account = type::record('account', $account);",
+        )
+        .bind(("account", "alpha".to_string()))
+        .await
+        .expect("lookup query")
+        .check()
+        .expect("lookup check");
+    let mut threads: Vec<String> = resp.take(0).expect("take threads");
+    threads.sort();
+    assert_eq!(
+        threads,
+        vec!["t1".to_string(), "t2".to_string()],
+        "pre-existing DM memberships are served through the new index"
+    );
+}

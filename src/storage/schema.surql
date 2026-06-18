@@ -130,11 +130,20 @@ DEFINE FIELD IF NOT EXISTS deleted_at ON guild TYPE option<datetime>;
 -- use DEFINE FIELD OVERWRITE, not IF NOT EXISTS (enum-OVERWRITE invariant).
 DEFINE FIELD IF NOT EXISTS accent_color ON guild TYPE option<string>;
 
--- Channels (nested under a guild; `kind` gates text vs lorebook) --------
+-- Channels (guild text/lorebook channels, or guild-less DM threads) -----
 DEFINE TABLE IF NOT EXISTS channel SCHEMAFULL;
-DEFINE FIELD IF NOT EXISTS guild      ON channel TYPE record<guild>;
+-- M7/P1: a DM thread is a channel with NO guild, so `guild` is option<>.
+-- OVERWRITE (not IF NOT EXISTS): on a populated DB the field already exists as
+-- the strict `record<guild>`, and IF NOT EXISTS is a no-op there — it would keep
+-- the strict type and reject `guild = NONE` on every DM create. Existing rows all
+-- hold a guild (valid for option<record>), so no backfill / no NONE-coercion.
+-- (The file-wide IF NOT EXISTS exception, here for a record-link widening.)
+DEFINE FIELD OVERWRITE     guild      ON channel TYPE option<record<guild>>;
 DEFINE FIELD IF NOT EXISTS name       ON channel TYPE string;
-DEFINE FIELD IF NOT EXISTS kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook'];
+-- M7/P1: `'dm'` added. OVERWRITE (not IF NOT EXISTS) — widening an enum ASSERT
+-- needs OVERWRITE or the old narrow ASSERT silently survives and rejects 'dm'
+-- (the same trap as message.kind below). DEFAULT 'text' unchanged.
+DEFINE FIELD OVERWRITE     kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook', 'dm'];
 DEFINE FIELD IF NOT EXISTS position   ON channel TYPE int DEFAULT 0;
 DEFINE FIELD IF NOT EXISTS created_at ON channel TYPE datetime DEFAULT time::now();
 -- Soft-delete (#22): NONE = live (purge window: channel 1d). See guild.deleted_at.
@@ -166,6 +175,23 @@ DEFINE FIELD IF NOT EXISTS account ON channel_active_persona TYPE record<account
 DEFINE FIELD IF NOT EXISTS channel ON channel_active_persona TYPE record<channel>;
 DEFINE FIELD IF NOT EXISTS persona ON channel_active_persona TYPE record<persona>;
 DEFINE INDEX IF NOT EXISTS channel_active_persona_pair ON channel_active_persona FIELDS account, channel UNIQUE;
+
+-- DM membership (M7/P1): one row per (account, dm-thread). A DM thread is a
+-- channel with kind='dm' and guild=NONE; this is the dm-kind analog of
+-- guild_member that `access::resolve_membership` / `access::visible_channels`
+-- branch to on kind. Brand-new table → no NONE-backfill hazard. No active_persona
+-- here: DM persona wear rides channel_active_persona like every channel. The
+-- optional group title lives in channel.name.
+DEFINE TABLE IF NOT EXISTS dm_member SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS channel   ON dm_member TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS account   ON dm_member TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS joined_at ON dm_member TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS dm_member_pair ON dm_member FIELDS channel, account UNIQUE;
+-- Account-only lookup (mirror guild_member_account, review M-37): visible_channels
+-- asks "which DM threads is this account in?" on every /events connect + /unread.
+-- DEFINE INDEX builds over existing rows at apply time — no backfill hazard
+-- (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS dm_member_account ON dm_member FIELDS account;
 
 -- Messages (channel-scoped, plaintext, persona-aware) ------------------
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
