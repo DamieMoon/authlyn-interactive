@@ -64,11 +64,15 @@ pub(crate) async fn resolve_membership(
     // The soft-delete filter is the only varying fragment; both branches are
     // static SQL (no user input interpolated). M7/P1: `guild = NONE OR …` keeps
     // guild-less DM threads live (a DM is never "guild-soft-deleted").
+    // `meta::id(guild)` ERRORS on a DM row (guild = NONE), so it's guarded — NONE
+    // guild_key for a DM thread, the id for a guild channel.
     let chan_sql = if filter_deleted {
-        "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid)
+        "SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind
+            FROM type::record('channel', $cid)
             WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE);"
     } else {
-        "SELECT meta::id(guild) AS guild_key, kind FROM type::record('channel', $cid);"
+        "SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind
+            FROM type::record('channel', $cid);"
     };
 
     let mut resp = state
@@ -153,7 +157,9 @@ pub(crate) async fn visible_channels(
                  WHERE account = type::record('account', $account));
              LET $dms = (SELECT VALUE channel FROM dm_member
                  WHERE account = type::record('account', $account));
-             SELECT meta::id(id) AS channel_id, meta::id(guild) AS guild_id FROM channel
+             SELECT meta::id(id) AS channel_id,
+                    (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_id
+                 FROM channel
                  WHERE deleted_at = NONE
                    AND ( (kind = 'text' AND guild IN $gids AND guild.deleted_at = NONE)
                          OR (kind = 'dm' AND id IN $dms) );",

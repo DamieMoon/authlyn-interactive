@@ -92,7 +92,9 @@ pub async fn post_message(
     };
     let stored_persona = match access {
         AccessOutcome::Ok(ctx) => {
-            if ctx.kind != "text" {
+            // Text channels and (M7/P1) DM threads accept messages; lorebook
+            // channels do not.
+            if ctx.kind != "text" && ctx.kind != "dm" {
                 return error_response(
                     StatusCode::BAD_REQUEST,
                     "cannot post messages to a non-text channel",
@@ -327,7 +329,8 @@ async fn reply_target_valid(state: &AppState, cid: &str, rid: &str) -> surrealdb
 
 /// Resolve `@username` mention names (already lowercased by
 /// [`crate::markup::collect_mentions`]) to the account-id keys of accounts who
-/// are MEMBERS of the channel `cid`'s guild (L-4). Case-insensitive: matches on
+/// are MEMBERS of the channel `cid` — guild members, or (M7/P1) DM-thread
+/// members for a `kind='dm'` channel (L-4). Case-insensitive: matches on
 /// `account.username_ci` (the lowercased column registration maintains). Empty
 /// input → empty output. Only resolved members are returned — an `@name` that
 /// isn't a member of this guild (or isn't a real account) is silently dropped,
@@ -345,21 +348,33 @@ async fn resolve_mentions(
     if names.is_empty() {
         return Ok(Vec::new());
     }
+    // M7/P1: mentions resolve against the channel's membership table — guild
+    // members for a guild channel, dm_member for a DM thread (where $gid resolves
+    // to NONE, so the guild_member arm is empty and the dm_member arm carries it).
+    // A channel is exactly one kind, so the two arms never both match; union them.
     let mut resp = state
         .db
         .query(
-            "LET $gid = (SELECT VALUE meta::id(guild) FROM ONLY type::record('channel', $cid)
-                WHERE deleted_at = NONE AND guild.deleted_at = NONE);
+            "LET $chan = type::record('channel', $cid);
+             LET $gid = (SELECT VALUE (IF guild != NONE THEN meta::id(guild) ELSE NONE END)
+                FROM ONLY $chan
+                WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE));
              SELECT VALUE meta::id(account) FROM guild_member
                 WHERE meta::id(guild) = $gid
+                  AND account.username_ci IN $names;
+             SELECT VALUE meta::id(account) FROM dm_member
+                WHERE channel = $chan
                   AND account.username_ci IN $names;",
         )
         .bind(("cid", cid.to_string()))
         .bind(("names", names.to_vec()))
         .await?
         .check()?;
-    // Statement 0 is the LET (no materialized rows); the SELECT VALUE is take(1).
-    let ids: Vec<String> = resp.take(1)?;
+    // Statements 0 and 1 are the LETs (no materialized rows); the guild SELECT is
+    // take(2), the DM SELECT take(3).
+    let mut ids: Vec<String> = resp.take(2)?;
+    let dm_ids: Vec<String> = resp.take(3)?;
+    ids.extend(dm_ids);
     Ok(ids)
 }
 

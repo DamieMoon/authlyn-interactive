@@ -10,6 +10,7 @@
 pub mod accent;
 pub mod auth;
 pub mod dev_reload;
+pub mod dms;
 pub mod emoji;
 pub mod events;
 pub mod feedback;
@@ -214,6 +215,12 @@ fn small_body_routes() -> Router<AppState> {
         )
         .route("/friends/{aid}/accept", post(friends::accept_friend))
         .route("/friends/{aid}", delete(friends::remove_friend))
+        // M7/P1 DMs: thread lifecycle only — messages/read-state/active-persona
+        // ride the channel-scoped /channels/{cid}/… routes above (a DM thread IS
+        // a channel). Static /dms ranks over no dynamic sibling here.
+        .route("/dms", get(dms::list_dms).post(dms::create_dm))
+        .route("/dms/{tid}/members", post(dms::invite_to_dm))
+        .route("/dms/{tid}/members/me", delete(dms::leave_dm))
         // Web Push (#30): public VAPID key fetch + subscribe/unsubscribe.
         .route("/push/vapid-key", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))

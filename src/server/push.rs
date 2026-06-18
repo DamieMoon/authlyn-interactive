@@ -278,7 +278,8 @@ pub fn notify_new_message(state: AppState, message_id: String, author: String) {
 pub struct NotificationInfo {
     pub channel_key: String,
     pub channel_name: String,
-    pub guild_key: String,
+    /// M7/P1: NONE for a DM thread (no guild).
+    pub guild_key: Option<String>,
     pub sender_name: String,
     pub body: String,
     /// The message author's persona avatar media id (snapshot ?? live
@@ -322,7 +323,7 @@ pub async fn load_notification_info(
             "SELECT
                 meta::id(channel)        AS channel_key,
                 channel.name             AS channel_name,
-                meta::id(channel.guild)  AS guild_key,
+                (IF channel.guild != NONE THEN meta::id(channel.guild) ELSE NONE END) AS guild_key,
                 (persona_name ?? (author.display_name ?: author.username)) AS sender_name,
                 (IF persona_avatar != NONE THEN meta::id(persona_avatar)
                  ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
@@ -348,9 +349,12 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         return Ok(());
     };
 
-    // Recipients: every push_subscription owned by a guild member who isn't the
-    // author. (Mutes are client-side only, so the server can't honour them; the
-    // payload carries the channel id so the client/SW could filter later.)
+    // Recipients: every push_subscription owned by a member of the channel who
+    // isn't the author. M7/P1: the membership table is guild_member for a guild
+    // channel, dm_member for a DM thread — picked by `guild_key` presence so each
+    // query stays single-table. (Mutes are client-side only, so the server can't
+    // honour them; the payload carries the channel id so the client/SW could
+    // filter later.)
     #[derive(SurrealValue)]
     struct Sub {
         endpoint: String,
@@ -360,17 +364,29 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         /// message's `pinged_keys` to set the per-recipient `pinged` flag (L-4).
         account_key: String,
     }
+    let recipients_sql = if info.guild_key.is_some() {
+        "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
+            FROM push_subscription
+            WHERE account != type::record('account', $author)
+              AND account IN (SELECT VALUE account FROM guild_member
+                  WHERE guild = type::record('guild', $scope));"
+    } else {
+        "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
+            FROM push_subscription
+            WHERE account != type::record('account', $author)
+              AND account IN (SELECT VALUE account FROM dm_member
+                  WHERE channel = type::record('channel', $scope));"
+    };
+    // Guild channel → scope is the guild id; DM thread → the channel id.
+    let scope = info
+        .guild_key
+        .clone()
+        .unwrap_or_else(|| info.channel_key.clone());
     let mut resp = state
         .db
-        .query(
-            "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
-                FROM push_subscription
-                WHERE account != type::record('account', $author)
-                  AND account IN (SELECT VALUE account FROM guild_member
-                      WHERE guild = type::record('guild', $gid));",
-        )
+        .query(recipients_sql)
         .bind(("author", author.to_string()))
-        .bind(("gid", info.guild_key.clone()))
+        .bind(("scope", scope))
         .await?
         .check()?;
     let subs: Vec<Sub> = resp.take(0)?;
@@ -387,7 +403,13 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // can style a ping differently — hence the payload is built per recipient.
     // The persona avatar `image` (when present) is the same for everyone but is
     // added to each per-recipient payload below.
-    let title = format!("{} in #{}", info.sender_name, info.channel_name);
+    // M7/P1: a guild channel reads "<who> in #<channel>"; a 1:1 DM (no title) is
+    // just the sender; a titled group DM is "<who> in <title>".
+    let title = match (&info.guild_key, info.channel_name.is_empty()) {
+        (Some(_), _) => format!("{} in #{}", info.sender_name, info.channel_name),
+        (None, true) => info.sender_name.clone(),
+        (None, false) => format!("{} in {}", info.sender_name, info.channel_name),
+    };
     let body = info.notification_body();
 
     let mut dead: Vec<String> = Vec::new();
@@ -397,7 +419,10 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
             "title": title,
             "body": body,
             "channel": info.channel_key,
-            "guild": info.guild_key,
+            "guild": match &info.guild_key {
+                Some(g) => serde_json::Value::String(g.clone()),
+                None => serde_json::Value::Null,
+            },
             "message": mid,
             "tag": info.channel_key,
             "pinged": pinged,

@@ -100,11 +100,11 @@ pub(super) async fn channel_access(
         /// `kind` of the (live, non-soft-deleted) channel, or `NONE` when the
         /// channel doesn't exist (or it / its guild are soft-deleted).
         chan_kind: Option<String>,
-        /// `Some(true)` when the caller is a guild_member; `None` otherwise
-        /// (sub-SELECT returns no row). The `IF $chan = NONE` guard skips the
-        /// `type::record('guild', NONE)` construction when the channel is
-        /// missing — order of evaluation across an `AND` is not contractual
-        /// in SurrealQL.
+        /// `Some(true)` when the caller is a member — `guild_member` for a guild
+        /// channel, `dm_member` for a `kind='dm'` thread (M7/P1) — `None`
+        /// otherwise (sub-SELECT returns no row). The `IF $chan = NONE` guard
+        /// skips the membership lookup when the channel is missing — order of
+        /// evaluation across an `AND` is not contractual in SurrealQL.
         is_member: Option<bool>,
         /// The caller's worn persona id IN THIS CHANNEL (no row → speak as
         /// the account).
@@ -118,16 +118,22 @@ pub(super) async fn channel_access(
     // still indexes through the LET — hence `.take(1)` for the object.
     let sql = "
         LET $chan = (
-            SELECT meta::id(guild) AS guild_key, kind
+            SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind
             FROM ONLY type::record('channel', $cid)
-            WHERE deleted_at = NONE AND guild.deleted_at = NONE
+            WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE)
         );
         RETURN {
             chan_kind: $chan.kind,
             is_member: IF $chan = NONE THEN NONE ELSE
-                (SELECT VALUE true FROM ONLY guild_member
-                    WHERE guild = type::record('guild', $chan.guild_key)
-                      AND account = type::record('account', $account))
+                (IF $chan.kind = 'dm' THEN
+                    (SELECT VALUE true FROM ONLY dm_member
+                        WHERE channel = type::record('channel', $cid)
+                          AND account = type::record('account', $account))
+                ELSE
+                    (SELECT VALUE true FROM ONLY guild_member
+                        WHERE guild = type::record('guild', $chan.guild_key)
+                          AND account = type::record('account', $account))
+                END)
             END,
             active_persona: (
                 SELECT VALUE meta::id(persona)
