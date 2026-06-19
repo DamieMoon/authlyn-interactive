@@ -1198,3 +1198,181 @@ async fn applying_guest_cameo_over_populated_messages_materialises_without_wipin
         "guest_cameo must be materialised to false on legacy rows"
     );
 }
+
+/// M7/P2 prod-shape DEPLOY GATE: the two single-table guards above each prove ONE
+/// migration in isolation over a tiny seed. This rehearses the actual prod boot —
+/// the FULL real schema applied over a DB already populated with prod-shaped legacy
+/// rows across the M7/P1+P2 risk surface AT ONCE, then re-applied (boot-restart
+/// idempotency). It covers what the isolated guards don't: (1) the
+/// `message.guest_cameo` fold over MANY legacy rows (scale, not 1 row), (2) the
+/// `channel_guest_account` index build AND the `channel.guild`/`channel.kind`
+/// OVERWRITE widenings co-applied in the same pass over populated rows, (3) a
+/// SECOND apply over the now-migrated populated DB stays Ok (a non-idempotent
+/// DEFINE/backfill would crash-loop the service on restart). A NONE-coercion crash
+/// (the 2026-06-01 attachments-wipe hazard) surfaces as a `.check()` Err.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_full_schema_over_prod_shaped_populated_db_is_crash_free_and_idempotent() {
+    let db = common::raw_db().await;
+
+    // The on-disk shape a PRE-M7 prod DB carries before the boot-apply migrates it:
+    // channel with the OLD strict `guild` (record<guild>, not option) and the OLD
+    // narrow `kind` ASSERT (no 'dm'); message WITHOUT `guest_cameo`; channel_guest
+    // WITHOUT the account-only index. Record links are not referentially enforced,
+    // so the linked account/guild rows need not exist.
+    db.query(
+        "DEFINE TABLE channel SCHEMAFULL;\
+         DEFINE FIELD guild      ON channel TYPE record<guild>;\
+         DEFINE FIELD name       ON channel TYPE string;\
+         DEFINE FIELD kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook'];\
+         DEFINE FIELD position   ON channel TYPE int DEFAULT 0;\
+         DEFINE FIELD created_at ON channel TYPE datetime DEFAULT time::now();\
+         DEFINE INDEX channel_guild ON channel FIELDS guild;\
+         DEFINE TABLE message SCHEMAFULL;\
+         DEFINE FIELD channel      ON message TYPE record<channel>;\
+         DEFINE FIELD author       ON message TYPE record<account>;\
+         DEFINE FIELD body         ON message TYPE string;\
+         DEFINE FIELD attachments  ON message TYPE array<string> DEFAULT [];\
+         DEFINE FIELD pinged_users ON message TYPE array<record<account>> DEFAULT [];\
+         DEFINE FIELD kind         ON message TYPE string DEFAULT 'user';\
+         DEFINE FIELD tier         ON message TYPE string DEFAULT 'default';\
+         DEFINE FIELD sent_at      ON message TYPE datetime DEFAULT time::now();\
+         DEFINE INDEX message_channel_sent ON message FIELDS channel, sent_at;\
+         DEFINE TABLE channel_guest SCHEMAFULL;\
+         DEFINE FIELD channel    ON channel_guest TYPE record<channel>;\
+         DEFINE FIELD account    ON channel_guest TYPE record<account>;\
+         DEFINE FIELD invited_by ON channel_guest TYPE record<account>;\
+         DEFINE FIELD created_at ON channel_guest TYPE datetime DEFAULT time::now();\
+         DEFINE FIELD expires_at ON channel_guest TYPE option<datetime>;\
+         DEFINE INDEX channel_guest_pair ON channel_guest FIELDS channel, account UNIQUE;",
+    )
+    .await
+    .expect("pre-M7 schema transport")
+    .check()
+    .expect("pre-M7 schema apply");
+
+    // Prod-shaped seed: 5 populated channels (guild set, kind 'text' — the OVERWRITE
+    // targets), 100 legacy messages each carrying an attachment and lacking
+    // guest_cameo (the realistic prod state: prior backfills already ran, only
+    // guest_cameo is new), and 3 channel_guest rows lacking the account-only index.
+    let mut seed = String::new();
+    for i in 0..5 {
+        seed.push_str(&format!(
+            "CREATE channel:c{i} SET guild = guild:g, name = 'chan {i}', kind = 'text';"
+        ));
+    }
+    for i in 0..100 {
+        seed.push_str(&format!(
+            "CREATE message:m{i} SET channel = channel:c{c}, author = account:y, \
+             body = 'legacy {i}', attachments = ['blob-{i}'], kind = 'user';",
+            c = i % 5
+        ));
+    }
+    seed.push_str(
+        "CREATE channel_guest SET channel = channel:c0, account = account:guest1, invited_by = account:host;\
+         CREATE channel_guest SET channel = channel:c1, account = account:guest1, invited_by = account:host;\
+         CREATE channel_guest SET channel = channel:c0, account = account:guest2, invited_by = account:host;",
+    );
+    db.query(seed)
+        .await
+        .expect("seed transport")
+        .check()
+        .expect("seed prod-shaped rows");
+
+    // THE GATE — first boot-apply over the populated pre-M7 DB. This is exactly the
+    // boot path `db::apply_schema` (db.rs) → `main.rs`'s `.expect()`; a crash here
+    // is a boot crash-loop in prod.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("first apply transport")
+        .check()
+        .expect("FIRST apply of real schema over prod-shaped populated DB");
+
+    // Boot-restart idempotency — the same schema re-runs over the now-migrated DB.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("second apply transport")
+        .check()
+        .expect("SECOND apply (boot-restart idempotency) over the migrated DB");
+
+    // Message migration over MANY rows: every legacy message kept its attachment and
+    // got guest_cameo = false (no wipe, no crash). Counted in Rust to dodge any
+    // aggregation-idiom footgun.
+    #[derive(SurrealValue)]
+    struct Msg {
+        attachments: Vec<String>,
+        guest_cameo: bool,
+    }
+    let mut resp = db
+        .query("SELECT attachments, guest_cameo FROM message;")
+        .await
+        .expect("message query")
+        .check()
+        .expect("message check");
+    let msgs: Vec<Msg> = resp.take(0).expect("take messages");
+    assert_eq!(
+        msgs.len(),
+        100,
+        "all 100 legacy messages survive the migration"
+    );
+    assert!(
+        msgs.iter().all(|m| !m.attachments.is_empty()),
+        "no attachment wiped by the guest_cameo backfill (the 2026-06-01 hazard)"
+    );
+    assert!(
+        msgs.iter().all(|m| !m.guest_cameo),
+        "guest_cameo backfilled to false on every legacy row"
+    );
+
+    // channel.guild / channel.kind OVERWRITE widenings landed over populated rows.
+    #[derive(SurrealValue)]
+    struct Chan {
+        kind: String,
+    }
+    let mut resp = db
+        .query("SELECT kind FROM channel;")
+        .await
+        .expect("channel query")
+        .check()
+        .expect("channel check");
+    let chans: Vec<Chan> = resp.take(0).expect("take channels");
+    assert_eq!(
+        chans.len(),
+        5,
+        "all channels survive the guild/kind OVERWRITE widening"
+    );
+    assert!(
+        chans.iter().all(|c| c.kind == "text"),
+        "kind survives the ASSERT-widening OVERWRITE untouched"
+    );
+
+    // The new account-only index exists and serves the pre-existing guest rows.
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE channel_guest); RETURN object::keys($i.indexes);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let indexes: Vec<String> = resp.take(1).expect("take index names");
+    assert!(
+        indexes.contains(&"channel_guest_account".to_string()),
+        "the account-only index must exist after apply, got: {indexes:?}"
+    );
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(channel) FROM channel_guest
+                WHERE account = type::record('account', $account);",
+        )
+        .bind(("account", "guest1".to_string()))
+        .await
+        .expect("lookup query")
+        .check()
+        .expect("lookup check");
+    let mut channels: Vec<String> = resp.take(0).expect("take channels");
+    channels.sort();
+    assert_eq!(
+        channels,
+        vec!["c0".to_string(), "c1".to_string()],
+        "pre-existing guest invites are served through the new index"
+    );
+}
