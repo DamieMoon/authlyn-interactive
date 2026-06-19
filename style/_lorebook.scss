@@ -16,9 +16,26 @@
 	border: 1px solid var(--line);
 	border-radius: 0.5rem;
 	padding: 0.6rem 0.75rem;
+	transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 
 	&.lore-disabled {
 		opacity: 0.5;
+	}
+
+	// Finger-drag reorder feedback (the wardrobe / channel-manager grip
+	// pattern): the grabbed entry lifts, the entry under the finger gets the
+	// accent drop-ring.
+	&.dragging {
+		opacity: 0.5;
+
+		.lore-grip {
+			cursor: grabbing;
+		}
+	}
+
+	&.drag-over {
+		border-color: var(--accent);
+		box-shadow: inset 0 0 0 2px var(--accent);
 	}
 }
 
@@ -44,8 +61,26 @@
 	margin-left: auto;
 }
 
+// Drag-to-reorder handle — mirrors .persona-grip / .manager-grip.
+.lore-grip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	// The grip owns the touch (touch-action: none) or the list scrolls instead
+	// of dragging. Touch floor (owner ruling 2026-06-17): ≥ 44px.
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	color: var(--text-muted);
+	cursor: grab;
+	user-select: none;
+	touch-action: none;
+
+	&:hover {
+		color: var(--accent);
+	}
+}
+
 .lore-toggle,
-.lore-reorder,
 .lore-edit-btn,
 .lore-save,
 .lore-cancel,
@@ -106,6 +141,8 @@
 .lore-edit-keys {
 	width: 100%;
 	padding: 0.3rem 0.5rem;
+	// Touch floor (owner ruling 2026-06-17): inline-edit fields ≥ 44px tall.
+	min-height: 2.75rem;
 	background: var(--surface);
 	border: 1px solid var(--line);
 	border-radius: 0.3rem;
@@ -136,6 +173,9 @@
 	textarea {
 		width: 100%;
 		padding: 0.35rem 0.5rem;
+		// Touch floor (owner ruling 2026-06-17): the keys input ≥ 44px tall;
+		// the textarea overrides with its taller min-height below.
+		min-height: 2.75rem;
 		background: var(--surface);
 		border: 1px solid var(--line);
 		border-radius: 0.3rem;
@@ -151,6 +191,8 @@
 	button {
 		align-self: flex-start;
 		padding: 0.3rem 0.8rem;
+		// Touch floor (owner ruling 2026-06-17): the "Add entry" button ≥ 44px.
+		min-height: 2.75rem;
 		border: 1px solid var(--accent);
 		border-radius: 0.3rem;
 		background: var(--surface);

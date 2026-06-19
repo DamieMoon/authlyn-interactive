@@ -1068,6 +1068,56 @@ pub fn swap_lore(s: Shell, cid: String, eid: String, position: i64, up: bool) {
     });
 }
 
+/// Move the lore entry at `idx` to absolute index `target` (the grip-drag drop
+/// target), then renumber the list to its array index and PATCH every entry
+/// whose stored `position` changed — one PATCH per moved row, over the same
+/// absolute-position contract `patch_lore` uses. Renumber-and-persist mirrors
+/// the wardrobe `move_persona` flow; no-op when `idx == target` or either is
+/// out of range. The server re-derives authorization per PATCH.
+#[cfg(feature = "hydrate")]
+pub fn move_lore(s: Shell, idx: usize, target: usize) {
+    use crate::protocol::PatchLorebookEntryRequest;
+    let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) else {
+        return;
+    };
+    let mut list = s.social.lore.get_untracked();
+    if idx >= list.len() || target >= list.len() || idx == target {
+        return;
+    }
+    let item = list.remove(idx);
+    list.insert(target, item);
+    // Optimistic local reorder, then PATCH only the rows whose stored position
+    // drifted from their new array index (lore `position` is a non-option i64).
+    s.social.lore.set(list.clone());
+    let patches: Vec<(String, i64)> = list
+        .iter()
+        .enumerate()
+        .filter(|(i, e)| e.position != *i as i64)
+        .map(|(i, e)| (e.id.clone(), i as i64))
+        .collect();
+    if patches.is_empty() {
+        return;
+    }
+    spawn_local(async move {
+        for (eid, pos) in patches {
+            if let Err(e) = api::patch_lore(
+                &cid,
+                &eid,
+                &PatchLorebookEntryRequest {
+                    position: Some(pos),
+                    ..Default::default()
+                },
+            )
+            .await
+            {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+                break;
+            }
+        }
+        load_lore(s, cid);
+    });
+}
+
 #[cfg(feature = "hydrate")]
 pub fn delete_lore(s: Shell, cid: String, eid: String) {
     spawn_local(async move {
@@ -1956,6 +2006,9 @@ pub fn patch_lore(
 }
 #[cfg(not(feature = "hydrate"))]
 pub fn swap_lore(_s: Shell, _cid: String, _eid: String, _position: i64, _up: bool) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn move_lore(_s: Shell, _idx: usize, _target: usize) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_lore(_s: Shell, _cid: String, _eid: String) {}
 #[cfg(not(feature = "hydrate"))]

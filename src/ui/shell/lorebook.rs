@@ -2,8 +2,11 @@
 
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use leptos::ev::PointerEvent;
+
 use super::{act, Shell};
-use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDown, IconUp};
+use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconGrip};
 
 #[component]
 pub(crate) fn LorebookPane() -> impl IntoView {
@@ -11,13 +14,17 @@ pub(crate) fn LorebookPane() -> impl IntoView {
     let keys = RwSignal::new(String::new());
     let content = RwSignal::new(String::new());
     let cid = move || s.sel.sel_channel.get().map(|c| c.id).unwrap_or_default();
+    // Finger-drag reorder state shared across entry rows (the wardrobe /
+    // channel-manager grip pattern): `drag_from` = the grabbed entry's index,
+    // `drag_over` = the entry the finger is currently over. None between drags.
+    let drag_from = RwSignal::new(None::<usize>);
+    let drag_over = RwSignal::new(None::<usize>);
     view! {
         <div class="pane">
             <h3>"Lorebook"</h3>
             <div class="lore-list">
                 {move || {
                     let entries = s.social.lore.get();
-                    let len = entries.len();
                     entries.into_iter().enumerate().map(|(idx, e)| {
                         let entry_cid = cid();
                         let eid = e.id.clone();
@@ -25,10 +32,6 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                         // Clone ids for each action handler.
                         let cid_toggle = entry_cid.clone();
                         let eid_toggle = eid.clone();
-                        let cid_up = entry_cid.clone();
-                        let eid_up = eid.clone();
-                        let cid_down = entry_cid.clone();
-                        let eid_down = eid.clone();
                         let cid_del = entry_cid.clone();
                         let eid_del = eid.clone();
                         let cid_save = entry_cid.clone();
@@ -46,16 +49,100 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                             e.title.clone()
                         };
                         let enabled = e.enabled;
-                        let position = e.position;
                         let content_display = e.content.clone();
 
-                        // Suppress spurious "unused" warnings: clippy can't
-                        // always trace captures through the view! macro.
-                        let _ = (&cid_down, &eid_down, len, idx);
+                        // Finger-drag reorder handlers (hydrate-only; no-op on
+                        // ssr). The grip captures the pointer on `down`, hit-tests
+                        // the entry under the finger by bounding box on `move`
+                        // (NodeList order = list order, so the row index IS the
+                        // target index — no DOM attribute round-trip), and commits
+                        // via act::move_lore on `up`. Mirrors channel/manager.rs.
+                        #[cfg(feature = "hydrate")]
+                        let on_grip_down = move |ev: PointerEvent| {
+                            use leptos::wasm_bindgen::JsCast as _;
+                            // Stop the press bubbling to an enclosing swipe-close
+                            // surface whose pointer engine would set_pointer_capture
+                            // on bubble and steal the move stream.
+                            ev.stop_propagation();
+                            if let Some(el) = ev
+                                .current_target()
+                                .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+                            {
+                                let _ = el.set_pointer_capture(ev.pointer_id());
+                            }
+                            drag_from.set(Some(idx));
+                            drag_over.set(Some(idx));
+                            ev.prevent_default();
+                        };
+                        #[cfg(feature = "hydrate")]
+                        let on_grip_move = move |ev: PointerEvent| {
+                            use leptos::wasm_bindgen::JsCast as _;
+                            if drag_from.get_untracked().is_none() {
+                                return;
+                            }
+                            // Keep the touch on the reorder instead of scrolling.
+                            ev.prevent_default();
+                            let y = ev.client_y() as f64;
+                            let Some(rows) = leptos::web_sys::window()
+                                .and_then(|w| w.document())
+                                .and_then(|d| d.query_selector_all(".lore-list .lore-entry").ok())
+                            else {
+                                return;
+                            };
+                            for i in 0..rows.length() {
+                                let Some(el) = rows
+                                    .item(i)
+                                    .and_then(|n| n.dyn_into::<leptos::web_sys::Element>().ok())
+                                else {
+                                    continue;
+                                };
+                                let r = el.get_bounding_client_rect();
+                                if y >= r.top() && y <= r.bottom() {
+                                    drag_over.set(Some(i as usize));
+                                    break;
+                                }
+                            }
+                        };
+                        #[cfg(feature = "hydrate")]
+                        let on_grip_up = move |_ev: PointerEvent| {
+                            if let (Some(from), Some(to)) =
+                                (drag_from.get_untracked(), drag_over.get_untracked())
+                            {
+                                if from != to {
+                                    act::move_lore(s, from, to);
+                                }
+                            }
+                            drag_from.set(None);
+                            drag_over.set(None);
+                        };
+
+                        // clippy can't always trace captures through the view!
+                        // macro (these flow only into attr:/class: closures).
+                        let _ = (idx, drag_from, drag_over);
 
                         view! {
-                            <div class="lore-entry" class:lore-disabled=move || !enabled>
+                            <div class="lore-entry"
+                                attr:data-idx=move || idx.to_string()
+                                class:lore-disabled=move || !enabled
+                                class:dragging=move || drag_from.get() == Some(idx)
+                                class:drag-over=move || drag_over.get() == Some(idx) && drag_from.get() != Some(idx)>
                                 <div class="lore-head">
+                                    // Drag-to-reorder grip — replaces the M3 ↑/↓
+                                    // buttons (matches wardrobe / channel-manager;
+                                    // iOS WebKit ignores HTML5 DnD).
+                                    <span class="lore-grip" title="Drag to reorder"
+                                        on:pointerdown=move |_ev| {
+                                            #[cfg(feature = "hydrate")] on_grip_down(_ev);
+                                        }
+                                        on:pointermove=move |_ev| {
+                                            #[cfg(feature = "hydrate")] on_grip_move(_ev);
+                                        }
+                                        on:pointerup=move |_ev| {
+                                            #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                                        }
+                                        on:pointercancel=move |_ev| {
+                                            #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                                        }><IconGrip/></span>
                                     // enabled toggle
                                     <button
                                         class="lore-toggle"
@@ -68,24 +155,6 @@ pub(crate) fn LorebookPane() -> impl IntoView {
                                         } else {
                                             view! { <IconCircle/> }.into_any()
                                         }}
-                                    </button>
-                                    // reorder up
-                                    <button
-                                        class="lore-reorder"
-                                        title="Move up"
-                                        disabled=move || idx == 0
-                                        on:click=move |_|
-                                            act::swap_lore(s, cid_up.clone(), eid_up.clone(), position, true)>
-                                        <IconUp/>
-                                    </button>
-                                    // reorder down
-                                    <button
-                                        class="lore-reorder"
-                                        title="Move down"
-                                        disabled=move || idx == len.saturating_sub(1)
-                                        on:click=move |_|
-                                            act::swap_lore(s, cid_down.clone(), eid_down.clone(), position, false)>
-                                        <IconDown/>
                                     </button>
 
                                     {move || if editing.get() {
