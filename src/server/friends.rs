@@ -272,6 +272,15 @@ pub async fn remove_friend(
             {
                 tracing::error!(error = %e, "locking the 1:1 DM on unfriend failed");
             }
+            // M7/P2 (owner ruling): unfriending revokes any active Guest Cameo
+            // between the two — the friend-gate fell, so access dies (past badged
+            // messages stay; history is immutable). Best-effort + emits its own
+            // ListsChanged to the affected guest.
+            if let Err(e) =
+                crate::server::cameos::revoke_cameos_between(&state, &account.0, &aid).await
+            {
+                tracing::error!(error = %e, "revoking the cameo on unfriend failed");
+            }
             // Emitted even when nothing matched (idempotent DELETE): a spare
             // id-only nudge costs the target one refetch; detecting no-op
             // deletes would need a RETURN clause and buys nothing. Side

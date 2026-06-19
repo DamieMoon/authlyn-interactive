@@ -352,9 +352,10 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // Recipients: every push_subscription owned by a member of the channel who
     // isn't the author. M7/P1: the membership table is guild_member for a guild
     // channel, dm_member for a DM thread — picked by `guild_key` presence so each
-    // query stays single-table. (Mutes are client-side only, so the server can't
-    // honour them; the payload carries the channel id so the client/SW could
-    // filter later.)
+    // query stays single-table. M7/P2: a guild channel ALSO notifies its active
+    // (unexpired) guests (channel_guest), unioned in. (Mutes are client-side only,
+    // so the server can't honour them; the payload carries the channel id so the
+    // client/SW could filter later.)
     #[derive(SurrealValue)]
     struct Sub {
         endpoint: String,
@@ -368,8 +369,11 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
             FROM push_subscription
             WHERE account != type::record('account', $author)
-              AND account IN (SELECT VALUE account FROM guild_member
-                  WHERE guild = type::record('guild', $scope));"
+              AND ( account IN (SELECT VALUE account FROM guild_member
+                        WHERE guild = type::record('guild', $scope))
+                    OR account IN (SELECT VALUE account FROM channel_guest
+                        WHERE channel = type::record('channel', $chan)
+                          AND (expires_at = NONE OR expires_at > time::now())) );"
     } else {
         "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
             FROM push_subscription
@@ -377,7 +381,8 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
               AND account IN (SELECT VALUE account FROM dm_member
                   WHERE channel = type::record('channel', $scope));"
     };
-    // Guild channel → scope is the guild id; DM thread → the channel id.
+    // Guild channel → scope is the guild id; DM thread → the channel id. `$chan` is
+    // always the channel id (used by the M7/P2 guest union on a guild channel).
     let scope = info
         .guild_key
         .clone()
@@ -387,6 +392,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         .query(recipients_sql)
         .bind(("author", author.to_string()))
         .bind(("scope", scope))
+        .bind(("chan", info.channel_key.clone()))
         .await?
         .check()?;
     let subs: Vec<Sub> = resp.take(0)?;

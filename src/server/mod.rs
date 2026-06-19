@@ -9,6 +9,7 @@
 
 pub mod accent;
 pub mod auth;
+pub mod cameos;
 pub mod dev_reload;
 pub mod dms;
 pub mod emoji;
@@ -221,6 +222,17 @@ fn small_body_routes() -> Router<AppState> {
         .route("/dms", get(dms::list_dms).post(dms::create_dm))
         .route("/dms/{tid}/members", post(dms::invite_to_dm))
         .route("/dms/{tid}/members/me", delete(dms::leave_dm))
+        // M7/P2 Guest Cameos: channel-scoped guest lifecycle — messages/read-state/
+        // active-persona ride the /channels/{cid}/… routes above (a cameo channel IS
+        // a guild text channel). Static /guests/me ranks over the dynamic /{aid};
+        // /cameos is the account-scoped guest-side list.
+        .route(
+            "/channels/{cid}/guests",
+            get(cameos::list_guests).post(cameos::invite_guest),
+        )
+        .route("/channels/{cid}/guests/me", delete(cameos::leave_cameo))
+        .route("/channels/{cid}/guests/{aid}", delete(cameos::revoke_guest))
+        .route("/cameos", get(cameos::list_cameos))
         // Web Push (#30): public VAPID key fetch + subscribe/unsubscribe.
         .route("/push/vapid-key", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
@@ -363,6 +375,16 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
             -- dm_member above. Inline subquery (composite-index dodge).
             DELETE dm_pair WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- Guest cameos (M7/P2): a purged channel takes its channel_guest rows,
+            -- symmetric with dm_member above. channel is the leading column of the
+            -- composite channel_guest_pair index, so use the inline subquery form
+            -- (not a LET var) — the same beta.3 mis-plan dodge.
+            DELETE channel_guest WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- Expired-cameo hygiene (M7/P2): the lazy-check already excludes an
+            -- expired row from every membership query, so this is cleanup only —
+            -- it keeps the channel_guest_account index free of dead rows.
+            DELETE channel_guest WHERE expires_at != NONE AND expires_at < time::now();
             DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
             -- Guild 30d purge: cascade channels + their children + guild children.
             LET $g = (SELECT VALUE id FROM guild
@@ -371,6 +393,8 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
             DELETE lorebook_entry WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            -- Guest cameos (M7/P2): a purged guild takes its channels' cameo rows.
+            DELETE channel_guest WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel WHERE guild IN $g;
             DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);

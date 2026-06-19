@@ -369,7 +369,9 @@ async fn resolve_mentions(
     // M7/P1: mentions resolve against the channel's membership table — guild
     // members for a guild channel, dm_member for a DM thread (where $gid resolves
     // to NONE, so the guild_member arm is empty and the dm_member arm carries it).
-    // A channel is exactly one kind, so the two arms never both match; union them.
+    // M7/P2: a guild text channel ALSO resolves its active (unexpired) guests
+    // (channel_guest), so guests ↔ members can @ping each other in a cameo. A
+    // channel is exactly one kind; the three arms are unioned (a DM has no guests).
     let mut resp = state
         .db
         .query(
@@ -382,6 +384,10 @@ async fn resolve_mentions(
                   AND account.username_ci IN $names;
              SELECT VALUE meta::id(account) FROM dm_member
                 WHERE channel = $chan
+                  AND account.username_ci IN $names;
+             SELECT VALUE meta::id(account) FROM channel_guest
+                WHERE channel = $chan
+                  AND (expires_at = NONE OR expires_at > time::now())
                   AND account.username_ci IN $names;",
         )
         .bind(("cid", cid.to_string()))
@@ -389,10 +395,12 @@ async fn resolve_mentions(
         .await?
         .check()?;
     // Statements 0 and 1 are the LETs (no materialized rows); the guild SELECT is
-    // take(2), the DM SELECT take(3).
+    // take(2), the DM SELECT take(3), the guest SELECT take(4).
     let mut ids: Vec<String> = resp.take(2)?;
     let dm_ids: Vec<String> = resp.take(3)?;
+    let guest_ids: Vec<String> = resp.take(4)?;
     ids.extend(dm_ids);
+    ids.extend(guest_ids);
     Ok(ids)
 }
 
