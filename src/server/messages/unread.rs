@@ -79,6 +79,7 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
             .map(|ch| ChannelUnread {
                 channel_id: ch.channel_id.clone(),
                 guild_id: ch.guild_id.clone(),
+                kind: ch.kind.clone(),
                 unread: 0,
                 pinged: false,
                 latest_sent_at: None,

@@ -242,6 +242,7 @@ mod tests {
             is_pinged: false,
             kind: "user".into(),
             effect: None,
+            guest_cameo: false,
         }
     }
 

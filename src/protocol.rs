@@ -410,6 +410,12 @@ pub struct MessageEnvelope {
     /// for the same post-ship wire-compat reason as the siblings above.
     #[serde(default)]
     pub effect: Option<String>,
+    /// M7/P2: true when this message was sent by a GUEST (a Guest Cameo — a
+    /// `channel_guest`, not a guild member), snapshotted at send time so the
+    /// "GÄST" badge survives the cameo being revoked/expired. `#[serde(default)]`
+    /// → `false` for the same post-ship wire-compat reason as the siblings above.
+    #[serde(default)]
+    pub guest_cameo: bool,
 }
 
 /// serde default for [`MessageEnvelope::kind`]: a message with no `kind` on the
@@ -841,6 +847,66 @@ pub struct ListDmsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Guest cameos (M7/P2 — scoped ephemeral guest access to one guild text channel)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /channels/{cid}/guests` — invite one accepted friend as a guest
+/// in this guild text channel. `account_id` must be an accepted friend of the
+/// caller and not already a member of the channel's guild. `expires_at` is an
+/// optional RFC3339 instant after which the cameo lapses (None = no expiry); the
+/// server enforces it as a lazy-check at every membership query.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct InviteGuestRequest {
+    pub account_id: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// One active guest of a channel (host-side view, `GET /channels/{cid}/guests`),
+/// with the live account identity needed to render the row.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GuestSummary {
+    pub account_id: String,
+    pub username: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub avatar_id: Option<String>,
+    /// Account id of the member who invited this guest (revoke-authz + display).
+    pub invited_by: String,
+    /// RFC3339 expiry instant, or None for an open-ended cameo.
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// Response from `GET /channels/{cid}/guests` — the channel's active guests.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListGuestsResponse {
+    pub guests: Vec<GuestSummary>,
+}
+
+/// One cameo the caller is a guest in (guest-side view, `GET /cameos`). `channel_id`
+/// is the underlying channel id, so messages/read-state/active-persona ride the
+/// existing `/channels/{id}/…` routes unchanged. `guild_name` is the host guild's
+/// name for context (the guest can't otherwise see the guild).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CameoSummary {
+    pub channel_id: String,
+    pub channel_name: String,
+    #[serde(default)]
+    pub guild_name: Option<String>,
+    /// Account id of the member who invited the caller.
+    pub invited_by: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// Response from `GET /cameos` — every cameo the caller is currently a guest in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListCameosResponse {
+    pub cameos: Vec<CameoSummary>,
+}
+
+// ---------------------------------------------------------------------------
 // Web Push (#30 background notifications)
 // ---------------------------------------------------------------------------
 
@@ -1030,6 +1096,13 @@ pub struct ChannelUnread {
     pub channel_id: String,
     #[serde(default)]
     pub guild_id: Option<String>,
+    /// M7/P2: the channel's raw kind (`"text"`, `"dm"`, …). Disambiguates the two
+    /// guildless cases for client routing — a `guild_id`-None `"dm"` row goes to the
+    /// DM-list badge, a `guild_id`-None `"text"` row (a cameo seen as a guest) to the
+    /// cameo-list badge. `#[serde(default)]` → `""` for wire-compat with pre-M7/P2
+    /// producers (an empty kind simply isn't a cameo).
+    #[serde(default)]
+    pub kind: String,
     /// Messages newer than the caller's read cursor (capped at 100). 0 when
     /// the channel has no cursor yet — the client baselines instead of glowing.
     pub unread: usize,

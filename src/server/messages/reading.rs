@@ -329,6 +329,9 @@ pub(super) struct MessageRow {
     /// ordinary message and on every legacy row (`option<>` field — NONE is
     /// valid, no coalesce needed).
     pub effect: Option<String>,
+    /// M7/P2: true when this row was sent by a guest (a Guest Cameo), snapshotted
+    /// at send time. Coalesced to `false` in the projection so legacy rows are safe.
+    pub guest_cameo: bool,
 }
 
 impl MessageRow {
@@ -373,6 +376,7 @@ impl MessageRow {
             is_pinged: self.is_pinged,
             kind: self.kind,
             effect: self.effect,
+            guest_cameo: self.guest_cameo,
         }
     }
 }
@@ -452,7 +456,8 @@ pub(super) const MSG_PROJECTION: &str = "
          } ELSE NONE END) AS reply_to,
         (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged,
         (kind ?? 'user') AS kind,
-        effect";
+        effect,
+        (guest_cameo ?? false) AS guest_cameo";
 
 async fn load_messages(
     state: &AppState,
