@@ -567,13 +567,13 @@
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Omloppsbana (`.app.sk-orbit`) — modals become FULL-SCREEN SLIDE-OVERS.
+// Orbit (`.app.sk-orbit`) — modals become FULL-SCREEN SLIDE-OVERS.
 // ════════════════════════════════════════════════════════════════════════
-// "helskärm, inga modaler" (a-orbit.html:488). Under the orbit skeleton the
+// "fullscreen, no modals" (a-orbit.html:488). Under the orbit skeleton the
 // centered vellum `.modal` is rebuilt into the prototype's `#slideOver`
 // (a-orbit.html:293-306): a full-viewport panel that glides in from the right
 // edge (translateX(102%) → 0), with an integrated sticky head (back-arrow disc
-// + "svep → stäng" grip) and ONE scroll container. EVERY rule is
+// + "swipe → close" grip) and ONE scroll container. EVERY rule is
 // `.app.sk-orbit`-scoped so the desktop / deck / hud modal is untouched, and it
 // loads after `mobile`/`nav`+`sk_orbit_*` siblings in `main.scss` so the orbit
 // look wins the cascade over the base `.modal` + the `_mobile.scss`
@@ -751,13 +751,13 @@
 		}
 	}
 
-	// "svep → stäng" grip (a-orbit.html .soHead .grip, :306) — mono, faint,
+	// "swipe → close" grip (a-orbit.html .soHead .grip, :306) — mono, faint,
 	// pushed to the trailing edge. Added via ::after so the reused markup stays
 	// minimal; aria-hidden is implicit (generated content isn't in the a11y
 	// tree). Hidden when reduced-motion is on (the swipe still works, but the
 	// hint that implies motion is dropped — parity with the gesture-hint kill).
 	&::after {
-		content: "svep → stäng";
+		content: "swipe → close";
 		margin-left: auto;
 		font-family: var(--font-mono);
 		font-size: 9px;
@@ -768,7 +768,7 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		&::after {
-			content: "stäng";
+			content: "close";
 		}
 	}
 }
@@ -965,7 +965,7 @@
 // these fell through to the base centered `.modal` while the shared backdrop rule
 // above had ALREADY dropped its centering flex (for the slide-over) — so under
 // orbit they rendered as an orphaned top-left card: the "STILL the OLD modal" the
-// owner hit on his iPhone (state · OUTSTANDING BUGS #2; "inga modaler" → the
+// owner hit on his iPhone (state · OUTSTANDING BUGS #2; "no modals" → the
 // orbit-void look). They are re-centered here and re-skinned to the void glass so
 // they belong in the cosmos instead of flashing the vellum surface. The big
 // management surface (`.wardrobe-modal` + its nested persona editor) wants the

@@ -12,7 +12,7 @@
 //!    See the const for the rationale.
 //!
 //! 2. **WebKit 1:1 (`backdrop-filter`) doctrine** — owner ruling 2026-06-15,
-//!    "Äkta Liquid Glass som default": Apple Liquid Glass (`backdrop-filter`) is
+//!    "Real Liquid Glass as the default": Apple Liquid Glass (`backdrop-filter`) is
 //!    now the orbit-chrome DEFAULT (the `glass-holo` mixin), NOT an fx-max-only
 //!    escalation. This REVERSES the earlier "no `backdrop-filter` at Standard"
 //!    doctrine for orbit chrome. The remaining guardrail is the one that bit us

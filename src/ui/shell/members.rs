@@ -269,7 +269,7 @@ pub(crate) fn MembersPane() -> impl IntoView {
                 let friends = s.social.friends.get().friends;
                 view! {
                     <div class="guest-section">
-                        <h3>"Gäster (denna kanal)"</h3>
+                        <h3>"Guests (this channel)"</h3>
                         <ul class="flist">
                             {guests.get().into_iter().map(|gst| {
                                 let label = if gst.display_name.trim().is_empty() {
@@ -282,8 +282,8 @@ pub(crate) fn MembersPane() -> impl IntoView {
                                 view! {
                                     <li>
                                         <span class="member-name">{label}</span>
-                                        <span class="member-role member-role-guest">"gäst"</span>
-                                        <button class="member-kick" title="återkalla"
+                                        <span class="member-role member-role-guest">"guest"</span>
+                                        <button class="member-kick" title="revoke"
                                             on:click=move |_| revoke_guest(
                                                 s, cid_rev.clone(), aid.clone(), guests)>
                                             <IconClose/>
@@ -292,7 +292,7 @@ pub(crate) fn MembersPane() -> impl IntoView {
                                 }
                             }).collect_view()}
                         </ul>
-                        <h3>"Bjud in vän som gäst"</h3>
+                        <h3>"Invite a friend as guest"</h3>
                         <ul class="flist">
                             {friends.into_iter().map(|p| {
                                 let cid_b = cid_inv.clone();
@@ -303,7 +303,7 @@ pub(crate) fn MembersPane() -> impl IntoView {
                                         <button class="member-role-btn"
                                             on:click=move |_| invite_guest(
                                                 s, cid_b.clone(), aid.clone(), guests)>
-                                            "Bjud in"
+                                            "Invite"
                                         </button>
                                     </li>
                                 }

@@ -369,7 +369,7 @@ fn AppShell() -> impl IntoView {
             style:--glow-accent=move || crate::ui::accent::accent_glow_css(&accent_name())
             style:--accent=move || crate::ui::accent::accent_var_css(&accent_name())
         >
-            // Omloppsbana is the sole + default shell for v27 (M5/P2; owner
+            // Orbit is the sole + default shell for v27 (M5/P2; owner
             // ruling 2026-06-17 — orbit is the default with NO fallback, and the
             // legacy M3 rail/sidebar/bottom-tabs chrome was retired here).
             // `account_open` / `server_open` are the shared, skeleton-independent

@@ -18,7 +18,7 @@ pub enum Edge {
 /// Tap-vs-drag slop in CSS px: movement under this is a tap, not a drag.
 pub const TAP_SLOP_PX: f64 = 7.0;
 /// Velocity (progress units per ms) above which a flick commits regardless
-/// of absolute progress (Koncept C's threshold).
+/// of absolute progress (Concept C's threshold).
 pub const FLICK_COMMIT_PER_MS: f64 = 0.0015;
 
 /// Map a pointer delta along the panel's open axis to drag progress 0..=1.
@@ -51,7 +51,7 @@ pub fn scrim_opacity(progress: f64) -> f64 {
 use leptos::prelude::*;
 
 /// A snap detent: a named open fraction (e.g. D1=channels at 0.5, D2=galaxy
-/// at 1.0). Kortdäck's sheet uses two; single-detent panels pass one.
+/// at 1.0). The card-deck skeleton's sheet uses two; single-detent panels pass one.
 #[derive(Clone, Copy, Debug)]
 pub struct Detent {
     pub at: f64,

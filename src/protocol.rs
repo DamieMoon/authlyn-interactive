@@ -412,7 +412,7 @@ pub struct MessageEnvelope {
     pub effect: Option<String>,
     /// M7/P2: true when this message was sent by a GUEST (a Guest Cameo — a
     /// `channel_guest`, not a guild member), snapshotted at send time so the
-    /// "GÄST" badge survives the cameo being revoked/expired. `#[serde(default)]`
+    /// "GUEST" badge survives the cameo being revoked/expired. `#[serde(default)]`
     /// → `false` for the same post-ship wire-compat reason as the siblings above.
     #[serde(default)]
     pub guest_cameo: bool,

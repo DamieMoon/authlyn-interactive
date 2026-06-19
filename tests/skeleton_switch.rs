@@ -1,6 +1,6 @@
 //! Skeleton-id validation guards. The id validation runs in the ssr graph (no
 //! DB needed) and pins the prefs.rs persistence surface that survives the M3
-//! retirement. v27 (M5/P2) ships Omloppsbana as the SOLE shell — the three-way
+//! retirement. v27 (M5/P2) ships Orbit as the SOLE shell — the three-way
 //! ceremony and the account skeleton-picker are retired (deck/hud are
 //! post-release). These tests keep `SKELETON_IDS` / `is_valid_skeleton` /
 //! `SKELETON_FALLBACK` / `set_skeleton` honest so re-enabling a chooser when a

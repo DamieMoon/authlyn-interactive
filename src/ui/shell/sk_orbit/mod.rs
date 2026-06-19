@@ -1,4 +1,4 @@
-//! W5/P2 Omloppsbana (`sk-orbit`) — the spatial gesture-first structural
+//! W5/P2 Orbit (`sk-orbit`) — the spatial gesture-first structural
 //! skeleton. Full-viewport channel panes in a horizontal swipe strip, a
 //! holographic channel pill opening a zoomable orbit-map picker (pill-tap entry
 //! ONLY — the pinch entry was judge-killed), a floating composer orb with a
@@ -88,7 +88,7 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
     out
 }
 
-/// The Omloppsbana shell chrome. Renders as a sibling of the W3 chrome under
+/// The Orbit shell chrome. Renders as a sibling of the W3 chrome under
 /// `.app.sk-orbit`, reusing every pane via `use_context::<Shell>()` (zero new
 /// state, no remount on switch). The orbit chrome — channel pill, zoomable
 /// orbit map, swipe strip, composer orb (charge ring + effect blossom), and the
@@ -198,7 +198,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             .map(|g| g.name)
             .unwrap_or_default()
     };
-    // Scene-light (#B, ÖG): the ambient pane wash takes the tint of the
+    // Scene-light (#B, Eye-candy tier): the ambient pane wash takes the tint of the
     // currently-active speaker — the most-recent message's persona palette color
     // (`persona_color` is the markup palette NAME, protocol.rs), mapped to its
     // `--tint-{name}` token (style/_tokens.scss). Empty/None ⇒ no tint. Bound
@@ -447,7 +447,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             // decoration — `pointer-events:none`, `aria-hidden` — so it never
             // intercepts the strip swipe or the map/orb taps. Hidden while
             // composing / the map is open (SCSS), matching the prototype's calm.
-            <div class="sk-orbit-concept-tag" aria-hidden="true">"KONCEPT A · OMLOPPSBANA"</div>
+            <div class="sk-orbit-concept-tag" aria-hidden="true">"CONCEPT A · ORBIT"</div>
             <button class="sk-orbit-pill" type="button"
                 node_ref=pill_ref
                 aria-haspopup="dialog"
@@ -1113,7 +1113,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         on:click=move |_| help_open.set(false)>
                         <div class="sk-orbit-hints-card"
                             on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
-                            <h2>"Omloppsbana"</h2>
+                            <h2>"Orbit"</h2>
                             <p class="sk-orbit-hints-sub">"You navigate space, not menus"</p>
                             <div class="sk-orbit-hints-rows">
                                 {[

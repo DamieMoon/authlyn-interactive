@@ -31,7 +31,7 @@
 //! modal is dismissed via Esc, backdrop click, or its own close button — the
 //! keyboard user lands back on the trigger they pressed to open it.
 //!
-//! Swipe-to-close (opt-in, `swipe_close`): under the Omloppsbana (`.app.sk-orbit`)
+//! Swipe-to-close (opt-in, `swipe_close`): under the Orbit (`.app.sk-orbit`)
 //! skeleton the dialog is presented as a full-screen slide-over (SCSS in
 //! `_modal.scss`), and the prototype closes it with a rightward drag inside the
 //! panel (a-orbit.html:979-997). When `swipe_close` is set, the dialog binds
@@ -291,7 +291,7 @@ pub fn Modal<F>(
     class: String,
     /// Caller-owned close handler; fired on backdrop click and Esc.
     close: F,
-    /// Opt IN to swipe-right-to-close (the Omloppsbana full-screen slide-over
+    /// Opt IN to swipe-right-to-close (the Orbit full-screen slide-over
     /// gesture, a-orbit.html:979-997). Default `false` keeps desktop/deck/hud
     /// centered modals — and the nested confirm sub-dialogs — untouched. When
     /// set, the dialog gains the `.modal--swipe-close` class (SCSS hook) and

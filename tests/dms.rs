@@ -633,7 +633,7 @@ async fn unfriending_locks_the_one_to_one_then_refriending_unlocks_it() {
         StatusCode::CREATED
     );
     assert_eq!(
-        post_dm(&a.router, &bob, &tid, "hej själv").await,
+        post_dm(&a.router, &bob, &tid, "hi yourself").await,
         StatusCode::CREATED
     );
 

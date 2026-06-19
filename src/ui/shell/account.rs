@@ -127,13 +127,13 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     view! {
         // Backdrop click closes; the Modal wrapper handles stop_propagation
         // on the inner panel so inner clicks don't bubble up and close it.
-        // `swipe_close` opts this dialog into the Omloppsbana full-screen
+        // `swipe_close` opts this dialog into the Orbit full-screen
         // slide-over's swipe-right-to-close gesture (a-orbit.html:979-997). It's
         // a no-op outside `.app.sk-orbit` (the engine's `enabled` flag gates the
         // pointer handlers) and the slide-over LOOK is `.app.sk-orbit`-scoped
         // SCSS in `_modal.scss` — so the desktop/deck/hud modal is unchanged.
         // The X close button reads as the prototype's back-arrow disc (#soClose)
-        // under orbit purely via SCSS; the "svep → stäng" grip is drawn there too.
+        // under orbit purely via SCSS; the "swipe → close" grip is drawn there too.
         <Modal class="account-modal" swipe_close=true close=move || open.set(false)>
                 <header class="account-head">
                     <h2>"Account"</h2>
@@ -257,7 +257,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         <span>"Vibration feedback (where supported)"</span>
                     </label>
                     // v27 (M5/P2): the structural-skeleton picker is retired —
-                    // Omloppsbana is the sole shell for the release (deck/hud are
+                    // Orbit is the sole shell for the release (deck/hud are
                     // post-release). This section returns when a second skeleton
                     // ships; the prefs.rs persistence surface is kept for it.
                     <button class="account-save" on:click=check_for_update>

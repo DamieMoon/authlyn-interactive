@@ -27,7 +27,7 @@ pub(super) fn format_local_time(sent_at: &str) -> String {
     sent_at.to_string()
 }
 
-/// Bare 24-hour HH:MM clock for the author's send time — the Omloppsbana orbit's
+/// Bare 24-hour HH:MM clock for the author's send time — the Orbit orbit's
 /// terse timestamp (the prototype's '21:06', a-orbit.html:81), as opposed to the
 /// verbose date+time `format_local_time` keeps for deck/hud. Locale-independent
 /// like the prototype (zero-padded local getHours/getMinutes); on ssr it falls

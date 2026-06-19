@@ -66,7 +66,7 @@ icon!(/// Personas tab (W3 mobile nav).
 icon!(/// Notifications / bell.
     IconBell, r#"<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0"/>"#);
 
-// M6 affordance migration (owner directive 2026-06-17 — "Allt, inkl.
+// M6 affordance migration (owner directive 2026-06-17 — "Everything, incl.
 // dingbats"): every emoji/glyph UI control becomes an inline-SVG icon. The
 // set below replaces the inline composer/orbit/menu glyphs that the W2 system
 // never reached. Genuine emoji CONTENT (the picker grid, custom-emoji manager,

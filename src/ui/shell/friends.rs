@@ -13,10 +13,10 @@ pub(crate) fn FriendsPane() -> impl IntoView {
             <div class="add-row">
                 <h3>"Friends"</h3>
                 <button on:click=move |_| s.sync.pane.set(super::Pane::DirectMessages)>
-                    "Direktmeddelanden →"
+                    "Direct messages →"
                 </button>
                 <button on:click=move |_| s.sync.pane.set(super::Pane::Cameos)>
-                    "Gästspel →"
+                    "Cameos →"
                 </button>
             </div>
             <div class="add-row">
@@ -76,8 +76,8 @@ pub(crate) fn DirectMessagesPane() -> impl IntoView {
     view! {
         <div class="pane">
             <div class="add-row">
-                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Vänner"</button>
-                <h3>"Direktmeddelanden"</h3>
+                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Friends"</button>
+                <h3>"Direct messages"</h3>
             </div>
             {move || {
                 let dms = s.sel.dms.get();
@@ -102,11 +102,11 @@ pub(crate) fn DirectMessagesPane() -> impl IntoView {
                     </ul>
                 }
             }}
-            <h3>"Ny DM"</h3>
+            <h3>"New DM"</h3>
             <div class="add-row">
                 <input prop:value=move || title.get()
                     on:input=move |ev| title.set(event_target_value(&ev))
-                    placeholder="grupptitel (valfritt)"/>
+                    placeholder="group title (optional)"/>
                 <button on:click=move |_| {
                     let members: Vec<String> = selected.get_untracked().into_iter().collect();
                     if members.is_empty() { return; }
@@ -115,7 +115,7 @@ pub(crate) fn DirectMessagesPane() -> impl IntoView {
                     title.set(String::new());
                     selected.set(std::collections::HashSet::new());
                     act::create_dm_thread(s, members, t);
-                }>"Starta DM"</button>
+                }>"Start DM"</button>
             </div>
             {move || {
                 let friends = s.social.friends.get().friends;
@@ -157,13 +157,13 @@ pub(crate) fn CameosPane() -> impl IntoView {
     view! {
         <div class="pane">
             <div class="add-row">
-                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Vänner"</button>
-                <h3>"Gästspel"</h3>
+                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Friends"</button>
+                <h3>"Cameos"</h3>
             </div>
             {move || {
                 let cameos = s.sel.cameos.get();
                 if cameos.is_empty() {
-                    return view! { <p class="empty">"Inga aktiva gästspel."</p> }.into_any();
+                    return view! { <p class="empty">"No active cameos."</p> }.into_any();
                 }
                 view! {
                     <ul class="flist">
@@ -178,7 +178,7 @@ pub(crate) fn CameosPane() -> impl IntoView {
                                 <li>
                                     <button on:click=move |_| act::open_cameo(s, c_open.clone())>{label}</button>
                                     " "
-                                    <button on:click=move |_| act::leave_cameo(s, cid.clone())>"Lämna"</button>
+                                    <button on:click=move |_| act::leave_cameo(s, cid.clone())>"Leave"</button>
                                 </li>
                             }
                         }).collect_view()}

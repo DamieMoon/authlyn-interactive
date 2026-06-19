@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn channel_orbit_is_locked_per_channel() {
         // Same inputs → identical orbit, every render (owner's no-reshuffle rule).
-        let s = seed_of("guild:foersoeksdaeck27");
+        let s = seed_of("guild:testdeck27");
         let a = channel_orbit(s, "channel:general", 1, 4, 130.0);
         let b = channel_orbit(s, "channel:general", 1, 4, 130.0);
         assert_eq!(a, b);
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn inner_channels_orbit_faster_than_outer() {
         // Kepler: oldest (idx 0, innermost) has a SHORTER period than the newest.
-        let s = seed_of("guild:foersoeksdaeck27");
+        let s = seed_of("guild:testdeck27");
         let inner = channel_orbit(s, "c0", 0, 4, 130.0);
         let outer = channel_orbit(s, "c3", 3, 4, 130.0);
         assert!(
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn retrograde_is_stable_per_channel() {
-        let s = seed_of("guild:foersoeksdaeck27");
+        let s = seed_of("guild:testdeck27");
         let a = channel_orbit(s, "channel:y", 2, 5, 120.0);
         let b = channel_orbit(s, "channel:y", 2, 5, 120.0);
         assert_eq!(a.retrograde, b.retrograde);
@@ -236,7 +236,7 @@ mod tests {
     fn some_channels_orbit_retrograde() {
         // Across a spread of ids, the ~17% retrograde chance must actually fire
         // (the feature exists), and must not fire for ALL (most are prograde).
-        let s = seed_of("guild:foersoeksdaeck27");
+        let s = seed_of("guild:testdeck27");
         let mut retro = 0;
         let n = 200;
         for i in 0..n {

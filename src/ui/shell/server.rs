@@ -23,7 +23,7 @@ use crate::ui::modal::Modal;
 
 /// The server-management window. Renders the shared `.modal`/`.modal-backdrop`
 /// over the shell; `open` is the caller's visibility signal (the ✕, the
-/// backdrop, and — under Omloppsbana — the swipe-right gesture all flip it to
+/// backdrop, and — under Orbit — the swipe-right gesture all flip it to
 /// `false`). `swipe_close` opts this dialog into the orbit full-screen
 /// slide-over treatment exactly as `AccountModal` does (a no-op outside
 /// `.app.sk-orbit`).

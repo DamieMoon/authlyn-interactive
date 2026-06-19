@@ -295,8 +295,8 @@
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
-// M7/P1 review H3: Friends/DM .add-row action buttons (Direktmeddelanden →,
-// ← Vänner, Starta DM, Add friend) inherit no min-height from the base `button`
+// M7/P1 review H3: Friends/DM .add-row action buttons (Direct messages →,
+// ← Friends, Start DM, Add friend) inherit no min-height from the base `button`
 // (there is no blanket button floor by design) — raise them here, at the shared
 // .add-row definition, to the 44px tap target (owner ruling 2026-06-17, product-
 // wide; NOT an .sk-orbit override). Safe scope: .add-row is the form-row pattern,

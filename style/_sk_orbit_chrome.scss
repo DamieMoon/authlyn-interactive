@@ -1,4 +1,4 @@
-// W5/P2 Omloppsbana (`sk-orbit`) structural skeleton. Full-viewport channel
+// W5/P2 Orbit (`sk-orbit`) structural skeleton. Full-viewport channel
 // panes in a horizontal swipe strip, a holographic channel pill opening the
 // orbit-map picker (pill-tap entry only), a floating composer orb with a charge
 // ring + effect blossom, and a right-edge HoloPanel slide-over. EVERY rule is
@@ -67,7 +67,7 @@
 	//     composer slides to translateY(0) inside the viewport, so it's not clipped.)
 	overflow: clip;
 }
-// Scene-light (#B, ÖG): an ambient wash from the active speaker's tint. Only
+// Scene-light (#B, eye-candy): an ambient wash from the active speaker's tint. Only
 // at the eye-candy tier (.fx-max) — NEVER at Standard. Static gradient (no
 // keyframe); the tint updates reactively via --scene-tint.
 .app.fx-max.sk-orbit .sk-orbit-content::before {
@@ -1418,7 +1418,7 @@
 // the orb/composer bottom inset is not double-counted (it's a separate fixed layer).
 //
 // W5/P2 #c FULL-SCREEN slide-over (the prototype's #slideOver is `inset:0`,
-// `translateX(102%)→0`, a-orbit.html:294 — "gestalter är en plats, inte en
+// `translateX(102%)→0`, a-orbit.html:294 — "personas are a place, not a
 // modal": a whole-screen takeover, NOT a partial drawer). So the station fills
 // the viewport width (was `min(86vw,380px)`, which left a chat sliver behind
 // it). Visually consistent with A3's generic modal→slide-over law (their law,

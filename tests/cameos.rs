@@ -190,7 +190,7 @@ async fn inviting_a_friend_grants_scoped_access_and_badges_the_guest_message() {
         &a.router,
         &guest,
         &cid,
-        &json!({ "body": "hej från gästen" }),
+        &json!({ "body": "hi from the guest" }),
     )
     .await;
     assert_eq!(st, StatusCode::CREATED, "guest can post");
@@ -198,7 +198,7 @@ async fn inviting_a_friend_grants_scoped_access_and_badges_the_guest_message() {
         &a.router,
         &host,
         &cid,
-        &json!({ "body": "hej från värden" }),
+        &json!({ "body": "hi from the host" }),
     )
     .await;
     assert_eq!(st, StatusCode::CREATED);
@@ -207,11 +207,11 @@ async fn inviting_a_friend_grants_scoped_access_and_badges_the_guest_message() {
     let (_, msgs) = messages(&a.router, &host, &cid).await;
     let guest_msg = msgs
         .iter()
-        .find(|m| m["body"] == "hej från gästen")
+        .find(|m| m["body"] == "hi from the guest")
         .unwrap();
     let host_msg = msgs
         .iter()
-        .find(|m| m["body"] == "hej från värden")
+        .find(|m| m["body"] == "hi from the host")
         .unwrap();
     assert_eq!(
         guest_msg["guest_cameo"],
@@ -342,7 +342,7 @@ async fn revoking_a_guest_kills_access_but_keeps_the_badged_history() {
     let a = common::arena().await;
     let (host, _host_id, _gid, cid, _cid2, guest, guest_id) = setup(&a.router).await;
     invite(&a.router, &host, &cid, &guest_id, None).await;
-    post_msg(&a.router, &guest, &cid, &json!({ "body": "gästinlägg" })).await;
+    post_msg(&a.router, &guest, &cid, &json!({ "body": "guest post" })).await;
 
     // Host revokes the cameo.
     let (st, _, _) = common::send(
@@ -365,7 +365,7 @@ async fn revoking_a_guest_kills_access_but_keeps_the_badged_history() {
 
     // The guest's past message stays, still badged (the snapshot survives revoke).
     let (_, msgs) = messages(&a.router, &host, &cid).await;
-    let guest_msg = msgs.iter().find(|m| m["body"] == "gästinlägg").unwrap();
+    let guest_msg = msgs.iter().find(|m| m["body"] == "guest post").unwrap();
     assert_eq!(
         guest_msg["guest_cameo"],
         json!(true),
@@ -491,7 +491,7 @@ async fn a_guest_wears_their_own_persona() {
         Method::POST,
         "/personas",
         Some(&guest),
-        Some(&json!({ "name": "Gästhjälten", "description": "en gäst" })),
+        Some(&json!({ "name": "the Guest Hero", "description": "a guest" })),
     )
     .await;
     assert_eq!(st, StatusCode::CREATED);
@@ -513,7 +513,7 @@ async fn a_guest_wears_their_own_persona() {
     let (_, msgs) = messages(&a.router, &host, &cid).await;
     let m = msgs.iter().find(|m| m["body"] == "i roll").unwrap();
     assert_eq!(
-        m["persona_name"], "Gästhjälten",
+        m["persona_name"], "the Guest Hero",
         "the guest's own persona snapshots"
     );
     assert_eq!(
@@ -531,26 +531,20 @@ async fn guest_and_member_mention_each_other() {
     invite(&a.router, &host, &cid, &guest_id, None).await;
 
     // The guest @-mentions the host (a guild member): the host reads it as a ping.
-    post_msg(&a.router, &guest, &cid, &json!({ "body": "@Host hallå" })).await;
+    post_msg(&a.router, &guest, &cid, &json!({ "body": "@Host hello" })).await;
     let (_, host_view) = messages(&a.router, &host, &cid).await;
     let to_host = host_view
         .iter()
-        .find(|m| m["body"] == "@Host hallå")
+        .find(|m| m["body"] == "@Host hello")
         .unwrap();
     assert_eq!(to_host["is_pinged"], json!(true), "guest can ping a member");
 
     // The host @-mentions the guest: the guest reads it as a ping.
-    post_msg(
-        &a.router,
-        &host,
-        &cid,
-        &json!({ "body": "@Guest välkommen" }),
-    )
-    .await;
+    post_msg(&a.router, &host, &cid, &json!({ "body": "@Guest welcome" })).await;
     let (_, guest_view) = messages(&a.router, &guest, &cid).await;
     let to_guest = guest_view
         .iter()
-        .find(|m| m["body"] == "@Guest välkommen")
+        .find(|m| m["body"] == "@Guest welcome")
         .unwrap();
     assert_eq!(
         to_guest["is_pinged"],
