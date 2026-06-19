@@ -1046,3 +1046,155 @@ async fn dm_pair_unique_index_rejects_duplicate_pair_and_reapplies() {
         .check()
         .expect("a distinct pair still inserts after re-apply");
 }
+
+/// M7/P2 (mirror `dm_member_account`): the account-only `channel_guest_account`
+/// index — `access::visible_channels` + GET /cameos ask "which channels is this
+/// account a guest in?" on every /events connect and GET /unread — must land on a
+/// database whose `channel_guest` table is ALREADY POPULATED. `DEFINE INDEX` builds
+/// over existing rows at apply, so the apply must not error, the index must exist
+/// afterwards, and the lookup must serve the pre-existing rows through it.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn new_channel_guest_account_index_applies_over_populated_rows() {
+    let db = common::raw_db().await;
+
+    // The pre-index channel_guest schema: every real field, but ONLY the
+    // (channel, account) composite — no account-only index.
+    db.query(
+        "DEFINE TABLE channel_guest SCHEMAFULL;\
+         DEFINE FIELD channel    ON channel_guest TYPE record<channel>;\
+         DEFINE FIELD account    ON channel_guest TYPE record<account>;\
+         DEFINE FIELD invited_by ON channel_guest TYPE record<account>;\
+         DEFINE FIELD created_at ON channel_guest TYPE datetime DEFAULT time::now();\
+         DEFINE FIELD expires_at ON channel_guest TYPE option<datetime>;\
+         DEFINE INDEX channel_guest_pair ON channel_guest FIELDS channel, account UNIQUE;",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // Populated guest rows (record links are not referentially enforced).
+    db.query(
+        "CREATE channel_guest SET channel = channel:c1, account = account:guest1, invited_by = account:host;\
+         CREATE channel_guest SET channel = channel:c2, account = account:guest1, invited_by = account:host;\
+         CREATE channel_guest SET channel = channel:c1, account = account:guest2, invited_by = account:host;",
+    )
+    .await
+    .expect("seed transport")
+    .check()
+    .expect("seed channel_guest rows");
+
+    // Apply the REAL schema: must not error, and must add the new index.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema over populated channel_guest");
+
+    let mut resp = db
+        .query("LET $i = (INFO FOR TABLE channel_guest); RETURN object::keys($i.indexes);")
+        .await
+        .expect("info query")
+        .check()
+        .expect("info check");
+    let indexes: Vec<String> = resp.take(1).expect("take index names");
+    assert!(
+        indexes.contains(&"channel_guest_account".to_string()),
+        "the account-only index must exist after apply, got: {indexes:?}"
+    );
+
+    // The visible_channels / list_cameos lookup shape serves the pre-existing rows.
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(channel) FROM channel_guest
+                WHERE account = type::record('account', $account);",
+        )
+        .bind(("account", "guest1".to_string()))
+        .await
+        .expect("lookup query")
+        .check()
+        .expect("lookup check");
+    let mut channels: Vec<String> = resp.take(0).expect("take channels");
+    channels.sort();
+    assert_eq!(
+        channels,
+        vec!["c1".to_string(), "c2".to_string()],
+        "pre-existing guest invites are served through the new index"
+    );
+}
+
+/// M7/P2: the new non-option `message.guest_cameo` bool added to the POPULATED
+/// `message` table must be materialised in the SINGLE first backfill statement
+/// (alongside attachments/pinged_users/kind), NEVER a separate UPDATE — a separate
+/// UPDATE revalidates the whole SCHEMAFULL row and trips the still-NONE arrays,
+/// crash-looping apply (the 2026-06-01 attachments-wipe lesson). The bite: apply
+/// the real schema over a legacy row that predates `guest_cameo`; the legacy
+/// attachments + kind must survive untouched and guest_cameo must read back false.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn applying_guest_cameo_over_populated_messages_materialises_without_wiping_attachments() {
+    let db = common::raw_db().await;
+
+    // A pre-`guest_cameo` message schema: every NONE-coercion-sensitive field
+    // (both non-option arrays + kind) plus the basics, so re-applying the full
+    // schema introduces ONLY `guest_cameo` over a populated row.
+    db.query(
+        "DEFINE TABLE message SCHEMAFULL;\
+         DEFINE FIELD channel ON message TYPE record<channel>;\
+         DEFINE FIELD author ON message TYPE record<account>;\
+         DEFINE FIELD body ON message TYPE string;\
+         DEFINE FIELD attachments ON message TYPE array<string> DEFAULT [];\
+         DEFINE FIELD pinged_users ON message TYPE array<record<account>> DEFAULT [];\
+         DEFINE FIELD kind ON message TYPE string DEFAULT 'user';\
+         DEFINE FIELD tier ON message TYPE string DEFAULT 'default';\
+         DEFINE FIELD sent_at ON message TYPE datetime DEFAULT time::now();",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy row (record links are not referentially enforced).
+    db.query(
+        "CREATE message:legacy SET channel = channel:x, author = account:y, \
+         body = 'hi', attachments = ['keep-this-blob'], kind = 'user';",
+    )
+    .await
+    .expect("seed legacy transport")
+    .check()
+    .expect("seed legacy row");
+
+    // Apply the REAL schema: introduces `guest_cameo`, runs the modified first
+    // backfill. Must not crash-loop on the still-NONE field.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        attachments: Vec<String>,
+        kind: String,
+        guest_cameo: bool,
+    }
+    let mut resp = db
+        .query("SELECT attachments, kind, guest_cameo FROM message:legacy;")
+        .await
+        .expect("query")
+        .check()
+        .expect("check");
+    let row: Option<Row> = resp.take(0).expect("take");
+    let row = row.expect("legacy message row survives the guest_cameo migration");
+    assert_eq!(
+        row.attachments,
+        vec!["keep-this-blob".to_string()],
+        "attachments must NOT be wiped by the guest_cameo backfill"
+    );
+    assert_eq!(row.kind, "user", "legacy kind survives untouched");
+    assert!(
+        !row.guest_cameo,
+        "guest_cameo must be materialised to false on legacy rows"
+    );
+}

@@ -215,6 +215,32 @@ DEFINE FIELD IF NOT EXISTS pair_key ON dm_pair TYPE string;
 DEFINE FIELD IF NOT EXISTS channel  ON dm_pair TYPE record<channel>;
 DEFINE INDEX IF NOT EXISTS dm_pair_key ON dm_pair FIELDS pair_key UNIQUE;
 
+-- Guest cameos (M7/P2): the THIRD channel-membership model. A row grants an
+-- accepted friend scoped, ephemeral read+post access to ONE guild text channel
+-- (spec §9.7 "Guest Cameos") — the guest never gets a guild_member row, so every
+-- guild-management gate (require_manager/caller_role read guild_member only)
+-- auto-404s them, and visible_channels surfaces only this one channel. This is
+-- the kind='text' analog of dm_member that access::resolve_membership /
+-- access::channel_access / access::visible_channels branch to alongside
+-- guild_member. Brand-new table → no NONE-backfill hazard.
+-- Ephemerality (owner ruling, 2026-06-19): manual revoke/leave DELETEs the row;
+-- `expires_at` (NONE = no expiry) is enforced as a LAZY-CHECK predicate
+-- (`expires_at = NONE OR expires_at > time::now()`) at every membership query —
+-- an expired row resolves to non-member without a sweep. `invited_by` keys both
+-- the revoke-authz (inviter may revoke) and the unfriend-revoke hook in friends.
+DEFINE TABLE IF NOT EXISTS channel_guest SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS channel    ON channel_guest TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS account    ON channel_guest TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS invited_by ON channel_guest TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS created_at ON channel_guest TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS expires_at ON channel_guest TYPE option<datetime>;
+DEFINE INDEX IF NOT EXISTS channel_guest_pair    ON channel_guest FIELDS channel, account UNIQUE;
+-- Account-only lookup (mirror dm_member_account / guild_member_account, review
+-- M-37): visible_channels + /cameos ask "which channels is this account a guest
+-- in?" on every /events connect + /unread. DEFINE INDEX builds over existing rows
+-- at apply time — no backfill hazard (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS channel_guest_account ON channel_guest FIELDS account;
+
 -- Messages (channel-scoped, plaintext, persona-aware) ------------------
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS channel ON message TYPE record<channel>;
@@ -281,6 +307,14 @@ DEFINE FIELD IF NOT EXISTS reply_to ON message TYPE option<record<message>>;
 -- link is a type annotation only (not referentially enforced); a since-deleted
 -- pinged account simply dangles, and the read-path `is_pinged` check tolerates it.
 DEFINE FIELD IF NOT EXISTS pinged_users ON message TYPE array<record<account>> DEFAULT [];
+-- Guest-cameo badge (M7/P2): true iff the author posted as a GUEST (a channel_guest,
+-- not a guild_member) in this channel — snapshotted at send time (spec §10: "guest
+-- badges at send-time"), so the badge survives the cameo being revoked/expired and
+-- the channel_guest row deleted. A non-option bool added to the POPULATED `message`
+-- table → legacy rows hold NONE and would crash the row-revalidating backfill below;
+-- it is materialised in the SAME first backfill statement (see DATA-SAFETY), NOT a
+-- separate one — exactly the `kind`/`attachments`/`pinged_users` discipline.
+DEFINE FIELD IF NOT EXISTS guest_cameo ON message TYPE bool DEFAULT false;
 -- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -311,11 +345,15 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- of the three is still NONE. A separate preceding `kind` backfill can't work — it
 -- would hit the still-NONE arrays. `kind ?? 'user'` only fills a NONE (legacy) row
 -- and preserves an already-set 'user'/'system'.
+-- `guest_cameo` (M7/P2, non-option bool) folds in for the identical reason: a
+-- separate UPDATE would revalidate the row and trip the still-NONE arrays/kind.
+-- `?? false` fills only a NONE (legacy) row and preserves an already-set value.
 UPDATE message
     SET attachments = attachments ?? [],
         pinged_users = pinged_users ?? [],
-        kind = kind ?? 'user'
-    WHERE attachments = NONE OR pinged_users = NONE OR kind = NONE;
+        kind = kind ?? 'user',
+        guest_cameo = guest_cameo ?? false
+    WHERE attachments = NONE OR pinged_users = NONE OR kind = NONE OR guest_cameo = NONE;
 
 UPDATE message SET
     persona_name = persona.name,
