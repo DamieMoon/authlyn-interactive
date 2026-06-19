@@ -90,7 +90,7 @@ pub async fn post_message(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    let stored_persona = match access {
+    let (stored_persona, via_guest) = match access {
         AccessOutcome::Ok(ctx) => {
             // Text channels and (M7/P1) DM threads accept messages; lorebook
             // channels do not.
@@ -105,7 +105,8 @@ pub async fn post_message(
             if ctx.locked {
                 return error_response(StatusCode::FORBIDDEN, "this conversation is locked");
             }
-            ctx.active_persona
+            // M7/P2: snapshot the guest-cameo badge when the author posts as a guest.
+            (ctx.active_persona, ctx.via_guest)
         }
         AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
             return error_response(StatusCode::NOT_FOUND, "channel not found");
@@ -177,6 +178,7 @@ pub async fn post_message(
         reply_to.as_deref(),
         &pinged_users,
         effect.as_deref(),
+        via_guest,
     )
     .await
     {
@@ -240,6 +242,7 @@ pub(super) async fn persist_message(
     reply_to: Option<&str>,
     pinged_users: &[String],
     effect: Option<&str>,
+    guest_cameo: bool,
 ) -> surrealdb::Result<String> {
     // `persona` is optional; only set the field when the caller is wearing
     // one, so a personaless author leaves it NONE. `reply_to` and `effect` are
@@ -272,6 +275,16 @@ pub(super) async fn persist_message(
     } else {
         ""
     };
+    // M7/P2: snapshot the guest-cameo badge at send time (spec §10). Only set when
+    // the author posts AS a guest (a channel_guest, not a guild_member — computed
+    // by channel_access as `via_guest`); a normal send leaves the schema DEFAULT
+    // false. A static literal fragment, no bound value needed.
+    let guest_set = if guest_cameo {
+        ",
+            guest_cameo = true"
+    } else {
+        ""
+    };
     // `pinged_users` is always set (empty array when nobody is mentioned); the
     // resolved account ids ride in as bound `RecordId`s, never spliced into SQL.
     let sql = format!(
@@ -281,7 +294,7 @@ pub(super) async fn persist_message(
             body    = $body,
             kind    = $kind,
             attachments = $attachments,
-            pinged_users = $pinged_users{persona_set}{reply_set}{effect_set}
+            pinged_users = $pinged_users{persona_set}{reply_set}{effect_set}{guest_set}
             RETURN meta::id(id) AS id_key;"
     );
     let pinged_records: Vec<surrealdb::types::RecordId> = pinged_users

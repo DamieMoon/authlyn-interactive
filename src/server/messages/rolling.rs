@@ -198,7 +198,7 @@ pub async fn roll_message(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    let stored_persona = match access {
+    let (stored_persona, via_guest) = match access {
         AccessOutcome::Ok(ctx) => {
             if ctx.kind != "text" {
                 return error_response(
@@ -206,7 +206,8 @@ pub async fn roll_message(
                     "cannot post messages to a non-text channel",
                 );
             }
-            ctx.active_persona
+            // M7/P2: a guest's /roll is badged like any guest message.
+            (ctx.active_persona, ctx.via_guest)
         }
         AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
             return error_response(StatusCode::NOT_FOUND, "channel not found");
@@ -245,6 +246,7 @@ pub async fn roll_message(
         None,
         &[],
         None,
+        via_guest,
     )
     .await
     {

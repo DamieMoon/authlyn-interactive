@@ -87,8 +87,9 @@ pub(crate) async fn resolve_membership(
 
     // M7/P1: membership lives in a different table per channel kind. A DM thread
     // (`kind='dm'`, no guild) is gated by `dm_member`; a guild text/lorebook
-    // channel by `guild_member`. The three-outcome contract is identical, so the
-    // privacy-404 callers don't change.
+    // channel by `guild_member` — or (M7/P2) an active `channel_guest` row for a
+    // Guest Cameo. The three-outcome contract is identical, so the privacy-404
+    // callers don't change.
     let is_member = if chan.kind == "dm" {
         let mut resp = state
             .db
@@ -108,19 +109,29 @@ pub(crate) async fn resolve_membership(
         let Some(gid) = chan.guild_key else {
             return Ok(Membership::NotMember);
         };
+        // M7/P2: a guild text channel is reachable by a guild_member OR an active
+        // (unexpired) channel_guest (Guest Cameos). Two statements, union the
+        // presence; the expiry lazy-check (`expires_at = NONE OR > now`) is the
+        // ephemerality mechanism — an expired guest resolves to non-member.
         let mut resp = state
             .db
             .query(
                 "SELECT true AS member
                     FROM guild_member
                     WHERE guild = type::record('guild', $gid)
-                      AND account = type::record('account', $account);",
+                      AND account = type::record('account', $account);
+                 SELECT true AS member
+                    FROM channel_guest
+                    WHERE channel = type::record('channel', $cid)
+                      AND account = type::record('account', $account)
+                      AND (expires_at = NONE OR expires_at > time::now());",
             )
             .bind(("gid", gid))
+            .bind(("cid", cid.to_string()))
             .bind(("account", account.to_string()))
             .await?
             .check()?;
-        resp.take::<Option<MemRow>>(0)?.is_some()
+        resp.take::<Option<MemRow>>(0)?.is_some() || resp.take::<Option<MemRow>>(1)?.is_some()
     };
     if !is_member {
         return Ok(Membership::NotMember);
@@ -131,13 +142,21 @@ pub(crate) async fn resolve_membership(
 
 /// One channel the account may currently see: a live `kind='text'` channel in a
 /// guild where they are a member, or (M7/P1) a live `kind='dm'` thread where they
-/// are a `dm_member` (`guild_id` then `None`). Shared by GET /events (filtering)
-/// and GET /unread (Task 8, aggregation).
+/// are a `dm_member`, or (M7/P2) a live `kind='text'` channel where they are an
+/// active `channel_guest` (a Guest Cameo). `guild_id` is `None` for a DM AND for a
+/// cameo seen as a guest (so the client surfaces it standalone, not under a guild
+/// it can't see); `kind` is the client's routing discriminator between the two
+/// guildless cases (`'dm'` → DM list, `'text'` → cameo list). Shared by GET
+/// /events (filtering) and GET /unread (aggregation).
 #[derive(SurrealValue)]
 pub(crate) struct VisibleChannel {
     pub(crate) channel_id: String,
-    // M7/P1: NONE for a DM thread (a channel with no guild).
+    // None for a DM thread (no guild) AND for a cameo channel seen via the guest
+    // arm (projected None so the guest's client doesn't nest it under a hidden guild).
     pub(crate) guild_id: Option<String>,
+    // M7/P2: the channel's raw kind — the client routes a guildless `'dm'` to the
+    // DM list and a guildless `'text'` (a cameo) to the cameo list.
+    pub(crate) kind: String,
 }
 
 /// Load every [`VisibleChannel`] for `account`. Two parameterized statements,
@@ -157,17 +176,26 @@ pub(crate) async fn visible_channels(
                  WHERE account = type::record('account', $account));
              LET $dms = (SELECT VALUE channel FROM dm_member
                  WHERE account = type::record('account', $account));
+             LET $guests = (SELECT VALUE channel FROM channel_guest
+                 WHERE account = type::record('account', $account)
+                   AND (expires_at = NONE OR expires_at > time::now()));
              SELECT meta::id(id) AS channel_id,
-                    (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_id
+                    (IF guild = NONE THEN NONE
+                       ELSE IF (id IN $guests AND !(guild IN $gids)) THEN NONE
+                       ELSE meta::id(guild) END) AS guild_id,
+                    kind
                  FROM channel
                  WHERE deleted_at = NONE
                    AND ( (kind = 'text' AND guild IN $gids AND guild.deleted_at = NONE)
-                         OR (kind = 'dm' AND id IN $dms) );",
+                         OR (kind = 'dm' AND id IN $dms)
+                         OR (kind = 'text' AND id IN $guests AND guild.deleted_at = NONE) );",
         )
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    // Statements 0 and 1 are the LETs (no materialized rows); the SELECT is
-    // take(2). DM rows project `guild_id = NONE` (no guild) → Option::None.
-    resp.take(2)
+    // Statements 0,1,2 are the LETs (no materialized rows); the SELECT is take(3).
+    // A DM projects `guild_id = NONE`; a cameo seen via the guest arm (id IN
+    // $guests AND the account is not a member of its guild) is projected NONE too,
+    // while a real member of the same guild still gets the guild id.
+    resp.take(3)
 }

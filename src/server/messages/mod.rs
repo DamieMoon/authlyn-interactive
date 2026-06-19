@@ -72,6 +72,12 @@ pub(super) struct ChannelCtx {
     /// M7/P1 (review M2): true when the channel is read-only (a 1:1 DM whose
     /// friends unfriended). `post_message` rejects writes; reads are unaffected.
     pub locked: bool,
+    /// M7/P2: true when the caller reaches this channel as a GUEST (an active
+    /// `channel_guest`) and is NOT a `guild_member` — so `post_message` snapshots
+    /// `message.guest_cameo = true` without a second round-trip. Always false for a
+    /// DM or for a real guild member (a member who is also somehow a guest is
+    /// treated as a member).
+    pub via_guest: bool,
 }
 
 pub(super) enum AccessOutcome {
@@ -104,7 +110,8 @@ pub(super) async fn channel_access(
         /// channel doesn't exist (or it / its guild are soft-deleted).
         chan_kind: Option<String>,
         /// `Some(true)` when the caller is a member — `guild_member` for a guild
-        /// channel, `dm_member` for a `kind='dm'` thread (M7/P1) — `None`
+        /// channel, `dm_member` for a `kind='dm'` thread (M7/P1), or an active
+        /// `channel_guest` for a guild channel (M7/P2 Guest Cameos) — `None`
         /// otherwise (sub-SELECT returns no row). The `IF $chan = NONE` guard
         /// skips the membership lookup when the channel is missing — order of
         /// evaluation across an `AND` is not contractual in SurrealQL.
@@ -115,19 +122,33 @@ pub(super) async fn channel_access(
         /// M7/P1 (review M2): true when the channel carries a `locked_at` stamp
         /// (a read-only 1:1 DM). False for a missing channel or any live channel.
         locked: bool,
+        /// M7/P2: true when the caller is an active guest (channel_guest) and NOT
+        /// a guild_member of this channel's guild → drives the send-time badge.
+        via_guest: bool,
     }
 
-    // One round-trip, two SurrealQL statements:
-    //   stmt 0  LET $chan       (channel + soft-delete gate)
-    //   stmt 1  RETURN { ... }  (member check + persona read folded in)
+    // One round-trip, four SurrealQL statements:
+    //   stmt 0  LET $chan   (channel + soft-delete gate)
+    //   stmt 1  LET $gm     (guild_member presence, false for a DM/missing chan)
+    //   stmt 2  LET $cg     (active channel_guest presence — M7/P2)
+    //   stmt 3  RETURN { ... }  (member check + via_guest + persona read folded in)
     // Only the RETURN materializes a result row, but the surrealdb driver
-    // still indexes through the LET — hence `.take(1)` for the object.
+    // still indexes through each LET — hence `.take(3)` for the object.
     let sql = "
         LET $chan = (
             SELECT (IF guild != NONE THEN meta::id(guild) ELSE NONE END) AS guild_key, kind, locked_at
             FROM ONLY type::record('channel', $cid)
             WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE)
         );
+        LET $gm = (IF $chan = NONE OR $chan.kind = 'dm' THEN false ELSE
+            ((SELECT VALUE true FROM ONLY guild_member
+                WHERE guild = type::record('guild', $chan.guild_key)
+                  AND account = type::record('account', $account)) == true) END);
+        LET $cg = (IF $chan = NONE OR $chan.kind = 'dm' THEN false ELSE
+            ((SELECT VALUE true FROM ONLY channel_guest
+                WHERE channel = type::record('channel', $cid)
+                  AND account = type::record('account', $account)
+                  AND (expires_at = NONE OR expires_at > time::now())) == true) END);
         RETURN {
             chan_kind: $chan.kind,
             locked: (IF $chan = NONE THEN false ELSE $chan.locked_at != NONE END),
@@ -137,11 +158,10 @@ pub(super) async fn channel_access(
                         WHERE channel = type::record('channel', $cid)
                           AND account = type::record('account', $account))
                 ELSE
-                    (SELECT VALUE true FROM ONLY guild_member
-                        WHERE guild = type::record('guild', $chan.guild_key)
-                          AND account = type::record('account', $account))
+                    (IF ($gm OR $cg) THEN true ELSE NONE END)
                 END)
             END,
+            via_guest: ($cg AND !$gm),
             active_persona: (
                 SELECT VALUE meta::id(persona)
                 FROM ONLY channel_active_persona
@@ -157,7 +177,7 @@ pub(super) async fn channel_access(
         .bind(("account", account.to_string()))
         .await?
         .check()?;
-    let row: Option<CombinedRow> = resp.take(1)?;
+    let row: Option<CombinedRow> = resp.take(3)?;
     let row = row.expect("RETURN always materializes an object");
 
     match (row.chan_kind, row.is_member) {
@@ -167,6 +187,7 @@ pub(super) async fn channel_access(
             kind,
             active_persona: row.active_persona,
             locked: row.locked,
+            via_guest: row.via_guest,
         })),
     }
 }
