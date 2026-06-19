@@ -145,18 +145,14 @@ pub(crate) async fn resolve_membership(
 /// are a `dm_member`, or (M7/P2) a live `kind='text'` channel where they are an
 /// active `channel_guest` (a Guest Cameo). `guild_id` is `None` for a DM AND for a
 /// cameo seen as a guest (so the client surfaces it standalone, not under a guild
-/// it can't see); `kind` is the client's routing discriminator between the two
-/// guildless cases (`'dm'` → DM list, `'text'` → cameo list). Shared by GET
-/// /events (filtering) and GET /unread (aggregation).
+/// it can't see — and never lights a guild rail dot). Shared by GET /events
+/// (filtering) and GET /unread (aggregation).
 #[derive(SurrealValue)]
 pub(crate) struct VisibleChannel {
     pub(crate) channel_id: String,
     // None for a DM thread (no guild) AND for a cameo channel seen via the guest
     // arm (projected None so the guest's client doesn't nest it under a hidden guild).
     pub(crate) guild_id: Option<String>,
-    // M7/P2: the channel's raw kind — the client routes a guildless `'dm'` to the
-    // DM list and a guildless `'text'` (a cameo) to the cameo list.
-    pub(crate) kind: String,
 }
 
 /// Load every [`VisibleChannel`] for `account`. Two parameterized statements,
@@ -182,8 +178,7 @@ pub(crate) async fn visible_channels(
              SELECT meta::id(id) AS channel_id,
                     (IF guild = NONE THEN NONE
                        ELSE IF (id IN $guests AND !(guild IN $gids)) THEN NONE
-                       ELSE meta::id(guild) END) AS guild_id,
-                    kind
+                       ELSE meta::id(guild) END) AS guild_id
                  FROM channel
                  WHERE deleted_at = NONE
                    AND ( (kind = 'text' AND guild IN $gids AND guild.deleted_at = NONE)

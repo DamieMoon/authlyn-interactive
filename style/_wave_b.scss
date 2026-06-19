@@ -379,6 +379,22 @@
 	color: var(--role-admin);
 }
 
+// M7/P2: a guest's role chip in the host-side cameo list — muted, so it reads as
+// "not a full member".
+.member-role-guest {
+	border-color: var(--line);
+	color: var(--text-soft);
+}
+
+// M7/P2: the host-side guest-cameo section appended to the members pane, set off
+// from the roster with a hairline + spacing. Demo-grade; placement is a deck-pass
+// decision.
+.guest-section {
+	margin-top: 1rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--line);
+}
+
 .member-actions {
 	display: flex;
 	gap: 0.35rem;

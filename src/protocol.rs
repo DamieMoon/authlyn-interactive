@@ -1094,15 +1094,14 @@ impl SyncEvent {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelUnread {
     pub channel_id: String,
+    /// M7/P1 + M7/P2: `None` for a DM thread AND for a cameo channel seen as a
+    /// guest (both surface standalone, not under a guild rail). The client keys a
+    /// guild rail dot ONLY on `Some(guild_id)`, so a guildless row glows just its
+    /// own channel in the DM / cameo list — no rail dot for a guild the caller
+    /// can't see. Which list the row belongs to is resolved by the separate
+    /// `sel.dms` / `sel.cameos` signals (by channel id), not a kind field here.
     #[serde(default)]
     pub guild_id: Option<String>,
-    /// M7/P2: the channel's raw kind (`"text"`, `"dm"`, …). Disambiguates the two
-    /// guildless cases for client routing — a `guild_id`-None `"dm"` row goes to the
-    /// DM-list badge, a `guild_id`-None `"text"` row (a cameo seen as a guest) to the
-    /// cameo-list badge. `#[serde(default)]` → `""` for wire-compat with pre-M7/P2
-    /// producers (an empty kind simply isn't a cameo).
-    #[serde(default)]
-    pub kind: String,
     /// Messages newer than the caller's read cursor (capped at 100). 0 when
     /// the channel has no cursor yet — the client baselines instead of glowing.
     pub unread: usize,

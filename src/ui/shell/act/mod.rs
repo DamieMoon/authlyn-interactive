@@ -45,6 +45,7 @@
 
 pub mod account;
 pub mod admin;
+pub mod cameo;
 pub mod channel;
 pub mod compose_colors;
 pub mod dm;
@@ -66,6 +67,7 @@ pub use account::{
     admin_reset_password, change_password, logout, save_display_name, set_account_avatar,
 };
 pub use admin::send_system_broadcast;
+pub use cameo::{leave_cameo, open_cameo, refresh_cameos};
 pub use channel::{
     create_channel, move_channel_to_bounds, open_channel, open_deep_link, rename_channel,
     restore_channel, restore_session, show_current_channel, swap_channel,

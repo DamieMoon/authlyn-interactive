@@ -24,8 +24,9 @@ use std::collections::{HashMap, HashSet};
 use leptos::prelude::{RwSignal, StoredValue};
 
 use crate::protocol::{
-    Attachment, ChannelSummary, CustomEmoji, DmSummary, GuildSummary, ListFriendsResponse,
-    LorebookEntry, MessageEnvelope, PersonaSummary, ReplyPreview, TypingDraftEntry,
+    Attachment, CameoSummary, ChannelSummary, CustomEmoji, DmSummary, GuildSummary,
+    ListFriendsResponse, LorebookEntry, MessageEnvelope, PersonaSummary, ReplyPreview,
+    TypingDraftEntry,
 };
 
 use super::{Pane, PendingDelete};
@@ -56,6 +57,11 @@ pub(crate) struct Selection {
     /// repaints them). Opening one routes through `sel_channel`/ChannelPane like
     /// any channel — a DM thread *is* a channel.
     pub(crate) dms: RwSignal<Vec<DmSummary>>,
+    /// M7/P2: the caller's active Guest Cameos — guild text channels they're a
+    /// guest in (they can't see the host guild's rail). Refreshed on `ListsChanged`
+    /// alongside DMs; opening one routes through `sel_channel`/ChannelPane like any
+    /// channel.
+    pub(crate) cameos: RwSignal<Vec<CameoSummary>>,
 }
 
 /// The open channel's message list + the three-cursor pagination state and

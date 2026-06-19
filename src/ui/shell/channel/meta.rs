@@ -76,6 +76,11 @@ pub(super) fn message_meta(
             {account_marker.map(|name| view! {
                 <span class="who-account">{format!(" · {name}")}</span>
             })}
+            // M7/P2: a guest cameo's messages carry a "GÄST" chip (snapshotted at
+            // send time, so it persists after the cameo is revoked/expired).
+            {m.guest_cameo.then(|| view! {
+                <span class="badge-guest" title="gästspel">"GÄST"</span>
+            })}
             <time class="when">{when}</time>
             // Action row — reply/copy are available on every user message
             // (own AND others): copy so the markup source can be re-pasted

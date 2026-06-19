@@ -15,6 +15,9 @@ pub(crate) fn FriendsPane() -> impl IntoView {
                 <button on:click=move |_| s.sync.pane.set(super::Pane::DirectMessages)>
                     "Direktmeddelanden →"
                 </button>
+                <button on:click=move |_| s.sync.pane.set(super::Pane::Cameos)>
+                    "Gästspel →"
+                </button>
             </div>
             <div class="add-row">
                 <input prop:value=move || username.get()
@@ -136,6 +139,51 @@ pub(crate) fn DirectMessagesPane() -> impl IntoView {
                         }).collect_view()}
                     </ul>
                 }
+            }}
+        </div>
+    }
+}
+
+/// M7/P2 demo-grade Guest Cameos surface (guest side): the channels the caller is
+/// a guest in. Reachable from FriendsPane; a cameo opens through the shared
+/// ChannelPane (a cameo channel IS a guild text channel). The orbit placement +
+/// visual treatment are deck-pass decisions. NOT end-to-end encrypted — no
+/// encryption affordance. The HOST-side invite/revoke lives in MembersPane.
+#[component]
+pub(crate) fn CameosPane() -> impl IntoView {
+    let s = use_context::<Shell>().expect("Shell provided by AppShell");
+    // Fresh on mount; `message::refresh_lists` keeps it live via ListsChanged.
+    act::refresh_cameos(s);
+    view! {
+        <div class="pane">
+            <div class="add-row">
+                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Vänner"</button>
+                <h3>"Gästspel"</h3>
+            </div>
+            {move || {
+                let cameos = s.sel.cameos.get();
+                if cameos.is_empty() {
+                    return view! { <p class="empty">"Inga aktiva gästspel."</p> }.into_any();
+                }
+                view! {
+                    <ul class="flist">
+                        {cameos.into_iter().map(|c| {
+                            let c_open = c.clone();
+                            let cid = c.channel_id.clone();
+                            let label = match &c.guild_name {
+                                Some(g) if !g.is_empty() => format!("{} · {}", c.channel_name, g),
+                                _ => c.channel_name.clone(),
+                            };
+                            view! {
+                                <li>
+                                    <button on:click=move |_| act::open_cameo(s, c_open.clone())>{label}</button>
+                                    " "
+                                    <button on:click=move |_| act::leave_cameo(s, cid.clone())>"Lämna"</button>
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                }.into_any()
             }}
         </div>
     }

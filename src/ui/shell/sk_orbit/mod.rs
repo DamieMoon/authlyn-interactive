@@ -30,7 +30,7 @@ use super::{
     act,
     channel::ChannelPane,
     emoji_manager::EmojiManagerPane,
-    friends::{DirectMessagesPane, FriendsPane},
+    friends::{CameosPane, DirectMessagesPane, FriendsPane},
     lorebook::LorebookPane,
     members::MembersPane,
     Pane, Shell,
@@ -548,6 +548,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
                 Pane::Members => view! { <MembersPane/> }.into_any(),
                 Pane::DirectMessages => view! { <DirectMessagesPane/> }.into_any(),
+                Pane::Cameos => view! { <CameosPane/> }.into_any(),
             }}
             <p class="error">{move || s.composer.status.get()}</p>
             {move || map_open.get().then(|| view! {

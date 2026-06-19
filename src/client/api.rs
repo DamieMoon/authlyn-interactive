@@ -17,9 +17,10 @@ use crate::protocol::{
     AddGalleryImagesBatchResponse, AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest,
     ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateDmRequest, CreateEmojiRequest,
     CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
-    CreatePersonaRequest, DmSummary, EditMessageRequest, ErrorBody, FriendRequest, GuildDetail,
-    GuildSummary, InviteMemberRequest, InviteToDmRequest, ListDmsResponse, ListEmojiResponse,
-    ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
+    CreatePersonaRequest, DmSummary, EditMessageRequest, ErrorBody, FriendRequest, GuestSummary,
+    GuildDetail, GuildSummary, InviteGuestRequest, InviteMemberRequest, InviteToDmRequest,
+    ListCameosResponse, ListDmsResponse, ListEmojiResponse, ListFeedbackResponse,
+    ListFriendsResponse, ListGuestsResponse, ListGuildsResponse, ListLorebookResponse,
     ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
     LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
@@ -880,6 +881,47 @@ pub async fn invite_to_dm(tid: &str, account_id: &str) -> Result<DmSummary, ApiE
 /// DELETE /dms/{tid}/members/me — leave a thread.
 pub async fn leave_dm(tid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/dms/{tid}/members/me")).await
+}
+
+// ---------------------------------------------------------------------------
+// Guest cameos (M7/P2)
+// ---------------------------------------------------------------------------
+
+/// GET /cameos — the caller's active cameos (guest-side standalone list).
+pub async fn list_cameos() -> Result<ListCameosResponse, ApiError> {
+    get("/cameos").await
+}
+
+/// POST /channels/{cid}/guests — invite an accepted friend as a guest in this
+/// guild text channel, with an optional RFC3339 expiry.
+pub async fn invite_guest(
+    cid: &str,
+    account_id: &str,
+    expires_at: Option<String>,
+) -> Result<GuestSummary, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/guests"),
+        &InviteGuestRequest {
+            account_id: account_id.to_string(),
+            expires_at,
+        },
+    )
+    .await
+}
+
+/// GET /channels/{cid}/guests — the channel's active guests (host view).
+pub async fn list_guests(cid: &str) -> Result<ListGuestsResponse, ApiError> {
+    get(&format!("/channels/{cid}/guests")).await
+}
+
+/// DELETE /channels/{cid}/guests/{aid} — revoke a guest (inviter or manager).
+pub async fn revoke_guest(cid: &str, aid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/guests/{aid}")).await
+}
+
+/// DELETE /channels/{cid}/guests/me — leave a cameo (the guest ends it).
+pub async fn leave_cameo(cid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/guests/me")).await
 }
 
 // ---------------------------------------------------------------------------

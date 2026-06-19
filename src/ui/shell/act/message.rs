@@ -1518,6 +1518,16 @@ pub(super) fn refresh_lists(s: Shell) {
                 s.sel.dms.set(d.dms);
             }
         }
+        // M7/P2: cameos ride the same lists refresh — an invite/revoke/leave/unfriend
+        // ListsChanged repaints the caller's guest channels alongside DMs.
+        if let Ok(c) = api::list_cameos().await {
+            let Some(changed) = s.sel.cameos.try_with_untracked(|cur| *cur != c.cameos) else {
+                return;
+            };
+            if changed {
+                s.sel.cameos.set(c.cameos);
+            }
+        }
         let Some(gid) = sel else {
             return;
         };
