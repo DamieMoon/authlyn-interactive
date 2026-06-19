@@ -367,23 +367,33 @@ pub(crate) async fn revoke_cameos_between(
     a: &str,
     b: &str,
 ) -> surrealdb::Result<()> {
-    let mut resp = state
-        .db
-        .query(
-            "LET $affected = (SELECT VALUE meta::id(account) FROM channel_guest
-                WHERE (account = type::record('account', $a) AND invited_by = type::record('account', $b))
-                   OR (account = type::record('account', $b) AND invited_by = type::record('account', $a)));
-             DELETE channel_guest
-                WHERE (account = type::record('account', $a) AND invited_by = type::record('account', $b))
-                   OR (account = type::record('account', $b) AND invited_by = type::record('account', $a));
-             RETURN $affected;",
-        )
-        .bind(("a", a.to_string()))
-        .bind(("b", b.to_string()))
-        .await?
-        .check()?;
-    // Statement 0 = LET, 1 = DELETE, 2 = RETURN $affected.
-    let affected: Vec<String> = resp.take(2)?;
+    // Wrapped in the write-conflict retry like every other cameo mutation
+    // (M7/P2 review CAMEO-SQL-1): this is a best-effort unfriend hook whose Err is
+    // only logged, so a transient MVCC conflict against a concurrent channel_guest
+    // write must NOT be allowed to silently drop the revoke and leave a non-friend
+    // with access — the retry re-reads + re-deletes on a fresh snapshot.
+    let a_q = a.to_string();
+    let b_q = b.to_string();
+    let affected: Vec<String> = with_write_conflict_retry(|| async {
+        let mut resp = state
+            .db
+            .query(
+                "LET $affected = (SELECT VALUE meta::id(account) FROM channel_guest
+                    WHERE (account = type::record('account', $a) AND invited_by = type::record('account', $b))
+                       OR (account = type::record('account', $b) AND invited_by = type::record('account', $a)));
+                 DELETE channel_guest
+                    WHERE (account = type::record('account', $a) AND invited_by = type::record('account', $b))
+                       OR (account = type::record('account', $b) AND invited_by = type::record('account', $a));
+                 RETURN $affected;",
+            )
+            .bind(("a", a_q.clone()))
+            .bind(("b", b_q.clone()))
+            .await?
+            .check()?;
+        // Statement 0 = LET, 1 = DELETE, 2 = RETURN $affected.
+        resp.take::<Vec<String>>(2)
+    })
+    .await?;
     if !affected.is_empty() {
         state.emit_for(affected, SyncEvent::ListsChanged);
     }
@@ -565,7 +575,8 @@ async fn load_cameos(state: &AppState, account: &str) -> surrealdb::Result<Vec<C
              WHERE account = type::record('account', $me)
                AND (expires_at = NONE OR expires_at > time::now())
                AND channel.kind = 'text'
-               AND channel.deleted_at = NONE;",
+               AND channel.deleted_at = NONE
+               AND channel.guild.deleted_at = NONE;",
         )
         .bind(("me", account.to_string()))
         .await?

@@ -652,6 +652,45 @@ async fn nonmembers_cannot_invite_or_revoke() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn soft_deleting_the_host_guild_drops_the_cameo_from_the_guest_list() {
+    // M7/P2 review C1: /cameos must apply the same guild-soft-delete filter every
+    // access path enforces, or a dead cameo lingers (clickable, 404-on-open) for up
+    // to the 30d purge window.
+    let a = common::arena().await;
+    let (host, _host_id, gid, cid, _cid2, guest, guest_id) = setup(&a.router).await;
+    invite(&a.router, &host, &cid, &guest_id, None).await;
+    assert_eq!(
+        list_cameos(&a.router, &guest).await.len(),
+        1,
+        "live cameo lists"
+    );
+
+    // The host (owner) soft-deletes the guild.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}"),
+        Some(&host),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "owner soft-deletes the guild");
+
+    // The cameo vanishes from /cameos AND opening the channel is a privacy-404.
+    assert!(
+        list_cameos(&a.router, &guest).await.is_empty(),
+        "a cameo in a soft-deleted guild is not listed"
+    );
+    let (st, _) = messages(&a.router, &guest, &cid).await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "and the channel is no longer accessible"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn cameo_lifecycle_emits_lists_changed_to_the_guest_over_sse() {
     // The id-only realtime invariant for cameos: invite + revoke each deliver a
     // `lists_changed` frame to the affected guest's open /events stream.
