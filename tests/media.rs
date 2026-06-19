@@ -360,6 +360,57 @@ async fn stored_path_outside_media_dir_is_refused() {
     );
 }
 
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn migrated_blob_with_stale_storage_path_falls_back_to_media_dir() {
+    // Migration resilience: `storage_path` is an ABSOLUTE path captured at
+    // upload time, so it does NOT survive a media-dir relocation. The WS4
+    // fenrir→novahome move left every prod row pointing at the Pi's
+    // `/data/authlyn/media/{id}.bin` while the bytes were copied under the new
+    // MEDIA_STORAGE_DIR — canonicalizing the stale stored path failed and every
+    // blob 404'd. The serve path must fall back to the id-derived in-dir
+    // location `media_dir/{id}.bin` (the filename is server-minted, so it is
+    // exact) and still serve the blob. We forge a row whose stored path is a
+    // non-existent old-style absolute path, write the real bytes at the
+    // id-derived location, and assert a clean 200 round-trip.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    let id = "migratedstalepath0000000000000000";
+    let png = b"\x89PNG\r\n\x1a\nmigrated-body".to_vec();
+    // Bytes live where the CURRENT media_dir + id derive (where the migration
+    // copied them) — NOT at the stale stored path.
+    std::fs::write(a.media_dir.join(format!("{id}.bin")), &png).expect("write migrated blob");
+    // The stored absolute path points at a dir that no longer exists on this host.
+    let stale = format!("/data/authlyn/media/{id}.bin");
+    a.db.query(
+        r#"CREATE type::record("media_blob", $id) SET
+                uploader     = type::record("account", $uploader),
+                mime         = "image/png",
+                size_bytes   = 1,
+                storage_path = $path;"#,
+    )
+    .bind(("id", id.to_string()))
+    .bind(("uploader", owner_account_id(&a.router, &owner).await))
+    .bind(("path", stale))
+    .await
+    .expect("forge migrated row")
+    .check()
+    .expect("forge check");
+
+    let (status, ct, bytes) = get_media(&a.router, &owner, id).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a migrated blob whose stored path is stale must fall back to media_dir/{{id}}.bin"
+    );
+    assert_eq!(ct.as_deref(), Some("image/png"), "stored MIME served back");
+    assert_eq!(
+        bytes, png,
+        "exact bytes round-trip via the id-derived fallback"
+    );
+}
+
 /// Resolve the caller's own account id (uploader for the forged row) via /auth/me.
 #[cfg(feature = "ssr")]
 async fn owner_account_id(router: &axum::Router, cookie: &str) -> String {

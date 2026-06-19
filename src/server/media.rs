@@ -235,15 +235,15 @@ pub async fn download_media(
         }
     };
 
-    // Path-traversal defense in depth: the stored path must canonicalize
-    // inside the (already-canonical) media_dir. A missing file canonicalizes
-    // to an error → 404 (same as an unknown id).
-    let canonical = match PathBuf::from(&row.storage_path).canonicalize() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(error = %e, path = %row.storage_path, "media file missing on disk");
-            return error_response(StatusCode::NOT_FOUND, "media not found");
-        }
+    // Path-traversal defense in depth: the on-disk path must canonicalize
+    // inside the (already-canonical) media_dir. A missing file → 404 (same as
+    // an unknown id). The stored `storage_path` is an ABSOLUTE path baked in at
+    // upload time, so it does not survive a media-dir relocation — see
+    // [`canonical_media_path`], which falls back to the id-derived in-dir
+    // location so blobs keep serving across a host move.
+    let canonical = match canonical_media_path(&state, &row.storage_path, &id) {
+        Some(c) => c,
+        None => return error_response(StatusCode::NOT_FOUND, "media not found"),
     };
     if !canonical.starts_with(state.media_dir.as_ref()) {
         tracing::error!(path = %canonical.display(), "media path escapes media_dir");
@@ -475,12 +475,45 @@ async fn load_media_row(state: &AppState, id: &str) -> surrealdb::Result<Option<
 /// accent derivation).
 pub(crate) async fn read_media_blob_bytes(state: &AppState, id: &str) -> Option<Vec<u8>> {
     let row = load_media_row(state, id).await.ok().flatten()?;
-    let canonical = PathBuf::from(&row.storage_path).canonicalize().ok()?;
+    // Same relocated-dir tolerance as the HTTP serve path (`canonical_media_path`).
+    let canonical = canonical_media_path(state, &row.storage_path, id)?;
     if !canonical.starts_with(state.media_dir.as_ref()) {
         tracing::error!(path = %canonical.display(), "media path escapes media_dir");
         return None;
     }
     fs::read(&canonical).await.ok()
+}
+
+/// Resolve a media blob's on-disk path, tolerant of a relocated media dir.
+///
+/// `storage_path` is the ABSOLUTE path captured at upload time
+/// (`media_dir.join("{id}.{STORAGE_EXT}")`). It is tried first so an unchanged
+/// deployment — and the security characterization of an escaping stored path
+/// (caller's `starts_with(media_dir)` guard → 500) — is unaffected. Only when
+/// that path no longer resolves (a moved media dir: the WS4 fenrir→novahome
+/// migration left every row pointing at the Pi's `/data/authlyn/media` while
+/// the bytes now live under `MEDIA_STORAGE_DIR`) do we fall back to the
+/// id-derived in-dir location `media_dir/{id}.{STORAGE_EXT}`. The filename is
+/// server-minted ([`random_media_id`] + [`STORAGE_EXT`]), so reconstruction is
+/// exact and host-independent. Returns `None` only when NEITHER resolves; the
+/// caller still applies the `starts_with(media_dir)` escape guard.
+fn canonical_media_path(state: &AppState, storage_path: &str, id: &str) -> Option<PathBuf> {
+    if let Ok(c) = PathBuf::from(storage_path).canonicalize() {
+        return Some(c);
+    }
+    let derived = state.media_dir.join(format!("{id}.{STORAGE_EXT}"));
+    match derived.canonicalize() {
+        Ok(c) => Some(c),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                storage_path,
+                derived = %derived.display(),
+                "media file missing on disk (stored path and id-derived fallback)"
+            );
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
