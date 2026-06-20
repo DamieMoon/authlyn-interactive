@@ -2,43 +2,6 @@
 
 // ---- Trash UIs (#22 Phase 2) ----
 
-// Rail trash button (mirrors rail-guild style).
-.rail-trash {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 2.8rem;
-	height: 2.8rem;
-	border-radius: 50%;
-	border: 1px solid var(--line);
-	background: var(--surface-2);
-	color: var(--text-muted);
-	font-size: 1rem;
-	cursor: pointer;
-	flex-shrink: 0;
-
-	&:hover,
-	&.active {
-		color: var(--text);
-		border-color: var(--accent);
-		background: var(--surface);
-	}
-}
-
-// Sidebar-slot panel for trashed servers (same layout as the normal sidebar).
-.sidebar-trash {
-	.server-header {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-
-		.server-title {
-			flex: 1;
-			font-weight: 600;
-		}
-	}
-}
-
 // Deleted-channels toggle in the sidebar.
 .trash-section {
 	padding: 0 0.5rem 0.5rem;

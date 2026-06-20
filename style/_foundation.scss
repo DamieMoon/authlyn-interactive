@@ -167,8 +167,7 @@
 
 // W5/P0 #20: under fx-max, the chrome bars escalate back to live refraction.
 .app.fx-max .topbar,
-.app.fx-max .bottom-tabs,
-.app.fx-max .channel-sheet {
+.app.fx-max .bottom-tabs {
 	@include glass-live;
 }
 

@@ -95,10 +95,6 @@
 			white-space: nowrap;
 		}
 
-		.spacer {
-			flex: 1;
-		}
-
 		// Live-sync chip (W3/T6, mock final-design.html `.topb .stat`): a small
 		// mono readout of the sync driver's real state — mint ● LIVE with a
 		// soft glow while the SSE stream is connected, faint ● POLLING on the
@@ -1353,11 +1349,18 @@
 // chips — ignores the stray compat click manufactured by the opening press
 // itself). touch-action: none so a pan can't start on it, mirroring
 // .modal-backdrop.
+//
+// TRANSPARENT, never `var(--scrim)`: this is a NON-modal popover catcher
+// (the radial action menu is role="menu", not a role="dialog" aria-modal),
+// so it must not dim. fx-max is unconditional, so an opaque scrim here would
+// black out the whole chat behind a 2–4 chip arc on every long-press — the
+// B4 blossom-scrim blackout, in its unfixed twin. Pinned by
+// `scrim_only_on_modal_backdrops` in tests/style_lint.rs.
 .radial-backdrop {
 	position: fixed;
 	inset: 0;
 	z-index: 60;
-	background: var(--scrim);
+	background: transparent;
 	touch-action: none;
 }
 
