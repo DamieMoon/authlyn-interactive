@@ -11,6 +11,7 @@ pub mod auth;
 pub mod avatar;
 #[cfg(feature = "hydrate")]
 pub mod clipboard;
+pub mod crest;
 pub mod emoji;
 pub mod icons;
 pub mod inline_rename;

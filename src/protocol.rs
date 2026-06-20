@@ -608,6 +608,12 @@ pub struct PersonaSummary {
     /// by the server, which orders the list before sending it).
     #[serde(default)]
     pub position: Option<i64>,
+    /// RFC3339 persona-creation instant — the heraldic "debut" that feeds the
+    /// M7/P3 crest. Persona LIFECYCLE creation, NOT first-message. `#[serde(default)]`
+    /// so payloads predating the field deserialize to an empty string (the crest
+    /// then derives from the name alone).
+    #[serde(default)]
+    pub created_at: String,
 }
 
 /// Response from `GET /personas`.
@@ -647,6 +653,10 @@ pub struct PersonaDetail {
     /// (empty for editors).
     #[serde(default)]
     pub editors: Vec<PersonaEditor>,
+    /// RFC3339 persona-creation instant (the crest "debut"; see
+    /// [`PersonaSummary::created_at`]).
+    #[serde(default)]
+    pub created_at: String,
 }
 
 /// Response from `GET /personas/{id}/editors` — owner-only.

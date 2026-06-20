@@ -7,14 +7,14 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use surrealdb::types::SurrealValue;
+use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
     CreatePersonaRequest, GalleryImage, ListPersonasResponse, PatchPersonaRequest, PersonaDetail,
     PersonaSummary, RedeemPersonaKeyRequest,
 };
 use crate::server::auth::AuthAccount;
-use crate::server::db_helpers::IdRow;
+use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::permissions::{can_edit_persona, is_persona_editor, owns_persona};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -67,6 +67,9 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         // Coalesced sort key: NONE → a sentinel that sorts after every real
         // position so unordered rows fall to the end of the grid.
         sort_pos: i64,
+        // M7/P3 crest debut: the persona-creation instant (every row has it —
+        // schema DEFAULTs it on create), formatted to RFC3339 for the wire.
+        created_at: Datetime,
     }
     // Personas the caller owns OR can edit (a persona_editor row exists). The
     // editor set is resolved from the join table; `owned` flags which controls
@@ -79,7 +82,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             "SELECT meta::id(id) AS id_key, name, description, (color ?? '') AS color,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
                 (owner = type::record('account', $account)) AS owned,
-                position,
+                position, created_at,
                 (position ?? 9223372036854775807) AS sort_pos
                 FROM persona
                 WHERE owner = type::record('account', $account)
@@ -101,6 +104,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             color: r.color.unwrap_or_default(),
             owned: r.owned,
             position: r.position,
+            created_at: to_rfc3339_fixed(r.created_at),
         })
         .collect())
 }
@@ -144,7 +148,7 @@ pub async fn create_persona(
                 description = $description,
                 color = $color,
                 share_key = $share_key
-                RETURN meta::id(id) AS id_key;",
+                RETURN meta::id(id) AS id_key, created_at;",
         )
         .bind(("account", account.0))
         .bind(("name", name.clone()))
@@ -160,7 +164,12 @@ pub async fn create_persona(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    match resp.take::<Option<IdRow>>(0) {
+    #[derive(SurrealValue)]
+    struct CreatedRow {
+        id_key: String,
+        created_at: Datetime,
+    }
+    match resp.take::<Option<CreatedRow>>(0) {
         Ok(Some(row)) => (
             StatusCode::CREATED,
             Json(PersonaSummary {
@@ -171,6 +180,7 @@ pub async fn create_persona(
                 color: color_echo,
                 owned: true,
                 position: None,
+                created_at: to_rfc3339_fixed(row.created_at),
             }),
         )
             .into_response(),
@@ -232,6 +242,7 @@ async fn load_persona_detail(
         description: String,
         avatar_id: Option<String>,
         share_key: String,
+        created_at: Datetime,
     }
     #[derive(SurrealValue)]
     struct GRow {
@@ -242,7 +253,7 @@ async fn load_persona_detail(
     let mut resp = state
         .db
         .query(
-            "SELECT name, description, share_key,
+            "SELECT name, description, share_key, created_at,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
                 FROM type::record('persona', $pid);
              SELECT meta::id(id) AS id_key, meta::id(media) AS media_id, position
@@ -268,6 +279,7 @@ async fn load_persona_detail(
         name: p.name,
         description: p.description,
         avatar_id: p.avatar_id,
+        created_at: to_rfc3339_fixed(p.created_at),
         share_key,
         editors,
         gallery: gallery

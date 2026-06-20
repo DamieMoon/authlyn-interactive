@@ -58,6 +58,7 @@
 //!   composing the inline pipeline for non-code content.
 
 mod blocks;
+pub mod crest;
 mod tokenize;
 mod tree;
 

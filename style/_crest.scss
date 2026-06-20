@@ -1,0 +1,27 @@
+// M7/P3 Crests (Vapenskölden) — the heraldic crest SVG that fills a persona's
+// portrait slot when there is no uploaded avatar. `src/ui/crest.rs` renders the
+// inline SVG; `src/markup/crest.rs` derives the blazon. The crest is decorative
+// and STATIC: it declares no animations at all, so the motion-doctrine scan in
+// tests/style_lint.rs (which brace-matches animation blocks and flags forbidden
+// animated props) has nothing here to flag; and there is no backdrop blur, so
+// the WebKit sibling-count rule is N/A. Tinctures reuse the existing `--tint-*`
+// tokens (_tokens.scss) — this partial adds no new color tokens.
+//
+// Touch-floor forward rule (CLAUDE.md): the crest is decorative and adds NO
+// interactive control today. If a tap-to-regenerate / tap-to-zoom affordance is
+// ever added, give it `min-width`/`min-height: 2.75rem` HERE at the base
+// `.crest` definition — never as an `.app.sk-orbit` override.
+
+.crest {
+	display: block;
+	width: 100%;
+	height: 100%;
+	// Clip the square escutcheon to whatever portrait slot it fills (the slot
+	// owns the radius; `slice` in the SVG covers the slot like an avatar's
+	// object-fit:cover, and overflow:hidden rounds the corners to match).
+	border-radius: inherit;
+	overflow: hidden;
+	// Ink for the ordinary charge + the centred initial. Dark so it stays
+	// legible over every (light) --tint-* tincture; a deck-pass retune target.
+	--crest-ink: #14161c;
+}

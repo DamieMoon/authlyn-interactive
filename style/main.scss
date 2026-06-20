@@ -14,6 +14,7 @@
 @use "auth";
 @use "content";
 @use "wardrobe";
+@use "crest"; // M7/P3 Crests — after wardrobe so it can lean on the portrait-slot box
 @use "markup";
 @use "modal";
 @use "msg_who";

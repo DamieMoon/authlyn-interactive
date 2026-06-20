@@ -16,6 +16,7 @@ use leptos::ev::PointerEvent;
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::GalleryImage;
+use crate::ui::crest::Crest;
 use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDisc, IconGrip, IconStar};
 use crate::ui::markup_view::render_body;
 use crate::ui::modal::Modal;
@@ -189,10 +190,12 @@ fn set_avatar_from_gallery(s: Shell, pid: String, media_id: String) {
 fn set_avatar_from_gallery(_s: Shell, _pid: String, _media_id: String) {}
 
 /// A persona portrait: the uploaded avatar image when `avatar_id` is `Some`,
-/// otherwise the name's first letter as a monogram. Shared by the card, the
-/// detail editor and the info popup. The `<img>` is styled inline so it fills
-/// whatever portrait slot it sits in (main.scss is owned by another stream).
-fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
+/// otherwise (M7/P3) a deterministic heraldic crest derived from the persona's
+/// `name` + `debut`. Shared by the card, the detail editor and the info popup.
+/// The `<img>` is styled inline so it fills whatever portrait slot it sits in
+/// (main.scss is owned by another stream); the crest fills its slot via
+/// `style/_crest.scss`.
+fn portrait(avatar_id: &Option<String>, name: &str, debut: &str) -> impl IntoView {
     match avatar_id {
         Some(id) => {
             let src = format!("/media/{id}");
@@ -203,8 +206,9 @@ fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
             .into_any()
         }
         None => {
-            let mono = crate::ui::avatar::monogram(name, '?');
-            view! { {mono} }.into_any()
+            // No uploaded avatar → the persona's crest. Two like-named personas
+            // differ because the debut date folds into the blazon hash.
+            view! { <Crest name=name.to_string() debut=debut.to_string()/> }.into_any()
         }
     }
 }
@@ -274,7 +278,7 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                                 on:click=move |_| info.set(None)><IconClose/></button>
                         </div>
                         <div class="info-portrait" title="persona portrait">
-                            {portrait(&p.avatar_id, &p.name)}
+                            {portrait(&p.avatar_id, &p.name, &p.created_at)}
                         </div>
                         {match desc {
                             Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
@@ -440,7 +444,7 @@ fn PersonaCard(
             })}
             // Portrait slot: the uploaded avatar if set, else the monogram.
             <div class="card-portrait" title="persona portrait">
-                {portrait(&p.avatar_id, &p.name)}
+                {portrait(&p.avatar_id, &p.name, &p.created_at)}
             </div>
             // Clicking the name/blurb opens the read-only info popup.
             <button class="card-open" title="View persona"
@@ -511,11 +515,12 @@ fn PersonaDetail(
         .get_untracked()
         .into_iter()
         .find(|p| p.id == pid);
-    let (seed_name, seed_desc, seed_color) = seed
-        .map(|p| (p.name, p.description, p.color))
+    let (seed_name, seed_desc, seed_color, seed_debut) = seed
+        .map(|p| (p.name, p.description, p.color, p.created_at))
         .unwrap_or_default();
-    // Name used for the monogram fallback in the portrait slot.
+    // Name + debut used for the crest in the portrait slot.
     let portrait_name = seed_name.clone();
+    let portrait_debut = seed_debut;
     // Live avatar for the portrait: re-read `s.social.personas` so a fresh upload shows
     // without re-opening the editor.
     let pid_portrait = pid.clone();
@@ -579,7 +584,7 @@ fn PersonaDetail(
             // upload control. Picking a file uploads it and sets it as the
             // avatar; the server gates who may change it.
             <div class="detail-portrait" title="persona portrait">
-                {move || portrait(&avatar.get(), &portrait_name)}
+                {move || portrait(&avatar.get(), &portrait_name, &portrait_debut)}
             </div>
             <label class="field">
                 <span>"Picture"</span>
