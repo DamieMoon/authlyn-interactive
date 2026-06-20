@@ -904,6 +904,18 @@ pub fn show_members(s: Shell) {
     s.sync.pane.set(Pane::Members);
 }
 
+/// Open the DM thread list directly (B3 — owner deck-finding 2026-06-20: DMs
+/// were reachable only via Friends). Mirrors `show_friends`: capture the
+/// channel scroll position (this unmounts ChannelPane), flip the pane, and
+/// refresh the thread list. `DirectMessagesPane` also self-refreshes on mount,
+/// so this is belt-and-suspenders if the pane is already shown.
+#[cfg(feature = "hydrate")]
+pub fn show_dms(s: Shell) {
+    super::reentry::capture_scroll_mark(s);
+    s.sync.pane.set(Pane::DirectMessages);
+    super::dm::refresh_dms(s);
+}
+
 // ---- friends + member ops ----
 
 #[cfg(feature = "hydrate")]
@@ -1991,6 +2003,8 @@ pub fn show_wardrobe(_s: Shell) {}
 pub fn show_emoji_manager(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn show_members(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn show_dms(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn add_friend(_s: Shell, _username: String) {}
 #[cfg(not(feature = "hydrate"))]

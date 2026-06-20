@@ -36,7 +36,7 @@ use super::{
     Pane, Shell,
 };
 use crate::ui::icons::{
-    IconBack, IconBook, IconEdit, IconEmoji, IconFriends, IconHold, IconMembers, IconOrb,
+    IconBack, IconBook, IconChat, IconEdit, IconEmoji, IconFriends, IconHold, IconMembers, IconOrb,
     IconPersonas, IconPlus, IconSettings, IconShout, IconSpell, IconStar, IconSwipe, IconWhisper,
 };
 
@@ -480,6 +480,18 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         aria-hidden="true"></span>
                 </span>
             </button>
+            // B5 (owner deck-finding 2026-06-20): every non-Channel pane needs a
+            // consistent way back. The Account MODAL had a close; the dispatch
+            // panes (Friends/Members/Emoji/Lorebook/DMs/Cameos) had none — only
+            // DMs/Cameos a "← Friends" sub-link that dead-ended at Friends. One
+            // shared top-left back disc (mirrors the bottom-left help disc) →
+            // `act::show_current_channel` (restores the channel / opens the
+            // channel sheet if none selected). Shown only off the channel, so it
+            // never crowds the chat. ≥44px, glass-holo (same chrome material).
+            {move || (s.sync.pane.get() != Pane::Channel).then(|| view! {
+                <button class="sk-orbit-pane-back" type="button" aria-label="Back to channel"
+                    on:click=move |_| act::show_current_channel(s)><IconBack/></button>
+            })}
             {move || match s.sync.pane.get() {
                 Pane::Friends => view! { <FriendsPane/> }.into_any(),
                 Pane::Channel => {
@@ -1232,6 +1244,14 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_friends(s); }>
                             <IconFriends/>" Friends"
+                        </button>
+                        // B3 (owner deck-finding 2026-06-20): DMs were reachable
+                        // ONLY via Friends → "Direct messages →" (a buried 2nd hop).
+                        // A direct station entry mirrors the Friends/Members/Emoji
+                        // pattern (`act::show_dms` = the show_friends sibling).
+                        <button class="sk-orbit-account-btn" type="button"
+                            on:click=move |_| { close_station(); act::show_dms(s); }>
+                            <IconChat/>" Direct messages"
                         </button>
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| { close_station(); act::show_members(s); }>

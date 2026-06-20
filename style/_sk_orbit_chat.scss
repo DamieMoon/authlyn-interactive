@@ -58,6 +58,27 @@
 	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
 }
 
+// Other authors (B1, owner deck-finding 2026-06-20): the base `.msg` left them
+// a FLAT opaque `--card` box on the aurora while own messages got the tint +
+// bloom above — "bara sändaren av meddelanden ser snyggt ut, en annan
+// avsändare saknar estetiken". Lift other authors into the same glass family
+// WITHOUT the blue `--mention-bg` (accent/tint stays the OWNERSHIP cue, not the
+// aesthetic cue): a lit top edge (`--glass-highlight`) + a brighter glass rim
+// (`--glass-line`) + a soft NEUTRAL bloom, so they read as glass chat bubbles
+// instead of a code-block box. STATIC paint (state, survives reduced-motion);
+// no per-bubble backdrop-filter on purpose — dozens of stacked blurs would
+// thrash iOS-WebKit, so the lit-edge sheen carries the glass read. Carve out
+// every row that owns its surface: own, system/roll banners, the shout/spell
+// effect bubbles (their warm/purple halo must win), and the draft/ghost rows.
+.app.sk-orbit
+	.messages
+	.msg:not(.own):not(.system):not(.roll):not(.effect-shout):not(.effect-spell):not(.msg-draft):not(.msg-ghost) {
+	border-color: var(--glass-line);
+	box-shadow:
+		0 0 16px rgba(255, 255, 255, 0.05),
+		inset 0 1px 0 var(--glass-highlight);
+}
+
 // shout — warm gradient bubble + bold warm text (the prototype's `.msg.shout
 // .bubble`, a-orbit.html:98-100). The base `_content.scss` already supplies the
 // `fx-shout` one-shot shake + a warm border/text tint; here we add the

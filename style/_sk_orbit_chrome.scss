@@ -380,6 +380,31 @@
 	transform: scale(0.6);
 }
 
+// B5 (owner deck-finding 2026-06-20): shared back-to-channel disc for the
+// dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos). The Account
+// modal had a close; the panes had none. Mirrors the bottom-left help disc,
+// pinned TOP-left so it clears the centered pill + the bottom orb/help.
+// Rendered only off the channel (sk_orbit/mod.rs); glass-holo gives it the
+// same glow as the rest of the chrome (the B2 doctrine).
+.app.sk-orbit .sk-orbit-pane-back {
+	position: fixed;
+	top: calc(16px + env(safe-area-inset-top, 0px));
+	left: calc(16px + env(safe-area-inset-left, 0px));
+	z-index: 20;
+	display: grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	@include glass-holo;
+	color: var(--text-muted);
+
+	.icon {
+		width: 1.15rem;
+		height: 1.15rem;
+	}
+}
+
 // Gesture-hints overlay (a-orbit.html #hints / .hintCard) — a portaled modal
 // legend of the orbit's gestures. Unprefixed (body-portal contract, like
 // .sk-orbit-map); the class names are unique to this skeleton.
@@ -1300,37 +1325,28 @@
 }
 
 // ---- Effect blossom (whisper/shout/spell) on orb long-hold ----
-// Tap-away dismiss scrim behind the blossom (the prototype's .fxScrim,
+// Tap-away dismiss catcher behind the blossom (the prototype's .fxScrim,
 // a-orbit.html:229) — a full-screen layer under the chips so a tap anywhere
-// closes the blossom without sending. NO backdrop-filter at Standard (the
-// prototype's blur is the fx-max-only escalation); a faint scrim is enough.
-// Sits BELOW the orb-wrap's chips (which are z-index:30 via .sk-orbit-orb-wrap)
-// but above the pane, so the chips stay tappable while the rest dismisses.
+// closes the blossom without sending. Sits BELOW the orb-wrap's chips
+// (z-index:30 via .sk-orbit-orb-wrap) but above the pane, so the chips stay
+// tappable while the rest dismisses.
+//
+// B4 (owner deck-finding 2026-06-20): this was a MODAL scrim — `var(--scrim)`
+// (the modal-backdrop token, rgba(4,6,10,.6)) at `opacity:1` + `blur(4px)`
+// under the unconditional `fx-max`. Holding the compose orb (480ms → blossom)
+// dropped a full-viewport 60%-black blurred window over the whole app behind
+// three small chips: "att hålla intryckt … blockerar allt genom ett
+// transparent, mörkt fönster". The effect picker is a lightweight popover, NOT
+// a modal — so this is now a fully TRANSPARENT tap-catcher: it still intercepts
+// the dismiss tap (default pointer-events:auto), but the chat stays fully
+// visible and the chips (glass-holo, self-blurred) float over it. No fx-max
+// blackout branch (a transparent catcher has nothing to intensify).
 .app.sk-orbit .sk-orbit-blossom-scrim {
 	position: fixed;
 	inset: 0;
 	z-index: 29; // just under the orb-wrap (z-index:30) so chips stay on top
-	background: var(--scrim);
+	background: transparent;
 	border: none;
-	opacity: 0.4;
-}
-// fx-max only: soften the backdrop behind the chips (the prototype's .fxScrim
-// blur). Guarded by @supports + reduced-transparency parity, mirroring
-// glass-live; never at Standard (style_lint: backdrop-filter is fx-max-only).
-.app.fx-max .sk-orbit-blossom-scrim {
-	opacity: 1;
-	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-		-webkit-backdrop-filter: blur(4px);
-		backdrop-filter: blur(4px);
-	}
-	@media (prefers-reduced-transparency: reduce) {
-		-webkit-backdrop-filter: none;
-		backdrop-filter: none;
-	}
-	@media (forced-colors: active) {
-		-webkit-backdrop-filter: none;
-		backdrop-filter: none;
-	}
 }
 // Chips fan UP from the orb; the per-chip --chip-i staggers the open. The open
 // is a transform/opacity keyframe (style_lint-safe). FULL WAI-ARIA menu keyboard
@@ -1467,12 +1483,18 @@
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.5rem 0.8rem;
 	border-radius: 0.6rem;
-	border: 2px solid transparent;
-	background: var(--card);
+	// B2 (owner deck-finding 2026-06-20): was a flat opaque `--card` chip with
+	// no glow while the rest of the chrome glows. Route it through the shared
+	// glass-holo material (the same `0 0 12px --glow-accent` doctrine as the
+	// pill/orb/chips) so the station persona chips glow like everything else.
+	@include glass-holo;
 	color: var(--text);
 }
 .app.sk-orbit .sk-orbit-persona-card.active {
+	// Worn persona: accent rim + a brighter accent bloom (restated after the
+	// glass-holo shorthand so it wins; the inset specular is folded back in).
 	border-color: var(--accent);
+	box-shadow: 0 0 18px var(--glow-accent), inset 0 1px 0 var(--glass-highlight);
 }
 .app.sk-orbit .sk-orbit-toggle {
 	display: flex;
@@ -1481,10 +1503,30 @@
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.4rem 0;
 }
-// Station nav buttons (Manage personas / Friends / Members / Emoji / Server
-// settings / Account) — keep the inherited look, raise to the tap floor.
+// Station nav buttons (Manage personas / Friends / Direct messages / Members /
+// Emoji / Server settings / Account). B2 (owner deck-finding 2026-06-20): these
+// were bare flex rows with no glass + no glow ("Öppnar man Station så glöder
+// inte knappar") while every other chrome control glows. Route them through the
+// shared glass-holo material (the `0 0 12px --glow-accent` doctrine) so the
+// whole station list glows like the pill/orb/chips, and give the leading icon a
+// consistent size + gap. Stays ≥44px (tap floor).
 .app.sk-orbit .sk-orbit-account-btn {
 	display: flex;
 	align-items: center;
+	gap: 0.6rem;
+	width: 100%;
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+	margin-bottom: 0.45rem;
+	padding: 0 0.85rem;
+	border-radius: 0.7rem;
+	@include glass-holo;
+	color: var(--text);
+	font-weight: 600;
+	text-align: left;
+
+	.icon {
+		width: 1.2rem;
+		height: 1.2rem;
+		flex: none;
+	}
 }

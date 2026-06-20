@@ -94,8 +94,8 @@ pub use message::{
     guild_has_unread, hydrate_last_seen, invite_member, load_deleted_channels,
     load_deleted_messages, load_last_seen, load_muted, move_lore, patch_lore,
     remove_compose_attachment, remove_friend, restore_deleted_message, retry_compose_attachment,
-    send_message, show_emoji_manager, show_friends, show_members, show_wardrobe, start_edit,
-    start_reply, swap_lore, toggle_mute,
+    send_message, show_dms, show_emoji_manager, show_friends, show_members, show_wardrobe,
+    start_edit, start_reply, swap_lore, toggle_mute,
 };
 pub use sync::start_sync;
 pub use toast::run_toast_action;
