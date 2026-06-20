@@ -259,6 +259,18 @@ fn AppShell() -> impl IntoView {
     Effect::new(move |_| {
         s.sync.me.set(auth.user.get().map(|u| u.account_id));
     });
+    // M7/P2 deck-pass fix (UI-5): the inline `composer.status` line is a
+    // per-action transient (e.g. a cameo-invite "already a member of this guild"
+    // surfaced from MembersPane). It used to bleed across panes — visible while
+    // navigating Members -> Friends -> Cameos. Pane navigation is the natural
+    // reset point, so clear it on every pane switch. One Effect covers ALL
+    // transitions (rail nav + the in-pane back/forward buttons), not just the
+    // friends.rs sites. Reading `pane` subscribes; writing `status` doesn't, so
+    // there's no feedback loop. Client-only (Effects don't run on ssr).
+    Effect::new(move |_| {
+        let _ = s.sync.pane.get();
+        s.composer.status.set(String::new());
+    });
     // Provide the emoji resolver to the whole shell subtree so the markup
     // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
     // without threading a parameter through every render call site.

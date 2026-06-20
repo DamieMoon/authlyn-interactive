@@ -266,7 +266,26 @@ pub(crate) fn MembersPane() -> impl IntoView {
                 };
                 let cid = chan.id.clone();
                 let cid_inv = cid.clone();
-                let friends = s.social.friends.get().friends;
+                // M7/P2 deck-pass fix (UI-4): exclude friends who are already a
+                // member of this guild or already an active guest in this channel,
+                // so the picker never offers a guaranteed-fail Invite. The server
+                // still defends (clean 400); this drops the dead option from the
+                // list. Reading `members`/`guests` here also makes the picker drop
+                // a friend live the moment they're invited.
+                let excluded: std::collections::HashSet<String> = members
+                    .get()
+                    .into_iter()
+                    .map(|m| m.account_id)
+                    .chain(guests.get().into_iter().map(|g| g.account_id))
+                    .collect();
+                let friends: Vec<_> = s
+                    .social
+                    .friends
+                    .get()
+                    .friends
+                    .into_iter()
+                    .filter(|p| !excluded.contains(&p.account_id))
+                    .collect();
                 view! {
                     <div class="guest-section">
                         <h3>"Guests (this channel)"</h3>
