@@ -112,7 +112,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
         let me = s.sync.me.get();
         me.is_some() && me == s.sel.sel_owner.get()
     };
-    let map_open = RwSignal::new(false);
+    // Promoted to shared state (state.rs) so the root-mounted Account/Server
+    // modals can return here on dismiss (`act::show_orbit_map`). Copy semantics
+    // keep every in-shell use-site below unchanged.
+    let map_open = s.sync.map_open;
     // Node-dive exit (a-orbit.html enterChannel): tapping a channel zooms the map
     // INTO that node (scale 3.4 + fade) before it un-mounts. `diving` flips the
     // `.diving` class; `dive_origin` re-points the map's transform-origin to the
@@ -393,6 +396,14 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
         if let Some(pill) = pill_ref.get_untracked() {
             let _ = (*pill).focus();
         }
+    };
+    // B-fix (owner deck-finding 2026-06-20): a pure LEAVE of the station (back
+    // disc / swipe / Esc) returns to the orbit MAP (home), not whatever channel
+    // is mounted underneath. The "Go to X" buttons keep bare `close_station()`
+    // — they navigate to their own pane/modal and must NOT pop the map.
+    let dismiss_station = move || {
+        close_station();
+        act::show_orbit_map(s);
     };
     view! {
         <section class="content sk-orbit-content"
@@ -1200,11 +1211,11 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     // (no-op). Dismissal flows through on_close (Esc + swipe-to-
                     // close → snap-to-closed), which restores focus to the button.
                     on_commit=move |_key: &'static str| {}
-                    on_close=move |_| close_station()
+                    on_close=move |_| dismiss_station()
                 >
                     <div class="sk-orbit-station">
                         <button class="sk-orbit-station-close" title="Close" aria-label="Close"
-                            on:click=move |_| close_station()><IconBack/></button>
+                            on:click=move |_| dismiss_station()><IconBack/></button>
                         <h2>{move || {
                             let cn = s.sel.sel_channel.get().map(|c| c.name).unwrap_or_default();
                             format!("Your persona in #{cn}")
@@ -1273,17 +1284,6 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 <IconSettings/>" Server settings"
                             </button>
                         })}
-                        <h2>"Station"</h2>
-                        <label class="sk-orbit-toggle">
-                            <input type="checkbox"
-                                prop:checked=move || s.prefs.ghost_quill.get()
-                                on:change=move |ev| {
-                                    let on = event_target_checked(&ev);
-                                    s.prefs.ghost_quill.set(on);
-                                    act::set_ghost_quill(on);
-                                }/>
-                            "Ghost Quill (live co-writer)"
-                        </label>
                         // F2 account-trap fix: the orbit chrome has NO topbar
                         // gear, so WITHOUT this the user is trapped — no way to
                         // reach Account & preferences (and therefore no Log out

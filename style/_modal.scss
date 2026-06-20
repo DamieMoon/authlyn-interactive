@@ -96,25 +96,6 @@
 	position: relative;
 }
 
-// Floating X close button anchored to the wardrobe popup's top-right corner.
-.modal.wardrobe-modal .modal-x {
-	position: absolute;
-	top: 0.5rem;
-	right: 0.6rem;
-	z-index: 1;
-	padding: 0.1rem 0.4rem;
-	background: none;
-	border: none;
-	color: var(--text-muted);
-	cursor: pointer;
-	font-size: 1.1rem;
-	line-height: 1;
-
-	&:hover {
-		color: var(--text);
-	}
-}
-
 // In the read-only info popup the description shows in full (no card clamp).
 // Persona descriptions are prose — serif per the Duo typography (spec §1).
 .modal .card-desc {
@@ -220,17 +201,6 @@
 	gap: 0.6rem;
 	min-width: min(28rem, 90vw);
 
-	.manager-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-
-		h3 {
-			margin: 0;
-			font-size: 1rem;
-		}
-	}
-
 	.manager-list {
 		list-style: none;
 		margin: 0;
@@ -331,7 +301,7 @@
 // ---- account- + server-management modals (reuse .modal / .modal-backdrop) ----
 // The server modal (accent / invitations / channels) is the guild-owner sibling
 // of the account modal; it reuses the same section chrome and orbit slide-over.
-:is(.account-modal, .server-modal) {
+:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
 	.account-head {
 		display: flex;
 		align-items: center;
@@ -631,7 +601,7 @@
 // backdrop-filter ancestor sits BETWEEN this scroll box and the sticky head
 // (the panel IS the scroller, the head is its direct child) so iOS WebKit
 // position:sticky never silently breaks.
-.app.sk-orbit .modal:is(.account-modal, .server-modal) {
+.app.sk-orbit .modal:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
 	position: fixed;
 	inset: 0;
 	z-index: 51; // the modal-card slot (one above the backdrop at 50)
@@ -693,7 +663,7 @@
 // repaint from the momentum-scroll judder of the glass it carries (the WebKit
 // guidance), and because the head is the scroller's DIRECT child no
 // intervening containing block can break the sticky.
-.app.sk-orbit :is(.account-modal, .server-modal) .account-head {
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) .account-head {
 	position: sticky;
 	top: 0;
 	z-index: 2;
@@ -777,7 +747,7 @@
 // Section padding/rules retuned to the void palette + the prototype's mono
 // section-label look (a-orbit.html .soSec h3, :308). The first section drops
 // its top rule (the sticky head already draws the divider).
-.app.sk-orbit :is(.account-modal, .server-modal) {
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
 	.account-section {
 		gap: 0.5rem;
 		padding: 18px 18px 8px;

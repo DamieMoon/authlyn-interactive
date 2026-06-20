@@ -17,9 +17,9 @@ use leptos::prelude::*;
 
 use super::channel::ChannelManagerBody;
 use super::{act, PendingDelete, Shell};
-use crate::ui::icons::{IconClose, IconTrash};
+use crate::ui::icons::IconTrash;
 use crate::ui::inline_rename::InlineRename;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead};
 
 /// The server-management window. Renders the shared `.modal`/`.modal-backdrop`
 /// over the shell; `open` is the caller's visibility signal (the ✕, the
@@ -78,12 +78,9 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let chan_trash_open = RwSignal::new(false);
 
     view! {
-        <Modal class="server-modal" swipe_close=true close=move || open.set(false)>
-            <header class="account-head">
-                <h2>"Server"</h2>
-                <button class="row-edit" title="Close"
-                    on:click=move |_| open.set(false)><IconClose/></button>
-            </header>
+        <Modal class="server-modal" swipe_close=true
+            close=move || { open.set(false); act::show_orbit_map(s); }>
+            <ModalHead title="Server" on_close=move || { open.set(false); act::show_orbit_map(s); }/>
 
             // ---- Server icon ----
             // Upload a guild icon (owner/admin); the server re-derives the

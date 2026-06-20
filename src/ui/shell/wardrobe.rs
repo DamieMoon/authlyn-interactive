@@ -236,7 +236,6 @@ pub(crate) fn WardrobePane() -> impl IntoView {
 
     view! {
         <div class="pane wardrobe">
-            <h3>"Wardrobe"</h3>
             <div class="add-row">
                 <input prop:value=move || name.get()
                     on:input=move |ev| name.set(event_target_value(&ev))

@@ -29,9 +29,9 @@ use leptos::prelude::*;
 
 use super::super::{act, PendingDelete, Shell};
 use crate::protocol::ChannelSummary;
-use crate::ui::icons::{IconBook, IconClose, IconEdit, IconGrip, IconTrash};
+use crate::ui::icons::{IconBook, IconEdit, IconGrip, IconTrash};
 use crate::ui::inline_rename::InlineRename;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead};
 
 #[cfg(feature = "hydrate")]
 use leptos::ev::PointerEvent;
@@ -45,11 +45,7 @@ use leptos::ev::PointerEvent;
 pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     view! {
         <Modal class="channel-manager" close=move || open.set(false)>
-            <div class="manager-head">
-                <h3>"Manage channels"</h3>
-                <button class="row-edit" title="close"
-                    on:click=move |_| open.set(false)><IconClose/></button>
-            </div>
+            <ModalHead title="Manage channels" on_close=move || open.set(false)/>
             <ChannelManagerBody s=s/>
         </Modal>
     }

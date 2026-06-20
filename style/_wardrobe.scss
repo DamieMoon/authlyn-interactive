@@ -46,6 +46,19 @@
 	}
 }
 
+// Touch-target floor (Mendicant Bias ≥44px) for EVERY pane's create/add row —
+// applied at the BASE `.add-row` (NOT `.wardrobe .add-row`) so the Friends /
+// Members / Custom-emoji panes, which are `.pane` and NOT `.wardrobe`, inherit
+// it too (they previously got no `.add-row` sizing at all). Pure dimension, no
+// mixin → this file needs no `foundation` @use.
+.add-row {
+	input,
+	textarea,
+	button {
+		min-height: 2.75rem;
+	}
+}
+
 // Client-side filter box above the grid (#18/FB4).
 .persona-search {
 	width: 100%;

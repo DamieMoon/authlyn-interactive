@@ -251,6 +251,12 @@ pub(crate) struct SyncState {
     /// delete, L-5) is open. Promoted from a local `AppShell` signal so the
     /// orbit station can open it too — both shells set this one signal.
     pub(crate) manager_open: RwSignal<bool>,
+    /// Whether the orbit MAP overlay (the home/landing surface) is open.
+    /// Promoted from a `SkOrbitShell`-local signal so the root-mounted
+    /// Account/Server modals — which live OUTSIDE `SkOrbitShell` and can't see a
+    /// shell-local signal — can return the user to the map on dismiss via
+    /// `act::show_orbit_map`. Only the hydrate orbit shell ever reads/writes it.
+    pub(crate) map_open: RwSignal<bool>,
     /// Set during a channel switch to play the warp transition (W4/T3):
     /// `act::open_channel_at` flips it true on entry and a detached ~180ms
     /// timer clears it, driving the `.channel-view.fx-switching` class (rebased

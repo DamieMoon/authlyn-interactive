@@ -405,6 +405,14 @@
 	}
 }
 
+// Pane create/add-row buttons (Friends "Add", DMs/Cameos nav, wardrobe "Create
+// persona") carry the shared chrome material so the panes read like the Station
+// list — parity with the glass-holo'd `.sk-orbit-account-btn` (B2). The base
+// `.add-row` floor (_wardrobe.scss) already gives them the ≥44px tap height.
+.app.sk-orbit .pane .add-row button {
+	@include glass-holo;
+}
+
 // Gesture-hints overlay (a-orbit.html #hints / .hintCard) — a portaled modal
 // legend of the orbit's gestures. Unprefixed (body-portal contract, like
 // .sk-orbit-map); the class names are unique to this skeleton.
@@ -1495,13 +1503,6 @@
 	// glass-holo shorthand so it wins; the inset specular is folded back in).
 	border-color: var(--accent);
 	box-shadow: 0 0 18px var(--glow-accent), inset 0 1px 0 var(--glass-highlight);
-}
-.app.sk-orbit .sk-orbit-toggle {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
-	padding: 0.4rem 0;
 }
 // Station nav buttons (Manage personas / Friends / Direct messages / Members /
 // Emoji / Server settings / Account). B2 (owner deck-finding 2026-06-20): these

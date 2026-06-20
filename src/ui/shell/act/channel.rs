@@ -58,6 +58,17 @@ pub fn show_current_channel(s: Shell) {
     }
 }
 
+/// Open the orbit MAP overlay (the home/landing surface). Wired to every
+/// USER-dismiss of a station-reached surface (Station back/swipe/Esc, the
+/// Server-settings modal close, the Account & preferences modal close) so
+/// leaving them returns to the orbit home, not whatever channel is mounted
+/// underneath. NOT called on programmatic closes (opening a channel clears the
+/// wardrobe; logout clears `account_open`) — those must never pop the map.
+#[cfg(feature = "hydrate")]
+pub fn show_orbit_map(s: Shell) {
+    s.sync.map_open.set(true);
+}
+
 /// Load the persisted per-channel drafts (channel id -> text) from
 /// localStorage. Called once when the [`super::super::Composer`] is built so
 /// drafts survive a reload / PWA close.
@@ -637,6 +648,8 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn show_current_channel(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn show_orbit_map(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_drafts() -> std::collections::HashMap<String, String> {

@@ -18,8 +18,7 @@ use leptos::prelude::*;
 use crate::protocol::ListFriendsResponse;
 
 use crate::ui::emoji::EmojiResolver;
-use crate::ui::icons::IconClose;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead};
 use crate::ui::AuthCtx;
 
 mod account;
@@ -179,6 +178,7 @@ fn AppShell() -> impl IntoView {
         sheet_open: RwSignal::new(false),
         wardrobe_open: RwSignal::new(false),
         manager_open: RwSignal::new(false),
+        map_open: RwSignal::new(false),
         switching: RwSignal::new(false),
     };
     provide_context(sync);
@@ -411,9 +411,10 @@ fn AppShell() -> impl IntoView {
             // dismiss the inner modal, not this one.
             {move || s.sync.wardrobe_open.get().then(|| {
                 view! {
-                    <Modal class="wardrobe-modal" close=move || s.sync.wardrobe_open.set(false)>
-                        <button class="modal-x" title="close" aria-label="Close wardrobe"
-                            on:click=move |_| s.sync.wardrobe_open.set(false)><IconClose/></button>
+                    <Modal class="wardrobe-modal" swipe_close=true
+                        close=move || s.sync.wardrobe_open.set(false)>
+                        <ModalHead title="Wardrobe"
+                            on_close=move || s.sync.wardrobe_open.set(false)/>
                         <WardrobePane/>
                     </Modal>
                 }

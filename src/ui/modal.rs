@@ -51,6 +51,8 @@ use leptos::ev::PointerEvent;
 use leptos::html::Div;
 use leptos::prelude::*;
 
+use crate::ui::icons::IconClose;
+
 #[cfg(feature = "hydrate")]
 use send_wrapper::SendWrapper;
 #[cfg(feature = "hydrate")]
@@ -442,6 +444,32 @@ where
                 {children()}
             </div>
         </div>
+    }
+}
+
+/// Shared modal header: the sticky glass-holo head + a 44px `.row-edit` close
+/// disc (rendered as a back-arrow under the Orbit slide-over via `_modal.scss`).
+/// One markup source so the head can't drift across modals — the parity-fix
+/// lesson (account/server were the de-facto reference; wardrobe/channel-manager
+/// carried divergent heads). Pure markup → always-on (compiles ssr + hydrate).
+#[component]
+pub fn ModalHead<F>(
+    /// The dialog title rendered in the head's `<h2>`.
+    #[prop(into)]
+    title: String,
+    /// Fired by the close disc — the SAME dismiss the Modal's `close`/swipe/Esc
+    /// fire, so focus-restore is unchanged.
+    on_close: F,
+) -> impl IntoView
+where
+    F: Fn() + Copy + 'static,
+{
+    view! {
+        <header class="account-head">
+            <h2>{title}</h2>
+            <button class="row-edit" title="Close"
+                on:click=move |_| on_close()><IconClose/></button>
+        </header>
     }
 }
 
