@@ -985,7 +985,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             None => base_class.to_string(),
                         };
                         let meta = if is_system {
-                            system_message_meta(&m).into_any()
+                            system_message_meta(s, &m).into_any()
                         } else {
                             message_meta(s, &m, &cid, mine, info).into_any()
                         };

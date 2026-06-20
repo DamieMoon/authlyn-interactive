@@ -153,11 +153,21 @@ pub(super) fn message_meta(
 /// hides `.chat-avatar` under `.app.sk-orbit` (the sole release shell), so an
 /// orb on the avatar class would vanish on the only shipping surface. The orb
 /// is the deliberate exception to orbit's name-only chat (M6/P3).
-pub(super) fn system_message_meta(m: &MessageEnvelope) -> impl IntoView {
+pub(super) fn system_message_meta(s: Shell, m: &MessageEnvelope) -> impl IntoView {
     // No persona on a system message, so `display_name` falls back to the bot's
     // account display name ("Nova DOT").
     let who = display_name(m);
-    let when = format_local_time(&m.sent_at);
+    // Deck-finputs (2026-06-20): match the regular meta's skeleton-aware time —
+    // orbit shows the terse HH:MM clock, deck/hud the verbose date+time. The
+    // system row was hard-coded to the verbose form, so on orbit its long
+    // "YYYY-MM-DD HH:MM:SS" stamp (vs the others' "HH:MM") overran the meta and
+    // wrapped the time below the SYSTEM/COMMENTATOR badges. Terse here = inline +
+    // parity with every other bubble's clock.
+    let when = if s.prefs.skeleton.get_untracked().as_deref() == Some("orbit") {
+        format_clock_time(&m.sent_at)
+    } else {
+        format_local_time(&m.sent_at)
+    };
 
     view! {
         <div class="meta">
