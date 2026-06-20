@@ -173,14 +173,22 @@ pub(super) fn system_message_meta(s: Shell, m: &MessageEnvelope) -> impl IntoVie
         <div class="meta">
             <NovaOrb/>
             <span class="who system-author">{who}</span>
-            <span class="system-badge" title="System message">"SYSTEM"</span>
-            // B6 (owner deck-finding 2026-06-20): Nova DOT is the prose-rich
-            // COMMENTATOR (design spec §7 / bot gateway) — messages it posts
-            // through the system pipeline carry a clear COMMENTATOR badge.
-            <span class="system-badge commentator" title="Nova DOT — commentator">
-                "COMMENTATOR"
-            </span>
+            // Deck-finputs (2026-06-20): the time sits right after the name
+            // (inline with the identity), and the two role badges are grouped so
+            // they wrap together as a tidy row BELOW on narrow widths — instead
+            // of the name + both badges filling the line and orphaning the time
+            // under them (the bubble content area on a 13-mini is too narrow for
+            // name + SYSTEM + COMMENTATOR + time on one line).
             <time class="when">{when}</time>
+            <span class="system-badges">
+                <span class="system-badge" title="System message">"SYSTEM"</span>
+                // B6 (owner deck-finding 2026-06-20): Nova DOT is the prose-rich
+                // COMMENTATOR (design spec §7 / bot gateway) — messages it posts
+                // through the system pipeline carry a clear COMMENTATOR badge.
+                <span class="system-badge commentator" title="Nova DOT — commentator">
+                    "COMMENTATOR"
+                </span>
+            </span>
         </div>
     }
 }

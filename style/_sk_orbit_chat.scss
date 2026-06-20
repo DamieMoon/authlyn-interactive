@@ -111,6 +111,15 @@
 	color: var(--accent-bright);
 	border-color: var(--accent);
 }
+// Deck-finputs (2026-06-20): keep the two role badges together as ONE flex item
+// in the meta so they wrap as a single tidy row below the name+time line on a
+// narrow bubble, instead of the time orphaning under them.
+.app.sk-orbit .messages .msg.system .system-badges {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
 
 // shout — warm gradient bubble + bold warm text (the prototype's `.msg.shout
 // .bubble`, a-orbit.html:98-100). The base `_content.scss` already supplies the
