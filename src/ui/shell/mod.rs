@@ -412,9 +412,9 @@ fn AppShell() -> impl IntoView {
             {move || s.sync.wardrobe_open.get().then(|| {
                 view! {
                     <Modal class="wardrobe-modal" swipe_close=true
-                        close=move || s.sync.wardrobe_open.set(false)>
+                        close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }>
                         <ModalHead title="Wardrobe"
-                            on_close=move || s.sync.wardrobe_open.set(false)/>
+                            on_close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }/>
                         <WardrobePane/>
                     </Modal>
                 }

@@ -850,11 +850,15 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         }}
                         // Map dock (a-orbit.html #mapDock): the in-map entry to
                         // personas + station — the prototype's home for it,
-                        // replacing the removed floating ☰. Both open the station
-                        // slide-over (which stacks personas above station settings).
+                        // replacing the removed floating ☰. The two buttons lead to
+                        // DISTINCT destinations (owner deck-finding 2026-06-20: they
+                        // formerly both opened the same slide-over): "Personas" goes
+                        // straight into the wardrobe (persona management → map on
+                        // dismiss), "Station" opens the station slide-over (per-channel
+                        // wear-grid + Go to + Server + Account).
                         <div class="sk-orbit-map-dock">
                             <button class="sk-orbit-sat" type="button"
-                                on:click=move |_| { close_map(); station_open.set(true); }>
+                                on:click=move |_| { close_map(); act::show_wardrobe(s); }>
                                 <IconPersonas/>" Personas"
                             </button>
                             <button class="sk-orbit-sat" type="button"
