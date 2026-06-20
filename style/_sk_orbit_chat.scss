@@ -61,22 +61,55 @@
 // Other authors (B1, owner deck-finding 2026-06-20): the base `.msg` left them
 // a FLAT opaque `--card` box on the aurora while own messages got the tint +
 // bloom above — "bara sändaren av meddelanden ser snyggt ut, en annan
-// avsändare saknar estetiken". Lift other authors into the same glass family
-// WITHOUT the blue `--mention-bg` (accent/tint stays the OWNERSHIP cue, not the
-// aesthetic cue): a lit top edge (`--glass-highlight`) + a brighter glass rim
-// (`--glass-line`) + a soft NEUTRAL bloom, so they read as glass chat bubbles
-// instead of a code-block box. STATIC paint (state, survives reduced-motion);
-// no per-bubble backdrop-filter on purpose — dozens of stacked blurs would
-// thrash iOS-WebKit, so the lit-edge sheen carries the glass read. Carve out
-// every row that owns its surface: own, system/roll banners, the shout/spell
-// effect bubbles (their warm/purple halo must win), and the draft/ghost rows.
+// avsändare saknar estetiken". First pass tried a neutral glass lift, but the
+// owner's bar is PARITY: "det ser inte likadant ut som Fables bubblor" — other
+// authors must look the SAME as Fable's (own) bubble, not a lesser variant.
+// So apply the exact own-bubble treatment (the `.msg.own` `--mention-bg` wash +
+// `--accent-soft` rim from `_content.scss` + the orbit blue bloom above): both
+// sides now read identically, differentiated only by alignment (own right,
+// others left) + the meta row direction. STATIC paint (state, survives
+// reduced-motion). Carve out every row that owns its surface: own, system/roll
+// banners, the shout/spell effect bubbles (their warm/purple halo must win),
+// and the draft/ghost rows.
 .app.sk-orbit
 	.messages
 	.msg:not(.own):not(.system):not(.roll):not(.effect-shout):not(.effect-spell):not(.msg-draft):not(.msg-ghost) {
-	border-color: var(--glass-line);
-	box-shadow:
-		0 0 16px rgba(255, 255, 255, 0.05),
-		inset 0 1px 0 var(--glass-highlight);
+	background: var(--mention-bg);
+	border-color: var(--accent-soft);
+	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
+}
+
+// Nova DOT system message (B6, owner deck-finding 2026-06-20): it rendered as a
+// full-width banner (small radius, 3px accent rail, accent wash, meta sunk to
+// the orb's baseline) while every other author is a rounded glass bubble. Nova
+// DOT is the COMMENTATOR bot, not an admin banner — give it bubble PARITY: the
+// same 18px geometry + glass wash/rim/bloom as other authors (left-aligned like
+// them), keeping the Nova orb + accent name + SYSTEM/COMMENTATOR badges as its
+// identity. The `border`/`background` shorthands override the base banner rail +
+// wash (`.content .messages .msg.system`, lower specificity).
+.app.sk-orbit .messages .msg.system {
+	border-radius: 18px;
+	padding: 10px 15px;
+	width: fit-content;
+	max-width: 88%;
+	margin-right: auto;
+	border: 1px solid var(--accent-soft);
+	background: var(--mention-bg);
+	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
+}
+// Center + wrap the meta so the name + SYSTEM/COMMENTATOR badges sit level with
+// the Nova orb instead of sinking to its baseline ("namnet för långt ner, samma
+// med etiketten SYSTEM" — the base `.meta` is align-items:baseline, which drops
+// them below the taller orb).
+.app.sk-orbit .messages .msg.system .meta {
+	align-items: center;
+	flex-wrap: wrap;
+}
+// COMMENTATOR (the role) reads a notch brighter than SYSTEM (the pipeline tag)
+// so the two badges are distinguishable.
+.app.sk-orbit .messages .msg.system .system-badge.commentator {
+	color: var(--accent-bright);
+	border-color: var(--accent);
 }
 
 // shout — warm gradient bubble + bold warm text (the prototype's `.msg.shout

@@ -164,6 +164,12 @@ pub(super) fn system_message_meta(m: &MessageEnvelope) -> impl IntoView {
             <NovaOrb/>
             <span class="who system-author">{who}</span>
             <span class="system-badge" title="System message">"SYSTEM"</span>
+            // B6 (owner deck-finding 2026-06-20): Nova DOT is the prose-rich
+            // COMMENTATOR (design spec §7 / bot gateway) — messages it posts
+            // through the system pipeline carry a clear COMMENTATOR badge.
+            <span class="system-badge commentator" title="Nova DOT — commentator">
+                "COMMENTATOR"
+            </span>
             <time class="when">{when}</time>
         </div>
     }
