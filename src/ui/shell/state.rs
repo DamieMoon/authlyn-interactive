@@ -4,7 +4,7 @@
 //! `provide_context::<T>(t)` for each (mirroring the existing `EmojiResolver`
 //! pattern), then assembles a flat [`Shell`] handle from the sub-struct
 //! handles. The aggregate is what `act::*` and the pane components take as a
-//! prop today; W6/C8 migrates the pane consumers to `use_context` and lets
+//! prop today; M6/C8 migrates the pane consumers to `use_context` and lets
 //! the aggregate stay for `act::*` only.
 //!
 //! Every field is an `RwSignal<T>` — `Copy` and cheap to pass around. The
@@ -91,7 +91,7 @@ pub(crate) struct MessageView {
     /// (#19), refreshed from each message-poll response. Cleared on channel
     /// switch; drives the `.typing-indicator` line above the composer.
     pub(crate) typing: RwSignal<Vec<String>>,
-    /// Ghost Quill (W4/T7): OTHER members' live drafts in the open channel,
+    /// Ghost Quill (M4/T7): OTHER members' live drafts in the open channel,
     /// fetched from `GET /typing-drafts` on `Typing`/`MessageCreated` SSE
     /// events when the receiver's pref is on. Deliberately its OWN signal —
     /// ghost rows must never collide with the real `messages` list state.
@@ -113,7 +113,7 @@ pub(crate) struct MessageView {
 }
 
 /// Max staged attachments per message (composer cap). Matches the server-side
-/// `MAX_ATTACHMENTS` in `src/server/messages/mod.rs` (W7/B1) — the server
+/// `MAX_ATTACHMENTS` in `src/server/messages/mod.rs` (M7/B1) — the server
 /// rejects POSTs over this; the client gates earlier so the user gets a clean
 /// toast instead of upload-then-reject. Keep the two in sync by intent.
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
@@ -178,7 +178,7 @@ pub(crate) struct Composer {
     /// instead of a post. Drives the "Editing message" banner; the ✕ / Esc
     /// restores the stashed draft. Client-only; never sent or persisted.
     pub(crate) editing: RwSignal<Option<EditingMessage>>,
-    /// One-shot send-pulse flag (W4/T2): `act::send_message` flips it true
+    /// One-shot send-pulse flag (M4/T2): `act::send_message` flips it true
     /// after a successful post and a detached ~400ms timer resets it, so the
     /// Send button's `.sent` class plays a single `fx-glow-pulse`. Cosmetic
     /// and client-only; never sent or persisted.
@@ -189,7 +189,7 @@ pub(crate) struct Composer {
     /// (the `LongPress` pattern, channel/radial.rs). `StoredValue` (not a
     /// signal) — it's plumbing, not UI.
     pub(crate) sent_gen: StoredValue<u64>,
-    /// Delivery-effect mode for the NEXT send (W4/T5): `"whisper"`, `"shout"`,
+    /// Delivery-effect mode for the NEXT send (M4/T5): `"whisper"`, `"shout"`,
     /// `"spell"`, or `None` for an ordinary message. Cycled by the composer's
     /// effect picker, sent as `SendMessageRequest::effect`, and RESET to `None`
     /// after each send (an effect is a per-message flourish, not a sticky
@@ -238,9 +238,9 @@ pub(crate) struct SyncState {
     pub(crate) me: RwSignal<Option<String>>,
     pub(crate) pane: RwSignal<Pane>,
     /// Mobile-only: whether the channel-switch bottom-sheet is open. Renamed
-    /// from `nav_open` when the edge-swipe drawer was deleted (W3/T4). Set by
+    /// from `nav_open` when the edge-swipe drawer was deleted (M3/T4). Set by
     /// the Servers tab + the topbar channel-name trigger; cleared by the
-    /// backdrop tap, a channel pick, and the other tabs (W3/T5).
+    /// backdrop tap, a channel pick, and the other tabs (M3/T5).
     pub(crate) sheet_open: RwSignal<bool>,
     /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
     /// wardrobe is no longer a full pane you can only leave by selecting
@@ -257,10 +257,10 @@ pub(crate) struct SyncState {
     /// shell-local signal — can return the user to the map on dismiss via
     /// `act::show_orbit_map`. Only the hydrate orbit shell ever reads/writes it.
     pub(crate) map_open: RwSignal<bool>,
-    /// Set during a channel switch to play the warp transition (W4/T3):
+    /// Set during a channel switch to play the warp transition (M4/T3):
     /// `act::open_channel_at` flips it true on entry and a detached ~180ms
     /// timer clears it, driving the `.channel-view.fx-switching` class (rebased
-    /// off `.content` in W5/P0 #54). Cosmetic and client-only; never sent or
+    /// off `.content` in M5/P0 #54). Cosmetic and client-only; never sent or
     /// persisted.
     pub(crate) switching: RwSignal<bool>,
 }
@@ -308,7 +308,7 @@ pub(crate) struct Notify {
     pub(crate) unread_count: RwSignal<HashMap<String, usize>>,
     /// Guild ids owning at least one unread (non-open) text channel — drives
     /// the rail's per-guild unread dot. Rebuilt fresh on every
-    /// `refresh_unread` pass from `GET /unread`'s `guild_id` column (W1):
+    /// `refresh_unread` pass from `GET /unread`'s `guild_id` column (M1):
     /// guild-channel loading is lazy now, so the rail can no longer derive
     /// this mapping from the `guild_channels` cache for never-opened guilds.
     pub(crate) unread_guilds: RwSignal<HashSet<String>>,
@@ -428,16 +428,16 @@ pub(crate) struct Prefs {
     /// When on, `"…"` dialogue is styled at render via a `.dialogue-style`
     /// root class. Persisted to localStorage.
     pub(crate) dialogue_style: RwSignal<bool>,
-    /// Ghost Quill (W4/T7): opt-in live co-writer draft preview. Governs BOTH
+    /// Ghost Quill (M4/T7): opt-in live co-writer draft preview. Governs BOTH
     /// directions for this client — sending the compose text with the typing
     /// ping AND fetching/rendering other members' ghost rows. Default OFF
     /// (privacy-respecting). Persisted to localStorage.
     pub(crate) ghost_quill: RwSignal<bool>,
-    /// W5/P0 #19: whether to mirror visual haptics to navigator.vibrate where
+    /// M5/P0 #19: whether to mirror visual haptics to navigator.vibrate where
     /// supported (Android). Default OFF; visual feedback is always primary.
     /// Persisted to localStorage as authlyn.haptic_vibrate.
     pub(crate) haptic_vibrate: RwSignal<bool>,
-    /// W5/P1: the selected structural UI skeleton id (orbit/deck/hud). Drives
+    /// M5/P1: the selected structural UI skeleton id (orbit/deck/hud). Drives
     /// the `.app.sk-*` root class. `None` until the ceremony resolves (pref-less
     /// first run); the render treats `None` as "no sk-* class yet" while the
     /// ceremony modal is up. Persisted to localStorage as authlyn.skeleton.

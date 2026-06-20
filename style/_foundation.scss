@@ -1,4 +1,4 @@
-// Void Station material foundations (W2). Glass is for CHROME (topbar,
+// Void Station material foundations (M2). Glass is for CHROME (topbar,
 // tabbar, sheets, modals) — prose cards stay opaque (--card) for legibility
 // and battery; see spec §1. Consumers opt in via @include glass / .glass.
 
@@ -6,7 +6,7 @@
 // want a single edge or none (bars/sheets draw their own `border-top`/
 // `border-bottom` after the include — see .topbar / .bottom-tabs /
 // .channel-sheet). Default stays the bordered panel.
-// W5/P0 #20: the NEW Standard default for non-orbit chrome. Compositor-only —
+// M5/P0 #20: the NEW Standard default for non-orbit chrome. Compositor-only —
 // NO backdrop-filter. A SMOOTH translucent gradient (the --frost-* tints) + a
 // 1px inset specular edge. Rasterizes once, scrolls at composite cost. fx-max /
 // "Materials: live refraction" escalates to glass-live.
@@ -26,7 +26,7 @@
 	}
 }
 
-// W5/WS2 holographic glass — the "void station" identity for orbit chrome
+// M5/WS2 holographic glass — the "void station" identity for orbit chrome
 // (sk-orbit pill / orb / station-btn / node / core / chip). This is REAL Apple
 // Liquid Glass and is now the STANDARD DEFAULT (owner ruling 2026-06-15 —
 // "Real Liquid Glass as the default"; REVERSES the earlier no-backdrop-filter-at-
@@ -165,13 +165,13 @@
 	@include glass;
 }
 
-// W5/P0 #20: under fx-max, the chrome bars escalate back to live refraction.
+// M5/P0 #20: under fx-max, the chrome bars escalate back to live refraction.
 .app.fx-max .topbar,
 .app.fx-max .bottom-tabs {
 	@include glass-live;
 }
 
-// W5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and
+// M5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and
 // the mobile emoji picker are no longer mounted inside ChannelPane's .content
 // — they are Leptos <Portal>s rendered to document.body (each inside its own
 // <Show>), so .content can stay transform-free and never traps them as a
@@ -202,7 +202,7 @@
 	content: "";
 	position: fixed;
 	// Overscan the fixed layer past the viewport so the widened ellipse edges
-	// sit off-canvas and only the bright inner nebula bleeds inward (W5/P2
+	// sit off-canvas and only the bright inner nebula bleeds inward (M5/P2
 	// fidelity — broad inward bleed instead of two tints clinging to corners).
 	inset: -15%;
 	z-index: -1;
@@ -237,8 +237,8 @@
 	}
 }
 
-// Appearance tier: .fx-max escalates ambience. W2 ships the scaffolding +
-// the first demonstrative effects; W5/W11 add the full Eye-candy set here.
+// Appearance tier: .fx-max escalates ambience. M2 ships the scaffolding +
+// the first demonstrative effects; M5/M11 add the full Eye-candy set here.
 //
 // steps(36), not ease-in-out: this layer is the literal BACKDROP of the
 // always-blurred glass topbar/tab bar (neither bar ever has content
@@ -253,14 +253,14 @@
 	animation: aurora-drift 9s steps(36) infinite alternate;
 }
 .app.fx-max .rail-guild.active {
-	// layered: keep the active ring under the glow — review W2/T3
+	// layered: keep the active ring under the glow — review M2/T3
 	box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--glow-accent);
 }
 .app.fx-max .channel.active {
 	box-shadow: 0 0 14px var(--glow-accent);
 }
 
-// W5/P0 #54(c)+#43: the fx-max warp streak is now a 20%-wide gradient strip
+// M5/P0 #54(c)+#43: the fx-max warp streak is now a 20%-wide gradient strip
 // swept across the pane via transform: translateX (composite-only), under
 // overflow:hidden, instead of animating background-position. Lives on
 // .channel-view (the transformed pane) now that .content is transform-free.
@@ -290,7 +290,7 @@
 	animation: fx-warp 180ms ease-out forwards;
 }
 
-// W5/P2 per-server accent picker swatches (owner-gated modal).
+// M5/P2 per-server accent picker swatches (owner-gated modal).
 .accent-swatches {
 	display: flex;
 	flex-wrap: wrap;

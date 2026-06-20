@@ -18,12 +18,12 @@ use surrealdb::Surreal;
 
 use crate::server::push::PushSender;
 
-/// The Ghost Quill draft store (W4/T7): `(channel_id, account_id)` →
+/// The Ghost Quill draft store (M4/T7): `(channel_id, account_id)` →
 /// `(draft text, last-ping Instant)`. Named so the `AppState` field stays
 /// readable (and clippy's type-complexity lint quiet).
 pub type TypingDraftMap = HashMap<(String, String), (String, Instant)>;
 
-/// Production TTL for a stored typing draft (W4/T7 Ghost Quill). Matches the
+/// Production TTL for a stored typing draft (M4/T7 Ghost Quill). Matches the
 /// typing indicator's 8s (`server::messages::typing::TYPING_TTL`) on purpose:
 /// the same ~2s ping cadence keeps both alive, so the ghost row and the
 /// "is typing" line expire together.
@@ -81,7 +81,7 @@ pub struct AppState {
     /// a plain `std::sync::Mutex`; the critical section is only ever a map
     /// insert / read / prune and is NEVER held across an `.await`.
     pub typing: Arc<Mutex<HashMap<String, HashMap<String, Instant>>>>,
-    /// Ghost Quill (W4/T7): ephemeral live-draft store, keyed
+    /// Ghost Quill (M4/T7): ephemeral live-draft store, keyed
     /// `(channel_id, account_id)` → `(draft text, last-ping Instant)`.
     /// Mirrors `typing`'s discipline exactly: in-memory only (never the DB),
     /// TTL-pruned opportunistically on write and read, and the `Mutex` is
@@ -106,11 +106,11 @@ pub struct AppState {
     /// sleep 30s. Plain `Copy` data — set it BEFORE the state is cloned into
     /// the router.
     pub sse_recheck_period: Duration,
-    /// W1 realtime: the process-wide SSE event bus. Every mutation handler
+    /// M1 realtime: the process-wide SSE event bus. Every mutation handler
     /// best-effort `send()`s a [`BusEvent`]; every `GET /events` connection
     /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
     /// nudged to resync — events are droppable by design (notify-and-fetch).
-    /// The envelope's `targets` field (W1.5) selects the visibility-filtered
+    /// The envelope's `targets` field (M1.5) selects the visibility-filtered
     /// path (`None`, via [`AppState::emit`]) or the account-targeted lane
     /// (`Some`, via [`AppState::emit_for`]).
     pub events: tokio::sync::broadcast::Sender<BusEvent>,
@@ -138,7 +138,7 @@ impl AppState {
         }
     }
 
-    /// Override the typing-draft TTL (W4/T7) — test injectability so the
+    /// Override the typing-draft TTL (M4/T7) — test injectability so the
     /// prune behavior is provable without sleeping out the production 8s.
     /// Builder-style: apply BEFORE handing the state to `make_router`
     /// (`draft_ttl` is `Copy`, so a later mutation never reaches the
@@ -161,7 +161,7 @@ impl AppState {
     /// Best-effort bus emission: never fails the request. `send()` errs only
     /// when no subscriber exists (the idle case) — see the `events` field doc
     /// for the capacity/lag rationale. `targets: None` = the visibility-filtered
-    /// path every pre-W1.5 call site means.
+    /// path every pre-M1.5 call site means.
     pub fn emit(&self, ev: crate::protocol::SyncEvent) {
         let _ = self.events.send(BusEvent {
             event: ev,

@@ -120,7 +120,7 @@ pub async fn mark_read(
 
     match outcome {
         Ok(()) => {
-            // W1.5: nudge the caller's OTHER devices to refresh unread —
+            // M1.5: nudge the caller's OTHER devices to refresh unread —
             // account-targeted, never broadcast (another account's read cursor
             // is none of your business and can't change your unread state).
             state.emit_for(

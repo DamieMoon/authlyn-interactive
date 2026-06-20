@@ -1,4 +1,4 @@
-//! W5/P2 Orbit (`sk-orbit`) — the spatial gesture-first structural
+//! M5/P2 Orbit (`sk-orbit`) — the spatial gesture-first structural
 //! skeleton. Full-viewport channel panes in a horizontal swipe strip, a
 //! holographic channel pill opening a zoomable orbit-map picker (pill-tap entry
 //! ONLY — the pinch entry was judge-killed), a floating composer orb with a
@@ -88,7 +88,7 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
     out
 }
 
-/// The Orbit shell chrome. Renders as a sibling of the W3 chrome under
+/// The Orbit shell chrome. Renders as a sibling of the M3 chrome under
 /// `.app.sk-orbit`, reusing every pane via `use_context::<Shell>()` (zero new
 /// state, no remount on switch). The orbit chrome — channel pill, zoomable
 /// orbit map, swipe strip, composer orb (charge ring + effect blossom), and the
@@ -102,7 +102,7 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
 /// user is trapped with no logout and no way back to the skeleton chooser (F2).
 /// `server_open` is its owner-gated sibling — the shell-wide ServerModal
 /// (accent / invitations / channels) opened by the station's "Server settings"
-/// button (M5 parity: consolidates the W3 sidebar's scattered server controls).
+/// button (M5 parity: consolidates the M3 sidebar's scattered server controls).
 #[component]
 pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
@@ -122,7 +122,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     // tapped node's screen centre so the zoom flies into the chosen channel.
     let diving = RwSignal::new(false);
     let dive_origin = RwSignal::new(String::from("center"));
-    // Composer choreography (W5/P2, the prototype's `body.composing`): the orb
+    // Composer choreography (M5/P2, the prototype's `body.composing`): the orb
     // becomes a COMPOSE trigger (no longer send) — a tap reveals the composer and
     // hides the orb; the in-composer send button commits; a tap-away scrim
     // collapses it back (a-orbit.html expandComposer/collapseComposer).
@@ -176,7 +176,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
             .map(|c| c.name)
             .unwrap_or_else(|| "—".to_string())
     };
-    // Kind-aware sigil, consistent with the W3 shell (`📖 ` lorebook, `# `
+    // Kind-aware sigil, consistent with the M3 shell (`📖 ` lorebook, `# `
     // otherwise — `shell/mod.rs`); no surface renders the bare name.
     let channel_sigil = move || {
         let is_lore = s
@@ -211,7 +211,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
         s.msg.messages.with(|ms| {
             ms.last()
                 .and_then(|m| m.persona_color.clone())
-                // Reuse the validated palette→token mapper (the same one the W3
+                // Reuse the validated palette→token mapper (the same one the M3
                 // accent binds at this .app root, shell/mod.rs): it returns "" for
                 // empty/unknown so a non-palette name can never reach the CSS, and
                 // the `--tint-*` tokens stay the single palette source. NEVER
@@ -407,7 +407,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     };
     view! {
         <section class="content sk-orbit-content"
-            // Composer choreography state (W5/P2): `.composing` lives on THIS
+            // Composer choreography state (M5/P2): `.composing` lives on THIS
             // section (the signal is owned here in SkOrbitShell, not the parent
             // `.app`) — the SCSS keys the composer slide + orb hide + send reveal
             // off `.sk-orbit-content.composing`.
@@ -482,7 +482,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             view! { <span class="sk-orbit-dot" class:on=on></span> }
                         }).collect_view()
                     }}
-                    // Re-homed sync signal (W5/P2 fidelity): the LIVE/POLLING state
+                    // Re-homed sync signal (M5/P2 fidelity): the LIVE/POLLING state
                     // lost its topbar chip when the bar was removed to match the
                     // prototype's clean cosmic top; a mint dot on the pill carries
                     // it — and unlike the old `.sync-chip` it stays visible on mobile.
@@ -514,7 +514,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     #[cfg(feature = "hydrate")]
                     let (d_down, d_move, d_up, d_cancel) = (d.clone(), d.clone(), d.clone(), d);
                     view! {
-                        // W5/P2 #d single-channel = NO swipe: a 1-channel guild
+                        // M5/P2 #d single-channel = NO swipe: a 1-channel guild
                         // has nowhere to swipe, so it renders ONLY the current
                         // pane — no prev/next peeks, no "orbit's edge" boundary
                         // (the edge affordance stays for MULTI-channel list edges,
@@ -1251,7 +1251,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // Parity wiring (M5): the Friends / Members / Emoji panes
                         // mount in the orbit pane-dispatch but had NO orbit entry
                         // point (dead arms) — these surface them via the shared act::
-                        // helpers (same `s.sync.pane` set the W3 chrome triggers,
+                        // helpers (same `s.sync.pane` set the M3 chrome triggers,
                         // shell/mod.rs:471/584/588). Members + Custom emoji are
                         // guild-scoped (read the active server); Friends is account-
                         // global. Close the station first so the pane shows unscrimmed.
@@ -1320,7 +1320,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
 /// never becomes "current", and never reaches `act::open_channel`/last-seen.
 /// `idx == None` (no neighbor at a true list edge) renders a deliberate
 /// "orbit's edge" affordance — NEVER an empty pane, so the edge rubber-band
-/// reveals a designed boundary instead of the black void (W5/P2 void-fix).
+/// reveals a designed boundary instead of the black void (M5/P2 void-fix).
 fn neighbor_preview(s: Shell, idx: Option<usize>) -> impl IntoView {
     let label = idx
         .and_then(|i| s.sel.channels.get().get(i).map(|c| c.name.clone()))

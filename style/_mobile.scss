@@ -4,8 +4,8 @@
 		grid-template-columns: 1fr; // content fills the screen
 	}
 
-	// The edge-swipe drawer was deleted (W3/T4): rail + sidebar are simply
-	// hidden on mobile so the content column owns the viewport. The W3/T5
+	// The edge-swipe drawer was deleted (M3/T4): rail + sidebar are simply
+	// hidden on mobile so the content column owns the viewport. The M3/T5
 	// replacements (bottom-tabs + channel sheet) live in `_nav.scss`,
 	// loaded after this partial so its @media rules win.
 	.rail,

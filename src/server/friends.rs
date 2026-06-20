@@ -302,7 +302,7 @@ pub async fn remove_friend(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// W1.5: every friend mutation nudges EXACTLY the two accounts of the
+/// M1.5: every friend mutation nudges EXACTLY the two accounts of the
 /// friendship edge over the SSE bus (account-targeted, never broadcast) —
 /// an incoming request / accept / removal becomes visible live on the other
 /// party's open clients instead of waiting for an unrelated event.

@@ -10,7 +10,7 @@
 	min-width: 0;
 	min-height: 0;
 	position: relative; // still anchors the streak ::after (now opacity-only)
-	// W5/P0 #54: .content is NO LONGER transformed — the dip moved to the
+	// M5/P0 #54: .content is NO LONGER transformed — the dip moved to the
 	// inner .channel-view wrapper, so .content never becomes a containing
 	// block for fixed descendants. The three former-fixed overlays are now
 	// body-level <Portal>s; this comment supersedes the old CONSTRAINT note.
@@ -25,13 +25,13 @@
 		// Anchors the floating jump-to-bottom arrow / unread pill, which are
 		// positioned absolutely against this pane.
 		position: relative;
-		// Warp channel-switch return leg (W4/T3, rebased here W5/P0 #54): when
+		// Warp channel-switch return leg (M4/T3, rebased here M5/P0 #54): when
 		// act::open_channel_at's ~180ms timer drops .fx-switching, the pane
 		// eases back from the dip.
 		transition:
 			opacity 180ms ease,
 			transform 180ms ease;
-		// W5/P0 #54 (d) directional warp: incoming pane slides from the
+		// M5/P0 #54 (d) directional warp: incoming pane slides from the
 		// channel-list-index direction. The direction sign is read from a
 		// `--warp-dir` custom property. FOUNDATION ships --warp-dir: 0
 		// (neutral, non-directional dip). The directional sign (+1 / -1 from
@@ -65,7 +65,7 @@
 		// Reserve the status bar / notch / Dynamic Island height in the installed
 		// PWA (viewport-fit=cover). env() is 0 on non-notched devices/browsers.
 		padding-top: calc(0.6rem + env(safe-area-inset-top, 0px));
-		// Frosted-glass chrome (W3): canonical material is foundation's
+		// Frosted-glass chrome (M3): canonical material is foundation's
 		// @mixin glass, incl. its @supports opaque fallback for old WebKit.
 		// A bar wants a single bottom edge, so skip the mixin's 4-side
 		// border and draw our own.
@@ -95,7 +95,7 @@
 			white-space: nowrap;
 		}
 
-		// Live-sync chip (W3/T6, mock final-design.html `.topb .stat`): a small
+		// Live-sync chip (M3/T6, mock final-design.html `.topb .stat`): a small
 		// mono readout of the sync driver's real state — mint ● LIVE with a
 		// soft glow while the SSE stream is connected, faint ● POLLING on the
 		// fallback. No latency number (the mock's `· 12ms` is fake precision).
@@ -132,19 +132,19 @@
 		min-height: 0;
 		overflow-y: auto;
 
-		// W5/P0 #36: off-screen messages stop laying out/painting. Long
+		// M5/P0 #36: off-screen messages stop laying out/painting. Long
 		// channels open faster and cost less memory on the POCO C3; browsers
 		// auto-pause animations in skipped subtrees (off-screen spell-spark
 		// loops stop costing frames). contain-intrinsic-size keeps the
 		// scrollbar stable. Prerequisite for affordable per-message ceremony
 		// (materialization, scene light) at STD.
 		//
-		// W5/P0 #36 PHASE-7 GATE (real-device, booked): content-visibility:
+		// M5/P0 #36 PHASE-7 GATE (real-device, booked): content-visibility:
 		// auto skips off-screen rows, so verify on the live app that (1)
 		// reply-quote scrollIntoView still forces a skipped target row to
 		// render and lands on it, (2) near-top history backfill keeps its
 		// scroll anchor (no jump), and (3) jump-to-unread-on-open scrolls to
-		// the right row. These three are part of the Phase-7 "W4 a11y backlog
+		// the right row. These three are part of the Phase-7 "M4 a11y backlog
 		// / geometry sweep" gate items.
 		& > .msg {
 			content-visibility: auto;
@@ -201,7 +201,7 @@
 				opacity: 1;
 			}
 
-			// Touch (W4/T4): the long-press radial menu replaces the hover
+			// Touch (M4/T4): the long-press radial menu replaces the hover
 			// action row entirely (there is no hover to reveal it), and the
 			// row's tiny targets would only invite mis-taps. Also disarm the
 			// browser's own long-press behaviours on the row — text-selection
@@ -389,7 +389,7 @@
 			}
 		}
 
-		// Ghost Quill row (W4/T7): ANOTHER member's live draft, fetched from
+		// Ghost Quill row (M4/T7): ANOTHER member's live draft, fetched from
 		// the permission-checked /typing-drafts endpoint (opt-in both ways).
 		// Same clearly-not-real language as the own-draft preview above —
 		// dimmer still, dashed all around in the muted border tone (no accent
@@ -538,7 +538,7 @@
 			}
 		}
 
-		// Roll result (W4/T6 Fate Engine): a `kind='roll'` message — a
+		// Roll result (M4/T6 Fate Engine): a `kind='roll'` message — a
 		// server-rolled dice outcome. An AUTHORED action (normal meta row:
 		// persona/author name, reply+copy — see message_actions), but the
 		// body renders as a glass result chip and the row is a full-width
@@ -621,7 +621,7 @@
 			}
 		}
 
-		// Message effects (W4/T5): an `effect-{name}` class set per-row from
+		// Message effects (M4/T5): an `effect-{name}` class set per-row from
 		// the (server-validated, client-re-whitelisted) envelope field. Pure
 		// presentation on top of the base/.own/.system composition above —
 		// the full-width exemptions and action affordances are untouched.
@@ -815,7 +815,7 @@
 				animation: fx-spark 2.2s ease-in-out infinite 1.3s;
 			}
 
-			// W5/P0 #43: the fx-max spell glow breathes via an opacity-keyframed
+			// M5/P0 #43: the fx-max spell glow breathes via an opacity-keyframed
 			// pseudo (was animating box-shadow — a paint property). The row keeps
 			// a stronger STATIC halo (state, stays under reduced-motion); the
 			// breathe rides the keyframe's opacity. The halo lives on the row's
@@ -905,7 +905,7 @@
 
 	// "%name% is typing…" line (#19): a thin muted strip just above the
 	// composer. Sits in normal flow so it nudges the composer down only while
-	// someone is typing; renders nothing (no element) otherwise. W4/T1 adds
+	// someone is typing; renders nothing (no element) otherwise. M4/T1 adds
 	// the constellation — tiny orbiting stars, one per typist (max 3) — as a
 	// decoration BESIDE the names text, kept subtle since it sits right above
 	// the composer.
@@ -1162,7 +1162,7 @@
 			}
 		}
 
-		// W4/T5: the effect-mode picker beside Send. Quiet while no effect is
+		// M4/T5: the effect-mode picker beside Send. Quiet while no effect is
 		// armed (muted glyph); `.active` (any mode picked) lights the accent
 		// ring + glow so an armed flourish is unmissable before sending. The
 		// glow is state, not motion — nothing to kill under reduced-motion.
@@ -1177,7 +1177,7 @@
 			}
 		}
 
-		// W4/T2: charging send button. A thin conic-gradient ring around
+		// M4/T2: charging send button. A thin conic-gradient ring around
 		// Send fills clockwise as the composed message grows — `--charge`
 		// (0..1) is bound from the compose signal in shell/channel/mod.rs
 		// ("full" at ~280 chars; not a length limit). The ring lives on a
@@ -1228,7 +1228,7 @@
 
 			// One glow pulse on a successful send — act::send_message flips
 			// `.sent` for ~400ms (matching the duration here).
-			// W5/P0 #43 pre-rendered-glow pattern: the send-confirm pulse no
+			// M5/P0 #43 pre-rendered-glow pattern: the send-confirm pulse no
 			// longer animates box-shadow. A `::after` carries the MAX glow
 			// statically; the keyframe only breathes its opacity. Identical
 			// look, composite-only cost. (`.send` already owns `::before` for
@@ -1336,7 +1336,7 @@
 	}
 }
 
-// ---- W4/T4 radial long-press action menu (touch) ----
+// ---- M4/T4 radial long-press action menu (touch) ----
 // Opened by a ~450ms press on a .msg (shell/channel/radial.rs). The menu
 // element itself is a ZERO-SIZE anchor fixed at the (viewport-clamped) press
 // point; the buttons fan out on an upward arc via per-slot `--ang`

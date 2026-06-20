@@ -4,7 +4,7 @@
 
 ## Context
 
-**Why now.** M5 (Skelettvägen) is release-verified — full gate green @ `43458c6`, 345 tests passing, touch-floor closeout `844fe5e`, iOS-sim signed off (ctx `019ed4de`). M6 is the next wave: spec §12 **W6 Identity** (`docs/superpowers/specs/2026-06-10-mendicant-bias-design.md:279`), detailed in **§3 Identity** (:94–99) and **effect G** per-server accent (:71).
+**Why now.** M5 (Skelettvägen) is release-verified — full gate green @ `43458c6`, 345 tests passing, touch-floor closeout `844fe5e`, iOS-sim signed off (ctx `019ed4de`). M6 is the next wave: spec §12 **M6 Identity** (`docs/superpowers/specs/2026-06-10-mendicant-bias-design.md:279`), detailed in **§3 Identity** (:94–99) and **effect G** per-server accent (:71).
 
 **What M6 delivers (three deliverables):**
 1. **Guild icons** — uploadable, manager-gated, riding the existing media pipeline; **per-server accent derived server-side at upload** via the `image` crate, stored as `guild.accent_color`; monogram fallback.
@@ -25,7 +25,7 @@
 
 **Tech Stack:** axum + Leptos 0.8 + SurrealDB 3.x; `image` v0.25 (already an ssr dep, `Cargo.toml:124`) for accent derivation; dart-sass via cargo-leptos.
 
-**Spec:** §3 (:94–99), §1 effects A+G (:71), §12 W6 (:279), §13 verification (per-skeleton → orbit ×1).
+**Spec:** §3 (:94–99), §1 effects A+G (:71), §12 M6 (:279), §13 verification (per-skeleton → orbit ×1).
 
 **Gates (M6 exit):** `/check` (fmt + clippy ssr + clippy hydrate-wasm `-D warnings`) · `cargo test --features ssr` = **0 failed** (live SurrealDB) · `tests/style_lint` (motion-doctrine `@keyframes`) · `nova` builds (`cargo build --release --bin nova-mcp --features nova`, since `protocol.rs` changes) · **real-device iOS deck pass (orbit only)**.
 

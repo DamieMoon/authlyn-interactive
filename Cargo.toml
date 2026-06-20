@@ -26,7 +26,7 @@ console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 leptos_meta = { version = "0.8.0" }
 # Async runtime for the axum server (ssr; nova adds its own features
-# below). `sync` enables `tokio::sync::broadcast` — the process-wide W1
+# below). `sync` enables `tokio::sync::broadcast` — the process-wide M1
 # realtime event hub on `AppState` that fans mutation events out to SSE.
 # `time` backs the SSE quiet-stream session re-check (`tokio::time::timeout`
 # around the bus `recv()` in `server/events.rs`, review M-05 follow-up) — do
@@ -41,15 +41,15 @@ js-sys = { version = "0.3", optional = true }
 # `window.matchMedia("(pointer: coarse)")`. The XmlHttpRequest* + ProgressEvent
 # interfaces back the progress-reporting media upload (F-8): gloo-net's Fetch
 # has no upload-progress hook, so `api::upload_media` drives a raw XHR and
-# subscribes to `upload.onprogress`. EventSource + MessageEvent back the W1
+# subscribes to `upload.onprogress`. EventSource + MessageEvent back the M1
 # SSE sync consumer (`GET /events` stream + its onmessage payloads). DomRect
-# backs the radial menu's topbar-bottom measurement (W4/T4 audit,
+# backs the radial menu's topbar-bottom measurement (M4/T4 audit,
 # `getBoundingClientRect` in shell/channel/radial.rs) — no leptos-family
 # crate enables it, so it must be listed here. ResizeObserver backs the
 # measured `--composer-h` placement var (UX evolution #11): the composer
 # band's height mirrored onto <html> so the toast capsule and channel floats
 # anchor to it (shell/channel/mod.rs). Navigator + AddEventListenerOptions back
-# the W5/P0 #19 Visual Haptics helper (shell/act/haptics.rs): `vibrate_with_duration`
+# the M5/P0 #19 Visual Haptics helper (shell/act/haptics.rs): `vibrate_with_duration`
 # is on `Navigator`, and the once-only animationend cleanup uses
 # `AddEventListenerOptions::set_once`; AddEventListenerOptions is also enabled by
 # tachys (feature-unified) but listed here so the binding never depends on a
@@ -70,11 +70,11 @@ gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 # wiring Web Push from the client. Hydrate-only; wasm-only.
 wasm-bindgen-futures = { version = "0.4", optional = true }
 # Futures combinators, serving BOTH graphs. Hydrate: `future::join_all` in
-# `shell/wardrobe.rs` (W7/B3) correlates parallel `upload_media` results with
+# `shell/wardrobe.rs` (M7/B3) correlates parallel `upload_media` results with
 # input order before posting the persona-gallery batch endpoint (already in
 # the wasm graph transitively via `wasm-bindgen-futures` and `gloo-net`, so
 # exposing it explicitly adds no new crates). Ssr: `Stream` helpers for the
-# W1 realtime SSE `GET /events` stream. `default-features = false` to stay
+# M1 realtime SSE `GET /events` stream. `default-features = false` to stay
 # off the std-formatted prelude bloat.
 futures-util = { version = "0.3", default-features = false, features = ["alloc", "async-await"], optional = true }
 
@@ -141,7 +141,7 @@ anyhow   = { version = "1", optional = true }
 
 # `Send + Sync` shim for !Send wasm types. Already vendored transitively via
 # leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
-# across the `Effect` / `on_cleanup` boundary (W7/D2 focus-restoration). Wasm
+# across the `Effect` / `on_cleanup` boundary (M7/D2 focus-restoration). Wasm
 # is single-threaded, the wrapper panics on cross-thread access — exactly the
 # semantics we want for the !Send web-sys types. Hydrate-only.
 send_wrapper = { version = "0.6", optional = true }
@@ -164,13 +164,13 @@ tower = { version = "0.5", features = ["util"] }
 futures = "0.3"
 
 # Build-time only: feeds the `examples/gen_emoji_json.rs` one-shot generator
-# that emits `public/emoji.json` (W7/D1). `emojis` is a static phf table; the
+# that emits `public/emoji.json` (M7/D1). `emojis` is a static phf table; the
 # generator pulls it once, writes the JSON to the repo, and the wasm hydrate
 # build then ships only the JSON asset — not the crate. Dev-deps don't enter
 # the lib graph, so the wasm bundle stays free of this ~80 KB brotli payload.
 emojis = "0.8.2"
 
-http-body-util = "0.1"   # frame-by-frame reading of SSE test responses (W1)
+http-body-util = "0.1"   # frame-by-frame reading of SSE test responses (M1)
 
 # Generates solid-color PNG fixtures in `tests/guilds.rs` to pin the M6 guild-icon
 # server-side accent derivation (a red icon → "red", flat gray → "gray"). Dev-dep
@@ -282,7 +282,7 @@ reload-port = 3001
 #  The browserlist query used for optimizing the CSS.
 # Pin iOS into the query: with plain "defaults", Lightning CSS strips the
 # `-webkit-backdrop-filter` prefix from the compiled bundle, and pre-Safari-18
-# iOS (which still needs the prefix) would render the W2 glass chrome
+# iOS (which still needs the prefix) would render the M2 glass chrome
 # unblurred — the owner tests on iOS. Keep iOS old enough in the query that
 # the prefix survives optimization.
 browserquery = "defaults, fully supports es6-module, iOS >= 15"

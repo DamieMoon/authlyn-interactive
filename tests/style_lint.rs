@@ -8,7 +8,7 @@
 //!    and are forbidden — every future fx- effect must be born composite-cheap.
 //!    A narrow, documented `EXEMPT_KEYFRAMES` allowlist (by name) carves out the
 //!    brief loading-placeholder shimmer loaders. (`fx-warp` was a TIME-BOXED
-//!    exemption removed in W5/P0 Task 0.2 once its keyframe became transform-only.)
+//!    exemption removed in M5/P0 Task 0.2 once its keyframe became transform-only.)
 //!    See the const for the rationale.
 //!
 //! 2. **WebKit 1:1 (`backdrop-filter`) doctrine** — owner ruling 2026-06-15,
@@ -52,7 +52,7 @@ const FORBIDDEN: &[&str] = &[
 /// live interactive hot path, so they are intentionally carved out.
 ///
 /// (`fx-warp` was a TIME-BOXED exemption — it animated `background-position`
-/// until W5/P0 Task 0.2 (#54) rewrote it to a `transform: translateX` sweep.
+/// until M5/P0 Task 0.2 (#54) rewrote it to a `transform: translateX` sweep.
 /// Now composite-only, it is enforced by this guard like every other `fx-`.)
 const EXEMPT_KEYFRAMES: &[&str] = &["shimmer", "gallery-skeleton-shimmer"];
 

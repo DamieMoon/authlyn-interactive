@@ -1,9 +1,9 @@
 //! Ephemeral "I am typing" indicator (#19) + the Ghost Quill live-draft store
-//! (W4/T7). In-memory only; the indicator is surfaced through the message-list
+//! (M4/T7). In-memory only; the indicator is surfaced through the message-list
 //! poll, the drafts through `GET /channels/{cid}/typing-drafts`. Split from
 //! `server/messages.rs` in Wave 3; behavior preserved verbatim.
 //!
-//! ## Ghost Quill design constraints (W4/T7)
+//! ## Ghost Quill design constraints (M4/T7)
 //! - **The SSE bus stays id-only.** Draft TEXT never rides a `SyncEvent`; the
 //!   existing `Typing` event only NUDGES clients to fetch the drafts endpoint,
 //!   which re-checks channel membership on every call.
@@ -12,9 +12,9 @@
 //!   theirs is. The server just stores what it's given, briefly.
 //! - **Absent or empty `draft` CLEARS the stored entry** — a sender toggling
 //!   the pref off (or deleting their text) stops ghosting at the very next
-//!   ping, and the pre-W4/T7 bare ping keeps working unchanged.
+//!   ping, and the pre-M4/T7 bare ping keeps working unchanged.
 //! - **Whisper-armed drafts are MASKED at store time** (review M-01): when
-//!   the ping carries `effect: "whisper"` (the composer's armed W4/T5
+//!   the ping carries `effect: "whisper"` (the composer's armed M4/T5
 //!   delivery effect), the stored draft is the fixed [`WHISPER_DRAFT_MASK`]
 //!   placeholder — the spoiler text of a message that will land
 //!   hidden-until-tapped never even enters the in-memory map, so no read
@@ -46,7 +46,7 @@ use super::{channel_access, AccessOutcome};
 /// leaving a stale indicator hanging after someone stops.
 pub(super) const TYPING_TTL: std::time::Duration = std::time::Duration::from_secs(8);
 
-/// Max characters of draft text stored per `(channel, account)` (W4/T7).
+/// Max characters of draft text stored per `(channel, account)` (M4/T7).
 /// Anything longer is truncated — see the module header for why truncation
 /// beats rejection here.
 const MAX_DRAFT_CHARS: usize = 2000;
@@ -54,12 +54,12 @@ const MAX_DRAFT_CHARS: usize = 2000;
 /// The fixed whisper stand-in (review M-01) — must stay byte-identical to
 /// the reply-quote mask in `reading.rs` MSG_PROJECTION and the push mask in
 /// `push.rs` `notification_body`, so every body-preview surface shows one
-/// consistent placeholder (the W4 "extend the mask to any NEW body-preview
+/// consistent placeholder (the M4 "extend the mask to any NEW body-preview
 /// surface" invariant).
 const WHISPER_DRAFT_MASK: &str = "(whisper)";
 
 // ---------------------------------------------------------------------------
-// POST /channels/{cid}/typing  — ephemeral "I am typing" ping (#19, W4/T7)
+// POST /channels/{cid}/typing  — ephemeral "I am typing" ping (#19, M4/T7)
 // ---------------------------------------------------------------------------
 
 /// Record that the caller is typing in this channel. Membership-gated like the
@@ -68,7 +68,7 @@ const WHISPER_DRAFT_MASK: &str = "(whisper)";
 /// surfaced later by `list_messages` (the poll). No DB write — the state is
 /// purely in-memory.
 ///
-/// The body is OPTIONAL (W4/T7 Ghost Quill): a bare POST is the classic ping;
+/// The body is OPTIONAL (M4/T7 Ghost Quill): a bare POST is the classic ping;
 /// a JSON body may carry `draft` — the sender's current compose text — which
 /// is stored (truncated to [`MAX_DRAFT_CHARS`]) for other members to fetch
 /// via [`typing_drafts`]. Absent/empty `draft` clears the stored entry. When
@@ -111,7 +111,7 @@ pub async fn typing_ping(
             .insert(account.0.clone(), now);
     }
 
-    // Ghost Quill store (W4/T7): same lock discipline, separate mutex. Stale
+    // Ghost Quill store (M4/T7): same lock discipline, separate mutex. Stale
     // entries are pruned on every write so the map can't accumulate dead
     // drafts between reads.
     {
@@ -151,7 +151,7 @@ pub async fn typing_ping(
 }
 
 // ---------------------------------------------------------------------------
-// GET /channels/{cid}/typing-drafts — Ghost Quill live drafts (W4/T7)
+// GET /channels/{cid}/typing-drafts — Ghost Quill live drafts (M4/T7)
 // ---------------------------------------------------------------------------
 
 /// List OTHER members' live (unexpired) typing drafts in this channel, as a
@@ -224,7 +224,7 @@ pub async fn typing_drafts(
     (StatusCode::OK, Json(entries)).into_response()
 }
 
-/// Drop the author's stored draft for this channel (W4/T7 clear-on-send).
+/// Drop the author's stored draft for this channel (M4/T7 clear-on-send).
 /// Called from the success paths of `post_message`, `roll_message`, and —
 /// since review M-02 — `edit_message` (the compose box holds the edit text
 /// during an edit, so a landed edit must drop the entry too) — without it a

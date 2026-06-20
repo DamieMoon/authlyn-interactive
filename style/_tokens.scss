@@ -1,6 +1,6 @@
 // Design tokens — the only file in `style/` that carries hex literals.
 //
-// W2 (mendicant-bias): values + NAMES are now the **Void Station palette**
+// M2 (mendicant-bias): values + NAMES are now the **Void Station palette**
 // (deep-space graphite, electric-blue accent with restrained glow, Duo
 // typography). Token names are semantic (--void/--surface/--accent…) so the
 // next redesign is again a value-only edit of THIS FILE.
@@ -53,7 +53,7 @@
 	--glass-line: rgba(255, 255, 255, 0.08);
 	--glass-highlight: rgba(255, 255, 255, 0.09);
 
-	// W5/P0 #20 etched-glass tints: pre-computed colors approximating what
+	// M5/P0 #20 etched-glass tints: pre-computed colors approximating what
 	// blur(14px) of the STATIC aurora yields at the top/bottom chrome bands.
 	// (Aurora is deterministic in Standard, so the blur readback is wasted work
 	// on the POCO C3 GE8320 — bake it once instead.) SAMPLE VALUES — Open
@@ -72,7 +72,7 @@
 	--overlay: rgba(14, 18, 26, 0.9); // lightbox/floating control chips
 	--scrim: rgba(4, 6, 10, 0.6); // modal backdrops
 
-	// Aurora ambience (W2: static tint; .fx-max animates it)
+	// Aurora ambience (M2: static tint; .fx-max animates it)
 	--aurora-1: rgba(22, 33, 58, 0.85); // blue nebula tint (top-right)
 	--aurora-2: rgba(13, 37, 48, 0.7); // teal nebula tint (bottom-left)
 

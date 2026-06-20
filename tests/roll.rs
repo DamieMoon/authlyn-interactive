@@ -1,4 +1,4 @@
-//! W4/T6 Fate Engine integration tests: `POST /channels/{cid}/roll` —
+//! M4/T6 Fate Engine integration tests: `POST /channels/{cid}/roll` —
 //! server-authoritative dice. The server parses a constrained grammar
 //! (`NdM(+|-K)?`, bare `dM` = `1dM`, `coin`, `oracle`), rolls with its own
 //! RNG, and persists the formatted result as a `kind='roll'` message — so a

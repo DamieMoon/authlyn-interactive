@@ -1,14 +1,14 @@
-# Mendicant Bias W1: Realtime Backbone Implementation Plan
+# Mendicant Bias M1: Realtime Backbone Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the 1.5s client polling with an SSE event bus (`GET /events`), add a batched `GET /unread` endpoint, and land the W1 perf fixes (media cache headers, MIME folded into the message projection, lazy guild-channel loading) — dropping idle traffic from ~150–200 req/min to keep-alives only.
+**Goal:** Replace the 1.5s client polling with an SSE event bus (`GET /events`), add a batched `GET /unread` endpoint, and land the M1 perf fixes (media cache headers, MIME folded into the message projection, lazy guild-channel loading) — dropping idle traffic from ~150–200 req/min to keep-alives only.
 
 **Architecture:** Notify-and-fetch. The server broadcasts tiny id-only `SyncEvent`s over a `tokio::sync::broadcast` hub in `AppState`; each SSE connection filters events against a per-connection visible-channel set (reloaded on `lists_changed`). Clients react to events by refetching through the EXISTING permission-checked endpoints, so the push path carries no content and adds no new authorization surface. The old polling loop remains as an automatic fallback.
 
 **Tech Stack:** axum 0.8 SSE (core, no new feature), `tokio::sync::broadcast`, `futures_util::stream::unfold` (ssr), web-sys `EventSource` (hydrate), SurrealDB loop-indexed batched statements (sanctioned by the parameterized-SQL invariant), existing `tests/common` harness + new streaming helper.
 
-**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §6 (re-architecture), §12 W1.
+**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §6 (re-architecture), §12 M1.
 
 **Invariants in play:** session-cookie-only identity (SSE uses `AuthAccount`); privacy-404 / no-information-leak (event filtering must be tested adversarially); parameterized SQL only (loop-index bind names are explicitly sanctioned); soft-delete hidden on read.
 
@@ -48,7 +48,7 @@ Expected: `test result: ok.` lines for all 16 suites (144 tests). If SurrealDB i
 Create `tests/sync_events.rs`:
 
 ```rust
-//! Wire-shape pins for the SSE `SyncEvent` enum (W1). These are serde-only
+//! Wire-shape pins for the SSE `SyncEvent` enum (M1). These are serde-only
 //! tests (no server), but live in the integration tree per repo convention.
 #![cfg(feature = "ssr")]
 
@@ -79,7 +79,7 @@ Expected: COMPILE ERROR — `no SyncEvent in protocol`.
 Append to `src/protocol.rs`:
 
 ```rust
-/// W1 realtime: the id-only event vocabulary broadcast over `GET /events`.
+/// M1 realtime: the id-only event vocabulary broadcast over `GET /events`.
 /// Deliberately content-free (notify-and-fetch): clients react by refetching
 /// through the existing permission-checked endpoints, so this enum never
 /// becomes an authorization surface. Shared by ssr (emitter) and hydrate
@@ -126,7 +126,7 @@ Expected: `test result: ok. 1 passed`
 
 ```bash
 git add src/protocol.rs tests/sync_events.rs
-git commit -m "feat(protocol): SyncEvent wire enum for the W1 SSE bus
+git commit -m "feat(protocol): SyncEvent wire enum for the M1 SSE bus
 
 Id-only, content-free by design (notify-and-fetch): the push path must
 never become an authorization surface. snake_case type tags pinned.
@@ -147,7 +147,7 @@ Tests: sync_event_serializes_with_snake_case_type_tags"
 In `Cargo.toml`, next to the other ssr-only deps (each line carries a purpose comment per repo convention):
 
 ```toml
-# W1 SSE bus: BroadcastStream-free hand-rolled stream needs unfold; ssr-only.
+# M1 SSE bus: BroadcastStream-free hand-rolled stream needs unfold; ssr-only.
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["std"] }
 ```
 
@@ -173,7 +173,7 @@ http-body-util = "0.1"   # frame-by-frame reading of SSE test responses
 In `src/server/state.rs`, add the field to the struct (after `typing`):
 
 ```rust
-    /// W1 realtime: the process-wide SSE event bus. Every mutation handler
+    /// M1 realtime: the process-wide SSE event bus. Every mutation handler
     /// best-effort `send()`s a `SyncEvent`; every `GET /events` connection
     /// subscribes. Capacity 256: laggards get `RecvError::Lagged` and are
     /// nudged to resync — events are droppable by design (notify-and-fetch).
@@ -283,7 +283,7 @@ pub async fn next_sse_data(
 Create `tests/events.rs`:
 
 ```rust
-//! W1 SSE bus: GET /events delivery, privacy filtering, and auth gating.
+//! M1 SSE bus: GET /events delivery, privacy filtering, and auth gating.
 #![cfg(feature = "ssr")]
 
 mod common;
@@ -373,7 +373,7 @@ Tests: events_requires_a_session, member_receives_message_created_over_sse (red)
 Create `src/server/events.rs`:
 
 ```rust
-//! GET /events — the W1 SSE bus (ssr-only). Auth via the session cookie
+//! GET /events — the M1 SSE bus (ssr-only). Auth via the session cookie
 //! (`AuthAccount`), exactly like every JSON route. Wire format: unnamed SSE
 //! `data:` frames each carrying one serialized `protocol::SyncEvent`.
 //! Filtering (privacy) is per-connection: see `visible_channels` below.
@@ -390,7 +390,7 @@ use tokio::sync::broadcast;
 
 /// Load the channel ids the account may currently see (live text channels in
 /// guilds where they are a member). Two parameterized statements, one
-/// round-trip. Returns (channel_id, guild_id) pairs; W1 consumers only need
+/// round-trip. Returns (channel_id, guild_id) pairs; M1 consumers only need
 /// the channel ids but /unread (same helper) wants the guild mapping too.
 pub(crate) async fn visible_channels(
     state: &AppState,
@@ -492,7 +492,7 @@ In `src/server/mod.rs`: add `pub mod events;` next to the other module declarati
 In `src/server/messages/posting.rs`, locate the success branch of the message-create handler — the point where the CREATE succeeded and the handler is about to build its 201 response (grep: `grep -n "CREATED" src/server/messages/posting.rs`). Immediately before returning success, add:
 
 ```rust
-    // W1 bus: best-effort, never fails the request (send() errs only when no
+    // M1 bus: best-effort, never fails the request (send() errs only when no
     // subscriber exists, which is the idle case).
     let _ = state
         .events
@@ -840,7 +840,7 @@ Tests: channel_creation_emits_lists_changed_and_membership_set_refreshes"
 Append to `src/protocol.rs`:
 
 ```rust
-/// W1: one row per visible text channel in `GET /unread`.
+/// M1: one row per visible text channel in `GET /unread`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChannelUnread {
     pub channel_id: String,
@@ -858,7 +858,7 @@ pub struct ChannelUnread {
     pub latest_id: Option<String>,
 }
 
-/// W1: response of `GET /unread`.
+/// M1: response of `GET /unread`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UnreadResponse {
     pub channels: Vec<ChannelUnread>,
@@ -870,7 +870,7 @@ pub struct UnreadResponse {
 Create `tests/unread.rs`:
 
 ```rust
-//! W1: batched GET /unread — cursor math (strict composite tie-break), ping
+//! M1: batched GET /unread — cursor math (strict composite tie-break), ping
 //! flag, baseline fields, and privacy (only visible channels appear).
 #![cfg(feature = "ssr")]
 
@@ -1002,7 +1002,7 @@ Expected: FAIL — 404 on `/unread` (no route).
 Create `src/server/messages/unread.rs`:
 
 ```rust
-//! GET /unread — W1 batched unread/ping summary for every visible text
+//! GET /unread — M1 batched unread/ping summary for every visible text
 //! channel, in ONE WebSocket round-trip. Replaces the client's N-per-channel
 //! message probes. Statement batch is built with loop-INDEXED bind names only
 //! (sanctioned by the parameterized-SQL invariant — no user value is ever
@@ -1367,7 +1367,7 @@ Tests: list_messages_returns_attachment_mime_without_a_second_query_path"
 In `Cargo.toml`'s `web-sys` feature list, append:
 
 ```toml
-    "EventSource",            # W1 SSE consumer
+    "EventSource",            # M1 SSE consumer
     "MessageEvent",           # SSE onmessage payloads
 ```
 
@@ -1376,7 +1376,7 @@ In `Cargo.toml`'s `web-sys` feature list, append:
 Append to `src/client/api.rs` (next to the other GET wrappers):
 
 ```rust
-/// GET /unread — batched unread/ping summary for every visible text channel (W1).
+/// GET /unread — batched unread/ping summary for every visible text channel (M1).
 pub async fn get_unread() -> Result<crate::protocol::UnreadResponse, ApiError> {
     get("/unread").await
 }
@@ -1492,7 +1492,7 @@ In `refresh_lists` (message.rs:1020–1076): DELETE the cross-guild `join_all(ge
 Create `src/ui/shell/act/sync.rs`:
 
 ```rust
-//! W1 sync driver (hydrate-real / ssr no-op): an EventSource on /events
+//! M1 sync driver (hydrate-real / ssr no-op): an EventSource on /events
 //! dispatches notify-and-fetch refreshes; the legacy 1.5s poll loop remains
 //! the automatic fallback when SSE cannot hold a connection.
 
@@ -1609,12 +1609,12 @@ probes) with guild rail dots from row.guild_id; refresh_lists no longer
 fans get_guild across every guild each ~6s. start_poll survives as the
 fallback after 5 consecutive SSE errors.
 
-Tests: clippy clean on hydrate+ssr graphs; behavior smoke in W1 verification"
+Tests: clippy clean on hydrate+ssr graphs; behavior smoke in M1 verification"
 ```
 
 ---
 
-### Task 13: W1 verification gate
+### Task 13: M1 verification gate
 
 **Files:** none (verification only)
 
@@ -1648,16 +1648,16 @@ CLAUDE.md "Architecture" states: "Real-time is client polling + in-memory typing
 - Real-time is **SSE (`GET /events`, tokio broadcast in `AppState.events`) with automatic client fallback to legacy polling**; typing remains in-memory (`AppState.typing`), broadcast on POST. NOT LIVE SELECT (tests only).
 ```
 
-- [ ] **Step 13.4: Final W1 commit**
+- [ ] **Step 13.4: Final M1 commit**
 
 ```bash
 git add CLAUDE.md
-git commit -m "docs(claude-md): realtime is now SSE with polling fallback (W1)"
+git commit -m "docs(claude-md): realtime is now SSE with polling fallback (M1)"
 ```
 
 ---
 
-## Done = W1 exit criteria
+## Done = M1 exit criteria
 
 1. Idle client network: keep-alives only (verified in Step 13.2).
 2. `tests/events.rs` (5 tests incl. two adversarial privacy tests), `tests/unread.rs` (3), `tests/sync_events.rs` (1), media cache pin, MIME pin — all green alongside the original 144.
@@ -1665,4 +1665,4 @@ git commit -m "docs(claude-md): realtime is now SSE with polling fallback (W1)"
 4. CLAUDE.md realtime description updated.
 5. Branch `mendicant-bias` NOT pushed (owner pushes/merges; push = deploy).
 
-**Next plan:** `2026-06-10-mendicant-bias-w2-design-system.md` (written after W1 lands, against the then-current tree).
+**Next plan:** `2026-06-10-mendicant-bias-m2-design-system.md` (written after M1 lands, against the then-current tree).

@@ -1,4 +1,4 @@
-//! W5/P2 effect-blossom long-hold detector. Mirrors `radial::LongPress`: an
+//! M5/P2 effect-blossom long-hold detector. Mirrors `radial::LongPress`: an
 //! always-on struct with hydrate-only fields, a generation-counter timer
 //! (480ms), move-slop disarm (so a jittery thumb tapping Send never blossoms),
 //! and an ssr no-op stub. On fire it opens the effect blossom + fires a Tick

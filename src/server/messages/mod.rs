@@ -27,8 +27,8 @@
 //!   join the projection) + typing-name resolution.
 //! - [`editing`] — PATCH/DELETE/restore/trash + the own-message gate (and the
 //!   roll-immutability 403s).
-//! - [`rolling`] — POST /roll (W4/T6 Fate Engine: server-authoritative dice).
-//! - [`typing`] — POST /typing ping + GET /typing-drafts (W4/T7 Ghost Quill;
+//! - [`rolling`] — POST /roll (M4/T6 Fate Engine: server-authoritative dice).
+//! - [`typing`] — POST /typing ping + GET /typing-drafts (M4/T7 Ghost Quill;
 //!   both in-memory).
 //! - this module: shared `channel_access` (the per-channel layer atop
 //!   [`crate::server::access::resolve_membership`]) + the per-message body
@@ -92,7 +92,7 @@ pub(super) enum AccessOutcome {
 /// Splits the three resolutions into a single multi-statement query and folds
 /// them into a returned object. Previously this was three sequential round-trips
 /// (channel → guild_member → channel_active_persona) on every message poll;
-/// W5/H1 collapsed it to one.
+/// M5/H1 collapsed it to one.
 ///
 /// The two unknowns (no such channel / caller not a member) remain distinct
 /// internally but the handlers collapse both to a privacy-404. Soft-delete

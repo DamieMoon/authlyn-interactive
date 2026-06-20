@@ -1,4 +1,4 @@
-//! Wire-shape pins for the SSE `SyncEvent` enum (W1). These are serde-only
+//! Wire-shape pins for the SSE `SyncEvent` enum (M1). These are serde-only
 //! tests (no server), but live in the integration tree per repo convention.
 #![cfg(feature = "ssr")]
 
@@ -41,7 +41,7 @@ async fn sync_event_serializes_with_snake_case_type_tags() {
     assert_eq!(future.channel_id(), None);
 }
 
-/// W1.5 wire pins for the account-targeted variants. Both are NEW types on an
+/// M1.5 wire pins for the account-targeted variants. Both are NEW types on an
 /// already-shipped wire: a stale client deserializes them through the
 /// `#[serde(other)] Unknown` catch-all (pinned above with `warp_initiated`),
 /// so adding them is wire-compatible by construction.

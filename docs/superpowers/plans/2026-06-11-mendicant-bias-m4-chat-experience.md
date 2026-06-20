@@ -1,16 +1,16 @@
-# Mendicant Bias W4: Chat Experience Implementation Plan
+# Mendicant Bias M4: Chat Experience Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Bring the message flow to life — Standard-tier wow effects that live in the chat (constellation typing indicator, charging send button, warp channel-switch, radial long-press action menu), Message Effects (whisper / shout / spell send-modes), the server-validated Fate Engine (`/roll`), and opt-in Ghost Quill (live co-writer draft preview) — all on the W1 SSE bus + W2/W3 design system, preserving the message-schema, markup-panic-free, and id-only-bus invariants.
+**Goal:** Bring the message flow to life — Standard-tier wow effects that live in the chat (constellation typing indicator, charging send button, warp channel-switch, radial long-press action menu), Message Effects (whisper / shout / spell send-modes), the server-validated Fate Engine (`/roll`), and opt-in Ghost Quill (live co-writer draft preview) — all on the M1 SSE bus + M2/M3 design system, preserving the message-schema, markup-panic-free, and id-only-bus invariants.
 
 **Architecture:** CSS/signal-only effects first (no schema/server risk): constellation typing (render swap), charging send (signal off compose length), warp (transition class on channel switch), radial menu (touch long-press over the existing actions). Then the schema/server features: Message Effects add ONE `option<string>` field to `message` (NONE-safe, schema_apply-guarded) + a composer mode picker + render branches; the Fate Engine is a client slash-command intercept → a server endpoint that validates dice syntax + does the RNG server-side + persists a `kind='roll'` message (cheating-proof). Ghost Quill is the riskiest — it keeps the id-only bus intact via a hybrid: the existing `Typing` event nudges the client to fetch a new ephemeral in-memory typing-draft endpoint; opt-in, last, and cuttable if the wave runs long.
 
-**Tech Stack:** Leptos 0.8, the W2/W3 design system (`fx-` keyframes, icons, glass), SurrealDB (one `option<>` field + a new `kind` value), axum (one roll endpoint + one typing-draft endpoint), the markup parser (UNCHANGED — effects are a message field, not markup, to keep the panic-free invariant untouched).
+**Tech Stack:** Leptos 0.8, the M2/M3 design system (`fx-` keyframes, icons, glass), SurrealDB (one `option<>` field + a new `kind` value), axum (one roll endpoint + one typing-draft endpoint), the markup parser (UNCHANGED — effects are a message field, not markup, to keep the panic-free invariant untouched).
 
-**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §1 (wow concepts D/E/A/I), §9.1 (Fate Engine, Message Effects, Ghost Quill), §12 W4. Mockups: `assets/2026-06-10-mendicant-bias/wow-concepts.html` (D constellation, E charging-send, A warp, I radial), `app-concepts.html` (B Ödesmotorn, F effects).
+**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §1 (wow concepts D/E/A/I), §9.1 (Fate Engine, Message Effects, Ghost Quill), §12 M4. Mockups: `assets/2026-06-10-mendicant-bias/wow-concepts.html` (D constellation, E charging-send, A warp, I radial), `app-concepts.html` (B Ödesmotorn, F effects).
 
-**Gates:** `cargo leptos build`, clippy ssr+hydrate(wasm32)+freya, full ssr suite (currently 23 suite lines; W4 adds tests for effects/roll/typing-drafts — count grows, 0 FAILED), visual smoke (`/tmp/nova-gif/` node-playwright, NEVER prod). New server features get TDD integration tests in `tests/`.
+**Gates:** `cargo leptos build`, clippy ssr+hydrate(wasm32)+freya, full ssr suite (currently 23 suite lines; M4 adds tests for effects/roll/typing-drafts — count grows, 0 FAILED), visual smoke (`/tmp/nova-gif/` node-playwright, NEVER prod). New server features get TDD integration tests in `tests/`.
 
 **Branch:** `mendicant-bias`. Commit per task. Orchestrator pushes.
 
@@ -48,7 +48,7 @@ Per spec §1 concept E: a ring around Send fills with composed-message length; a
 
 **Files:** `src/ui/shell/mod.rs` (the `.content`/pane wrapper), `src/ui/shell/state.rs` (a `switching` signal), `src/ui/shell/act/channel.rs` (flip it on open), `style/_content.scss` + `style/_motion.scss`
 
-Per spec §1 concept A: channel/server switch is a quick FTL streak. STD = a ~180ms fade+scale; ÖG = a fuller warp-streak overlay. Refinement (destination-accent tint) AWAITS per-server `accent_color` (spec §1 wow-effect G / §3 Identity, lands in W5 — not built) — use the generic accent now; note it.
+Per spec §1 concept A: channel/server switch is a quick FTL streak. STD = a ~180ms fade+scale; ÖG = a fuller warp-streak overlay. Refinement (destination-accent tint) AWAITS per-server `accent_color` (spec §1 wow-effect G / §3 Identity, lands in M5 — not built) — use the generic accent now; note it.
 
 - [ ] **Step 3.1:** `state.rs`: add `switching: RwSignal<bool>` to SyncState (doc it). `act/channel.rs::open_channel_at`: set `switching.set(true)` at entry; after the pane/messages are set, schedule `switching.set(false)` on a short gloo-timers timeout (~180ms) so the in-animation plays. (Keep it simple — no animationend listener; a fixed short timer matches the CSS duration.)
 - [ ] **Step 3.2:** `mod.rs`: bind `class:fx-switching=move || s.sync.switching.get()` on the pane/content wrapper.
@@ -111,21 +111,21 @@ ARCHITECTURAL CONSTRAINT (hard): the SSE bus stays id-only — draft TEXT never 
 - [ ] **Step 7.1b: Clear-on-send.** A successful message post REMOVES the author's entry from `typing_drafts` for that channel (in `posting.rs`, same place the typing entry clears) — otherwise a ghost row lingers beside the just-landed real message for up to the TTL.
 - [ ] **Step 7.2: Endpoint.** `GET /channels/{cid}/typing-drafts` (AuthAccount + channel_access → privacy-404) returns `[{ account_id, display_name, draft }]` for OTHER members with a live draft. The TTL must be TESTABLE without an 8s sleep: make it an injectable `Duration` on the store (prod default 8s; the test constructs/overrides a short one, or the prune fn takes `now` as a param). TDD: `tests/typing_drafts.rs` — a posted draft is readable by a member, excluded for the caller themselves, privacy-404 for non-members, prunes after the (short, injected) TTL, and is gone after the author sends the message.
 - [ ] **Step 7.3: Client.** A `ghost_quill` pref (localStorage, default OFF — mirror the eyecandy/dialogue prefs exactly) + Account toggle. When ON: the composer's typing-ping includes the current draft; and on a `Typing` SyncEvent for the open channel, fetch `/typing-drafts` and render ghost rows (dashed, italic, the in-progress text) below the messages. When OFF: bare typing pings (no draft sent), no ghost rows.
-- [ ] **Step 7.4:** Gates: clippy ×3, full ssr suite (typing-drafts tests green), build ok. Commit `feat(chat): Ghost Quill — opt-in live co-writer draft preview (hybrid, id-only bus intact)`. If cut: note the cut in the W4 verification + leave the spec line for a later wave.
+- [ ] **Step 7.4:** Gates: clippy ×3, full ssr suite (typing-drafts tests green), build ok. Commit `feat(chat): Ghost Quill — opt-in live co-writer draft preview (hybrid, id-only bus intact)`. If cut: note the cut in the M4 verification + leave the spec line for a later wave.
 
 ---
 
-### Task 8: W4 verification gate + visual smoke
+### Task 8: M4 verification gate + visual smoke
 
 **Files:** none (verification; screenshots as deliverables)
 
 - [ ] **Step 8.1: Full gate.** `cargo fmt --all --check`, clippy ssr+hydrate(wasm32)+freya, full ssr suite (0 FAILED), `cargo leptos build --release`.
-- [ ] **Step 8.2: Visual smoke** (dev server + `/tmp/nova-gif/`, NEVER prod): two accounts in a channel. Capture: constellation typing (account B types → account A sees orbiting stars), charging send (compose grows → ring fills), a whisper message (blurred until tapped) + a shout (shake/color), a `/roll 2d20+3` result chip, a channel switch (warp), and (if Ghost Quill landed) a ghost row. Mobile viewport: long-press a message → radial menu. Save `/tmp/w4-*.png`. Eyeball the W2/W3 carry-forward (bubbles, glass, tints) intact.
+- [ ] **Step 8.2: Visual smoke** (dev server + `/tmp/nova-gif/`, NEVER prod): two accounts in a channel. Capture: constellation typing (account B types → account A sees orbiting stars), charging send (compose grows → ring fills), a whisper message (blurred until tapped) + a shout (shake/color), a `/roll 2d20+3` result chip, a channel switch (warp), and (if Ghost Quill landed) a ghost row. Mobile viewport: long-press a message → radial menu. Save `/tmp/m4-*.png`. Eyeball the M2/M3 carry-forward (bubbles, glass, tints) intact.
 - [ ] **Step 8.3:** Update CLAUDE.md if a new invariant landed (the `effect` field + `kind='roll'` are worth a one-line note in the message-schema invariant section; the typing-drafts ephemeral store + its no-content-on-bus property worth a gotcha line). Commit if changed.
 
 ---
 
-## Done = W4 exit criteria
+## Done = M4 exit criteria
 
 1. Constellation typing, charging send, warp switch, radial long-press menu all live (Standard tier; fx-max enhancements where specced); reduced-motion safe.
 2. Message Effects (whisper/shout/spell) round-trip through an `option<>` schema field, server-validated, schema_apply-guarded; render correctly.
@@ -133,4 +133,4 @@ ARCHITECTURAL CONSTRAINT (hard): the SSE bus stays id-only — draft TEXT never 
 4. Ghost Quill either landed (opt-in, id-only bus intact via the fetch endpoint) or deferred to a later wave with an explicit note + owner sign-off.
 5. Full gate green incl. `--release`; visual smoke delivered; markup parser UNTOUCHED (panic-free invariant intact); SSE bus still carries no content.
 
-**Next plan:** ~~W5 (Eye-candy tier)~~ — superseded 2026-06-12 by the owner's Skelettvågen ruling: **W5 = Skelettvågen** (three user-selectable UI skeletons replace the W3 shell; spec §12 as amended 2026-06-12 is authoritative). The eye-candy material moved to W5's #48 delta backbone + W12 Cinema & senses.
+**Next plan:** ~~M5 (Eye-candy tier)~~ — superseded 2026-06-12 by the owner's Skelettvågen ruling: **M5 = Skelettvågen** (three user-selectable UI skeletons replace the M3 shell; spec §12 as amended 2026-06-12 is authoritative). The eye-candy material moved to M5's #48 delta backbone + M12 Cinema & senses.

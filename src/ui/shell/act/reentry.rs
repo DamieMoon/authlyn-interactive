@@ -7,7 +7,7 @@
 //! Nothing here ever WRITES read state: the divider only READS the prior
 //! last-seen cursor captured at channel open, and the scroll marks are
 //! render-side memory — `mark_read` / `set_last_seen` semantics are untouched
-//! (the W3 cross-device unread-wipe review finding is the standing warning).
+//! (the M3 cross-device unread-wipe review finding is the standing warning).
 
 use std::collections::HashMap;
 

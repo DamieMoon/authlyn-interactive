@@ -1,4 +1,4 @@
-//! W5/P2: guild.accent_color over the REST surface — manager-gated write,
+//! M5/P2: guild.accent_color over the REST surface — manager-gated write,
 //! palette validation (400 on junk), round-trips through GET /guilds/{id}.
 //! Mirrors tests/guilds.rs's harness use (common::arena / register_account /
 //! send) — no new common helpers.

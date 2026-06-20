@@ -1,4 +1,4 @@
-//! `POST /channels/{cid}/roll` — the Fate Engine (W4/T6): server-authoritative
+//! `POST /channels/{cid}/roll` — the Fate Engine (M4/T6): server-authoritative
 //! dice. ssr-only.
 //!
 //! The client sends only an EXPRESSION; the server parses it against a
@@ -252,7 +252,7 @@ pub async fn roll_message(
     {
         Ok(id) => {
             // A /roll replaces the composed text — clear the author's Ghost
-            // Quill draft like a normal send does (W4/T7 clear-on-send).
+            // Quill draft like a normal send does (M4/T7 clear-on-send).
             super::typing::clear_draft(&state, &cid, &account.0);
             // A roll is a message like any other on the notify side: Web Push
             // to the guild's other members + the SSE bus (notify-and-fetch).

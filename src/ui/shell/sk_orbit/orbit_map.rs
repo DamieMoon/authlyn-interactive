@@ -1,4 +1,4 @@
-//! W5/P2 orbit-map picker geometry (the diegetic guild/channel chooser; the
+//! M5/P2 orbit-map picker geometry (the diegetic guild/channel chooser; the
 //! VISUAL survived the pinch-entry kill — pill-tap is the only entry). ALL
 //! geometry derives from the live viewport (UX-equality: no fixed-device pixel
 //! math; verified across the POCO C3 floor → Nothing Phone 2). Pure fns — the

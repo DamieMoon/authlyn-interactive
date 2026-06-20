@@ -1,4 +1,4 @@
-//! W5/P2 swipe-strip drag engine. Mirrors `holopanel::PanelDrag` /
+//! M5/P2 swipe-strip drag engine. Mirrors `holopanel::PanelDrag` /
 //! `radial::LongPress`: an always-on struct (the `<div>` binds its methods
 //! ungated) with hydrate-only fields + a real impl paired to an ssr no-op stub.
 //! Per-move it writes `--strip-x` (no signal re-render — the lightbox/holopanel

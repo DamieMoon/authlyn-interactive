@@ -17,7 +17,7 @@
 //! - [`message`] — message read/write: send/edit/delete, the 3-cursor pagination
 //!   loop, sync/ingest/unseen, the background poll, mute/last-seen, lore +
 //!   friends + member ops + the destructive-action confirm dispatcher.
-//! - [`sync`] — the W1 sync driver (`start_sync`): EventSource on `/events`
+//! - [`sync`] — the M1 sync driver (`start_sync`): EventSource on `/events`
 //!   dispatching `message`'s refresh primitives, with the poll loop as the
 //!   automatic fallback.
 //! - [`persona`] — wardrobe ops: create/update/remove/leave/swap/share/avatar +
@@ -31,7 +31,7 @@
 //! - [`feedback`] — feedback submit/archive + context builder.
 //! - [`notify`] — Web Notifications + Web Push (the ~250-line reflection blob).
 //!
-//! W5/P1: this module is `pub` (was `mod act`) so the theme-switch guards in
+//! M5/P1: this module is `pub` (was `mod act`) so the theme-switch guards in
 //! `tests/skeleton_switch.rs` can reach the skeleton-pref helpers at the stable
 //! path `ui::shell::act::*` (the plan's public test path). Most action fns take
 //! the crate-internal `Shell` (a `pub(crate)` type), so lifting the module to
@@ -129,7 +129,7 @@ pub use prefs::{
     local_storage_writable, rp_dialogue_style_enabled, set_compose_preview, set_ghost_quill,
     set_rp_dialogue_style, set_skeleton, skeleton_pref, SKELETON_FALLBACK, SKELETON_IDS,
 };
-// W5/P0 #19 Visual Haptics. `vh` is the hydrate-real fire helper (no ssr stub —
+// M5/P0 #19 Visual Haptics. `vh` is the hydrate-real fire helper (no ssr stub —
 // the ssr graph never animates a DOM element) and `Vh` is its kind argument, so
 // both are re-exported hydrate-only (like `move_channel` above — re-exporting on
 // ssr fires unused-import since nothing there fires a visual haptic). The

@@ -1,4 +1,4 @@
-//! W1: batched GET /unread — cursor math (strict composite tie-break), ping
+//! M1: batched GET /unread — cursor math (strict composite tie-break), ping
 //! flag, baseline fields, privacy (only visible channels appear), and the
 //! soft-delete exclusions (deleted messages/channels/guilds never count —
 //! review M-16). The equal-`sent_at` tie-group test (review M-11) pins the

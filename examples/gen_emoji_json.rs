@@ -1,5 +1,5 @@
 //! One-shot generator for `public/emoji.json` — the JSON dataset the hydrate
-//! emoji picker / `:shortcode:` resolver fetches at runtime (W7/D1). Run by
+//! emoji picker / `:shortcode:` resolver fetches at runtime (M7/D1). Run by
 //! hand whenever the upstream `emojis` crate ships a new unicode revision:
 //!
 //! ```text

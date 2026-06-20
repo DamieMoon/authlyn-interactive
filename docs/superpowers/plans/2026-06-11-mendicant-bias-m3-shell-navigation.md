@@ -1,4 +1,4 @@
-# Mendicant Bias W3: Shell & Navigation Implementation Plan
+# Mendicant Bias M3: Shell & Navigation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
@@ -6,15 +6,15 @@
 
 **Architecture:** Mobile/desktop split at the existing 768px breakpoint. Desktop: the 3-column grid stays, reskinned. Mobile: the grid collapses to single-column content; the rail+sidebar stop being swipe-drawers and instead surface as (a) a Servers tab pane and (b) a tap-triggered glass bottom-sheet for fast channel switching (the proven `wardrobe_open` modal-signal pattern). Directional bubbles are a per-message `mine` class already computed at render time — CSS-only flip, scoped to avoid the `.who.mk-*` persona-tint cascade. The `wire_swipe_drawer` JS and `.nav-open` drawer transforms are deleted.
 
-**Tech Stack:** Leptos 0.8 view!, the W2 design system (tokens/glass mixin/icons/`.fx-max`), dart-sass, `matchMedia("(pointer: coarse)")` for touch detection (existing pattern).
+**Tech Stack:** Leptos 0.8 view!, the M2 design system (tokens/glass mixin/icons/`.fx-max`), dart-sass, `matchMedia("(pointer: coarse)")` for touch detection (existing pattern).
 
 **Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §1 (directional bubbles, mono meta, uppercase names, glass chrome), §2 (hybrid nav). Mockups: `assets/2026-06-10-mendicant-bias/final-design-v4.html`, `mobile-nav-hybrid.html`.
 
-**Gates:** `cargo leptos build`, clippy ssr+hydrate(wasm32)+freya, full ssr suite (23 ok), visual smoke (desktop + mobile-viewport screenshots via `/tmp/nova-gif/` node-playwright — NEVER prod). Use the W2 icon components (`src/ui/icons.rs`) for tab/topbar glyphs; they take an optional `class` prop.
+**Gates:** `cargo leptos build`, clippy ssr+hydrate(wasm32)+freya, full ssr suite (23 ok), visual smoke (desktop + mobile-viewport screenshots via `/tmp/nova-gif/` node-playwright — NEVER prod). Use the M2 icon components (`src/ui/icons.rs`) for tab/topbar glyphs; they take an optional `class` prop.
 
 **Branch:** `mendicant-bias`. Commit per task. Orchestrator pushes.
 
-**W2 carry-forward to verify as you touch these surfaces:** member roster role pills (two blues), rail unread dots, Nova DOT system wash, skeleton contrast — eyeball during the smoke.
+**M2 carry-forward to verify as you touch these surfaces:** member roster role pills (two blues), rail unread dots, Nova DOT system wash, skeleton contrast — eyeball during the smoke.
 
 ---
 
@@ -70,7 +70,7 @@ with a mirrored corner and reversed meta row; others stay left. Pure
 presentation off the existing per-message mine flag; the persona-tint
 cascade and system/draft rows are unaffected.
 
-Tests: cargo leptos build; ssr suite green; visual smoke in W3 verification"
+Tests: cargo leptos build; ssr suite green; visual smoke in M3 verification"
 ```
 
 ---
@@ -105,7 +105,7 @@ git add style/ && git commit -m "feat(design): mono timestamps + uppercase perso
 Timestamps now ride --font-mono; persona names are uppercase + letter-
 spaced per spec §1. Visual only — snapshotted names are untouched.
 
-Tests: cargo leptos build; visual smoke in W3 verification"
+Tests: cargo leptos build; visual smoke in M3 verification"
 ```
 
 ---
@@ -132,7 +132,7 @@ The topbar is frosted glass (with the @supports opaque fallback for
 older WebKit); the modal backdrop softens the app behind it. Modal cards
 stay opaque --surface for legibility.
 
-Tests: cargo leptos build; backdrop-filter present; visual smoke in W3 verification"
+Tests: cargo leptos build; backdrop-filter present; visual smoke in M3 verification"
 ```
 
 ---
@@ -156,7 +156,7 @@ DO THIS BEFORE Task 5 builds the replacement, so the new nav isn't fighting the 
 git add src/ui/shell/ style/_mobile.scss && git commit -m "refactor(ui): delete the edge-swipe drawer ahead of the hybrid nav
 
 wire_swipe_drawer, the .nav-open transforms, and the .scrim are gone;
-the nav_open signal is renamed sheet_open for the W3 bottom-sheet. Mobile
+the nav_open signal is renamed sheet_open for the M3 bottom-sheet. Mobile
 has no nav between this commit and the next (bottom-tabs); desktop's
 3-column grid is unaffected.
 
@@ -177,9 +177,9 @@ Tests: clippy clean (all graphs); ssr suite green; cargo leptos build"
   - **Friends** → `act::show_friends(s)` (pane==Friends)
   - **Personas** → `act::show_wardrobe(s)` (the wardrobe modal)
 
-  Each tab: `<button class="tab" class:active=...>` with an icon (`<IconChat class="tab-icon"/>`) + a label span. Glowing unread badge on a tab when relevant (Chat tab shows aggregate unread? — keep simple in W3: a dot on Chat when any channel is unread, reading `s.notify.unread_guilds` non-empty; or defer badges — note the choice). The bar is `<nav class="bottom-tabs">`.
+  Each tab: `<button class="tab" class:active=...>` with an icon (`<IconChat class="tab-icon"/>`) + a label span. Glowing unread badge on a tab when relevant (Chat tab shows aggregate unread? — keep simple in M3: a dot on Chat when any channel is unread, reading `s.notify.unread_guilds` non-empty; or defer badges — note the choice). The bar is `<nav class="bottom-tabs">`.
 
-- [ ] **Step 5.2: Channel-switch sheet markup.** A glass bottom-sheet (the proven modal-signal pattern), shown when `s.sync.sheet_open.get()`. It contains: a horizontal server-icon row (reuse the rail's guild rendering — extract a helper or inline) with a fixed "✉ Direct" placeholder slot first (DM lands in W6; W3 just reserves the visual slot OR omits it — recommend omit in W3, add in W6, to avoid a dead button; note the choice), above the channel list (reuse the sidebar's channel rendering). Tapping a channel: switch + `sheet_open.set(false)`. The sheet has a grab handle, a backdrop (its own scrim, click-to-dismiss), and drag-down-to-close is NICE-TO-HAVE (a tap backdrop dismiss is the W3 floor; drag physics can be a later polish — note it).
+- [ ] **Step 5.2: Channel-switch sheet markup.** A glass bottom-sheet (the proven modal-signal pattern), shown when `s.sync.sheet_open.get()`. It contains: a horizontal server-icon row (reuse the rail's guild rendering — extract a helper or inline) with a fixed "✉ Direct" placeholder slot first (DM lands in M6; M3 just reserves the visual slot OR omits it — recommend omit in M3, add in M6, to avoid a dead button; note the choice), above the channel list (reuse the sidebar's channel rendering). Tapping a channel: switch + `sheet_open.set(false)`. The sheet has a grab handle, a backdrop (its own scrim, click-to-dismiss), and drag-down-to-close is NICE-TO-HAVE (a tap backdrop dismiss is the M3 floor; drag physics can be a later polish — note it).
 
   REUSE STRATEGY: the rail guild list and sidebar channel list are currently inline in `AppShell`. Extracting them into small `#[component]` fns (`RailGuilds`, `ChannelList`) that both the desktop columns AND the mobile sheet render is the clean path — do this refactor as part of T5 (it also shrinks the 400-line AppShell). If extraction is too invasive, duplicate the channel-list markup into the sheet and note the debt.
 
@@ -190,19 +190,19 @@ Tests: clippy clean (all graphs); ssr suite green; cargo leptos build"
   - Mobile (≤768px): `.bottom-tabs` is a fixed bottom bar, glass (`@include glass` or inline), `padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px))`, 4 evenly-spaced tabs, active tab in `--accent` with text-shadow glow, unread dot. The `.content`/`.composer` must reserve space so the tab bar doesn't cover the composer: add `padding-bottom` to `.content` equal to the tab bar height (or make `.app` a grid row for the bar). CRITICAL safe-area math: composer bottom inset + tab bar height + the tab bar's own safe-area inset must not double-count — the tab bar owns `env(safe-area-inset-bottom)`, the composer sits above the tab bar. Lay it out so the composer's bottom is the tab bar's top.
   - `.channel-sheet`: fixed bottom sheet, glass, `border-radius: 18px 18px 0 0`, slides up (`transform: translateY(0)` from `translateY(100%)`, `transition` honoring reduced-motion), `z-index` above content (50) below global popovers; its backdrop `--scrim` at z-index 49. `max-height: 70vh; overflow-y: auto`. Honor `env(safe-area-inset-bottom)`.
 
-- [ ] **Step 5.5: Gates + mobile smoke.** clippy ×3, ssr suite 23 ok, `cargo leptos build`. Then the node-playwright smoke at a MOBILE viewport (390×844, deviceScaleFactor 3, the iPhone-ish size): screenshot the chat with bottom-tabs, tap the channel name → screenshot the open glass sheet, tap a tab → confirm pane switch. Inject the session cookie with `secure:false` per the WebKit-cookie gotcha if using a WebKit context (Chromium is fine over http). Save `/tmp/w3-mobile-*.png`. Verify safe-area: the composer isn't hidden behind the tab bar.
+- [ ] **Step 5.5: Gates + mobile smoke.** clippy ×3, ssr suite 23 ok, `cargo leptos build`. Then the node-playwright smoke at a MOBILE viewport (390×844, deviceScaleFactor 3, the iPhone-ish size): screenshot the chat with bottom-tabs, tap the channel name → screenshot the open glass sheet, tap a tab → confirm pane switch. Inject the session cookie with `secure:false` per the WebKit-cookie gotcha if using a WebKit context (Chromium is fine over http). Save `/tmp/m3-mobile-*.png`. Verify safe-area: the composer isn't hidden behind the tab bar.
 
 ```bash
 git add src/ui/shell/ style/ && git commit -m "feat(ui): hybrid mobile nav — bottom tabs + glass channel sheet
 
-Chat/Servers/Friends/Personas bottom tab bar (W2 icons) replaces the
+Chat/Servers/Friends/Personas bottom tab bar (M2 icons) replaces the
 swipe drawer; the channel name (or Servers tab) opens a glass bottom-
 sheet with the server row + channel list for one-tap switching. Rail
 guilds and channel list extracted into shared components so desktop
 columns and the mobile sheet render the same source. Safe-area honored
 (tab bar owns the home-indicator inset; composer sits above it).
 
-Tests: clippy clean (all graphs); ssr suite green; mobile-viewport smoke in W3 verification"
+Tests: clippy clean (all graphs); ssr suite green; mobile-viewport smoke in M3 verification"
 ```
 
 ---
@@ -214,7 +214,7 @@ Tests: clippy clean (all graphs); ssr suite green; mobile-viewport smoke in W3 v
 
 The grid stays; this is spacing/chrome polish to match the Void Station desktop mock (`final-design-v4.html` desktop panel): darker rail, hairline separators, glowing active markers, a live-sync status hint in the topbar.
 
-- [ ] **Step 6.1:** Rail: confirm `--void-deep` bg, the active-guild ring + (under fx-max) glow already land from W2. Tighten guild spacing/size to match the mock if needed (46px circles are fine). Add a subtle top/bottom gradient mask if the mock shows it (optional).
+- [ ] **Step 6.1:** Rail: confirm `--void-deep` bg, the active-guild ring + (under fx-max) glow already land from M2. Tighten guild spacing/size to match the mock if needed (46px circles are fine). Add a subtle top/bottom gradient mask if the mock shows it (optional).
 
 - [ ] **Step 6.2:** Sidebar: server header gets a small mono "channel count / status" subline? (optional, matches mock). Channel rows: the active channel gets the left accent border (`border-left: 2px solid var(--accent)`) per the mock; verify against current active style.
 
@@ -230,12 +230,12 @@ hairline separators, accent active markers, and an honest live-sync chip
 (mint ● LIVE on the SSE stream, ● POLLING on the fallback) driven by a
 new sse_live signal set from the EventSource onopen / fallback hooks.
 
-Tests: clippy clean (all graphs); ssr suite green; visual smoke in W3 verification"
+Tests: clippy clean (all graphs); ssr suite green; visual smoke in M3 verification"
 ```
 
 ---
 
-### Task 7: W3 verification gate + visual smoke
+### Task 7: M3 verification gate + visual smoke
 
 **Files:** none (verification; screenshots as deliverables)
 
@@ -251,13 +251,13 @@ cargo fmt --all --check && cargo clippy --features ssr 2>&1 | tail -1 \
 
 Expected: clean, 23 ok suites, release build completes.
 
-- [ ] **Step 7.2: Dual-viewport smoke** (dev server + `/tmp/nova-gif/`; NEVER prod). DESKTOP (1280×800): register a throwaway account, seed a guild + 2 personas + a few messages from two different accounts (so directional bubbles show both sides), screenshot the reskinned shell. MOBILE (390×844): same account, screenshot chat-with-bottom-tabs, the open channel sheet, the Friends tab, the Personas (wardrobe) modal. Verify: directional bubbles (own right / other left), mono timestamps, uppercase names, glass topbar, live-sync chip, no composer/tab-bar overlap, persona tints intact. Eyeball the W2 carry-forward surfaces (role pills, system message). Save `/tmp/w3-desktop-*.png` + `/tmp/w3-mobile-*.png`. Kill the dev server after.
+- [ ] **Step 7.2: Dual-viewport smoke** (dev server + `/tmp/nova-gif/`; NEVER prod). DESKTOP (1280×800): register a throwaway account, seed a guild + 2 personas + a few messages from two different accounts (so directional bubbles show both sides), screenshot the reskinned shell. MOBILE (390×844): same account, screenshot chat-with-bottom-tabs, the open channel sheet, the Friends tab, the Personas (wardrobe) modal. Verify: directional bubbles (own right / other left), mono timestamps, uppercase names, glass topbar, live-sync chip, no composer/tab-bar overlap, persona tints intact. Eyeball the M2 carry-forward surfaces (role pills, system message). Save `/tmp/m3-desktop-*.png` + `/tmp/m3-mobile-*.png`. Kill the dev server after.
 
 - [ ] **Step 7.3:** Update CLAUDE.md's mobile-PWA-safe-area gotcha if the selectors changed (the drawer `.rail`/`.sidebar` fixed-position insets are gone; the new `.bottom-tabs` owns `env(safe-area-inset-bottom)` — update the gotcha's named selectors to reflect reality). Commit if changed.
 
 ---
 
-## Done = W3 exit criteria
+## Done = M3 exit criteria
 
 1. Mobile: bottom-tab nav + glass channel sheet work end-to-end; no swipe drawer; composer never hidden by the tab bar; safe-area honored.
 2. Desktop: 3-column grid reskinned to Void Station; live-sync chip honest.
@@ -265,4 +265,4 @@ Expected: clean, 23 ok suites, release build completes.
 4. Mono timestamps, uppercase persona names, glass topbar live.
 5. Full gate green incl. `--release`; dual-viewport smoke delivered.
 
-**Next plan:** W4 (chat experience — composer, STD wow effects, message effects, constellation presence, fate engine, ghost quill) against the post-W3 tree.
+**Next plan:** M4 (chat experience — composer, STD wow effects, message effects, constellation presence, fate engine, ghost quill) against the post-M3 tree.

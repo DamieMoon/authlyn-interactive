@@ -3,7 +3,7 @@
 //! Locks current behavior ahead of the refactor waves (audit 019e6c08):
 //!   - create / list / delete round-trip;
 //!   - name rule `^[a-z0-9_]{2,32}$`, validated by BYTE length (`name.len()`,
-//!     emoji.rs:28 — the audit's W2 char-vs-byte caveat: emoji uses .len());
+//!     emoji.rs:28 — the audit's M2 char-vs-byte caveat: emoji uses .len());
 //!   - authz: any member may list + create; delete is manager-only (owner/admin);
 //!     a plain member's delete → 403; a non-member → 404 (privacy);
 //!   - `custom_emoji_guild_name` UNIQUE (guild, name) collision → 409;
@@ -193,7 +193,7 @@ async fn name_rule_is_enforced() {
 #[cfg(feature = "ssr")]
 #[tokio::test]
 async fn name_length_is_byte_counted_not_char_counted() {
-    // Audit caveat (W2): emoji name length uses `name.len()` (BYTES), unlike the
+    // Audit caveat (M2): emoji name length uses `name.len()` (BYTES), unlike the
     // char-counted validators elsewhere. A 2-codepoint multibyte string is >2
     // bytes; either way it also fails the ASCII char-class — but a string whose
     // BYTE length exceeds 32 while CHAR count is ≤32 is rejected, proving the

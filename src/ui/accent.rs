@@ -1,4 +1,4 @@
-//! W5/P2 per-server accent → CSS token mapper (Open Question #5). Maps a
+//! M5/P2 per-server accent → CSS token mapper (Open Question #5). Maps a
 //! markup-palette accent name (red…gray, the `server/accent.rs` vocabulary) to
 //! the CSS custom-property values bound on the `.app` root, so the warp-jump
 //! streak (#A) and accent family (#G) render the guild's color. An empty or

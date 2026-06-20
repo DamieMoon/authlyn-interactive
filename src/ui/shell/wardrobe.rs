@@ -81,7 +81,7 @@ fn gallery_multi_upload(
     if files.is_empty() {
         return;
     }
-    // Client cap — same shape as the composer (W7/B1-client).
+    // Client cap — same shape as the composer (M7/B1-client).
     let overflowed = files.len() > GALLERY_BATCH_MAX;
     let files: Vec<web_sys::File> = files.into_iter().take(GALLERY_BATCH_MAX).collect();
     if overflowed {
@@ -612,7 +612,7 @@ fn PersonaDetail(
             //
             // `tabindex="0"` makes the gallery region focusable so a user can
             // click into it and Ctrl+V to fan into `gallery_multi_upload`
-            // (W7/B4). `on:paste` fires when focus is in the region; text
+            // (M7/B4). `on:paste` fires when focus is in the region; text
             // pastes pass through (only `prevent_default()` on image items).
             <div class="field gallery-field" tabindex="0"
                 on:paste=move |_ev| {
@@ -670,7 +670,7 @@ fn PersonaDetail(
                             }
                         }).collect_view().into_any()
                     }}
-                    // Optimistic upload-in-progress placeholders (W7/B3): one
+                    // Optimistic upload-in-progress placeholders (M7/B3): one
                     // skeleton thumb per file mid-flight. Cleared on batch
                     // success; retained on batch failure so the user knows the
                     // commit didn't take.

@@ -306,7 +306,7 @@ pub async fn list_messages_before(
 
 /// POST /channels/{cid}/messages — send a message with optional attachments,
 /// a worn persona, an optional reply-to parent (L-3), and an optional delivery
-/// effect (W4/T5: whisper/shout/spell; server-validated).
+/// effect (M4/T5: whisper/shout/spell; server-validated).
 pub async fn post_message(
     cid: &str,
     body: &str,
@@ -328,7 +328,7 @@ pub async fn post_message(
     .await
 }
 
-/// POST /channels/{cid}/roll — the Fate Engine (W4/T6): send a roll
+/// POST /channels/{cid}/roll — the Fate Engine (M4/T6): send a roll
 /// EXPRESSION (`NdM(+|-K)?`, `coin`, `oracle`) and let the SERVER roll it —
 /// the client never computes an outcome. The result lands as an immutable
 /// `kind='roll'` message; a bad expression is a 400 whose message the
@@ -351,7 +351,7 @@ pub async fn roll(
 /// POST /channels/{cid}/typing — ping "I am typing" in a channel (#19).
 /// Fire-and-forget: the composer calls this at most every ~2s while typing;
 /// errors are ignored by the caller. `draft` is the Ghost Quill opt-in
-/// (W4/T7): `Some(compose text)` only when the SENDER's own pref is on
+/// (M4/T7): `Some(compose text)` only when the SENDER's own pref is on
 /// (the server stores it ephemerally for other members to fetch);
 /// `None` sends the classic body-less ping, which also clears any draft
 /// the server still holds for this caller. `effect` is the composer's
@@ -381,7 +381,7 @@ pub async fn post_typing(
 }
 
 /// GET /channels/{cid}/typing-drafts — other members' live Ghost Quill drafts
-/// (W4/T7). Called on `Typing`/`MessageCreated` SSE events for the OPEN
+/// (M4/T7). Called on `Typing`/`MessageCreated` SSE events for the OPEN
 /// channel, and only when the RECEIVER's pref is on — draft text rides this
 /// permission-checked fetch, never the id-only SSE bus.
 pub async fn get_typing_drafts(cid: &str) -> Result<Vec<TypingDraftEntry>, ApiError> {
@@ -430,7 +430,7 @@ pub async fn read_state() -> Result<ReadStateResponse, ApiError> {
     get("/channels/read-state").await
 }
 
-/// GET /unread — batched unread/ping summary for every visible text channel (W1).
+/// GET /unread — batched unread/ping summary for every visible text channel (M1).
 pub async fn get_unread() -> Result<UnreadResponse, ApiError> {
     get("/unread").await
 }

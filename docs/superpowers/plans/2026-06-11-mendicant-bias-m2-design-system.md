@@ -1,14 +1,14 @@
-# Mendicant Bias W2: Design System Implementation Plan
+# Mendicant Bias M2: Design System Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the Grimoire palette with the Void Station × Liquid Glass design system — semantic tokens, Duo typography (Space Grotesk chrome + Crimson Pro prose), glass/motion/aurora foundations, the `.fx-max` appearance-tier scaffolding, and the inline-SVG icon module — leaving the app fully usable and visually coherent for W3/W4 to build on.
+**Goal:** Replace the Grimoire palette with the Void Station × Liquid Glass design system — semantic tokens, Duo typography (Space Grotesk chrome + Crimson Pro prose), glass/motion/aurora foundations, the `.fx-max` appearance-tier scaffolding, and the inline-SVG icon module — leaving the app fully usable and visually coherent for M3/M4 to build on.
 
-**Architecture:** Token-level swap with a SEMANTIC RENAME (`--parchment`→`--void`, `--gold`→`--accent`, …) applied mechanically across all partials, plus tokenization of the 9 hardcoded rgba escape vectors the audit found. New `_foundation.scss` (glass/aurora utilities) and `_motion.scss` (keyframes + reduced-motion kill) partials. Appearance tier = one localStorage pref + one root class. Icons = always-on Leptos components (`src/ui/icons.rs`), one proof-site swap now, mass adoption in W3/W4.
+**Architecture:** Token-level swap with a SEMANTIC RENAME (`--parchment`→`--void`, `--gold`→`--accent`, …) applied mechanically across all partials, plus tokenization of the 9 hardcoded rgba escape vectors the audit found. New `_foundation.scss` (glass/aurora utilities) and `_motion.scss` (keyframes + reduced-motion kill) partials. Appearance tier = one localStorage pref + one root class. Icons = always-on Leptos components (`src/ui/icons.rs`), one proof-site swap now, mass adoption in M3/M4.
 
 **Tech Stack:** dart-sass via cargo-leptos (`style-file = "style/main.scss"`), CSS custom properties, fontsource woff2 (SIL OFL), Leptos view! SVG.
 
-**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §1, §12 W2. Reference mockups: `docs/superpowers/specs/assets/2026-06-10-mendicant-bias/final-design-v4.html`.
+**Spec:** `docs/superpowers/specs/2026-06-10-mendicant-bias-design.md` §1, §12 M2. Reference mockups: `docs/superpowers/specs/assets/2026-06-10-mendicant-bias/final-design-v4.html`.
 
 **Gates (no wasm test harness for SCSS/UI):** `cargo leptos build` (dart-sass compiles), grep-gates (zero old-token references; every consumed `var(--x)` defined), clippy ssr+hydrate+freya, full ssr suite green, visual smoke screenshots via the node-playwright harness in `/tmp/nova-gif/` (NEVER against prod).
 
@@ -28,7 +28,7 @@
 ```scss
 // Design tokens — the only file in `style/` that carries hex literals.
 //
-// W2 (mendicant-bias): values + NAMES are now the **Void Station palette**
+// M2 (mendicant-bias): values + NAMES are now the **Void Station palette**
 // (deep-space graphite, electric-blue accent with restrained glow, Duo
 // typography). Token names are semantic (--void/--surface/--accent…) so the
 // next redesign is again a value-only edit of THIS FILE.
@@ -97,7 +97,7 @@ $accent: #4d9fff;
 	--overlay: rgba(14, 18, 26, 0.9); // lightbox/floating control chips
 	--scrim: rgba(4, 6, 10, 0.6); // mobile drawer / modal backdrops
 
-	// Aurora ambience (W2: static tint; .fx-max animates it)
+	// Aurora ambience (M2: static tint; .fx-max animates it)
 	--aurora-1: rgba(22, 33, 58, 0.85); // blue nebula tint (top-right)
 	--aurora-2: rgba(13, 37, 48, 0.7); // teal nebula tint (bottom-left)
 
@@ -248,7 +248,7 @@ EB Garamond retires with the Grimoire look. UI chrome (body default)
 is now Space Grotesk 400/600; the story itself — message text, composer,
 lorebook, persona descriptions — stays Crimson Pro via --font-prose.
 
-Tests: zero eb-garamond references; cargo leptos build; visual smoke in W2 verification"
+Tests: zero eb-garamond references; cargo leptos build; visual smoke in M2 verification"
 ```
 
 ---
@@ -262,7 +262,7 @@ Tests: zero eb-garamond references; cargo leptos build; visual smoke in W2 verif
 - [ ] **Step 3.1: Create `style/_foundation.scss`:**
 
 ```scss
-// Void Station material foundations (W2). Glass is for CHROME (topbar,
+// Void Station material foundations (M2). Glass is for CHROME (topbar,
 // tabbar, sheets, modals) — prose cards stay opaque (--card) for legibility
 // and battery; see spec §1. Consumers opt in via @include glass / .glass.
 @use "sass:meta";
@@ -294,8 +294,8 @@ Tests: zero eb-garamond references; cargo leptos build; visual smoke in W2 verif
 		var(--void);
 }
 
-// Appearance tier: .fx-max escalates ambience. W2 ships the scaffolding +
-// the first demonstrative effects; W5/W11 add the full Eye-candy set here.
+// Appearance tier: .fx-max escalates ambience. M2 ships the scaffolding +
+// the first demonstrative effects; M5/M11 add the full Eye-candy set here.
 .app.fx-max::before {
 	animation: aurora-drift 9s ease-in-out infinite alternate;
 }
@@ -308,8 +308,8 @@ Tests: zero eb-garamond references; cargo leptos build; visual smoke in W2 verif
 - [ ] **Step 3.2: Create `style/_motion.scss`:**
 
 ```scss
-// Motion library (W2): shared keyframes + the reduced-motion kill switch.
-// Components reference these names; .fx-max layers more in W5/W11.
+// Motion library (M2): shared keyframes + the reduced-motion kill switch.
+// Components reference these names; .fx-max layers more in M5/M11.
 
 @keyframes aurora-drift {
 	from {
@@ -375,7 +375,7 @@ git add style/ && git commit -m "feat(design): glass, aurora, and motion foundat
 the app (static in Standard, drifting under .fx-max); shared fx-
 keyframes with a scoped prefers-reduced-motion kill.
 
-Tests: token grep-gate; cargo leptos build; visual smoke in W2 verification"
+Tests: token grep-gate; cargo leptos build; visual smoke in M2 verification"
 ```
 
 ---
@@ -389,7 +389,7 @@ Tests: token grep-gate; cargo leptos build; visual smoke in W2 verification"
 
 ```rust
     /// When on, the `.fx-max` root class unlocks the Eye-candy appearance
-    /// tier (animated aurora, stronger glows; W5/W11 add the full set).
+    /// tier (animated aurora, stronger glows; M5/M11 add the full set).
     /// Standard is the default. Persisted to localStorage.
     pub(crate) eyecandy: RwSignal<bool>,
 ```
@@ -432,7 +432,7 @@ class:fx-max=move || s.prefs.eyecandy.get()
 git add src/ui/ && git commit -m "feat(client): .fx-max appearance-tier scaffolding
 
 authlyn.eyecandy pref (localStorage, default Standard), root-class hook,
-and the Account toggle. The tier's full effect set lands in W5/W11; W2
+and the Account toggle. The tier's full effect set lands in M5/M11; M2
 ships drifting aurora + stronger active-glows as proof.
 
 Tests: clippy clean on all three graphs; ssr suite green (stub parity)"
@@ -449,11 +449,11 @@ Tests: clippy clean on all three graphs; ssr suite green (stub parity)"
 - [ ] **Step 5.1: Create `src/ui/icons.rs`** — always-on (ssr+hydrate; NO ssr-only imports), stroke-based 24-viewBox icons inheriting `currentColor`. Component skeleton (repeat for each icon with its path data):
 
 ```rust
-//! Inline-SVG icon components (W2 design system). Stroke-based, 24×24
+//! Inline-SVG icon components (M2 design system). Stroke-based, 24×24
 //! viewBox, `currentColor` — they inherit text color and scale with
 //! font-size via `width/height: 1em` units in CSS (size with font-size or
 //! an explicit class). Always-on module: pure view code, zero ssr crates.
-//! W3/W4 replace the legacy text glyphs (↑ ↓ ⤒ ⤓ ✕ ✓ 🗑) with these.
+//! M3/M4 replace the legacy text glyphs (↑ ↓ ⤒ ⤓ ✕ ✓ 🗑) with these.
 
 use leptos::prelude::*;
 
@@ -498,13 +498,13 @@ icon!(/// Reorder: to bottom (replaces "⤓").
     IconToBottom, r#"<path d="M5 19h14M12 5v10M7 11l5 5 5-5"/>"#);
 icon!(/// Settings / preferences.
     IconSettings, r#"<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>"#);
-icon!(/// Chat tab (W3 mobile nav).
+icon!(/// Chat tab (M3 mobile nav).
     IconChat, r#"<path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>"#);
-icon!(/// Servers tab (W3 mobile nav).
+icon!(/// Servers tab (M3 mobile nav).
     IconServers, r#"<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>"#);
-icon!(/// Friends tab (W3 mobile nav).
+icon!(/// Friends tab (M3 mobile nav).
     IconFriends, r#"<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M21.5 20a6.5 6.5 0 0 0-4.5-6.2"/>"#);
-icon!(/// Personas tab (W3 mobile nav).
+icon!(/// Personas tab (M3 mobile nav).
     IconPersonas, r#"<path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9L9.5 8z"/>"#);
 icon!(/// Notifications / bell.
     IconBell, r#"<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0"/>"#);
@@ -514,7 +514,7 @@ CAVEAT: if Leptos's `view!` rejects `inner_html` on `<svg>` in this version, fal
 
 - [ ] **Step 5.2:** `src/ui/mod.rs`: add `pub mod icons;` matching the existing module list style. Add a base rule to `style/_base.scss`: `.icon { width: 1.1em; height: 1.1em; vertical-align: -0.18em; }`.
 
-- [ ] **Step 5.3: Proof site:** in `src/ui/shell/account.rs`, replace the modal close button's `"✕"` text child with `<crate::ui::icons::IconClose/>` (import per file style). EXACTLY ONE site — the rest are W3/W4.
+- [ ] **Step 5.3: Proof site:** in `src/ui/shell/account.rs`, replace the modal close button's `"✕"` text child with `<crate::ui::icons::IconClose/>` (import per file style). EXACTLY ONE site — the rest are M3/M4.
 
 - [ ] **Step 5.4: Gates + commit:** clippy ×3 clean (icons are always-on: the freya graph compiles `ui`? CHECK — if `src/ui/` is NOT in the freya graph (native has its own ui), freya clippy is unaffected; verify and note). ssr suite green; `cargo leptos build` ok.
 
@@ -523,9 +523,9 @@ git add src/ui/ style/_base.scss && git commit -m "feat(design): inline-SVG icon
 
 18 stroke-based currentColor icons (24-viewBox) as always-on Leptos
 components; the account modal's close glyph is the integration proof.
-W3/W4 retire the remaining text glyphs.
+M3/M4 retire the remaining text glyphs.
 
-Tests: clippy clean (all graphs); ssr suite green; visual smoke in W2 verification"
+Tests: clippy clean (all graphs); ssr suite green; visual smoke in M2 verification"
 ```
 
 ---
@@ -546,7 +546,7 @@ Tests: zero #221c16 references remain"
 
 ---
 
-### Task 7: W2 verification gate + visual smoke
+### Task 7: M2 verification gate + visual smoke
 
 **Files:** none (verification; screenshots as deliverables)
 
@@ -562,13 +562,13 @@ cargo fmt --all --check && cargo clippy --features ssr 2>&1 | tail -1 \
 
 Expected: clean, 22 ok suites, release build completes (wasm-opt included — first --release of the branch).
 
-- [ ] **Step 7.2: Visual smoke** (local dev server + the node-playwright harness at `/tmp/nova-gif/` — pattern from W1's smoke; NEVER prod): `cargo leptos watch` in background → screenshot `/login` (Void Station auth card), register a throwaway account → screenshot the shell (rail/sidebar/content in new palette + aurora), toggle Eye-candy in the account modal → screenshot with `.fx-max` active, and confirm in the DOM that `.app.fx-max` is set and Space Grotesk loaded (`document.fonts.check('1em "Space Grotesk"')`). Save PNGs to `/tmp/w2-smoke-*.png`. Eyeball: prose (message text) still serif; no unreadable contrast; no leftover parchment-brown surfaces.
+- [ ] **Step 7.2: Visual smoke** (local dev server + the node-playwright harness at `/tmp/nova-gif/` — pattern from M1's smoke; NEVER prod): `cargo leptos watch` in background → screenshot `/login` (Void Station auth card), register a throwaway account → screenshot the shell (rail/sidebar/content in new palette + aurora), toggle Eye-candy in the account modal → screenshot with `.fx-max` active, and confirm in the DOM that `.app.fx-max` is set and Space Grotesk loaded (`document.fonts.check('1em "Space Grotesk"')`). Save PNGs to `/tmp/m2-smoke-*.png`. Eyeball: prose (message text) still serif; no unreadable contrast; no leftover parchment-brown surfaces.
 
 - [ ] **Step 7.3: Wrap-up:** kill the dev server; update CLAUDE.md's identity/conventions ONLY if something it states became false (the palette isn't described there — likely no edit); final commit if needed; the orchestrator pushes and runs the final wave review.
 
 ---
 
-## Done = W2 exit criteria
+## Done = M2 exit criteria
 
 1. App fully usable in the Void Station palette: dark graphite surfaces, electric-blue accent, luminous tints, aurora layer, glass+motion foundations available.
 2. Duo typography live: Space Grotesk chrome, Crimson Pro prose, EB Garamond gone.
@@ -578,4 +578,4 @@ Expected: clean, 22 ok suites, release build completes (wasm-opt included — fi
 6. Full gate green incl. a `--release` build (wasm-opt path exercised).
 7. Visual smoke screenshots delivered to the owner.
 
-**Next plan:** W3 (shell & navigation — hybrid mobile nav, desktop reskin, directional bubbles) written against the post-W2 tree.
+**Next plan:** M3 (shell & navigation — hybrid mobile nav, desktop reskin, directional bubbles) written against the post-M2 tree.

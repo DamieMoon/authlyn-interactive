@@ -15,7 +15,7 @@ use crate::server::state::AppState;
 
 use super::{channel_access, AccessOutcome, MAX_ATTACHMENTS, MAX_BODY_CHARS};
 
-/// The full set of valid message effects (W4/T5) — must match the
+/// The full set of valid message effects (M4/T5) — must match the
 /// `message.effect` ASSERT in `storage/schema.surql`. Validated HERE so an
 /// unknown value is a clean 400 (the DB ASSERT alone would surface as a 500).
 const MESSAGE_EFFECTS: [&str; 3] = ["whisper", "shout", "spell"];
@@ -62,7 +62,7 @@ pub async fn post_message(
         return error_response(StatusCode::BAD_REQUEST, "too many attachments");
     }
 
-    // Delivery effect (W4/T5): absent / empty-after-trim means "no effect"
+    // Delivery effect (M4/T5): absent / empty-after-trim means "no effect"
     // (mirroring `reply_to_id`); anything else must be in the known set, else
     // 400 — server-validated like every other body field, never trusted to
     // the DB ASSERT. Pure body validation (no DB), so it may precede the gate.
@@ -185,7 +185,7 @@ pub async fn post_message(
         Ok(id) => {
             // The composed text just landed as a real message: drop the
             // author's Ghost Quill draft so no ghost row lingers beside it
-            // for up to the TTL (W4/T7 clear-on-send).
+            // for up to the TTL (M4/T7 clear-on-send).
             super::typing::clear_draft(&state, &cid, &account.0);
             // Fire-and-forget Web Push to the guild's other members (#30). Never
             // blocks or fails the send; a no-op when push is disabled.
@@ -407,7 +407,7 @@ async fn resolve_mentions(
 /// True when every id in `ids` names an existing `media_blob` (empty → true).
 /// Stops a message from persisting a dangling attachment reference.
 ///
-/// W5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
+/// M5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
 /// SurrealDB plans a per-record `RecordIdScan` (Union of PK lookups, gated
 /// by `id IS NOT NONE` to drop missing rows) instead of a full `TableScan`
 /// — which was the actual plan for `WHERE meta::id(id) IN $ids` (verified

@@ -30,7 +30,7 @@ pub fn open_channel(s: Shell, ch: ChannelSummary) {
 /// anything — the channel's messages / lore entries are already in state from
 /// when it was opened. Hardcoding `Pane::Channel` in the tab handler showed
 /// the previous text channel's messages (and composer target) under a
-/// lorebook channel's header (review W3/T5). With no channel selected (a
+/// lorebook channel's header (review M3/T5). With no channel selected (a
 /// fresh mobile session lands on Friends) there is nothing to show, so open
 /// the channel sheet for the user to pick one instead of rendering an empty
 /// `ChannelPane` with a dead composer.
@@ -109,7 +109,7 @@ pub fn save_draft(s: Shell, text: &str) {
 #[cfg(feature = "hydrate")]
 pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     use super::super::Pane;
-    // W4/T4 radial: a long-press armed in the OUTGOING channel must not fire
+    // M4/T4 radial: a long-press armed in the OUTGOING channel must not fire
     // over the incoming pane (its envelope/cid are stale — a cross-channel
     // reply banner), and an already-open menu must not survive the switch.
     // Bumps the LongPress generation + closes the menu; no-op when no
@@ -129,8 +129,8 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // commits. Only adopt the server's remembered persona when SWITCHING
     // to a different channel. Also gates the warp below.
     let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
-    // W4/T3: warp transition — flag the content pane as switching so the dip
-    // (and the .fx-max streak) plays over the message-list swap. W5/P0 #54
+    // M4/T3: warp transition — flag the content pane as switching so the dip
+    // (and the .fx-max streak) plays over the message-list swap. M5/P0 #54
     // rebased the class from `.content` onto the inner `.channel-view` wrapper
     // (channel/mod.rs) so .content stays transform-free; the warp dip is now
     // scoped to the channel stream (the lorebook pane no longer dips).
@@ -141,12 +141,12 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // synchronous body — which sets the pane and clears the messages — has
     // yielded. A rapid second switch inside the window has its warp cut to
     // the first timer's remainder — cosmetic, not worth a generation counter
-    // (unlike the send pulse, W4/T2, whose truncation earned one).
+    // (unlike the send pulse, M4/T2, whose truncation earned one).
     if !same_channel {
-        // W5/P2: set the directional warp sign (deferred from Foundation T0.2)
+        // M5/P2: set the directional warp sign (deferred from Foundation T0.2)
         // from the channel-list index direction of this switch. Written on the
         // document root so `.channel-view.fx-switching` (_content.scss:46) reads
-        // it. Visible in orbit (swipe strip + warp); harmless under W3.
+        // it. Visible in orbit (swipe strip + warp); harmless under M3.
         {
             let chans = s.sel.channels.get_untracked();
             let from_idx = s
@@ -224,7 +224,7 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
         s.msg.typing.set(Vec::new());
-        // …and the previous channel's Ghost Quill rows (W4/T7): ghosts are
+        // …and the previous channel's Ghost Quill rows (M4/T7): ghosts are
         // channel-scoped and must never leak across a switch.
         s.msg.ghost_drafts.set(Vec::new());
         // Opening clears the unread glow, the ping glow, and the count badge at

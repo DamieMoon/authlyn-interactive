@@ -1,4 +1,4 @@
-//! W4/T4 radial long-press action menu (touch). On coarse-pointer devices a
+//! M4/T4 radial long-press action menu (touch). On coarse-pointer devices a
 //! ~450ms press on a `.msg` row blossoms a glass arc of action buttons around
 //! the touch point, replacing the hover-revealed `.msg-actions` row (hidden
 //! under `(pointer: coarse)` in `_content.scss`). Which buttons appear comes
@@ -361,7 +361,7 @@ fn pointer_made(ev: &leptos::ev::MouseEvent) -> bool {
 /// `message_actions` predicate. Escape closes (the lightbox pattern: the
 /// container is focused on open, so its own keydown hears it). Icons are
 /// `aria-hidden` (see `icons.rs`), so each button carries an explicit
-/// `aria-label` (W3 review convention).
+/// `aria-label` (M3 review convention).
 ///
 /// `armed` is the manufactured-click guard, created ONCE at pane scope by
 /// the caller (allocating it per render would leak an arena slot per open).

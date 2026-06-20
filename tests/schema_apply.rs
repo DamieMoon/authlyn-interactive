@@ -48,7 +48,7 @@ async fn schema_applies_and_kind_guard_holds() {
 }
 
 /// `message.kind` (the user/system/roll discriminator) carries the same enum
-/// ASSERT guard as `channel.kind`: 'user'/'system'/'roll' (W4/T6) accepted,
+/// ASSERT guard as `channel.kind`: 'user'/'system'/'roll' (M4/T6) accepted,
 /// anything else rejected on the pinned beta.
 #[cfg(feature = "ssr")]
 #[tokio::test]
@@ -159,7 +159,7 @@ async fn applying_kind_over_populated_messages_materialises_without_wiping_attac
     );
 }
 
-/// W4/T6 (Fate Engine): the widened `message.kind` enum (`'roll'` added) must
+/// M4/T6 (Fate Engine): the widened `message.kind` enum (`'roll'` added) must
 /// reach a database whose `kind` field ALREADY EXISTS with the old two-value
 /// ASSERT — exactly prod's state at deploy time. A `DEFINE FIELD IF NOT
 /// EXISTS` is a no-op there (the field exists, so the old ASSERT silently
@@ -240,7 +240,7 @@ async fn widened_kind_assert_reaches_a_db_where_kind_already_exists() {
     assert_eq!(row.kind, "user", "legacy kind backfill still lands");
 }
 
-/// W4/T5 (message effects): adding the `option<string>` `effect` field to the
+/// M4/T5 (message effects): adding the `option<string>` `effect` field to the
 /// POPULATED `message` table must need NO backfill — NONE is a valid value for
 /// an `option<>` field, so the existing first backfill stays untouched and a
 /// legacy row survives the apply with `effect = NONE` and its other fields
@@ -610,7 +610,7 @@ async fn applying_schema_over_account_with_security_fields_purges_them_without_c
         .expect("change-password on a purged legacy account must be accepted");
 }
 
-/// W4/T5: the `message.effect` enum guard — `option<string>` with
+/// M4/T5: the `message.effect` enum guard — `option<string>` with
 /// `ASSERT $value = NONE OR $value IN ['whisper','shout','spell']` on the
 /// pinned beta. NONE (the everyday effect-less send) and each known effect are
 /// accepted AND persist; an out-of-set value is rejected.
@@ -715,7 +715,7 @@ async fn nova_dot_system_account_is_seeded_and_cannot_log_in() {
     );
 }
 
-/// W5 review M-37: the `guild_member_account` index (the account-only lookup
+/// M5 review M-37: the `guild_member_account` index (the account-only lookup
 /// `access::visible_channels` runs on every /events connect, ListsChanged
 /// visibility reload, and GET /unread) must land on a database whose
 /// `guild_member` table is ALREADY POPULATED — exactly prod's state at deploy

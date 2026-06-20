@@ -1,4 +1,4 @@
-//! W4/T7 Ghost Quill integration tests: the ephemeral typing-draft store
+//! M4/T7 Ghost Quill integration tests: the ephemeral typing-draft store
 //! behind `POST /channels/{cid}/typing` (optional `draft` body field) and
 //! `GET /channels/{cid}/typing-drafts`.
 //!
@@ -9,7 +9,7 @@
 //! (no 8s sleeps), clear-on-send (message, roll, and edit — review M-02),
 //! the bare ping staying wire-compatible while clearing any stored draft,
 //! the empty-string clear, the 2000-char truncation cap (char-boundary
-//! safe), the whisper-armed draft mask (review M-01 — the W4 "extend the
+//! safe), the whisper-armed draft mask (review M-01 — the M4 "extend the
 //! mask to any NEW body-preview surface" invariant), and the per-channel
 //! scoping clause that keeps one channel's drafts out of every other
 //! channel's fetch (review M-15 — cross-guild AND same-guild).
@@ -293,7 +293,7 @@ async fn empty_string_draft_on_ping_clears_the_stored_entry() {
     );
 }
 
-/// Review M-01 (W4 whisper invariant): a draft composed with the whisper
+/// Review M-01 (M4 whisper invariant): a draft composed with the whisper
 /// effect ARMED is the exact spoiler the hidden-until-tapped feature
 /// protects — it must never be served in plaintext to the very audience the
 /// sent whisper will be veiled from. The server masks it to the SAME fixed

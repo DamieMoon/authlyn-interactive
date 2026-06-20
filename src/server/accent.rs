@@ -1,4 +1,4 @@
-//! W5/P2 per-server accent palette (Open Question #5). The accent is a name
+//! M5/P2 per-server accent palette (Open Question #5). The accent is a name
 //! from the same 8-color markup palette as `persona.color` / the `--tint-*`
 //! CSS tokens (`style/_tokens.scss`). Validated here server-side (the schema
 //! field carries no ASSERT, mirroring persona.color); the empty string clears

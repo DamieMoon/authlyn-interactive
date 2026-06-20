@@ -1,8 +1,8 @@
-// Orbit chat bubbles + effect retint — extracted from _sk_orbit.scss (W5/P2
+// Orbit chat bubbles + effect retint — extracted from _sk_orbit.scss (M5/P2
 // SCSS split): the chat-card LOOK for `.app.sk-orbit .messages`, owned by the
 // chat-surface rebuild. Orbit chrome (pill/composer/orb/map/station) lives in
 // `_sk_orbit_chrome.scss`. Both are `.app.sk-orbit`-scoped, @use'd after the
-// W3 nav partials in main.scss (cascade unchanged from the pre-split file).
+// M3 nav partials in main.scss (cascade unchanged from the pre-split file).
 @use "tokens" as *;
 @use "foundation" as *;
 
@@ -10,7 +10,7 @@
 // .msg.shout / .msg.spell, a-orbit.html:82-115) ----
 // EVERYTHING here is scoped under `.app.sk-orbit .messages` so it can only ever
 // touch THIS skeleton's chat — the deck/hud sessions and the other skeletons
-// keep the W4 base effects from `_content.scss` untouched. These rules LAYER on
+// keep the M4 base effects from `_content.scss` untouched. These rules LAYER on
 // top of that base, which makes the `.msg` card ITSELF the bubble surface (it
 // carries background/border/radius/padding — `_content.scss` ".msg"; the `.text`
 // span is just the prose inside). So bubble chrome (radius/padding/border/bg/
@@ -23,7 +23,7 @@
 // Bubble geometry (the prototype's `.bubble`, a-orbit.html:82-83): 18px radius,
 // prose padding 10px 15px, body 17.5px. Skip the full-width system/roll rows
 // (banners, not bubbles) for radius/padding so they keep their own composition.
-// Top reserve (W5/P2 cross-agent fix with A2's chrome rebuild): the channel
+// Top reserve (M5/P2 cross-agent fix with A2's chrome rebuild): the channel
 // pill is NO LONGER a `position:fixed` float over this list — A2 rebuilt it into
 // the IN-FLOW sticky header row of the `.sk-orbit-content` flex column
 // (`_sk_orbit_chrome.scss` `.sk-orbit-pill`), which already reserves real layout
@@ -180,7 +180,7 @@
 	box-shadow: 0 0 8px var(--tint-purple);
 }
 
-// ---- W5/P2 message meta + roll chip + whisper hint (the prototype's .meta /
+// ---- M5/P2 message meta + roll chip + whisper hint (the prototype's .meta /
 // .roll .chip / .whint, a-orbit.html:79-123) ----
 // Avatars: the prototype's chat is name-only — hide the reused ChannelPane
 // avatar disc under orbit ONLY (deck/hud + the persona-info popup keep it).

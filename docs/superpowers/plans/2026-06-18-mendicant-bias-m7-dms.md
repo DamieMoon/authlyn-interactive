@@ -2,9 +2,9 @@
 
 ## Context
 
-M7 = the spec's **W7 "DMs & Fellowship"** wave (identity-map W#≡M#; W6 Identity shipped as M6). The full wave is DMs/groups + the 8-feature Fellowship lens (§9.7) + Constellation Map — too large for one plan. **Owner ruling: this plan is scoped to DMs-core as P1**, the hard architectural predecessor; the Fellowship features get their own later plans.
+M7 = the spec's **M7 "DMs & Fellowship"** wave (identity-map W#≡M#; M6 Identity shipped as M6). The full wave is DMs/groups + the 8-feature Fellowship lens (§9.7) + Constellation Map — too large for one plan. **Owner ruling: this plan is scoped to DMs-core as P1**, the hard architectural predecessor; the Fellowship features get their own later plans.
 
-Why DMs first: they are the one piece that changes the channel/membership *substrate* — `channel.guild` stops being mandatory and a second membership model appears. Everything the Fellowship features touch (channels, messages, presence, push) sits on top of that substrate, and the spec makes **W5 + the DM substrate** the precondition for later UI waves.
+Why DMs first: they are the one piece that changes the channel/membership *substrate* — `channel.guild` stops being mandatory and a second membership model appears. Everything the Fellowship features touch (channels, messages, presence, push) sits on top of that substrate, and the spec makes **M5 + the DM substrate** the precondition for later UI waves.
 
 **The decisive finding from exploration:** message/read-state/active-persona routes are already **channel-scoped** (`/channels/{cid}/messages`, `/channels/{cid}/mark-read`, `/channels/{cid}/active-persona` — `src/server/mod.rs:135-149`), *not* guild-scoped. A DM thread is just a `channel` with `kind='dm'` and `guild=NONE`. So the entire message/compose/cursor/soft-delete/attachment/persona/SSE/unread/push stack is **inherited verbatim** once two shared resolvers branch on `kind`. DMs need only a small *lifecycle* surface (`/dms` + a `dm_member` table) — there is **no parallel message API**.
 

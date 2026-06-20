@@ -287,7 +287,7 @@ pub struct NotificationInfo {
     /// SW maps it to `/media/{id}` as the notification's large image. `None`
     /// when the persona has no avatar — the SW then omits the image.
     pub sender_avatar_id: Option<String>,
-    /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None`. Read
+    /// Delivery effect (M4/T5): `whisper`/`shout`/`spell`, or `None`. Read
     /// so a whispered body can be masked before it rides the push payload
     /// (see [`Self::notification_body`]) — the same spoiler-leak guard as the
     /// reply-quote mask in `reading.rs` MSG_PROJECTION.
@@ -465,7 +465,7 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
 }
 
 /// Notification body: a trimmed snippet of the message, or a stand-in when the
-/// message is image-only (empty body). A whispered message (W4/T5
+/// message is image-only (empty body). A whispered message (M4/T5
 /// hidden-until-tapped spoiler) is masked FIRST — its secret must never appear
 /// in plaintext on a lock screen — using the same fixed `(whisper)`
 /// placeholder as the reply-quote guard in `reading.rs` MSG_PROJECTION, so
@@ -490,7 +490,7 @@ fn notification_body(body: &str, effect: Option<&str>) -> String {
 mod tests {
     use super::{notification_body, MAX_BODY_CHARS};
 
-    /// Spoiler-leak guard (W4/T5 review): a whispered message's hidden text
+    /// Spoiler-leak guard (M4/T5 review): a whispered message's hidden text
     /// must never ride the push payload onto the OS lock screen — the body is
     /// masked with the SAME fixed `(whisper)` placeholder as the reply-quote
     /// guard (`reading.rs` MSG_PROJECTION, pinned by

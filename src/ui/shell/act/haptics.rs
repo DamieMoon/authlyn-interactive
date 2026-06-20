@@ -1,4 +1,4 @@
-//! W5/P0 #19 Visual Haptics helper. Adds a vh-* class to an element and
+//! M5/P0 #19 Visual Haptics helper. Adds a vh-* class to an element and
 //! removes it on animationend (so it can re-fire). The visual form is the
 //! primary feedback language; where navigator.vibrate exists AND the user
 //! enabled the vibration enhancement, mirror to a designed pattern.
@@ -10,7 +10,7 @@ use gloo_storage::{LocalStorage, Storage};
 const KEY_HAPTIC_VIBRATE: &str = "authlyn.haptic_vibrate";
 
 /// The three feedback kinds in the app's haptic vocabulary. This is the
-/// forward-looking CONTRACT every future feature speaks; W5/P0 wires only one
+/// forward-looking CONTRACT every future feature speaks; M5/P0 wires only one
 /// live consumer (send-commit → `Thud`), so `Tick`/`Shimmer` are not yet
 /// constructed — the allow documents that they are vocabulary, not dead code
 /// (Initiative turns, Relay Baton, reactions received will speak them).

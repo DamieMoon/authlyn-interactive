@@ -1,4 +1,4 @@
-// Motion library (W2; W5/P0 #43 doctrine). Shared keyframes + the
+// Motion library (M2; M5/P0 #43 doctrine). Shared keyframes + the
 // reduced-motion kill switch. DOCTRINE: @keyframes may animate ONLY
 // transform/translate/rotate/scale/opacity — never box-shadow,
 // background-position, filter, width/height, top/left (all force layout or
@@ -7,7 +7,7 @@
 // `::after`, pulse only its opacity (see fx-glow-pulse + .composer
 // .send.sent::after + .msg.effect-spell .text::before). Enforced by
 // tests/style_lint.rs (authoritative, brace-aware) + .githooks/pre-commit
-// (fast gate). .fx-max layers more in W5/W11 — every new keyframe is born
+// (fast gate). .fx-max layers more in M5/M11 — every new keyframe is born
 // composite-cheap by this rule.
 
 @keyframes aurora-drift {
@@ -32,7 +32,7 @@
 	}
 }
 
-// W5/P0 #43: a glow PULSE must animate opacity, never box-shadow (a paint
+// M5/P0 #43: a glow PULSE must animate opacity, never box-shadow (a paint
 // property → per-frame repaint on the floor device). Each consumer carries
 // the MAX glow STATICALLY on a `::before`; this keyframe just breathes its
 // opacity 0.3 → 1 → 0.3. House technique: "pre-rendered glow" — see header.
@@ -70,7 +70,7 @@
 	}
 }
 
-// A tiny star circling a center point (W4: the typing-indicator
+// A tiny star circling a center point (M4: the typing-indicator
 // constellation; a-orbit.html `orbitDot`). The counter-rotate keeps the star
 // itself unrotated while it orbits at a per-dot radius read from `--orbit-r`
 // (prototype `--r`: 7 / 10 / 14px). One dot runs `animation-direction:
@@ -99,7 +99,7 @@
 	}
 }
 
-// Radial long-press menu open (W4/T4). Animates the standalone
+// Radial long-press menu open (M4/T4). Animates the standalone
 // `scale`/`rotate` properties on `.radial-menu` — the 0×0 anchor div fixed
 // at the press point — so the keyframe never collides with the buttons'
 // positioning `transform` (the per-slot rotate/translate arc in
@@ -125,7 +125,7 @@
 	}
 }
 
-// W5/P0 #54(c): warp streak sweeps a 20%-wide strip across the pane via
+// M5/P0 #54(c): warp streak sweeps a 20%-wide strip across the pane via
 // transform (composite-only), replacing the old background-position sweep.
 @keyframes fx-warp {
 	from {
@@ -141,7 +141,7 @@
 	}
 }
 
-// One-shot shout shake (W4/T5: `.msg.effect-shout`). A horizontal jolt that
+// One-shot shout shake (M4/T5: `.msg.effect-shout`). A horizontal jolt that
 // decays to rest — translateX only, so it composes with the row's flex
 // layout and never fights a positioning transform. The row carries no
 // transform at rest, so a killed/finished animation leaves it exactly put.
@@ -167,7 +167,7 @@
 	}
 }
 
-// Spell spark (W4/T5: the glowing dots on `.msg.effect-spell`). A tiny dot
+// Spell spark (M4/T5: the glowing dots on `.msg.effect-spell`). A tiny dot
 // drifts upward, brightening then fading out. Opacity is keyframed from a 0
 // BASE (the fx-warp pattern) so a killed or finished animation leaves NO
 // static dot behind — the reduced-motion kill below makes the sparks simply
@@ -186,7 +186,7 @@
 	}
 }
 
-// Roll-chip entrance (W4/T6: `.msg.roll`). A short pop-in with a slight
+// Roll-chip entrance (M4/T6: `.msg.roll`). A short pop-in with a slight
 // overshoot — translateY/scale only, and the row carries no transform at
 // rest (the fx-shout rule), so a killed/finished animation leaves it
 // exactly put. One-shot; replays on DOM re-entry like fx-shout (accepted
@@ -206,7 +206,7 @@
 	}
 }
 
-// Die tumble (W4/T6, .fx-max only: the 🎲 glyph on a roll chip). A full
+// Die tumble (M4/T6, .fx-max only: the 🎲 glyph on a roll chip). A full
 // spin with overshoot, riding the standalone `rotate`/`scale` properties
 // (the fx-blossom pattern) whose resting values are the defaults — so the
 // reduced-motion kill leaves the glyph upright and full-size.
@@ -240,7 +240,7 @@
 	}
 }
 
-// W5/P0 #19 Visual Haptics — the app's sound-free, vibration-free feedback
+// M5/P0 #19 Visual Haptics — the app's sound-free, vibration-free feedback
 // VOCABULARY. The visual form is PRIMARY (iOS PWAs have no navigator.vibrate);
 // Android mirrors each to a designed vibration behind a user toggle, never
 // exclusive content. UX-equality: identical feedback MEANING on POCO, iPhone,
@@ -289,7 +289,7 @@
 	}
 }
 
-// W5/P0 #19 + #43: vh-tick's glow blip is a STATIC box-shadow on a `::before`
+// M5/P0 #19 + #43: vh-tick's glow blip is a STATIC box-shadow on a `::before`
 // whose OPACITY pulses (never animate box-shadow). The `.vh-tick` element must
 // be position:relative for the `::before` to anchor (set in the class below).
 .vh-tick::before {
@@ -312,7 +312,7 @@
 	}
 }
 
-// ---- W5/P0 #19 Visual Haptics trigger classes + reduced-motion kill ----
+// ---- M5/P0 #19 Visual Haptics trigger classes + reduced-motion kill ----
 .vh-tick {
 	position: relative; // anchors the glow ::before (above)
 	animation: vh-tick 140ms var(--ease-quick) 1;
@@ -364,7 +364,7 @@
 // scale/rotate/opacity, whose resting values are the defaults. (The send
 // button's charge RING is exempt on purpose — it's a static fill bound to
 // typed length, state rather than motion.)
-// W5/P0 #43 pre-rendered-glow: the send-confirm pulse and the fx-max spell
+// M5/P0 #43 pre-rendered-glow: the send-confirm pulse and the fx-max spell
 // glow now breathe their OPACITY on pseudo-elements (the MAX box-shadow is
 // static there — fx-glow-pulse no longer animates box-shadow). The
 // element-level kill above can't reach pseudo-elements, so
@@ -372,19 +372,19 @@
 // listed explicitly. Killed, the glow sits static at full presence (state).
 // The warp-streak ::after is also explicit: the attribute selector matches
 // the .fx-switching ELEMENT, but its `animation: none` doesn't reach the
-// pseudo-element carrying fx-warp. (W5/P0 #54: the streak rebased from
+// pseudo-element carrying fx-warp. (M5/P0 #54: the streak rebased from
 // .content to .channel-view — the transformed pane — so this is now
 // `.channel-view.fx-switching::after`.)
 // (The STD .fx-switching dip is transition-based — _content.scss carries
 // its own reduced-motion guard.)
-// The W4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
+// The M4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
 // carry no "fx-" in the class string, and the spell sparks live on
 // pseudo-elements the element-level attribute kill can't reach. With these
 // killed: shout keeps its warm tint (state), spell keeps its glow (state)
 // while the sparks vanish entirely (their base opacity is 0), and whisper
 // never appears here at all — its blur+reveal is pure state and must keep
 // working under reduced-motion.
-// The W4/T6 roll chip is explicit for the same reason: `.msg.roll` and its
+// The M4/T6 roll chip is explicit for the same reason: `.msg.roll` and its
 // `.roll-die` glyph consume fx- keyframes (fx-roll-in / fx-die-tumble) but
 // carry no "fx-" in the class string. Killed, the chip simply sits at its
 // resting state — the glass styling is state, not motion.

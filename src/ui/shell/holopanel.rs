@@ -1,4 +1,4 @@
-//! W5/P0 #49 HoloPanel: one drag-summoned panel engine. Pointer drag maps to
+//! M5/P0 #49 HoloPanel: one drag-summoned panel engine. Pointer drag maps to
 //! a 0–1 progress (`--p` custom property; SCSS derives the per-edge
 //! transform). Velocity-based commit, scrim coupled to --p, tap-vs-drag
 //! disambiguation (7px slop), per-edge safe-area inset ownership, full a11y

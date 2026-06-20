@@ -72,8 +72,8 @@ pub fn send_message(s: Shell) {
         return;
     };
     let body = s.composer.compose.get_untracked();
-    // Fate Engine intercept (W4/T6): `/roll <expr>`, `/coin`, `/oracle` route
-    // to the server-rolled endpoint instead of a normal send. The W4/T5
+    // Fate Engine intercept (M4/T6): `/roll <expr>`, `/coin`, `/oracle` route
+    // to the server-rolled endpoint instead of a normal send. The M4/T5
     // effect picker value is IGNORED for rolls (a roll has no effect), the
     // reply banner clears like any send, and staged attachments stay staged —
     // a roll never carries them, so clearing would silently discard uploads.
@@ -120,7 +120,7 @@ pub fn send_message(s: Shell) {
     // `reply_to_id`, and the banner clears the moment we send.
     let reply_to_id = s.composer.replying_to.get_untracked().map(|r| r.id);
     s.composer.replying_to.set(None);
-    // Capture + RESET the delivery effect (W4/T5): an effect is a per-message
+    // Capture + RESET the delivery effect (M4/T5): an effect is a per-message
     // flourish, not a sticky mode — the picker returns to "no effect" the
     // moment the send is dispatched.
     let effect = s.composer.effect_mode.get_untracked();
@@ -152,7 +152,7 @@ pub fn send_message(s: Shell) {
 /// Shared post-send success path (normal sends AND rolls): the Send-button
 /// pulse plus the immediate catch-up fetch.
 ///
-/// W4/T2: send pulse — flip `.sent` on the Send button for one fx-glow-pulse
+/// M4/T2: send pulse — flip `.sent` on the Send button for one fx-glow-pulse
 /// cycle. Reset on a DETACHED timer so the post-send refresh round-trip below
 /// doesn't stretch the pulse. Generation-guarded (the `LongPress` pattern,
 /// channel/radial.rs): in a send burst an EARLIER timer firing mid-pulse would
@@ -177,7 +177,7 @@ async fn after_send_success(s: Shell, cid: &str) {
     let gen = s.composer.sent_gen.get_value().wrapping_add(1);
     s.composer.sent_gen.set_value(gen);
     s.composer.sent.set(true);
-    // W5/P0 #19 Visual Haptics — first live consumer of the vocabulary: fire a
+    // M5/P0 #19 Visual Haptics — first live consumer of the vocabulary: fire a
     // `vh-thud` (weighty land) on the Send button as the send commits. This is
     // REINFORCEMENT of the existing `.send.sent` glow pulse (above), not a
     // replacement; the haptic class removes itself on animationend so a burst
@@ -228,7 +228,7 @@ async fn after_send_success(s: Shell, cid: &str) {
     }
 }
 
-/// Parse a composer body into a Fate Engine expression (W4/T6), or `None` for
+/// Parse a composer body into a Fate Engine expression (M4/T6), or `None` for
 /// a normal send. `/roll <expr>` forwards the rest verbatim (the SERVER owns
 /// the grammar — an empty or bad tail surfaces its 400 in the status line);
 /// `/coin` and `/oracle` match bare or with a trailing space (so `/coined` is
@@ -429,7 +429,7 @@ fn forget_retry_file(key: u64) {
 /// The composer reply banner's parent snippet: the first 100 chars of the
 /// body — except a whispered parent, which shows the fixed `(whisper)`
 /// placeholder instead (review M-27). The banner is a body-preview surface,
-/// so the W4 whisper-mask invariant applies: it must match what the
+/// so the M4 whisper-mask invariant applies: it must match what the
 /// persisted quote will show (`MSG_PROJECTION`'s mask,
 /// `server/messages/reading.rs`), never leak the still-veiled spoiler text
 /// through the reply button. Pure; unit-tested below.
@@ -1260,7 +1260,7 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
     // a background tab keeps receiving events at full network rate (unlike
     // the poll-era setTimeout, which browsers throttle/freeze when hidden),
     // so marking here would wipe the unread glow on every other device for
-    // messages no human saw — the same cross-device class W3 ruled a bug for
+    // messages no human saw — the same cross-device class M3 ruled a bug for
     // the sheet flow (reentry.rs's "standing warning"). Skip the local map
     // AND the server POST; the foregrounding wake() pass re-marks via
     // `refresh_unread`'s open-channel prelude the moment the tab is actually
@@ -1290,7 +1290,7 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
 /// Recompute the unread set across EVERY guild the caller belongs to (#23).
 /// The open channel is always considered seen (advance its mark to the live
 /// cursor); every other text channel is "unread" iff the batched `GET /unread`
-/// summary (W1) says it has messages past the caller's read cursor. A channel
+/// summary (M1) says it has messages past the caller's read cursor. A channel
 /// this client has never seen is baselined to its current latest (no
 /// retroactive glow on first sight). One round-trip total — replaces the old
 /// per-channel `list_messages` probe loop.
@@ -1491,7 +1491,7 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
 /// guild's channel list — each written only when it changed, so things
 /// created or removed elsewhere appear/disappear without a manual reload.
 ///
-/// Guild-channel loading is LAZY (W1): only the open guild's detail is
+/// Guild-channel loading is LAZY (M1): only the open guild's detail is
 /// fetched (the old cross-guild `join_all` over every guild is gone — rail
 /// unread dots now come from `GET /unread`'s `guild_id` via
 /// `notify.unread_guilds`, see [`refresh_unread`]). The open guild's channels
@@ -1858,7 +1858,7 @@ fn reconcile_newest_window(s: Shell, page: Vec<MessageEnvelope>) {
     }
 }
 
-/// One Ghost Quill pass for the OPEN channel (W4/T7): fetch other members'
+/// One Ghost Quill pass for the OPEN channel (M4/T7): fetch other members'
 /// live drafts from `GET /typing-drafts` into their own `ghost_drafts` signal
 /// (never the real `messages` list). Receiver-side opt-in: with the pref OFF
 /// this clears any lingering ghosts and fetches NOTHING — the render is
@@ -2169,7 +2169,7 @@ mod tests {
 
     #[test]
     fn reply_banner_snippet_masks_a_whispered_parent_with_the_fixed_placeholder() {
-        // W4 whisper-mask invariant (review M-27): the composer reply banner
+        // M4 whisper-mask invariant (review M-27): the composer reply banner
         // is a body-preview surface — it must show the SAME fixed
         // placeholder the persisted quote will show, never the spoiler text.
         assert_eq!(

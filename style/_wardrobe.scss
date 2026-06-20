@@ -303,7 +303,7 @@
 // Gallery container sits inside .persona-detail > .field.gallery-field.
 // Thumbnails are square, auto-fill the available width; the pick button fills
 // each cell and the remove button overlaps the top-right corner.
-// Gallery region accepts paste (W7/B4): focusable so the user can click in
+// Gallery region accepts paste (M7/B4): focusable so the user can click in
 // and Ctrl+V. Subtle focus outline so the affordance is visible without
 // shouting; falls back gracefully on browsers that don't honor :focus-visible.
 .gallery-field {

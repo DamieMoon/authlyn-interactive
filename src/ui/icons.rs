@@ -1,8 +1,8 @@
-//! Inline-SVG icon components (W2 design system). Stroke-based, 24×24
+//! Inline-SVG icon components (M2 design system). Stroke-based, 24×24
 //! viewBox, `currentColor` — they inherit text color and scale with
 //! font-size via `width/height: 1em` units in CSS (size with font-size or
 //! an explicit class). Always-on module: pure view code, zero ssr crates.
-//! W3/W4 replace the legacy text glyphs (↑ ↓ ⤒ ⤓ ✕ ✓ 🗑) with these.
+//! M3/M4 replace the legacy text glyphs (↑ ↓ ⤒ ⤓ ✕ ✓ 🗑) with these.
 
 use leptos::prelude::*;
 
@@ -55,20 +55,20 @@ icon!(/// Settings / preferences — a toothed cog. (The earlier radiating-line
     /// version read as a SUN at ~12px; owner ruling 2026-06-17 — redraw as a
     /// proper gear: a lobed/toothed outline around a center hole.)
     IconSettings, r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>"#);
-icon!(/// Chat tab (W3 mobile nav).
+icon!(/// Chat tab (M3 mobile nav).
     IconChat, r#"<path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>"#);
-icon!(/// Servers tab (W3 mobile nav).
+icon!(/// Servers tab (M3 mobile nav).
     IconServers, r#"<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>"#);
-icon!(/// Friends tab (W3 mobile nav).
+icon!(/// Friends tab (M3 mobile nav).
     IconFriends, r#"<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M21.5 20a6.5 6.5 0 0 0-4.5-6.2"/>"#);
-icon!(/// Personas tab (W3 mobile nav).
+icon!(/// Personas tab (M3 mobile nav).
     IconPersonas, r#"<path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9L9.5 8z"/>"#);
 icon!(/// Notifications / bell.
     IconBell, r#"<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0"/>"#);
 
 // M6 affordance migration (owner directive 2026-06-17 — "Everything, incl.
 // dingbats"): every emoji/glyph UI control becomes an inline-SVG icon. The
-// set below replaces the inline composer/orbit/menu glyphs that the W2 system
+// set below replaces the inline composer/orbit/menu glyphs that the M2 system
 // never reached. Genuine emoji CONTENT (the picker grid, custom-emoji manager,
 // emoji typed into messages) is NOT an affordance and stays untouched.
 icon!(/// Attach a file (replaces "📎") — paperclip.

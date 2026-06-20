@@ -1,4 +1,4 @@
-//! W5/P2 directional warp sign (deferred from Foundation T0.2). The act layer
+//! M5/P2 directional warp sign (deferred from Foundation T0.2). The act layer
 //! sets `--warp-dir` (+1 / -1 / 0) from the channel-list index sign of a
 //! picker-driven switch; the incoming `.channel-view` slides from
 //! `translateX(calc(var(--warp-dir) * 6%))` (`_content.scss:46`). Pure — no DOM.

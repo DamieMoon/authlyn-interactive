@@ -280,7 +280,7 @@ pub struct SendMessageRequest {
     /// replying to a reply quotes that reply, not its own parent.
     #[serde(default)]
     pub reply_to_id: Option<String>,
-    /// Optional delivery effect (W4/T5): `"whisper"` (blurred until tapped),
+    /// Optional delivery effect (M4/T5): `"whisper"` (blurred until tapped),
     /// `"shout"` (shake + warm tint), or `"spell"` (glow + sparks). `None` /
     /// empty = an ordinary message. The server VALIDATES against that exact
     /// set; an unknown value is a 400 (mirroring the body checks). Purely
@@ -297,7 +297,7 @@ pub struct EditMessageRequest {
     pub body: String,
 }
 
-/// Body of `POST /channels/{cid}/roll` (W4/T6 Fate Engine). The server parses
+/// Body of `POST /channels/{cid}/roll` (M4/T6 Fate Engine). The server parses
 /// `expr` against a constrained grammar, rolls with ITS OWN RNG, and persists
 /// the formatted result as an immutable `kind='roll'` message — the client
 /// never computes (so can never forge) an outcome.
@@ -397,13 +397,13 @@ pub struct MessageEnvelope {
     pub is_pinged: bool,
     /// Message kind: `"user"` (a normal send), `"system"` (an app-admin "Nova
     /// DOT" broadcast, authored by the reserved bot account), or `"roll"` (a
-    /// W4/T6 Fate Engine dice result — authored, persona-aware, immutable).
+    /// M4/T6 Fate Engine dice result — authored, persona-aware, immutable).
     /// Drives distinct rendering and per-kind action gating. `#[serde(default)]`
     /// → `"user"` for the same post-ship wire-compat reason as the siblings above
     /// (and so older/native clients deserialize cleanly).
     #[serde(default = "default_message_kind")]
     pub kind: String,
-    /// Delivery effect picked at send time (W4/T5): `"whisper"`, `"shout"`, or
+    /// Delivery effect picked at send time (M4/T5): `"whisper"`, `"shout"`, or
     /// `"spell"`; `None` for an ordinary message (and on every legacy row —
     /// the field is `option<>` in the schema, no backfill). Drives rendering
     /// only (`effect-{name}` class on the message row). `#[serde(default)]`
@@ -466,7 +466,7 @@ pub struct ListMessagesResponse {
     pub active_persona: Option<String>,
 }
 
-/// Body of `POST /channels/{cid}/typing` (W4/T7 Ghost Quill). The ping has
+/// Body of `POST /channels/{cid}/typing` (M4/T7 Ghost Quill). The ping has
 /// been body-less since #19 and MUST stay wire-compatible: a bare POST (no
 /// body, no Content-Type) is still a plain "I am typing" stamp. When the
 /// SENDER has the Ghost Quill pref ON, the client attaches its current
@@ -481,7 +481,7 @@ pub struct TypingPingRequest {
     #[serde(default)]
     pub draft: Option<String>,
     /// The composer's currently ARMED delivery effect (review M-01) — the
-    /// same W4/T5 vocabulary as `SendMessageRequest.effect` (`whisper` /
+    /// same M4/T5 vocabulary as `SendMessageRequest.effect` (`whisper` /
     /// `shout` / `spell`). The server masks a whisper-armed `draft` to the
     /// fixed `(whisper)` placeholder BEFORE storing it, so the spoiler text
     /// of a message that will land hidden-until-tapped never streams live to
@@ -493,7 +493,7 @@ pub struct TypingPingRequest {
 }
 
 /// One live co-writer draft from `GET /channels/{cid}/typing-drafts`
-/// (W4/T7 Ghost Quill) — the endpoint returns a bare JSON array of these.
+/// (M4/T7 Ghost Quill) — the endpoint returns a bare JSON array of these.
 /// Only OTHER members' unexpired drafts appear (your own is excluded, like
 /// the typing indicator); `display_name` is resolved exactly like the typing
 /// names: the author's worn persona in this channel first, else their
@@ -1019,10 +1019,10 @@ pub struct ListFeedbackResponse {
 }
 
 // ---------------------------------------------------------------------------
-// SSE realtime bus (W1)
+// SSE realtime bus (M1)
 // ---------------------------------------------------------------------------
 
-/// W1 realtime: the id-only event vocabulary broadcast over `GET /events`.
+/// M1 realtime: the id-only event vocabulary broadcast over `GET /events`.
 /// Deliberately content-free (notify-and-fetch): clients react by refetching
 /// through the existing permission-checked endpoints, so this enum never
 /// becomes an authorization surface. Shared by ssr (emitter) and hydrate
@@ -1095,10 +1095,10 @@ impl SyncEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Batched unread summary (W1 — GET /unread)
+// Batched unread summary (M1 — GET /unread)
 // ---------------------------------------------------------------------------
 
-/// W1: one row per visible text channel in `GET /unread`. M7/P1: also DM
+/// M1: one row per visible text channel in `GET /unread`. M7/P1: also DM
 /// threads (`kind='dm'`), which have no guild — `guild_id` is then `None`, and
 /// the client routes that row to the DM-list badge instead of a guild rail dot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1125,7 +1125,7 @@ pub struct ChannelUnread {
     pub latest_id: Option<String>,
 }
 
-/// W1: response of `GET /unread`.
+/// M1: response of `GET /unread`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnreadResponse {
     pub channels: Vec<ChannelUnread>,

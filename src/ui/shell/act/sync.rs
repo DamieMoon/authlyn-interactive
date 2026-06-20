@@ -1,4 +1,4 @@
-//! W1 sync driver (hydrate-real / ssr no-op): an EventSource on /events
+//! M1 sync driver (hydrate-real / ssr no-op): an EventSource on /events
 //! dispatches notify-and-fetch refreshes; the legacy 1.5s poll loop remains
 //! the automatic fallback when SSE cannot hold a connection.
 //!
@@ -148,7 +148,7 @@ pub fn start_sync(s: Shell) {
     // even the no-EventSource poll path gets truthful wake refreshes.
     install_wake_listeners(s);
     if !connect(s, true) {
-        // No EventSource support — poll forever, as before W1. The live chip
+        // No EventSource support — poll forever, as before M1. The live chip
         // shows ● POLLING for the session (defensive set: false is also the
         // initial value). Resurrection probes no-op here too: a browser
         // without the constructor will not grow one mid-session.
@@ -267,7 +267,7 @@ fn connect(s: Shell, promote_at_birth: bool) -> bool {
             // the chip to ● POLLING for the disconnect/reconnect window (e.g.
             // a deploy restart) — `onopen` restores ● LIVE when the browser's
             // auto-reconnect lands. Without this the chip claims LIVE while
-            // disconnected (W3 whole-wave review). `try_set` (review M-10):
+            // disconnected (M3 whole-wave review). `try_set` (review M-10):
             // `Some` back means the shell was disposed without [`shutdown`]
             // running — this stream is orphaned, so stand down for good
             // instead of panicking on the dead signal.
@@ -588,12 +588,12 @@ fn dispatch(s: Shell, event: SyncEvent) {
         // ALSO the server's post-lag resync nudge (the bus dropped events on
         // us), so reconcile the open channel too — a dropped message_created
         // for the open pane would otherwise stay invisible until the next
-        // event happens to arrive (W1.5: completes the documented contract).
+        // event happens to arrive (M1.5: completes the documented contract).
         SyncEvent::ListsChanged => resync_truth(s),
-        // W1.5 account-targeted nudges: the caller's read cursor moved on
+        // M1.5 account-targeted nudges: the caller's read cursor moved on
         // ANOTHER device — refresh unread so this device's glow clears.
         SyncEvent::ReadStateChanged { .. } => message::refresh_unread(s),
-        // W1.5: the friends/requests list changed for this account.
+        // M1.5: the friends/requests list changed for this account.
         // refresh_lists refetches friends (cheap, and keeps one entry point).
         SyncEvent::FriendsChanged => message::refresh_lists(s),
         // Channel-scoped events: a change in the OPEN channel reconciles the
@@ -619,7 +619,7 @@ fn dispatch(s: Shell, event: SyncEvent) {
                     // reconcile below used to run here too, costing an
                     // uncursored 100-envelope length probe + a cursored
                     // fetch + drafts per ~2s ping per viewer — the same
-                    // storm the W1.5 review killed for NON-open channels.
+                    // storm the M1.5 review killed for NON-open channels.
                     spawn_local(async move {
                         refresh_typing_surface(s).await;
                     });
@@ -645,7 +645,7 @@ fn dispatch(s: Shell, event: SyncEvent) {
                         {
                             message::set_last_seen(s, &oc, cur);
                         }
-                        // Ghost Quill (W4/T7): a MessageCreated means the
+                        // Ghost Quill (M4/T7): a MessageCreated means the
                         // sender's draft was just cleared server-side —
                         // refetch (the helper no-ops with the pref off).
                         // Draft TEXT rides this permission-checked fetch
@@ -661,7 +661,7 @@ fn dispatch(s: Shell, event: SyncEvent) {
                     });
                 }
             } else if !matches!(event, SyncEvent::Typing { .. }) {
-                // W1.5: typing in a NON-open channel cannot change unread
+                // M1.5: typing in a NON-open channel cannot change unread
                 // state — skipping the refetch kills the 2s-cadence /unread
                 // storm one busy typist used to inflict on every member.
                 message::refresh_unread(s);
@@ -714,7 +714,7 @@ async fn refresh_typing_surface(s: Shell) {
             schedule_typing_clear(s);
         }
     }
-    // Ghost Quill (W4/T7): a fresh ping may carry fresh draft text — refetch
+    // Ghost Quill (M4/T7): a fresh ping may carry fresh draft text — refetch
     // (the helper no-ops with the pref off; draft TEXT rides only that
     // permission-checked fetch, the event itself stays id-only).
     message::refresh_ghost_drafts(s).await;
@@ -752,7 +752,7 @@ fn schedule_typing_clear(s: Shell) {
         // Ghost Quill rows share the typing cadence: when the typist STOPS
         // (no further pings, no further events) their server entry prunes at
         // the same ~8s TTL, but nothing would tell this client — so the same
-        // clearer refetches the drafts (now empty) just past it (W4/T7).
+        // clearer refetches the drafts (now empty) just past it (M4/T7).
         if s.msg.ghost_drafts.try_with_untracked(|g| !g.is_empty()) == Some(true) {
             message::refresh_ghost_drafts(s).await;
         }

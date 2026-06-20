@@ -19,8 +19,8 @@
 @use "modal";
 @use "msg_who";
 @use "mobile";
-@use "sk_orbit_chrome"; // W5/P2 Orbit chrome (pill/composer/orb/map/station) — after the W3 scaffolding it overrides
-@use "sk_orbit_chat"; // W5/P2 Orbit chat-card look — split from sk_orbit, loads right after chrome to preserve cascade
+@use "sk_orbit_chrome"; // M5/P2 Orbit chrome (pill/composer/orb/map/station) — after the M3 scaffolding it overrides
+@use "sk_orbit_chat"; // M5/P2 Orbit chat-card look — split from sk_orbit, loads right after chrome to preserve cascade
 @use "attachments";
 @use "skeleton";
 @use "holopanel";

@@ -941,7 +941,7 @@ async fn cursor_truncation_keeps_tie_rows_nearest_the_cursor_when_tie_and_range_
     );
 }
 
-/// Locks down the W5/H2 batch typing-name resolution: two typists are pinged
+/// Locks down the M5/H2 batch typing-name resolution: two typists are pinged
 /// into the channel; a third member polls and sees both names — and never
 /// themselves — using their username (no `display_name`, no worn persona,
 /// exercises the `??`-fallback chain). Indirectly proves the batched
@@ -1013,7 +1013,7 @@ async fn register_with_id(router: &axum::Router, name: &str) -> (String, String)
 }
 
 /// Boundary of the attachment cap: 100 attachments POST cleanly (201); 101 is
-/// rejected (400 "too many attachments"). Locks down the W7/B1 cap-raise
+/// rejected (400 "too many attachments"). Locks down the M7/B1 cap-raise
 /// (10 → 100) so a future drift back is caught.
 #[cfg(feature = "ssr")]
 #[tokio::test]
@@ -1572,10 +1572,10 @@ async fn list_messages_returns_attachment_mime_in_the_page_response() {
 }
 
 // ---------------------------------------------------------------------------
-// Message effects (W4/T5): whisper / shout / spell
+// Message effects (M4/T5): whisper / shout / spell
 // ---------------------------------------------------------------------------
 
-/// W4/T5: a message posted with a valid `effect` round-trips — the value rides
+/// M4/T5: a message posted with a valid `effect` round-trips — the value rides
 /// MSG_PROJECTION onto the list envelope — while an effect-less post and an
 /// empty-string `effect` (treated as absent, mirroring `reply_to_id`) both
 /// list `effect` as null.
@@ -1637,7 +1637,7 @@ async fn message_effect_round_trips_through_post_and_list() {
     );
 }
 
-/// W4/T5: an out-of-set `effect` is rejected with a 400 BEFORE any write —
+/// M4/T5: an out-of-set `effect` is rejected with a 400 BEFORE any write —
 /// server-side validation mirrors the body checks rather than leaning on the
 /// DB ASSERT (which would surface as a 500), and nothing is persisted.
 #[cfg(feature = "ssr")]
@@ -1676,7 +1676,7 @@ async fn unknown_message_effect_is_400_and_persists_nothing() {
     );
 }
 
-/// W4/T5 spoiler-leak guard: replying to a whispered message must NOT leak the
+/// M4/T5 spoiler-leak guard: replying to a whispered message must NOT leak the
 /// hidden text through the reply-quote preview — the projection masks the
 /// snippet with a fixed placeholder when the parent carries effect='whisper'.
 #[cfg(feature = "ssr")]

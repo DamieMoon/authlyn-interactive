@@ -73,7 +73,7 @@ pub async fn arena() -> Arena {
 }
 
 /// Like [`arena`] but with the Ghost Quill typing-draft TTL overridden
-/// (W4/T7). The TTL is a plain `Copy` field on `AppState`, so it MUST be set
+/// (M4/T7). The TTL is a plain `Copy` field on `AppState`, so it MUST be set
 /// before `make_router` clones the state — hence a dedicated constructor
 /// rather than mutating `Arena::state` afterwards. Lets the prune tests run
 /// in milliseconds instead of sleeping out the 8s production TTL.

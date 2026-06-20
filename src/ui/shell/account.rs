@@ -59,7 +59,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // Loaded when the modal opens. ----
     let inbox = RwSignal::new(None::<Vec<crate::protocol::FeedbackItem>>);
     // Pending feedback-archive id; `Some(id)` shows the in-modal confirm
-    // dialog (replaces the W3-era `window.confirm` blocking call, which was
+    // dialog (replaces the M3-era `window.confirm` blocking call, which was
     // inconsistent with the rest of the app's PendingDelete pattern).
     let pending_archive = RwSignal::new(None::<String>);
     Effect::new(move |_| {
@@ -228,7 +228,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Style roleplay dialogue"</span>
                     </label>
-                    // Ghost Quill (W4/T7): opt-in BOTH ways — this toggle
+                    // Ghost Quill (M4/T7): opt-in BOTH ways — this toggle
                     // governs sharing your own in-progress text AND seeing
                     // others'. Default OFF; the label spells out the privacy
                     // trade so opting in is informed.
@@ -241,7 +241,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Ghost Quill — share your in-progress drafts & see others' (live co-writing)"</span>
                     </label>
-                    // W5/P0 #19 Visual Haptics: the visual feedback is always
+                    // M5/P0 #19 Visual Haptics: the visual feedback is always
                     // primary; this opt-in mirrors it to navigator.vibrate where
                     // supported (Android — iOS PWAs have no vibrate). Default OFF.
                     <label class="pref-row">

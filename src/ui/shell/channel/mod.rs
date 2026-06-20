@@ -41,7 +41,7 @@ use meta::{message_meta, system_message_meta};
 use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
-// W5/P0 #54: the three former-fixed overlays (radial, lightbox, mobile emoji
+// M5/P0 #54: the three former-fixed overlays (radial, lightbox, mobile emoji
 // sheet) mount to document.body via <Portal> so .content can stay
 // transform-free and never trap them as a containing block.
 use leptos::portal::Portal;
@@ -72,7 +72,7 @@ fn display_name(m: &MessageEnvelope) -> String {
         .unwrap_or_else(|| m.author_display.clone())
 }
 
-/// The composer effect picker's cycle order (W4/T5): no effect → whisper →
+/// The composer effect picker's cycle order (M4/T5): no effect → whisper →
 /// shout → spell → back to none. Values match the server's validated set
 /// (`MESSAGE_EFFECTS` in `server/messages/posting.rs`).
 fn next_effect(cur: Option<&str>) -> Option<&'static str> {
@@ -131,7 +131,7 @@ impl MessageActions {
 /// Map a message `kind` (+ viewer ownership) to its action affordances.
 /// Conservative on purpose: ONLY `kind='user'` is mutable (edit/delete,
 /// owner-gated); `system` (Nova DOT) offers nothing — immutable, not
-/// repliable, matching its actionless meta row exactly; `roll` (W4/T6 Fate
+/// repliable, matching its actionless meta row exactly; `roll` (M4/T6 Fate
 /// Engine) is reply+copy only; any UNKNOWN/future kind gets reply+copy but
 /// NEVER edit/delete.
 fn message_actions(kind: &str, mine: bool) -> MessageActions {
@@ -282,7 +282,7 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
 }
 
 /// True on touch-primary (coarse-pointer) devices — phones/tablets. Shared
-/// touch detection for the composer's Enter behaviour and the W4/T4
+/// touch detection for the composer's Enter behaviour and the M4/T4
 /// long-press radial menu (`radial.rs` calls it via `super::is_touch`).
 #[cfg(feature = "hydrate")]
 fn is_touch() -> bool {
@@ -293,7 +293,7 @@ fn is_touch() -> bool {
 }
 
 /// True at the `≤768px` breakpoint where `_mobile_emoji.scss` turns the emoji
-/// picker into a `position: fixed` bottom sheet. W5/P0 #54 portals the picker
+/// picker into a `position: fixed` bottom sheet. M5/P0 #54 portals the picker
 /// to `document.body` ONLY in that case: a fixed sheet anchors to the viewport
 /// (so a body mount is correct and frees it from any pane transform), whereas
 /// the desktop popover is `position: absolute` anchored to the composer
@@ -429,7 +429,7 @@ fn supports_field_sizing_content() -> bool {
 }
 
 /// The composer emoji picker body (backdrop + searchable categorised grid),
-/// extracted (W5/P0 #54) so the open render can either keep it in place
+/// extracted (M5/P0 #54) so the open render can either keep it in place
 /// (desktop absolute popover) or wrap it in a body-level `<Portal>` (mobile
 /// fixed sheet) without duplicating the markup. Classes/handlers are unchanged
 /// from the former inline render; the buttons insert at the composer caret and
@@ -527,14 +527,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
-    // W4/T5 whisper reveal: ids of whispered messages the viewer has tapped
+    // M4/T5 whisper reveal: ids of whispered messages the viewer has tapped
     // open. A pane-level set rather than per-row signals (the markup_view
     // spoiler pattern) because every poll/ingest re-renders the whole row map,
     // which would reset per-row state mid-conversation. Tapping the blurred
     // text toggles membership; message ids are globally unique, so entries
     // from other channels are harmless.
     let revealed = RwSignal::new(std::collections::HashSet::<String>::new());
-    // W4/T2 charging send button: fraction of a "full" message composed,
+    // M4/T2 charging send button: fraction of a "full" message composed,
     // driving the Send button's conic-gradient ring via the `--charge`
     // custom property. ~280 chars FEELS full — it is not a length limit.
     // Counted in chars (not bytes) so multibyte text/emoji don't over-fill,
@@ -644,7 +644,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
 
-    // W4/T4 radial long-press menu: the message whose touch action menu is
+    // M4/T4 radial long-press menu: the message whose touch action menu is
     // open (None when closed). Channel-pane-local — the delegated `<ul>`
     // long-press handlers and the menu render live in this component, so it
     // never needs to ride Shell state. `long_press` is the generation-counter
@@ -847,13 +847,13 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     });
 
     view! {
-        // W5/P0 #54: the warp dip class moved off .content (mod.rs) onto this
+        // M5/P0 #54: the warp dip class moved off .content (mod.rs) onto this
         // inner .channel-view wrapper so .content never gains a transform (and
         // thus never becomes a containing block for the body-portaled overlays
         // below). Driven by the same s.sync.switching signal as before.
         <div class="channel-view" class:fx-switching=move || s.sync.switching.get()>
             <ul class="messages" node_ref=list_ref
-                // W4/T4 radial long-press: DELEGATED listeners — 5 on this
+                // M4/T4 radial long-press: DELEGATED listeners — 5 on this
                 // <ul>, not 5 per row (this build has no tachys event
                 // delegation, so per-row `on:` means per-row addEventListener
                 // calls that the non-keyed list re-attaches wholesale on
@@ -949,11 +949,11 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // check, so system rows never arm the radial and keep the
                         // native context menu.
                         let is_system = m.kind == "system";
-                        // Roll results (W4/T6): an authored action (normal meta
+                        // Roll results (M4/T6): an authored action (normal meta
                         // row — persona/author name and reply/copy stay) whose
                         // body renders as an animated glass chip below.
                         let is_roll = m.kind == "roll";
-                        // W4/T5 delivery effect: a known effect adds an
+                        // M4/T5 delivery effect: a known effect adds an
                         // `effect-{name}` class to the row. Re-whitelisted here
                         // (the server already validates) so an unexpected wire
                         // value can never inject an arbitrary class.
@@ -1282,7 +1282,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </li>
                     }
                 })}
-                // Ghost Quill rows (W4/T7): OTHER members' live drafts, below
+                // Ghost Quill rows (M4/T7): OTHER members' live drafts, below
                 // the real messages. Their own `ghost_drafts` signal (never
                 // the message list), fetched from the permission-checked
                 // /typing-drafts endpoint on SSE nudges, rendered ONLY while
@@ -1398,7 +1398,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 
             // "%name% is typing…" line (#19), fed by the message poll. Renders
             // nothing when nobody else is typing. A constellation of orbiting
-            // stars (one per typist, capped at 3; W4/T1) decorates the line —
+            // stars (one per typist, capped at 3; M4/T1) decorates the line —
             // purely decorative (aria-hidden) ALONGSIDE the names text, which
             // stays for accessibility. Per-star stagger/color is nth-child
             // CSS; the typing payload carries no per-persona color, so stars
@@ -1494,7 +1494,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
                                     }) {
                                         if let Some(files) = input.files() {
-                                            // Soft cap (W7/B1-client): refuse to queue uploads
+                                            // Soft cap (M7/B1-client): refuse to queue uploads
                                             // beyond COMPOSER_MAX_ATTACHMENTS so the user gets a
                                             // toast instead of an upload-then-server-reject
                                             // roundtrip. The server enforces the same ceiling
@@ -1622,7 +1622,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 // Emoji picker popover: a search box over a categorised grid of
                 // the open guild's custom emoji plus the standard-unicode set.
                 // A full-viewport backdrop closes it on an outside click.
-                // W5/P0 #54: at the mobile breakpoint the picker is a fixed
+                // M5/P0 #54: at the mobile breakpoint the picker is a fixed
                 // bottom sheet (_mobile_emoji.scss) — body-portal it so it
                 // anchors to the viewport and never rides a pane transform. The
                 // desktop popover is absolute-anchored to the composer, so it
@@ -1749,7 +1749,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             }
                             // Throttled "is typing" ping (#19): fire at most once
                             // per ~2s while typing. Fire-and-forget; ignore errors.
-                            // Ghost Quill (W4/T7): with the SENDER's pref on, the
+                            // Ghost Quill (M4/T7): with the SENDER's pref on, the
                             // ping carries the compose text as `draft` (empty text
                             // included — the server clears the entry on it); with
                             // the pref off it stays the classic bare ping. While
@@ -1782,12 +1782,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // Paste-to-upload images (#27): stage any image items on
                         // the clipboard and suppress their default text paste.
                         // Same `image/*` filter as the gallery (B4). The helper
-                        // lives in [`crate::ui::clipboard`] (W7/B2 extraction).
+                        // lives in [`crate::ui::clipboard`] (M7/B2 extraction).
                         #[cfg(feature = "hydrate")]
                         {
                             let files = crate::ui::clipboard::read_pasted_images(&_ev);
                             let handled = !files.is_empty();
-                            // Soft cap (W7/B1-client) — same ceiling as the file
+                            // Soft cap (M7/B1-client) — same ceiling as the file
                             // picker. Drop overflow files and toast once.
                             let current =
                                 s.composer.compose_attachments.get_untracked().len();
@@ -1942,7 +1942,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </ul>
                     }
                 })}
-                // W4/T5: effect picker — cycles the NEXT message's delivery
+                // M4/T5: effect picker — cycles the NEXT message's delivery
                 // effect none → whisper → shout → spell (then back). The mode
                 // rides the send as `SendMessageRequest::effect` and RESETS to
                 // none after each send (act::send_message). Distinct glyph per
@@ -1956,7 +1956,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     })>
                     {move || effect_glyph(s.composer.effect_mode.get().as_deref())}
                 </button>
-                // The charge ring (W4/T2): `--charge` (0..1) fills the conic
+                // The charge ring (M4/T2): `--charge` (0..1) fills the conic
                 // ::before ring as the compose grows; `.charging` shows it
                 // only while something is typed; `.sent` plays the one-shot
                 // post-send pulse (flipped by act::send_message).
@@ -2025,7 +2025,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             // message: ◀/▶ buttons, Left/Right arrow keys, and pointer-swipe
             // step the gallery (clamped, no wrap); pinch/double-tap/wheel and
             // +/-/0 zoom-and-pan via a single CSS transform (see lightbox.rs).
-            // W5/P0 #54: body-level <Portal> (was inside .content) so the dip's
+            // M5/P0 #54: body-level <Portal> (was inside .content) so the dip's
             // transform never traps this fixed overlay. The <Show> keeps the
             // body mount alive only while open; lightbox_view's own
             // focus-restore Effect + on_cleanup (M-49) survive the teardown.
@@ -2033,10 +2033,10 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 <Portal>{lightbox_view(lightbox, lb_tf)}</Portal>
             </Show>
 
-            // W4/T4 radial long-press action menu (touch) — the glass arc of
+            // M4/T4 radial long-press action menu (touch) — the glass arc of
             // reply/copy(/edit/delete) buttons blossoming at the press point,
             // opened by the delegated <ul> pointer handlers above.
-            // W5/P0 #54: body-level <Portal> (same containing-block rationale).
+            // M5/P0 #54: body-level <Portal> (same containing-block rationale).
             <Show when=move || radial.get().is_some()>
                 <Portal>{radial::radial_menu(s, radial, radial_armed)}</Portal>
             </Show>
@@ -2048,7 +2048,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
 mod tests {
     use super::message_actions;
 
-    /// `message_actions` is THE shared kind predicate (CLAUDE.md W4
+    /// `message_actions` is THE shared kind predicate (CLAUDE.md M4
     /// invariant: "never re-branch kind checks per surface"), consumed by
     /// both the hover row (meta.rs) and the touch radial (radial.rs) — so
     /// its cells are pinned table-driven over kind × mine (review M-44).

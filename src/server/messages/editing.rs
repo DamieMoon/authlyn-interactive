@@ -1,6 +1,6 @@
 //! Per-message mutations: edit own, delete (soft, #22), restore, and the
 //! trash listing. Split from `server/messages.rs` in Wave 3; behavior preserved
-//! verbatim. Also enforces roll immutability (W4/T6): `kind='roll'` rows are
+//! verbatim. Also enforces roll immutability (M4/T6): `kind='roll'` rows are
 //! server-generated outcomes, so the author's own edit and delete are explicit
 //! 403s here (cheating-proof — see `rolling.rs`).
 
@@ -49,7 +49,7 @@ pub async fn edit_message(
         Ok(kind) => kind,
         Err(resp) => return resp,
     };
-    // Roll immutability (W4/T6, 6.2b — audit critical): the roller IS the
+    // Roll immutability (M4/T6, 6.2b — audit critical): the roller IS the
     // author, so without this explicit guard they could PATCH the
     // server-generated body into a forged result. Rolls are FULLY immutable.
     if kind == "roll" {
@@ -102,7 +102,7 @@ pub async fn delete_message(
         Ok(kind) => kind,
         Err(resp) => return resp,
     };
-    // Roll immutability (W4/T6, 6.2b — audit critical): without this guard the
+    // Roll immutability (M4/T6, 6.2b — audit critical): without this guard the
     // roller could delete an unfavorable roll. No edit, no delete — and since a
     // roll can never be soft-deleted, the restore path needs no guard.
     if kind == "roll" {
@@ -259,7 +259,7 @@ async fn load_deleted_messages(
 /// collapse to 403 so a member can't probe which message ids exist by edit.
 ///
 /// Returns the message's `kind` on success so the edit/delete handlers can
-/// enforce roll immutability (W4/T6, 6.2b): system messages are already
+/// enforce roll immutability (M4/T6, 6.2b): system messages are already
 /// un-editable as an authorship side-effect (the author is `nova_dot`, never
 /// the caller), but a roll IS authored by the caller, so its immutability
 /// needs the explicit kind check at the call sites.

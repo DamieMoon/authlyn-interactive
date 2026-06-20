@@ -5,7 +5,7 @@
 //! modal is the user-scoped settings home (password, prefs, feedback, logout),
 //! this is the guild-owner home — server accent, invitations, and channel
 //! management in one place, reached by the orbit station's "⚙ Server settings"
-//! button (and, until the W3 shell retires at P6, the W3 sidebar's scattered
+//! button (and, until the M3 shell retires at P6, the M3 sidebar's scattered
 //! gear controls cover the same surfaces).
 //!
 //! Every control drives an existing owner-gated server route; the server
@@ -129,7 +129,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
 
             // ---- Server accent ----
             // The 8 palette swatches + a Default clear; each calls
-            // act::set_guild_accent on the open guild (same block the W3
+            // act::set_guild_accent on the open guild (same block the M3
             // accent-modal renders, shell/mod.rs). The picker stays open so the
             // owner can preview a few accents in a row; the active swatch
             // tracks `accent_name` live.
@@ -176,7 +176,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             // ---- Invitations ----
             // Invite a member by username (owner-gated route; the server
             // re-checks require_manager). Reuses act::invite_member — the same
-            // helper the W3 sidebar invite-row drives.
+            // helper the M3 sidebar invite-row drives.
             <section class="account-section">
                 <h3>"Invite a member"</h3>
                 <div class="invite-row">
@@ -196,7 +196,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
 
             // ---- Channels ----
             // The full channel manager (create / rename / delete / finger-drag
-            // reorder) inlined as a section — the SAME ChannelManagerBody the W3
+            // reorder) inlined as a section — the SAME ChannelManagerBody the M3
             // sidebar's "⚙ Manage" modal wraps. The `.channel-manager` div is the
             // ancestor its scoped styling needs.
             <section class="account-section">
@@ -211,7 +211,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             // shared confirm modal via PendingDelete::Server; on confirm,
             // delete_server clears sel_owner so this modal's is_owner gate in
             // shell/mod.rs unmounts it — no explicit close needed). Mirrors the
-            // W3 sidebar header (shell/mod.rs:541-584). The whole ServerModal is
+            // M3 sidebar header (shell/mod.rs:541-584). The whole ServerModal is
             // already owner-gated at the call site, so no inner is_owner Show.
             <section class="account-section">
                 <h3>"Server identity"</h3>
@@ -258,7 +258,7 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
             // ---- Trashed channels ----
             // Disclosure that loads soft-deleted channels (load_deleted_channels)
             // and lists them with Restore (restore_channel reloads both the trash
-            // list and the live channel list via open_server). Mirrors the W3
+            // list and the live channel list via open_server). Mirrors the M3
             // sidebar trash-section (shell/mod.rs:650-695).
             <section class="account-section">
                 <h3>"Trashed channels"</h3>

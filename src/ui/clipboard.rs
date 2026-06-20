@@ -7,7 +7,7 @@
 //! Today this hosts a single helper, [`read_pasted_images`], shared by the
 //! composer's paste-to-upload handler (`shell/channel/mod.rs`) and reused by
 //! the persona-gallery paste handler (`shell/wardrobe.rs`, B4) once that
-//! lands. Extracted in W7/B2 from the inlined composer loop so the gallery
+//! lands. Extracted in M7/B2 from the inlined composer loop so the gallery
 //! doesn't duplicate the MIME-filter + `File`-collection logic.
 
 use web_sys::{ClipboardEvent, File};

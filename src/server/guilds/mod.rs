@@ -162,7 +162,7 @@ pub async fn set_rail_order(
 
     match persist_rail_order(&state, &account.0, &ordered).await {
         Ok(()) => {
-            // W1.5: the rail order is a PER-USER preference — target the actor
+            // M1.5: the rail order is a PER-USER preference — target the actor
             // so their other devices refresh, instead of broadcasting a global
             // ListsChanged to every connection (N×M amplification for a change
             // nobody else can even observe).

@@ -132,11 +132,11 @@ async fn resolve_typing_names(
 /// falling back to the account's `display_name`/`username`. Order is not
 /// significant (callers format or sort as needed). Shared by the typing
 /// indicator ([`resolve_typing_names`]) and the Ghost Quill drafts endpoint
-/// (`typing::typing_drafts`, W4/T7) so the persona-aware resolution can never
+/// (`typing::typing_drafts`, M4/T7) so the persona-aware resolution can never
 /// diverge between the two.
 ///
 /// One round-trip total: a two-statement query batches every account, then a
-/// HashMap merge in Rust resolves the persona-or-fallback preference. W5/H2 —
+/// HashMap merge in Rust resolves the persona-or-fallback preference. M5/H2 —
 /// was N round-trips (one query per typist); the previous comment about
 /// avoiding a correlated sub-SELECT inside the projection (3.1.0-beta.3
 /// unevenness) is honored: this batch keeps the two table reads as
@@ -325,7 +325,7 @@ pub(super) struct MessageRow {
     /// `"user"` or `"system"` (Nova DOT admin broadcast). Coalesced to `"user"`
     /// in the projection so legacy rows are safe.
     pub kind: String,
-    /// Delivery effect (W4/T5): `whisper`/`shout`/`spell`, or `None` for an
+    /// Delivery effect (M4/T5): `whisper`/`shout`/`spell`, or `None` for an
     /// ordinary message and on every legacy row (`option<>` field — NONE is
     /// valid, no coalesce needed).
     pub effect: Option<String>,
@@ -387,7 +387,7 @@ impl MessageRow {
 // from the send-time snapshot with a `?? persona.*` fallback for legacy rows
 // whose persona still exists (deleted personas keep their frozen snapshot).
 //
-// W5/H4 plan evidence for the `attachment_mimes` arm: `WHERE meta::id(id) IN
+// M5/H4 plan evidence for the `attachment_mimes` arm: `WHERE meta::id(id) IN
 // $array` plans as a media_blob TableScan, correlated PER MESSAGE ROW —
 // O(page x |media_blob|) on the hot polled path. The record-pointer form
 // (FROM an array of type::record pointers) point-reads instead. `WHERE id IS
@@ -448,7 +448,7 @@ pub(super) const MSG_PROJECTION: &str = "
         (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
             id: meta::id(reply_to),
             author_display: (reply_to.author.display_name ?: reply_to.author.username),
-            /* spoiler-leak guard (W4/T5): a whispered parent's hidden text must
+            /* spoiler-leak guard (M4/T5): a whispered parent's hidden text must
                not surface through the quote snippet — masked with a fixed
                placeholder instead. */
             body_snippet: (IF reply_to.effect = 'whisper' THEN '(whisper)'

@@ -104,7 +104,7 @@ pub(crate) enum PendingDelete {
 ///
 /// Each sub-struct is also `provide_context`'d in `AppShell` so a deeper
 /// component can pull just the slice it needs via `use_context::<Selection>()`
-/// (the pane-component migration in W6/C8). `act::*` keeps taking the full
+/// (the pane-component migration in M6/C8). `act::*` keeps taking the full
 /// aggregate handle so action functions stay short and uncluttered.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
@@ -126,7 +126,7 @@ fn AppShell() -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
 
     // Construct each state sub-struct, then make each available via
-    // `provide_context` so pane components (W6/C8) can pull just the slice
+    // `provide_context` so pane components (M6/C8) can pull just the slice
     // they need without taking the full Shell aggregate as a prop.
     let sel = Selection {
         guilds: RwSignal::new(Vec::new()),
@@ -251,7 +251,7 @@ fn AppShell() -> impl IntoView {
         prefs,
         toasts,
     };
-    // Make the aggregate available to pane components (W6/C8) so they can drop
+    // Make the aggregate available to pane components (M6/C8) so they can drop
     // their `s: Shell` prop in favour of `use_context::<Shell>()`.
     provide_context(s);
 
@@ -283,7 +283,7 @@ fn AppShell() -> impl IntoView {
             .collect::<HashMap<String, String>>()
     });
     provide_context(EmojiResolver::new(emoji_map));
-    // W7/D1: kick off the lazy `/emoji.json` fetch at shell mount so the
+    // M7/D1: kick off the lazy `/emoji.json` fetch at shell mount so the
     // picker and `:shortcode:` resolver are warm by the time the first
     // composer renders. No-op if already loaded or in flight.
     crate::ui::emoji::data::warm();
@@ -421,7 +421,7 @@ fn AppShell() -> impl IntoView {
             })}
 
             // Channel-management window (L-5): promoted to `s.sync.manager_open`
-            // so BOTH the W3 sidebar gear and the orbit station can open it; the
+            // so BOTH the M3 sidebar gear and the orbit station can open it; the
             // `is_owner` gate is authoritative (a non-owner trigger renders nothing).
             {move || (s.sync.manager_open.get() && is_owner()).then(|| view! {
                 <ChannelManagerModal s=s open=s.sync.manager_open/>

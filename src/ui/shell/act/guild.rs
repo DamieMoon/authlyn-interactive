@@ -109,7 +109,7 @@ pub fn open_server(s: Shell, gid: String) {
     load_server(s, gid, true);
 }
 
-/// Select a guild from the mobile channel sheet (W3 whole-wave review):
+/// Select a guild from the mobile channel sheet (M3 whole-wave review):
 /// load its owner + channel list so the sheet's channel column populates,
 /// WITHOUT auto-opening any channel — auto-open would clear unread and fire
 /// the cross-device `mark_read` for a channel the user never saw. The

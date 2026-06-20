@@ -1,4 +1,4 @@
-//! W1 SSE bus: GET /events delivery, privacy filtering, auth gating, and the
+//! M1 SSE bus: GET /events delivery, privacy filtering, auth gating, and the
 //! mid-stream REVOCATION direction (session logout/reset, kick/leave/guild
 //! soft-delete, targeted visibility reloads — reviews M-05/M-07/M-14/M-43).
 #![cfg(feature = "ssr")]
@@ -293,7 +293,7 @@ async fn edits_deletes_and_typing_reach_members_over_sse() {
     assert_eq!(ev["message_id"], mid.as_str());
 }
 
-/// W1.5: `mark-read` nudges the SAME account's OTHER devices
+/// M1.5: `mark-read` nudges the SAME account's OTHER devices
 /// (`read_state_changed`, account-targeted) and nobody else.
 #[tokio::test]
 async fn read_state_changes_reach_only_the_same_account() {
@@ -377,7 +377,7 @@ async fn read_state_changes_reach_only_the_same_account() {
     assert_eq!(ev["type"], "message_created");
 }
 
-/// W1.5: every friend mutation (request, accept, remove) reaches EXACTLY the
+/// M1.5: every friend mutation (request, accept, remove) reaches EXACTLY the
 /// two accounts of the friendship edge as `friends_changed` — a third account
 /// stays silent.
 #[tokio::test]
@@ -473,7 +473,7 @@ async fn friend_mutations_reach_both_parties_over_sse() {
     assert_eq!(ev["type"], "message_created");
 }
 
-/// W1.5: reordering YOUR guild rail is a per-user preference — the actor's
+/// M1.5: reordering YOUR guild rail is a per-user preference — the actor's
 /// own (other) devices get `lists_changed`, every other connection gets
 /// nothing (this used to broadcast globally: N×M amplification).
 #[tokio::test]

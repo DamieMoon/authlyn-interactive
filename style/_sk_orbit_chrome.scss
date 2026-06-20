@@ -1,9 +1,9 @@
-// W5/P2 Orbit (`sk-orbit`) structural skeleton. Full-viewport channel
+// M5/P2 Orbit (`sk-orbit`) structural skeleton. Full-viewport channel
 // panes in a horizontal swipe strip, a holographic channel pill opening the
 // orbit-map picker (pill-tap entry only), a floating composer orb with a charge
 // ring + effect blossom, and a right-edge HoloPanel slide-over. EVERY rule is
 // `.app.sk-orbit`-prefixed so it can never match a deck/hud session or the
-// retained W3 scaffolding. Loaded AFTER the W3 nav partials in main.scss so an
+// retained M3 scaffolding. Loaded AFTER the M3 nav partials in main.scss so an
 // equal-specificity tie resolves in orbit's favour. Motion is transform/opacity
 // only (tests/style_lint.rs); glass is glass-etched at Standard, glass-live
 // under .fx-max. Safe-area: each edge is owned exactly once (the pill owns top,
@@ -11,7 +11,7 @@
 @use "tokens" as *;
 @use "foundation" as *;
 
-// Orbit is a single full-viewport stage — the W3 rail/sidebar columns are not
+// Orbit is a single full-viewport stage — the M3 rail/sidebar columns are not
 // part of this skeleton. The shared overlays (sheet/modals/toast/ceremony) and
 // the body-portal overlays (radial/lightbox/emoji) are unchanged.
 .app.sk-orbit {
@@ -220,7 +220,7 @@
 	from { opacity: 0.35; }
 	to { opacity: 0.9; }
 }
-// (W5/P2: the orbit `.sk-orbit-topbar` was REMOVED to match the prototype's
+// (M5/P2: the orbit `.sk-orbit-topbar` was REMOVED to match the prototype's
 // clean cosmic top — a-orbit.html has no top bar at all. The pill is now the
 // SOLE top-inset owner, below; the old `.topbar.sk-orbit-topbar` padding-top
 // override is gone with it, which also kills the §13 double-count of the top
@@ -235,7 +235,7 @@
 // outer accent rim + deep drop + accent halo + glass-holo's inset specular,
 // matching #pill's stack. Static (style_lint: box-shadow never in a keyframe).
 //
-// W5/P2 INTEGRATED-HEADER rebuild (owner's #1 complaint: the pill FLOATED over
+// M5/P2 INTEGRATED-HEADER rebuild (owner's #1 complaint: the pill FLOATED over
 // the messages on real WebKit). ROOT CAUSE (proven on WebKit, 360pt): the pill
 // was `position:fixed` over a scroll list living INSIDE the `transform`ed
 // `.sk-orbit-strip` — that transform is a stacking-context/containing-block
@@ -326,7 +326,7 @@
 	box-shadow: 0 0 6px var(--unread-glow);
 	transform: scale(1.25);
 }
-// Re-homed SSE sync signal (W5/P2): a status dot trailing the channel dots —
+// Re-homed SSE sync signal (M5/P2): a status dot trailing the channel dots —
 // mint + STATIC glow when live, faint when polling — replacing the removed
 // topbar `.sync-chip`, and now visible on mobile (where that chip was display:none).
 .app.sk-orbit .sk-orbit-pill-live {
@@ -547,7 +547,7 @@
 // composing) — they are NEVER co-present (the orb hides while composing, below),
 // so the home-indicator inset is still counted exactly once.
 //
-// Composer (W5/P2 choreography + glass-pill re-skin — the prototype's #composer /
+// Composer (M5/P2 choreography + glass-pill re-skin — the prototype's #composer /
 // #composerInner, a-orbit.html:246-253). `position:absolute` against the
 // full-height `.channel-view` (already `position:relative`) so it leaves the
 // flex flow — `.messages` (flex:1) reclaims the space, no gap — and can SLIDE:
@@ -621,7 +621,7 @@
 .app.sk-orbit .sk-orbit-ring {
 	display: none;
 }
-// W5/P2 fidelity: collapse the reused W3 markdown toolbar to the prototype's
+// M5/P2 fidelity: collapse the reused M3 markdown toolbar to the prototype's
 // input-only composer — keep ONLY 📎 attach + 😀 emoji (owner ruling: real
 // function the static mockup couldn't model); markdown stays typeable as **/* in
 // the field. Every other `.fmt` (B/i/H/-#/</>/{}/▼/👁) + colour swatches hide.
@@ -776,7 +776,7 @@
 // centre = the star). Children place themselves RELATIVE to this point.
 .sk-orbit-ring {
 	// Static 0×0 anchor at the star centre — the per-node `.sk-orbit-orbit`
-	// children now each carry their OWN revolution (W5/P2 wave 3: seeded Kepler
+	// children now each carry their OWN revolution (M5/P2 wave 3: seeded Kepler
 	// orbits), so the ring itself no longer spins.
 	position: absolute;
 	top: 50vh;
@@ -1003,7 +1003,7 @@
 	}
 }
 
-// W5/P2 #5 — the 3-pane swipe strip. A 300vw flex row translated by --strip-x:
+// M5/P2 #5 — the 3-pane swipe strip. A 300vw flex row translated by --strip-x:
 // the MIDDLE slot is the live ChannelPane; prev/next are name-only label peeks
 // (full neighbor render is the Phase-7 carry). Transform is the only animated
 // property (motion doctrine, tests/style_lint.rs).
@@ -1023,7 +1023,7 @@
 .app.sk-orbit .sk-orbit-strip--snap {
 	transition: transform 380ms cubic-bezier(0.18, 0.85, 0.25, 1);
 }
-// W5/P2 #d single-channel collapse: with no prev/next peek panes (mod.rs only
+// M5/P2 #d single-channel collapse: with no prev/next peek panes (mod.rs only
 // mounts them at count>1), the lone cur pane is the strip's FIRST slot. The
 // default 300vw width + `translateX(-100vw)` resting offset assumes cur is the
 // MIDDLE of three, so it would shove the only pane off-screen left. Drop to a
@@ -1054,7 +1054,7 @@
 	justify-content: center;
 	color: var(--text-muted);
 }
-// No-neighbor edge affordance (W5/P2 void-fix): a deliberate "orbit's edge"
+// No-neighbor edge affordance (M5/P2 void-fix): a deliberate "orbit's edge"
 // boundary so the edge rubber-band reveals a designed end, never a black void.
 // Compositor-only — static pre-baked glow (the sanctioned box-shadow pattern,
 // like .sk-orbit-orb::before), NO backdrop-filter, NO animated props
@@ -1102,7 +1102,7 @@
 
 // ---- Composer orb + charge ring (#E / #33) ----
 // The floating orb is the SOLE send surface under orbit: hide the in-pane
-// W5/P2 choreography: the orb is now a COMPOSE trigger, not the send button, so
+// M5/P2 choreography: the orb is now a COMPOSE trigger, not the send button, so
 // the in-composer send button is the real send affordance — shown ONLY while
 // composing (the orb owns the resting state; the send arc owns the typing state —
 // the prototype's #orb → #sendBtn handoff). Hidden at rest, when the orb is the
@@ -1441,7 +1441,7 @@
 // 1:1 — the prototype has no such button). The slide-over OWNS its own edges, so
 // the orb/composer bottom inset is not double-counted (it's a separate fixed layer).
 //
-// W5/P2 #c FULL-SCREEN slide-over (the prototype's #slideOver is `inset:0`,
+// M5/P2 #c FULL-SCREEN slide-over (the prototype's #slideOver is `inset:0`,
 // `translateX(102%)→0`, a-orbit.html:294 — "personas are a place, not a
 // modal": a whole-screen takeover, NOT a partial drawer). So the station fills
 // the viewport width (was `min(86vw,380px)`, which left a chat sliver behind

@@ -1,6 +1,6 @@
 //! Shared inline-rename / inline-edit input + save/cancel pair.
 //!
-//! Three sites consume this today (W6/C7):
+//! Three sites consume this today (M6/C7):
 //!   - server name rename in `shell/mod.rs` (sidebar header)
 //!   - channel name rename in `shell/mod.rs` (`ChannelRow`)
 //!   - message body edit in `shell/channel/mod.rs` (the message-row inline

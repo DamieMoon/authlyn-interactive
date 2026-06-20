@@ -1,4 +1,4 @@
-//! W5/P2 composer-orb charge ring (#E + #33 calibration). The ring fills with
+//! M5/P2 composer-orb charge ring (#E + #33 calibration). The ring fills with
 //! message LENGTH; the old linear `chars/280` was prose-hostile (#33), so this
 //! uses a log curve over WORD count: a one-liner shows a sliver, a paragraph
 //! ~60%, only a saga pegs it. Pure math — the SVG `stroke-dashoffset` and the

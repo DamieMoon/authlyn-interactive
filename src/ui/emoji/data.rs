@@ -18,7 +18,7 @@
 //! sites (composer mount + first picker open + first `:trigger` autocomplete
 //! hit) collapse into a single network round-trip.
 //!
-//! Sizes (W7/D1, measured 2026-05-28): pulling the `emojis` crate's static
+//! Sizes (M7/D1, measured 2026-05-28): pulling the `emojis` crate's static
 //! phf table into the wasm cost **~79 KB brotli**; the equivalent JSON asset
 //! is ~22 KB brotli, fetched lazily and cached for the session. The win is
 //! the bundle, not the wire — interactive-load happens off the hot path.

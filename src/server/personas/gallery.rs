@@ -24,7 +24,7 @@ use crate::server::state::AppState;
 
 /// Cap on `media_ids` in a single batch gallery upload. Matches the per-message
 /// attachment cap in [`crate::server::messages`] so paste-many in chat and
-/// paste-many in the persona gallery land on the same number (W7/B1/B3).
+/// paste-many in the persona gallery land on the same number (M7/B1/B3).
 const MAX_BATCH_IMAGES: usize = 100;
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ async fn insert_gallery_image(
 }
 
 // ---------------------------------------------------------------------------
-// POST /personas/{id}/gallery/batch — atomic multi-image upload (W7/B3)
+// POST /personas/{id}/gallery/batch — atomic multi-image upload (M7/B3)
 // ---------------------------------------------------------------------------
 
 /// Add multiple gallery images to a persona in one atomic SurrealDB transaction.
@@ -239,7 +239,7 @@ pub async fn add_gallery_images_batch(
 }
 
 /// True when every id in `ids` names an existing `media_blob`. Mirrors the
-/// shape of `messages::posting::all_media_exist` (W5/H4: record-id bind +
+/// shape of `messages::posting::all_media_exist` (M5/H4: record-id bind +
 /// `FROM $records WHERE id IS NOT NONE` triggers a per-record PK plan rather
 /// than a table scan). Empty input is a caller bug — handler rejects it before
 /// we get here — but we still defend.

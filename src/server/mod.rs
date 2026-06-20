@@ -81,7 +81,7 @@ fn small_body_routes() -> Router<AppState> {
             "/auth/admin/reset-password",
             post(auth::admin_reset_password),
         )
-        // W1 realtime: long-lived SSE stream of id-only sync events, filtered
+        // M1 realtime: long-lived SSE stream of id-only sync events, filtered
         // per-connection to channels the caller may see. The group's no-store
         // Cache-Control layer is correct for SSE.
         .route("/events", get(events::events))
@@ -143,7 +143,7 @@ fn small_body_routes() -> Router<AppState> {
         // regardless of order, so there's no shadowing either way.
         .route("/channels/read-state", get(messages::read_state))
         .route("/channels/{cid}/mark-read", post(messages::mark_read))
-        // W1: batched unread/ping summary for every visible text channel —
+        // M1: batched unread/ping summary for every visible text channel —
         // one request instead of a poll per channel.
         .route("/unread", get(messages::unread))
         .route(
@@ -163,11 +163,11 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/messages/{mid}/restore",
             post(messages::restore_message),
         )
-        // Fate Engine (W4/T6): server-rolled dice persisted as an immutable
+        // Fate Engine (M4/T6): server-rolled dice persisted as an immutable
         // kind='roll' message.
         .route("/channels/{cid}/roll", post(messages::roll_message))
         // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
-        // W4/T7 Ghost Quill: the ping's optional `draft` body + the
+        // M4/T7 Ghost Quill: the ping's optional `draft` body + the
         // permission-checked drafts read (the ONLY way draft text leaves the
         // server — the SSE bus stays id-only).
         .route("/channels/{cid}/typing", post(messages::typing_ping))

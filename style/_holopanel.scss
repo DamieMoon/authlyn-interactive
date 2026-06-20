@@ -1,4 +1,4 @@
-// W5/P0 #49 HoloPanel engine styling. The component sets --p (0..1 drag
+// M5/P0 #49 HoloPanel engine styling. The component sets --p (0..1 drag
 // progress); each edge derives its transform here. Scrim opacity tracks --p.
 // Reduced-motion: instant snap (no transition). Per-edge safe-area inset
 // ownership is declared here so consumers don't re-own it.

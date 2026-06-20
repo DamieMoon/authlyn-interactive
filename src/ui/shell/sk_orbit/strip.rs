@@ -1,4 +1,4 @@
-//! W5/P2 horizontal swipe-strip physics (Orbit's signature gesture) +
+//! M5/P2 horizontal swipe-strip physics (Orbit's signature gesture) +
 //! the swipe-to-reply axis arbitration. ALL decisions are pure fns so the
 //! WASM-only pointer handlers stay thin and the logic is unit-tested (the
 //! project has no WASM UI harness). Constants are the prototype's verified

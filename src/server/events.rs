@@ -1,4 +1,4 @@
-//! `GET /events` — the W1 SSE bus (ssr-only). Auth via the session cookie
+//! `GET /events` — the M1 SSE bus (ssr-only). Auth via the session cookie
 //! ([`AuthAccount`]), exactly like every JSON route — and unlike every JSON
 //! route, RE-CHECKED for the stream's lifetime: the session is re-validated
 //! before every delivered frame AND at least once per
@@ -14,7 +14,7 @@
 //!
 //! ONE exception to both rules above: the dev hot-reload nudge
 //! ([`SyncEvent::Reload`], emitted by `server::dev_reload`) is delivered to
-//! EVERY connection — bypassing the visibility filter AND the W1.5 targeted
+//! EVERY connection — bypassing the visibility filter AND the M1.5 targeted
 //! lane — as a DISTINCT NAMED `event: reload` frame (see [`reload_frame`]), so
 //! the client can listen for it separately from message-notify frames. It
 //! stays payload-free (id-only bus invariant): the frame itself is the signal.
@@ -217,7 +217,7 @@ pub async fn events(
             // channel-scoped and NOT account-targeted: it must reach EVERY live
             // connection regardless of its visible-channel set or any `targets`
             // list, so short-circuit BOTH the per-connection visibility filter
-            // and the W1.5 targeted lane before either can drop it. It still
+            // and the M1.5 targeted lane before either can drop it. It still
             // passes through the per-frame session re-check below (a revoked
             // session ends the stream, never reloads), and rides the wire as a
             // DISTINCT named `event: reload` frame so the client listens for it
@@ -242,7 +242,7 @@ pub async fn events(
                     event,
                     targets: Some(targets),
                 })) => {
-                    // W1.5 account-targeted lane: deliver iff this connection's
+                    // M1.5 account-targeted lane: deliver iff this connection's
                     // account is named, with NO visibility check — targeted
                     // events are id-only nudges about the target's own
                     // per-account state, not channel content.

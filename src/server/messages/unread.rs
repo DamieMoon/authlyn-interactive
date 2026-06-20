@@ -1,4 +1,4 @@
-//! `GET /unread` — W1 batched unread/ping summary for every visible text
+//! `GET /unread` — M1 batched unread/ping summary for every visible text
 //! channel. ssr-only.
 //!
 //! Three DB round-trips total (visible channels, read cursors, one

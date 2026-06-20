@@ -10,9 +10,9 @@
 #[cfg(feature = "hydrate")]
 use gloo_storage::{LocalStorage, Storage};
 
-// ---- W5/P1 structural UI skeleton pref ----
+// ---- M5/P1 structural UI skeleton pref ----
 //
-// W5/P1: the three structural UI skeletons (spec §1). `sk-`-prefixed in code
+// M5/P1: the three structural UI skeletons (spec §1). `sk-`-prefixed in code
 // (.app.sk-*, _sk_*.scss, sk_*/mod.rs); the stored pref value is the bare id
 // WITHOUT the `sk-` prefix (orbit/deck/hud). NO silent default — a pref-less
 // device gets the onboarding ceremony, except the localStorage-unavailable
@@ -116,7 +116,7 @@ pub fn set_rp_dialogue_style(on: bool) {
 
 // ---- Eye-candy appearance tier toggle ----
 //
-// ---- Ghost Quill live co-writer toggle (W4/T7) ----
+// ---- Ghost Quill live co-writer toggle (M4/T7) ----
 //
 // localStorage key for the Ghost Quill toggle. "1" = on; absent or anything
 // else = off. NOTE: gloo-storage JSON-encodes values, so the stored string is
@@ -127,7 +127,7 @@ pub fn set_rp_dialogue_style(on: bool) {
 #[cfg(feature = "hydrate")]
 const KEY_GHOST_QUILL: &str = "authlyn.ghost_quill";
 
-/// Ghost Quill live co-writer draft preview (W4/T7). Default OFF.
+/// Ghost Quill live co-writer draft preview (M4/T7). Default OFF.
 #[cfg(feature = "hydrate")]
 pub fn ghost_quill_enabled() -> bool {
     LocalStorage::get::<String>(KEY_GHOST_QUILL)

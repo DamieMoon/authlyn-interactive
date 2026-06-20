@@ -163,7 +163,7 @@ DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'm
 DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<persona>>;
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;
--- W1 hot path (review M-37): `access::visible_channels` asks "which guilds is
+-- M1 hot path (review M-37): `access::visible_channels` asks "which guilds is
 -- this account in?" on every /events connect, every per-connection ListsChanged
 -- visibility reload, and every GET /unread. An account-only predicate cannot
 -- use the (guild, account) composite above (account is not a prefix field), so
@@ -266,7 +266,7 @@ DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
 -- Message kind discriminator. `kind='system'` is authored by the reserved
 -- `account:nova_dot` bot (app-admin broadcast) and rendered distinctly (no persona,
--- immutable to edits). `kind='roll'` (W4/T6 Fate Engine) is a server-rolled dice
+-- immutable to edits). `kind='roll'` (M4/T6 Fate Engine) is a server-rolled dice
 -- result: authored by the roller, persona-aware, and FULLY immutable (the edit and
 -- delete handlers 403 on it — cheating-proof). DEFAULT 'user' keeps every normal
 -- send unchanged. This is a non-option field added to the POPULATED `message`
@@ -280,7 +280,7 @@ DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- 
 -- validate), so the backfill hazard below is untouched by it.
 DEFINE FIELD OVERWRITE kind    ON message TYPE string DEFAULT 'user'
     ASSERT $value IN ['user', 'system', 'roll'];
--- Message effect (W4/T5): an optional roleplay delivery flourish picked at
+-- Message effect (M4/T5): an optional roleplay delivery flourish picked at
 -- send time — 'whisper' (blurred until tapped), 'shout' (shake + warm tint),
 -- 'spell' (glow + sparks) — or NONE for an ordinary message. Purely cosmetic
 -- (rendering only; does not gate any action). `option<>` ⇒ NONE is a valid
