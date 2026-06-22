@@ -2,13 +2,10 @@
 
 Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guilds → channels, personas, lorebooks, friends). Single Rust crate: axum + Leptos 0.8 + SurrealDB. This file is the **project operating manual** — only what a session needs in-context every turn.
 
-Behavior, communication language, persistence philosophy, and novelty handling live in the global `~/.claude/CLAUDE.md` — **not** restated here.
-
 **Lives elsewhere — read there, don't copy here:**
 - **Stack + directory layout:** `README.md`.
 - **Every dependency's purpose + the ssr/hydrate/nova graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
 - **Toolchain probe, Bash allowlist, hooks:** `.claude/settings.json`.
-- **Project knowledge (architecture, invariant rationale, incidents, decisions):** **ctx** is canonical. Tombstoned blocks are dead — don't cite them.
 
 ## Toolchain prereqs
 `cargo-leptos` installed, and `rustup target add wasm32-unknown-unknown` (the hydrate clippy step and `cargo leptos build` both need it). The `SessionStart` hook prints cargo / cargo-leptos / surreal presence + dev-DB status each session.
@@ -42,7 +39,7 @@ Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must co
 - **Versioning:** CalVer `YYYY.M.D` + a manual two-word codename — scheme owned by `README.md` + `Cargo.toml`. **PENDING at v27:** the design spec retires CalVer for **SemVer `27.0.0`**, codename **`mendicant-bias`**; Cargo.toml is still on `2026.6.1` / `saffron-tide` — flip this line + README **at the release, not before.**
 
 ## Namespace: release waves (M#)
-Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task; bare **`#N`** = a review-finding id. Commit trailer: `(M5/P2)`; plan/spec slug: `…-m5-skelettvagen.md`; ctx tag `milestone` / `m5`.
+Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task; bare **`#N`** = a review-finding id. Commit trailer: `(M5/P2)`
 
 ## Operating invariants & footguns (the tests are canonical — read the test, not memory)
 The full numbered catalogue was in the now-deleted `docs/ARCHITECTURE.md` (commit `68b65bd`). The surviving source of truth is **the integration tests (`tests/*.rs`) and the code**. The few that crash boot / break security / waste hours and aren't caught until too late:
@@ -54,11 +51,8 @@ The full numbered catalogue was in the now-deleted `docs/ARCHITECTURE.md` (commi
 - **WebKit Secure-cookie trap:** Safari/WebKit drops the `Secure` session cookie over `http://localhost` (Chromium accepts it) → the browser "logs in" 200 but `/auth/me` stays 401. **Test WebKit/iOS over HTTPS at the deck's public domain `https://authlyndev.damienmoon.sh`** (cloudflared, publicly-trusted cert → already in iOS's trust store, so the `Secure` cookie is accepted with **no** per-device cert step). Both earlier workarounds (the `http://localhost` + `secure:false` injection; the LAN dev root CA) are **retired** — don't reintroduce a self-signed / root-CA path for WebKit testing.
 - **Never** point smoke / health / load / registration flows at the prod URL or `SURREAL_DB=prod` — use `localhost:3000` + the dev DB, a disposable namespace, or the deck.
 
-## ctx persistence triggers (project-specific)
-Proactively `ctx save` after: a new/changed invariant or its rationale; a schema-apply / migration hazard; a SurrealDB version-skew or error-text finding; a perf measurement for a sync/realtime change (measure end-to-end — rows, bytes, client work — never assume); a deploy/infra fact (novahome repoint, deck coordinates); or a lesson from a review/incident.
-
 ## UI fidelity
 Compile/clippy/ssr/Chromium-green is necessary, never sufficient — real WebKit/touch/visual defects (scrim blackout, missing glow, dead-end panes, sub-44px targets, iOS side-scroll) pass all of it and only surface on the owner's iPhone, and a fixed property has not survived the next rewrite. So:
 - **Visual oracle:** the skeleton prototypes in `docs/superpowers/specs/assets/2026-06-12-skelettvagen/` (`a-orbit.html`, `b-deck.html`, `c-hud.html`). The deleted `visual-gate/` Playwright tooling stays deleted; a fidelity-gate method is owner-driven.
-- **`tests/style_lint.rs` is the external signal per class** (pure static scan, no browser/DB — *not* a substitute for the owner deck-pass). When adding or altering chrome, keep its guards green and **extend the curated registries** rather than disabling one; validate each new guard red on its pre-fix commit. Knowledge: ctx `019ee549`.
+- **`tests/style_lint.rs` is the external signal per class** (pure static scan, no browser/DB — *not* a substitute for the owner deck-pass). When adding or altering chrome, keep its guards green and **extend the curated registries** rather than disabling one.
 - **Touch-target floor (hard rule, owner ruling 2026-06-17):** every interactive control in Mendicant Bias — the whole product, **not** scoped to `sk-orbit` — meets a **≥ 44px (`2.75rem`)** tap target (`min-height`, plus `min-width` for square/icon buttons). Apply the floor at the control's **base/shared definition** so every surface inherits it — **not** as an `.app.sk-orbit` override. There is no blanket `button { min-height }` (it distorts the bespoke chrome). Enforced by the curated `registered_interactive_controls_declare_44px_touch_floor` registry — a new floored control joins it by hand.
