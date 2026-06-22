@@ -21,7 +21,7 @@ use super::session::{delete_sessions_for_account, AuthAccount};
 // ---------------------------------------------------------------------------
 
 /// Admin-only: set another account's password without the target's current one.
-/// Gated by [`is_admin`]; the target is looked up by username. Invalidates the
+/// Gated by `is_admin`; the target is looked up by username. Invalidates the
 /// target's sessions so a reset always forces a fresh login.
 #[tracing::instrument(skip_all, fields(admin = %account.0))]
 pub async fn admin_reset_password(

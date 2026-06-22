@@ -472,7 +472,7 @@ pub fn PersonaInfo<F>(
     /// The persona description; `Some` renders the chat markup body, `None`
     /// renders the muted "No description." fallback.
     description: Option<String>,
-    /// `Some(account)` renders the "Controlled by <account>" trailer; `None`
+    /// `Some(account)` renders the "Controlled by `<account>`" trailer; `None`
     /// omits it.
     author: Option<String>,
     /// Caller-owned close handler — the SAME one the backdrop/Esc fire.

@@ -18,7 +18,7 @@
 //! changes only when the client LISTENS, never what rides the bus.
 //!
 //! Teardown (review M-10): the `forget()`-ed closures are permanent, so they
-//! must never assume the Shell outlives them. Logout calls [`shutdown`]
+//! must never assume the Shell outlives them. Logout calls `shutdown`
 //! (generation bump + stream close + probe-slot release), and every entry
 //! point reachable from a forgotten closure or detached timer `try_`-reads
 //! the Shell first, so a disposed shell degrades to a no-op — never a panic
@@ -266,7 +266,7 @@ fn connect(s: Shell, promote_at_birth: bool) -> bool {
             // a deploy restart) — `onopen` restores ● LIVE when the browser's
             // auto-reconnect lands. Without this the chip claims LIVE while
             // disconnected (M3 whole-wave review). `try_set` (review M-10):
-            // `Some` back means the shell was disposed without [`shutdown`]
+            // `Some` back means the shell was disposed without `shutdown`
             // running — this stream is orphaned, so stand down for good
             // instead of panicking on the dead signal.
             if s.sync.sse_live.try_set(false).is_some() {
@@ -310,7 +310,7 @@ fn connect(s: Shell, promote_at_birth: bool) -> bool {
             if !promoted.get() {
                 PROBE_PENDING.set(false);
                 let Some(live) = s.sync.sse_live.try_get_untracked() else {
-                    // Shell disposed without [`shutdown`] (review M-10):
+                    // Shell disposed without `shutdown` (review M-10):
                     // this probe is orphaned — stand down for good.
                     es.close();
                     return;
@@ -571,7 +571,7 @@ fn resync_truth(s: Shell) {
 #[cfg(feature = "hydrate")]
 fn dispatch(s: Shell, event: SyncEvent) {
     // Disposal guard (review M-10): an event can race logout — the handler
-    // was already queued when [`shutdown`] closed the stream. One `try_`
+    // was already queued when `shutdown` closed the stream. One `try_`
     // read proves the shell alive for the whole synchronous body below
     // (single-threaded WASM); the spawned tails re-prove after each await.
     if s.sync.polling.try_get_untracked().is_none() {

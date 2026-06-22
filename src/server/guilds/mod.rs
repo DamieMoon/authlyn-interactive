@@ -6,21 +6,28 @@
 //! read-only prechecks before any write, privacy-404s, and the
 //! concurrent-write race against the `guild_member_pair (guild, account)`
 //! UNIQUE index handled via [`with_write_conflict_retry`] +
-//! [`is_unique_violation`] → 409.
+//! `is_unique_violation` → 409.
 //!
 //! ## Authorization
-//! - Membership-gated reads (`GET /guilds/{id}`) return `404 "guild not
-//!   found"` to non-members — same body as a genuinely missing guild, so
-//!   membership stays non-leaky.
-//! - Mutations (channel/guild edits, invites, kicks) require the caller to be
-//!   the guild **owner** (`role = 'owner'`): non-members get 404, members get
-//!   403. Roles are minimal in phase 1 (`owner` | `member`).
+//! Identity is the session cookie only (`AuthAccount`); account ids in the body
+//! (invite username, role target) are looked up/validated, never trusted as the
+//! caller. Authorization is re-derived per mutate.
+//! - Membership-gated reads (`GET /guilds/{id}`, members roster) return `404
+//!   "guild not found"` to non-members — same body as a genuinely missing
+//!   guild, so membership stays non-leaky (no 403 oracle).
+//! - The role hierarchy is `owner` > `admin` > `member`. Management mutations
+//!   (channel/guild edits, invites, kicks, role changes) require a *manager*
+//!   (owner OR admin): non-members get 404, plain members 403, and a
+//!   soft-deleted guild is immutable (`ensure_guild_live` runs before the role
+//!   check in `require_manager`). Destructive guild ops (delete/restore)
+//!   require the owner. The owner is the single fixed role — it can't leave, be
+//!   kicked, or be retargeted (ownership transfer is out of scope).
 //!
 //! ## Layout
 //! - this module: list/create/get/patch + per-user rail order + guild trash list.
-//! - [`channels`] — channel CRUD + trash/restore.
-//! - [`membership`] — list/invite/kick/role changes.
-//! - [`deletion`] — guild soft-delete + restore.
+//! - `channels` — channel CRUD + trash/restore.
+//! - `membership` — list/invite/kick/role changes.
+//! - `deletion` — guild soft-delete + restore.
 
 mod channels;
 mod deletion;
@@ -59,6 +66,11 @@ use crate::server::validate::validate_name;
 // GET /guilds
 // ---------------------------------------------------------------------------
 
+/// GET /guilds — the caller's live (non-soft-deleted) memberships as the guild
+/// rail, sorted by the caller's personal `user_guild_order` (#17/FB2; guilds
+/// with no order row sort last, `name` is the stable tiebreak). Identity is the
+/// session cookie only (`AuthAccount`); there is no membership oracle to leak,
+/// so a stranger simply sees an empty rail.
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn list_guilds(State(state): State<AppState>, account: AuthAccount) -> Response {
     match load_my_guilds(&state, &account.0).await {
@@ -237,6 +249,15 @@ async fn persist_rail_order(
 // POST /guilds
 // ---------------------------------------------------------------------------
 
+/// POST /guilds — create a guild; the caller becomes its `owner` and a default
+/// `'general'` text channel is minted, all in one BEGIN/COMMIT (see
+/// `persist_create_guild`). The name is `validate_name`-checked.
+///
+/// Emit scope is load-bearing, not cosmetic: at creation the caller is the ONLY
+/// member, so no other account's lists/visibility can change — we `emit_for` the
+/// actor (their other devices) rather than broadcasting a global `ListsChanged`.
+/// Contrast invite/kick/channel-create, which genuinely change another party's
+/// lists and stay broadcast.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild))]
 pub async fn create_guild(
     State(state): State<AppState>,
@@ -330,6 +351,11 @@ async fn persist_create_guild(
 // GET /guilds/{id}
 // ---------------------------------------------------------------------------
 
+/// GET /guilds/{id} — the guild detail (name, owner, accent, icon, ordered live
+/// channels) for a member. **Membership-gated privacy-404:** a non-member gets
+/// `404 "guild not found"` — the same body as a genuinely missing or
+/// soft-deleted guild — so membership is non-leaky (no 403 oracle). Pinned by
+/// `tests/guilds.rs::nonmember_get_guild_is_404`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn get_guild(
     State(state): State<AppState>,
@@ -410,6 +436,13 @@ async fn load_guild_detail(state: &AppState, gid: &str) -> surrealdb::Result<Opt
 // PATCH /guilds/{id}
 // ---------------------------------------------------------------------------
 
+/// PATCH /guilds/{id} — rename and/or recolor a guild (manager only). The
+/// PATCH-shaped body is all-`Option`: only the present fields mutate, and a body
+/// touching nothing emits nothing. `name` is `validate_name`-checked; `accent`
+/// must pass `normalize_accent` (400 otherwise). `require_manager` gates it
+/// (non-member → 404, plain member → 403, soft-deleted guild → 404 via
+/// `ensure_guild_live`); pinned by
+/// `tests/guilds.rs::rename_guild_and_channel_is_manager_gated`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn patch_guild(
     State(state): State<AppState>,

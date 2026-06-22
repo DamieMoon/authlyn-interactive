@@ -2,18 +2,18 @@
 //!
 //! - Compose: [`send_message`], [`add_compose_attachment`],
 //!   [`remove_compose_attachment`].
-//! - Edits + deletes: [`edit_message`], [`delete_message`] (instant
+//! - Edits + deletes: `edit_message`, [`delete_message`] (instant
 //!   soft-delete, NO modal; the 6s undo toast rides the EXISTING
 //!   POST `.../restore` — UX evolution #11), [`restore_deleted_message`],
 //!   [`load_deleted_messages`].
-//! - Background sync primitives: [`start_poll`] (the SSE fallback loop),
-//!   [`refresh_open_channel`], [`refresh_lists`], [`refresh_unread`],
-//!   [`sync_messages`], [`reconcile_newest_window`], [`ingest`], [`unseen`]
+//! - Background sync primitives: `start_poll` (the SSE fallback loop),
+//!   `refresh_open_channel`, `refresh_lists`, `refresh_unread`,
+//!   `sync_messages`, `reconcile_newest_window`, `ingest`, `unseen`
 //!   — driven by [`super::sync`] (the SSE driver that owns `start_sync`).
 //! - Three-cursor pagination: [`load_older`] using `cursor` / `oldest` /
 //!   `last_seen` with the `seen` HashSet dedupe across all paths.
 //! - Mute + last-seen marks: [`load_muted`], [`toggle_mute`],
-//!   [`load_last_seen`], [`set_last_seen`].
+//!   [`load_last_seen`], `set_last_seen`.
 //! - The destructive-action queue: [`ask_delete`], [`cancel_delete`],
 //!   [`confirm_delete`] — `PendingDelete` is data, not a closure, dispatched
 //!   by match here.
@@ -23,7 +23,7 @@
 //! Cross-submodule calls: [`confirm_delete`] dispatches into
 //! [`super::guild::delete_server`], [`super::channel::delete_channel`],
 //! [`super::persona::remove_persona`], and `delete_message` here; the poll loop
-//! calls [`super::notify::notify_messages`].
+//! calls `super::notify::notify_messages`.
 
 use super::super::{PendingDelete, Shell};
 
@@ -716,7 +716,7 @@ fn resurface(s: Shell, cid: &str, envelope: MessageEnvelope) {
 /// Undo a just-committed delete (the toast's Undo): POST the EXISTING
 /// own-gated `/channels/{cid}/messages/{mid}/restore`
 /// (`server/messages/editing.rs` — SSE-notified as a new arrival, which
-/// other clients pick up via [`sync_messages`] or the newest-window
+/// other clients pick up via `sync_messages` or the newest-window
 /// reconcile as long as the row sits on their newest page; deeper paged-in
 /// history re-syncs on their next channel open), then resurface the
 /// snapshot envelope in place. The
@@ -1670,9 +1670,9 @@ pub(super) async fn refresh_open_channel(s: Shell) {
 /// server's full truth, so:
 /// - a local row missing from it was soft-DELETED → `removed`;
 /// - a local row whose content differs was EDITED → `patched` (compared on
-///   body + persona_name, the same fields [`sync_messages`] diffs);
+///   body + persona_name, the same fields `sync_messages` diffs);
 /// - a page row this client has never seen is NEW or RESTORED → `inserts`
-///   (`seen`-gated exactly like [`ingest`], so an optimistically-hidden
+///   (`seen`-gated exactly like `ingest`, so an optimistically-hidden
 ///   in-flight delete is never re-inserted).
 ///
 /// Local rows OLDER than the window (paged-in history) are out of the page's
@@ -1688,7 +1688,7 @@ struct WindowPlan {
     inserts: Vec<MessageEnvelope>,
 }
 
-/// Pure decision core of [`reconcile_newest_window`]; see [`WindowPlan`].
+/// Pure decision core of `reconcile_newest_window`; see [`WindowPlan`].
 #[cfg(any(feature = "hydrate", test))]
 fn plan_window_reconcile(
     local: &[MessageEnvelope],
@@ -1734,7 +1734,7 @@ fn plan_window_reconcile(
 /// and a re-fetch can't duplicate; the cursor only ever ADVANCES (max), so
 /// an old restored row can never rewind the catch-up frontier. Every signal
 /// is written only when something actually changed: Typing events route
-/// through [`refresh_open_channel`] every ~2s while someone types, and an
+/// through `refresh_open_channel` every ~2s while someone types, and an
 /// unconditional write would re-render the whole list per ping.
 #[cfg(feature = "hydrate")]
 fn reconcile_newest_window(s: Shell, page: Vec<MessageEnvelope>) {

@@ -15,6 +15,14 @@ use crate::server::state::AppState;
 // DELETE /guilds/{id}
 // ---------------------------------------------------------------------------
 
+/// DELETE /guilds/{id} — soft-delete a guild the caller **owns** (#22).
+/// `require_owner` gates it (admins can't; non-member → 404, plain member →
+/// 403). It stamps `deleted_at` and leaves channels/members/messages intact, so
+/// it vanishes from every read (all filter `deleted_at = NONE`) but
+/// `restore_guild` brings the whole guild back; the purge sweep hard-deletes it
+/// + its children after the 30d window. Round-trip pinned by
+/// `tests/soft_delete.rs::guild_soft_delete_then_restore`; the immutable-while-
+/// trashed contract by `tests/soft_delete.rs::manager_mutations_on_a_soft_deleted_guild_are_404`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn delete_guild(
     State(state): State<AppState>,

@@ -25,6 +25,16 @@ use super::session::{issue_session, session_cookie, AuthAccount, SESSION_COOKIE}
 // POST /auth/register
 // ---------------------------------------------------------------------------
 
+/// POST /auth/register — mint an account + a session, returning 201 with the
+/// new identity in the body and an `HttpOnly; Secure; SameSite=Lax` session
+/// cookie. Validates the credentials (`validate_credentials`), argon2id-hashes
+/// the password off the async runtime, then `create_account` against the
+/// `account_username_ci` UNIQUE index. A racing duplicate username surfaces as
+/// `is_unique_violation` → 409 (never a 500), the same body the pre-check would
+/// give; the raw session token is handed to the browser exactly once here while
+/// the DB only ever holds its SHA-256. Round-trip pinned by
+/// `tests/auth.rs::register_sets_cookie_and_me_resolves_it`; the 409-not-500
+/// race by `tests/auth.rs::concurrent_register_same_username_never_500s`.
 #[tracing::instrument(skip_all, fields(username))]
 pub async fn register(
     State(state): State<AppState>,
@@ -83,6 +93,13 @@ pub async fn register(
 // POST /auth/login
 // ---------------------------------------------------------------------------
 
+/// POST /auth/login — verify credentials and mint a fresh session (200 +
+/// session cookie). No-enumeration is the load-bearing invariant: an unknown
+/// username and a wrong password return the **same** 401 body
+/// (`invalid_credentials`), and login still runs the full argon2 verify shape on
+/// the failure paths so timing/response can't distinguish the two. Pinned by
+/// `tests/auth.rs::login_good_and_bad_credentials` (asserts the two 401 bodies
+/// are byte-identical).
 #[tracing::instrument(skip_all, fields(username))]
 pub async fn login(
     State(state): State<AppState>,
@@ -134,6 +151,10 @@ pub async fn login(
         .into_response()
 }
 
+/// The single 401 body for **both** login failure modes (unknown user / wrong
+/// password). Centralised so the no-enumeration contract can't drift apart
+/// across the two branches — adding a distinct "no such user" message here is
+/// the easy way to break it. See `login`.
 pub(super) fn invalid_credentials() -> Response {
     error_response(StatusCode::UNAUTHORIZED, "invalid username or password")
 }
@@ -142,6 +163,12 @@ pub(super) fn invalid_credentials() -> Response {
 // POST /auth/logout
 // ---------------------------------------------------------------------------
 
+/// POST /auth/logout — delete the caller's one session row and clear the
+/// cookie, returning 204. Best-effort on the DB side: a failed DELETE just
+/// leaves a row that expires on its own TTL, and the cookie is cleared
+/// regardless. Identity comes only from the cookie (server-trusted); no body is
+/// read. Session invalidation pinned by
+/// `tests/auth.rs::logout_invalidates_the_session`.
 #[tracing::instrument(skip_all)]
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
     if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_owned()) {
@@ -165,6 +192,14 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Response {
 // GET /auth/me
 // ---------------------------------------------------------------------------
 
+/// GET /auth/me — resolve the session cookie to the caller's identity
+/// (`MeResponse`: account id, username, display name, `is_admin`, avatar id).
+/// The `AuthAccount` extractor is the only identity source; a missing/expired/
+/// garbage cookie is a 401 before this body runs. `is_admin` is the fail-closed
+/// env-driven check from `server::permissions` (not stored on the account) and
+/// gates admin-only UI client-side. Pinned by
+/// `tests/auth.rs::me_without_cookie_is_401` and
+/// `tests/auth.rs::me_with_garbage_cookie_is_401`.
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn me(State(state): State<AppState>, account: AuthAccount) -> Response {
     let (username, display_name, avatar_id) = match account_profile(&state, &account.0).await {

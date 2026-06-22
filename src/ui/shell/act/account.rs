@@ -1,5 +1,5 @@
-//! Account-management actions: logout + password / security-question /
-//! admin-reset. The mutators are `Shell`-driven (writing status on error);
+//! Account-management actions: logout, change-password, admin-reset, and
+//! profile edits — display name + avatar (M6). The mutators are `Shell`-driven (writing status on error);
 //! `logout` keeps the `Shell` parameter for signature symmetry. Beyond
 //! clearing the session user, logout tears the sync driver down (review
 //! M-10) and asks the service worker to purge the session-gated media cache

@@ -10,10 +10,10 @@
 //! `server::media` — endpoints here take an already-uploaded `media_id`.
 //!
 //! ## Layout
-//! - [`core`] — list/create/get/patch/delete + redeem/leave + share-key.
-//! - [`editors`] — list/add/remove editor + the persona-roster helper.
-//! - [`gallery`] — avatar + gallery image add/remove + media-id validation.
-//! - [`wear`] — per-guild + per-channel "worn" persona endpoints.
+//! - `core` — list/create/get/patch/delete + redeem/leave + share-key.
+//! - `editors` — list/add/remove editor + the persona-roster helper.
+//! - `gallery` — avatar + gallery image add/remove + media-id validation.
+//! - `wear` — per-guild + per-channel "worn" persona endpoints.
 
 mod core;
 mod editors;

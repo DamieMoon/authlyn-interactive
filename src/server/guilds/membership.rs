@@ -94,6 +94,16 @@ async fn load_members(state: &AppState, gid: &str) -> surrealdb::Result<Vec<Memb
 // POST /guilds/{id}/members
 // ---------------------------------------------------------------------------
 
+/// POST /guilds/{id}/members — invite a user by case-insensitive username as a
+/// plain `member` (manager only). Identity is the caller's cookie; `req.username`
+/// only names the *target*, never the caller. Unknown username → 404.
+///
+/// Dual-path idempotency against the `guild_member_pair (guild, account)` UNIQUE
+/// index: a `caller_role` pre-check returns 409 if the user is already a member,
+/// and a concurrent invite that loses the UNIQUE race is mapped via
+/// [`is_unique_violation`] to the same idempotent `409`, never a 500 — so two
+/// racing invites yield exactly one row. Pinned by
+/// `tests/guilds.rs::concurrent_invite_yields_one_member_row`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, invitee))]
 pub async fn invite_member(
     State(state): State<AppState>,

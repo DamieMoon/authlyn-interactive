@@ -15,7 +15,7 @@
 //!   ping, and the pre-M4/T7 bare ping keeps working unchanged.
 //! - **Whisper-armed drafts are MASKED at store time** (review M-01): when
 //!   the ping carries `effect: "whisper"` (the composer's armed M4/T5
-//!   delivery effect), the stored draft is the fixed [`WHISPER_DRAFT_MASK`]
+//!   delivery effect), the stored draft is the fixed `WHISPER_DRAFT_MASK`
 //!   placeholder — the spoiler text of a message that will land
 //!   hidden-until-tapped never even enters the in-memory map, so no read
 //!   path can leak it. Non-whisper / unknown effects are ignored, never
@@ -23,7 +23,7 @@
 //!   keeps the pre-M-01 plaintext behavior byte-for-byte.
 //! - **Over-cap drafts are TRUNCATED on a char boundary** (never rejected):
 //!   a ping firing mid-typing must not start failing because the composer
-//!   grew past [`MAX_DRAFT_CHARS`].
+//!   grew past `MAX_DRAFT_CHARS`.
 //! - Same mutex discipline as `AppState.typing`: tiny critical sections,
 //!   never held across an `.await`; pruned opportunistically on write and
 //!   read against the injectable `AppState.draft_ttl` (8s in production).
@@ -70,11 +70,11 @@ const WHISPER_DRAFT_MASK: &str = "(whisper)";
 ///
 /// The body is OPTIONAL (M4/T7 Ghost Quill): a bare POST is the classic ping;
 /// a JSON body may carry `draft` — the sender's current compose text — which
-/// is stored (truncated to [`MAX_DRAFT_CHARS`]) for other members to fetch
+/// is stored (truncated to `MAX_DRAFT_CHARS`) for other members to fetch
 /// via [`typing_drafts`]. Absent/empty `draft` clears the stored entry. When
 /// the body also carries `effect: "whisper"` (the composer's armed delivery
 /// effect, review M-01), the stored draft is masked to the fixed
-/// [`WHISPER_DRAFT_MASK`] placeholder — see the module header. A malformed
+/// `WHISPER_DRAFT_MASK` placeholder — see the module header. A malformed
 /// JSON body (when one IS sent) is the usual typed 400.
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
 pub async fn typing_ping(

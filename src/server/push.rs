@@ -301,7 +301,7 @@ pub struct NotificationInfo {
 impl NotificationInfo {
     /// The payload body for THIS row: the whisper mask keyed on the row's own
     /// `effect` column, then the snippet rules — the exact composition
-    /// [`notify_inner`] sends, exposed as a method so the integration pin
+    /// `notify_inner` sends, exposed as a method so the integration pin
     /// (review M-42) exercises the same effect→body thread-through.
     pub fn notification_body(&self) -> String {
         notification_body(&self.body, self.effect.as_deref())
@@ -310,7 +310,7 @@ impl NotificationInfo {
 
 /// Resolve the notification payload fields for one message row, or `None`
 /// when the message vanished (e.g. deleted between persist and notify). One
-/// parameterized query; this is [`notify_inner`]'s row read, split out so the
+/// parameterized query; this is `notify_inner`'s row read, split out so the
 /// `effect` projection → decode → mask seam is integration-testable without a
 /// live push service (review M-42).
 pub async fn load_notification_info(

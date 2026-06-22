@@ -4,14 +4,14 @@
 //! the sole + default shell (no rail/sidebar fallback) — the station opens the
 //! shared, skeleton-independent Account & Server modals mounted here.
 //!
-//! State is signal-driven (a `Copy` [`Shell`] handle); deep-link URLs are a
+//! State is signal-driven (a `Copy` `Shell` handle); deep-link URLs are a
 //! later polish. All data-fetching lives in the `act` module, defined twice —
 //! real on hydrate, no-op stubs on ssr — so the view's handlers call it
 //! ungated and the gloo-net client never enters the ssr graph.
 //!
 //! The content panes each live in their own submodule (`channel`, `wardrobe`,
-//! `lorebook`, `friends`); this module owns the shared [`Shell`] state, the
-//! orbit shell mount ([`AppShell`]), and the [`act`] action layer.
+//! `lorebook`, `friends`); this module owns the shared `Shell` state, the
+//! orbit shell mount (`AppShell`), and the [`act`] action layer.
 
 use std::collections::{HashMap, HashSet};
 

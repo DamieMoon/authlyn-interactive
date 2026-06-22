@@ -52,7 +52,7 @@ pub const GROUPS: &[&str] = &[
 
 /// Kick off the lazy JSON fetch if it hasn't started yet. Cheap to call from
 /// multiple sites (composer mount, app shell mount, first `:trigger` hit) —
-/// in-flight fetches coalesce via [`real::PENDING`]. No-op on ssr.
+/// in-flight fetches coalesce via `real::PENDING`. No-op on ssr.
 pub fn warm() {
     #[cfg(feature = "hydrate")]
     real::warm();

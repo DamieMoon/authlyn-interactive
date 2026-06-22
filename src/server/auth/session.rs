@@ -57,6 +57,9 @@ impl FromRequestParts<AppState> for AuthAccount {
     }
 }
 
+/// The 401 rejection the [`AuthAccount`] extractor returns for any
+/// no-valid-session case (absent/expired/garbage cookie). Shared so every miss
+/// path returns one identical body; storage errors are a separate 500.
 pub(super) fn unauthorized() -> (StatusCode, Json<ErrorBody>) {
     (
         StatusCode::UNAUTHORIZED,
@@ -88,6 +91,11 @@ pub(super) async fn issue_session(state: &AppState, account_id: &str) -> surreal
     Ok(token)
 }
 
+/// Resolve a RAW session token to its live account key (`None` = no such
+/// session, or expired). Hashes the token then defers to
+/// [`account_for_token_hash`] — the per-request convenience wrapper used by the
+/// extractor; the SSE stream takes the hash-keyed twin directly so both share
+/// one definition of "valid session".
 pub(super) async fn account_for_token(
     state: &AppState,
     token: &str,
@@ -144,6 +152,17 @@ pub(super) async fn delete_sessions_for_account(
     Ok(())
 }
 
+/// Build the session cookie carrying the raw token: `HttpOnly` (no JS read),
+/// `Secure`, `SameSite=Lax`, `Path=/`, 30-day `Max-Age`.
+///
+/// WebKit Secure-cookie trap (the subsystem's highest-surprise line): Safari/
+/// WebKit silently **drops** a `Secure` cookie set over `http://localhost`
+/// (Chromium accepts it), so the browser "logs in" 200 but the next `/auth/me`
+/// stays 401. `secure(true)` is correct for prod and must NOT be relaxed — test
+/// WebKit/iOS over HTTPS at the deck domain `https://authlyndev.damienmoon.sh`
+/// (publicly-trusted cert) instead. NOT covered by any integration test (no
+/// `tests/*.rs` asserts the cookie attributes); this is an owner-deck-only
+/// check, guarded by CLAUDE.md doctrine.
 pub(super) fn session_cookie(token: String) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, token))
         .path("/")

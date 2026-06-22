@@ -19,6 +19,15 @@ use super::session::AuthAccount;
 // POST /auth/change-password
 // ---------------------------------------------------------------------------
 
+/// POST /auth/change-password (auth-required) — self-service credential
+/// rotation, 204 on success. Identity is the `AuthAccount` cookie only (no
+/// account id in the body), so this can only ever change the caller's own
+/// password. Order is deliberate: validate the new password (cheap 400) →
+/// verify the **current** one (expensive argon2; wrong → 401) → re-hash and
+/// store. Does not rotate the session cookie. Happy path + wrong-current +
+/// auth-required pinned by `tests/auth.rs::change_password_rotates_the_login_credential`,
+/// `change_password_wrong_current_is_rejected`, and
+/// `change_password_requires_authentication`.
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn change_password(
     State(state): State<AppState>,
@@ -116,6 +125,9 @@ async fn account_password_hash(
     Ok(row.map(|r| r.password_hash))
 }
 
+/// Overwrite an account's stored `password_hash` in place. Shared by the
+/// self-service change and the admin reset; callers pass a fresh argon2 PHC
+/// string (never a raw password).
 pub(super) async fn update_password_hash(
     state: &AppState,
     account_id: &str,

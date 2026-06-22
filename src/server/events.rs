@@ -10,12 +10,12 @@
 //! therefore ends the stream instead of leaving an
 //! unkillable metadata feed. Wire format: unnamed
 //! SSE `data:` frames each carrying one serialized [`SyncEvent`]. Filtering
-//! (privacy) is per-connection: see [`visible_channels`] in `access`.
+//! (privacy) is per-connection: see `visible_channels` in `access`.
 //!
 //! ONE exception to both rules above: the dev hot-reload nudge
 //! ([`SyncEvent::Reload`], emitted by `server::dev_reload`) is delivered to
 //! EVERY connection — bypassing the visibility filter AND the M1.5 targeted
-//! lane — as a DISTINCT NAMED `event: reload` frame (see [`reload_frame`]), so
+//! lane — as a DISTINCT NAMED `event: reload` frame (see `reload_frame`), so
 //! the client can listen for it separately from message-notify frames. It
 //! stays payload-free (id-only bus invariant): the frame itself is the signal.
 

@@ -5,7 +5,7 @@
 //! Grouped by responsibility:
 //! - [`prefs`] — localStorage toggle helpers (confirm-delete, compose-preview,
 //!   dialogue-style).
-//! - [`account`] — logout + password/security-question/admin-reset.
+//! - [`account`] — logout, change-password, admin-reset, profile (display name + avatar).
 //! - [`guild`] — guild rail: refresh, swap, open, create/rename/delete/restore.
 //! - [`channel`] — channel sidebar: open (incl. deep link + session restore),
 //!   create/rename/delete/swap/restore.

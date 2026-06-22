@@ -31,6 +31,10 @@ const MAX_BATCH_IMAGES: usize = 100;
 // PUT /personas/{id}/avatar
 // ---------------------------------------------------------------------------
 
+/// PUT /personas/{id}/avatar — point the persona's avatar at an already-uploaded
+/// `media_blob`. Edit access (owner OR redeemed editor) and media existence are
+/// both checked via `require_editable_persona_and_media`; either miss is the
+/// privacy-404. Reuses `server::media` — the image is never uploaded here.
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn set_avatar(
     State(state): State<AppState>,
@@ -69,6 +73,11 @@ pub async fn set_avatar(
 // POST /personas/{id}/gallery  +  DELETE /personas/{id}/gallery/{img}
 // ---------------------------------------------------------------------------
 
+/// POST /personas/{id}/gallery — append one already-uploaded image to the
+/// persona's gallery. Same edit-access + media-existence gate as [`set_avatar`]
+/// (privacy-404 on either miss). The new row's `position` is the persona's
+/// current `MAX(position) + 1` so it lands at the end. See
+/// [`add_gallery_images_batch`] for the atomic multi-image variant.
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn add_gallery_image(
     State(state): State<AppState>,
@@ -137,7 +146,7 @@ async fn insert_gallery_image(
 /// Add multiple gallery images to a persona in one atomic SurrealDB transaction.
 ///
 /// Mirrors [`add_gallery_image`]'s 404/permission shape exactly (owner-or-editor
-/// via [`can_edit_persona`], privacy-404 when the caller can't edit). The new
+/// via `can_edit_persona`, privacy-404 when the caller can't edit). The new
 /// rows' `position`s are sequential and contiguous starting from the persona's
 /// current `MAX(position) + 1` so the gallery view sees the batch as one block
 /// preserving the client's input order. The returned `ids` parallel the input
@@ -346,6 +355,12 @@ async fn insert_gallery_images_batch(
     Ok(ids)
 }
 
+/// DELETE /personas/{id}/gallery/{img} — remove one gallery image. Edit access
+/// (owner OR redeemed editor) is re-derived via `can_edit_persona`; a caller who
+/// can't edit gets the privacy-404. The DELETE is scoped to `(image, persona)`
+/// so it can't touch another persona's row. Surviving rows keep their positions
+/// (no re-pack). Only the gallery link is dropped — the `media_blob` is left for
+/// `server::media` to manage.
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid, image = %img))]
 pub async fn remove_gallery_image(
     State(state): State<AppState>,

@@ -3,7 +3,7 @@
 //! A DM thread is a `channel` with `kind='dm'` and `guild=NONE`; membership lives
 //! in `dm_member` (the dm-kind analog of `guild_member`). Messages, read-state,
 //! and per-channel persona wear are channel-scoped (`/channels/{id}/…`) and gated
-//! by [`crate::server::access::resolve_membership`], which already branches on
+//! by `crate::server::access::resolve_membership`, which already branches on
 //! kind — so this module owns only the THREAD LIFECYCLE: create, list, invite,
 //! leave. No parallel message API.
 //!

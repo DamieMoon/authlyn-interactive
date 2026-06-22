@@ -1,3 +1,13 @@
+//! Application root: the HTML document shell rendered by the server and the
+//! top-level [`App`] component shared by both graphs.
+//!
+//! [`shell`] (ssr) emits the `<!DOCTYPE html>` … `<body>` envelope — viewport
+//! zoom-lock + safe-area opt-in for the standalone PWA, the manifest/apple-touch
+//! icon hints iOS reads for Add-to-Home-Screen, the hydration scripts, and the
+//! service-worker registration. [`App`] provides the [`crate::ui::AuthCtx`]
+//! session context (resolved once on mount via `/auth/me`, hydrate-only) and the
+//! router with the three top-level routes (`/login`, `/register`, `/`).
+
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
@@ -9,6 +19,10 @@ use crate::ui::auth::{LoginPage, RegisterPage};
 use crate::ui::shell::Home;
 use crate::ui::AuthCtx;
 
+/// SSR document shell: the full `<html>` envelope wrapping [`App`]. Carries the
+/// PWA viewport/safe-area meta, manifest + apple-touch-icon links, the Leptos
+/// hydration scripts, and the service-worker registration. Mounted by `main.rs`
+/// as both the `leptos_routes` shell and the file/error-handler fallback.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -52,6 +66,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
     }
 }
 
+/// Top-level component (both graphs): provides [`crate::ui::AuthCtx`], resolves
+/// the current session once on mount via `/auth/me` (hydrate-only effect), and
+/// mounts the router with the `/login`, `/register`, and `/` (`Home`) routes.
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();

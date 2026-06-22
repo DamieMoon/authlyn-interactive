@@ -33,6 +33,12 @@ const MAX_KEY_CHARS: usize = 100;
 // GET /channels/{cid}/lorebook
 // ---------------------------------------------------------------------------
 
+/// GET /channels/{cid}/lorebook — every entry on a lorebook channel, ordered by
+/// the integer `position`. Collaborative: any guild member may read (no per-user
+/// owner). `check_access` gates it — a non-member / unknown channel is the
+/// privacy-404, a non-lorebook channel is a 400.
+/// (`tests/lorebook.rs::nonmember_cannot_touch_lorebook`,
+/// `lorebook_ops_on_a_text_channel_are_400`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
 pub async fn list_entries(
     State(state): State<AppState>,
@@ -89,6 +95,11 @@ async fn load_entries(state: &AppState, cid: &str) -> surrealdb::Result<Vec<Lore
 // POST /channels/{cid}/lorebook
 // ---------------------------------------------------------------------------
 
+/// POST /channels/{cid}/lorebook — create a world-info entry. Any guild member of
+/// a lorebook channel may create (collaborative, no per-user owner); same
+/// `check_access` gate as [`list_entries`]. Validates title / content / key
+/// lengths and normalizes keys; an omitted `position` defaults to the channel's
+/// next free slot (`MAX(position) + 1`).
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
 pub async fn create_entry(
     State(state): State<AppState>,
@@ -169,6 +180,12 @@ pub async fn create_entry(
 // PATCH /channels/{cid}/lorebook/{eid}
 // ---------------------------------------------------------------------------
 
+/// PATCH /channels/{cid}/lorebook/{eid} — edit an entry's title / keys / content /
+/// enabled / position. Any guild member may edit (collaborative). `check_access`
+/// gates the channel, then `entry_in_channel` confirms the entry belongs to it
+/// (404 otherwise — and scopes the UPDATE so it can't reach a sibling channel's
+/// entry). All-`Option` PATCH shape: only present fields are SET, empty body is a
+/// no-op 204; field lengths are re-validated.
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid, entry = %eid))]
 pub async fn patch_entry(
     State(state): State<AppState>,
@@ -254,6 +271,10 @@ pub async fn patch_entry(
 // DELETE /channels/{cid}/lorebook/{eid}
 // ---------------------------------------------------------------------------
 
+/// DELETE /channels/{cid}/lorebook/{eid} — remove an entry. Any guild member may
+/// delete (collaborative); `check_access` gates the channel. The DELETE is scoped
+/// to `(entry, channel)`, so a wrong / cross-channel `eid` simply deletes nothing
+/// (idempotent 204) rather than reaching another channel's entry.
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid, entry = %eid))]
 pub async fn delete_entry(
     State(state): State<AppState>,

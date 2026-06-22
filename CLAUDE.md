@@ -6,6 +6,7 @@ Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guild
 - **Stack + directory layout:** `README.md`.
 - **Every dependency's purpose + the ssr/hydrate/nova graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
 - **Toolchain probe, Bash allowlist, hooks:** `.claude/settings.json`.
+- **Deep architecture + REST reference (the connective narrative):** `docs/` — start at `docs/README.md`. Drift-anchored (every invariant cites its pinning test); the integration tests stay canonical.
 
 ## Toolchain prereqs
 `cargo-leptos` installed, and `rustup target add wasm32-unknown-unknown` (the hydrate clippy step and `cargo leptos build` both need it). The `SessionStart` hook prints cargo / cargo-leptos / surreal presence + dev-DB status each session.

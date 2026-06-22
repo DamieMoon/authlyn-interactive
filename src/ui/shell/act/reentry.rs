@@ -1,7 +1,7 @@
 //! Re-entry aids (UX evolution #9): the unread-frontier "NEW" divider, the
 //! date-separator labels, and per-channel scroll memory.
 //!
-//! Pure decision fns ([`first_past_baseline`], [`utc_date_label`]) compile in both
+//! Pure decision fns (`first_past_baseline`, `utc_date_label`) compile in both
 //! graphs and unit-test under ssr; the localStorage / DOM pieces follow the
 //! house hydrate-real + ssr-stub pairing (the `compose_colors` pattern).
 //! Nothing here ever WRITES read state: the divider only READS the prior

@@ -18,12 +18,12 @@
 //!   `is_unique_violation` → 409, same body as the pre-check would give.
 //!
 //! ## Layout
-//! - [`session`] — `AuthAccount` extractor, token issue/resolve/revoke,
+//! - `session` — `AuthAccount` extractor, token issue/resolve/revoke,
 //!   session cookie.
-//! - [`registration`] — register/login/logout/me handlers.
-//! - [`password`] — change-password, security question, public reset flow.
-//! - [`admin`] — admin-only password reset.
-//! - [`crypto`] — argon2id hashing, sha256, random token, input validators.
+//! - `registration` — register/login/logout/me handlers.
+//! - `password` — self-service change-password.
+//! - `admin` — admin-only password reset.
+//! - `crypto` — argon2id hashing, sha256, random token, input validators.
 
 mod admin;
 mod crypto;

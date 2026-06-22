@@ -4,7 +4,7 @@
 //! Wave-3 split of the original `server/messages.rs` into focused submodules.
 //! Channel-scoped, server-trusted (plaintext) messages with the proven
 //! `(sent_at, id)` composite-cursor pagination. The author comes from the
-//! session ([`AuthAccount`]); the "speaking-as" persona is PER-CHANNEL — the
+//! session (`AuthAccount`); the "speaking-as" persona is PER-CHANNEL — the
 //! client sends the persona it's wearing in this channel and the server snapshots
 //! it after validating the caller may use it (`can_edit_persona`), falling back to
 //! the stored `channel_active_persona` row, else the account. `body` is stored
@@ -22,16 +22,16 @@
 //! `server::datetime`), and `ORDER BY` the projected aliases.
 //!
 //! ## Layout
-//! - [`posting`] — POST + persist + attachment-existence check.
-//! - [`reading`] — GET + composite-cursor + MSG_PROJECTION (attachment mimes
+//! - `posting` — POST + persist + attachment-existence check.
+//! - `reading` — GET + composite-cursor + MSG_PROJECTION (attachment mimes
 //!   join the projection) + typing-name resolution.
-//! - [`editing`] — PATCH/DELETE/restore/trash + the own-message gate (and the
+//! - `editing` — PATCH/DELETE/restore/trash + the own-message gate (and the
 //!   roll-immutability 403s).
-//! - [`rolling`] — POST /roll (M4/T6 Fate Engine: server-authoritative dice).
-//! - [`typing`] — POST /typing ping + GET /typing-drafts (M4/T7 Ghost Quill;
+//! - `rolling` — POST /roll (M4/T6 Fate Engine: server-authoritative dice).
+//! - `typing` — POST /typing ping + GET /typing-drafts (M4/T7 Ghost Quill;
 //!   both in-memory).
 //! - this module: shared `channel_access` (the per-channel layer atop
-//!   [`crate::server::access::resolve_membership`]) + the per-message body
+//!   `crate::server::access::resolve_membership`) + the per-message body
 //!   constants.
 
 mod editing;
@@ -97,7 +97,7 @@ pub(super) enum AccessOutcome {
 /// The two unknowns (no such channel / caller not a member) remain distinct
 /// internally but the handlers collapse both to a privacy-404. Soft-delete
 /// filter is always on here (the messages contract); the shared
-/// [`crate::server::access::resolve_membership`] core stays available for the
+/// `crate::server::access::resolve_membership` core stays available for the
 /// `lorebook` no-filter and `personas` bool-only callers.
 pub(super) async fn channel_access(
     state: &AppState,

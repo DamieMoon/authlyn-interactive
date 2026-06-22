@@ -27,7 +27,7 @@ const BASE_BACKOFF_MS: u64 = 5;
 /// Run `op`, retrying when SurrealDB tells us the transaction lost an MVCC
 /// race. Other errors propagate immediately.
 ///
-/// The closure is invoked up to [`MAX_WRITE_CONFLICT_ATTEMPTS`] times.
+/// The closure is invoked up to `MAX_WRITE_CONFLICT_ATTEMPTS` times.
 /// Backoff is linear in attempt number plus a small jitter so concurrent
 /// retriers desynchronise instead of stampeding the next slot together.
 pub async fn with_write_conflict_retry<F, Fut, T>(mut op: F) -> surrealdb::Result<T>
@@ -141,8 +141,8 @@ pub fn is_write_conflict(err: &surrealdb::Error) -> bool {
 
 /// Identify SurrealDB UNIQUE-index violation errors via their Display
 /// string. SurrealDB surfaces these as plain [`surrealdb::Error`] values
-/// whose message is shaped like `"Database index `<index_name>` already
-/// contains <key_tuple>, with record `<table>:<existing_id>`"` — captured
+/// whose message is shaped like `Database index <index_name> already
+/// contains <key_tuple>, with record <table>:<existing_id>` — captured
 /// against `guild_member_pair` (`(guild, account)` UNIQUE) when two CREATEs
 /// race the same key tuple. The `"already contains"` substring is the
 /// load-bearing marker.

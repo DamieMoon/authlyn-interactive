@@ -12,6 +12,14 @@ Work in progress. Private / internal use.
 - **Auth:** session cookies (argon2 password hashing); no browser-side cryptography
 - **MCP bridge:** standalone `nova-mcp` bin behind the optional `nova` feature — talks to the running HTTP API as the "Nova" account and exposes it over MCP
 
+## Documentation
+
+Deep architecture + reference docs live in [`docs/`](docs/README.md): the three
+feature graphs, request lifecycle, data model, realtime/SSE, auth/privacy, the
+markup engine, the UI shell, styling, testing, the Nova MCP bridge,
+build/deploy/PWA, and a full REST API reference. Every invariant cites its
+pinning test, so the docs track the code instead of rotting.
+
 ## Versioning
 
 CalVer: `YYYY.M.D`. Each release also gets a random two-word codename — pick one

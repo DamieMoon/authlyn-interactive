@@ -1,3 +1,16 @@
+//! Server binary entrypoint (ssr graph).
+//!
+//! Boot order — each step gates the next: init the tracing subscriber
+//! (route-handler diagnostics → stdout → journald), read the Leptos config,
+//! connect to SurrealDB with retries and apply the schema (`db::apply_schema`)
+//! **before** serving traffic, ensure the encrypted-attachment media dir exists,
+//! build the shared [`authlyn_interactive::server::AppState`], spawn the
+//! soft-delete purge sweep (#22), then mount `server::api_router` merged with the
+//! Leptos SSR routes and serve on the configured address.
+//!
+//! Under `not(feature = "ssr")` this collapses to a no-op `main` — the client
+//! enters through `lib.rs::hydrate` instead, not here.
+
 // The SSR render instantiates the full nested view type; same depth need as lib.rs.
 #![recursion_limit = "512"]
 
