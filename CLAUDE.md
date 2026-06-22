@@ -22,7 +22,7 @@ Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guild
 
 ## Branch / deploy / pipelines
 - Work happens on branch **`mendicant-bias`**; merge to **`main` only after explicit owner approval** (design spec).
-- **Prod deploy is FROZEN.** `/deploy` and `.github/workflows/deploy.yml` still target the **retired** host *fenrir* (Pi). Prod is now **novahome** (x86_64); both must be **repointed before any v27 deploy**. Do not run `/deploy` as-is.
+- **Prod = novahome** (x86_64): service `authlyn-prod`, `https://authlyn.damienmoon.sh`. `/deploy` + `.github/workflows/deploy.yml` are repointed to novahome and **a push to `main` auto-deploys to prod** (build → prod-DB backup → `/opt/authlyn-prod/deploy.sh`; health-check `:8083` + auto-rollback). **v27.0.0 `mendicant-bias` shipped 2026-06-22** (tag `v27.0.0` on `main`); each future prod promotion stays owner-gated. The retired Pi *fenrir* path is gone — don't target it.
 - **Test deck** (`/test-deploy`): the shared review surface on **novahome**, `authlyn-test` service, ns `authlyn` / db `test`. Address: `https://authlyndev.damienmoon.sh` (cloudflared, publicly-trusted cert — **the iOS/WebKit/Android review + probe target**, no root CA needed). The LAN-IP `https://192.168.0.239:3434` (self-signed) and its dev root CA are **retired** — don't probe or review there. Feature branch + committed tree only — **never `main`, never prod**. Pushes to both GitHub (backup) and the novahome bare repo (build source, via the `ssh novahome` alias — the bare-IP remote URL fails publickey; `git remote` is repointed to the alias); verify the deployed SHA.
 - Never re-create the intentionally-deleted `deploy/` `scripts/` `end2end/` trees (commit `c2aba1c`) or the `visual-gate/` tooling (commit `68b65bd`).
 
