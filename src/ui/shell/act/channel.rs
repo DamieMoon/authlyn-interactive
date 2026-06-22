@@ -24,40 +24,6 @@ pub fn open_channel(s: Shell, ch: ChannelSummary) {
     open_channel_at(s, ch, None);
 }
 
-/// Mobile Chat tab: re-route to the pane that matches the SELECTED channel's
-/// kind, mirroring [`open_channel_at`]'s kind→pane map (`lorebook` →
-/// [`Pane::Lorebook`], everything else → [`Pane::Channel`]) WITHOUT reloading
-/// anything — the channel's messages / lore entries are already in state from
-/// when it was opened. Hardcoding `Pane::Channel` in the tab handler showed
-/// the previous text channel's messages (and composer target) under a
-/// lorebook channel's header (review M3/T5). With no channel selected (a
-/// fresh mobile session lands on Friends) there is nothing to show, so open
-/// the channel sheet for the user to pick one instead of rendering an empty
-/// `ChannelPane` with a dead composer.
-#[cfg(feature = "hydrate")]
-pub fn show_current_channel(s: Shell) {
-    use super::super::Pane;
-    match s.sel.sel_channel.get_untracked() {
-        Some(ch) if ch.kind == "lorebook" => s.sync.pane.set(Pane::Lorebook),
-        Some(ch) => {
-            // Re-entry scroll memory (review M-36): this path remounts
-            // ChannelPane over RETAINED state, so `open_channel_at`'s
-            // restore chain never runs — and the remounted pane's fresh
-            // `last_dist = 0` follow branch would yank the reader to the
-            // tail. Consume the mark captured on tab-leave (one-shot,
-            // validated against the retained list — the same
-            // `take_restore_anchor` contract as a real open) and hand it to
-            // the remount's anchor effect. No mark (left at the tail, or
-            // already consumed) keeps the default tail landing.
-            if let Some(mid) = super::reentry::take_restore_anchor(s, &ch.id) {
-                s.msg.anchor_to.set(Some(mid));
-            }
-            s.sync.pane.set(Pane::Channel);
-        }
-        None => s.sync.sheet_open.set(true),
-    }
-}
-
 /// Open the orbit MAP overlay (the home/landing surface). Wired to every
 /// USER-dismiss of a station-reached surface (Station back/swipe/Esc, the
 /// Server-settings modal close, the Account & preferences modal close) so
@@ -227,22 +193,16 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // …and the previous channel's Ghost Quill rows (M4/T7): ghosts are
         // channel-scoped and must never leak across a switch.
         s.msg.ghost_drafts.set(Vec::new());
-        // Opening clears the unread glow, the ping glow, and the count badge at
-        // once (L-4); the high-water mark advances once messages load below.
+        // Opening clears the unread glow at once (L-4); the high-water mark
+        // advances once messages load below.
         s.notify.unread.update(|u| {
             u.remove(&cid);
         });
-        s.notify.pinged.update(|p| {
-            p.remove(&cid);
-        });
-        s.notify.unread_count.update(|c| {
-            c.remove(&cid);
-        });
-        // Rebuild the rail's per-guild unread dots promptly: `unread_guilds`
-        // is recomputed only by `refresh_unread` (from `GET /unread`), and
-        // under SSE there is no periodic tick to pick up the channel the user
-        // just read — without this the dot of a now-fully-read guild would
-        // linger until the next event.
+        // Recompute the unread set promptly: it is rebuilt only by
+        // `refresh_unread` (from `GET /unread`), and under SSE there is no
+        // periodic tick to pick up the channel the user just read — without
+        // this the glow of a now-fully-read channel would linger until the
+        // next event.
         super::message::refresh_unread(s);
         // Ask the SW to close any tray notifications for this channel so a
         // burst of stacked notifs disappears once the user lands on the
@@ -646,8 +606,6 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn show_current_channel(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn show_orbit_map(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]

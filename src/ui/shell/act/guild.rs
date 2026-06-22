@@ -1,7 +1,7 @@
-//! Guild-rail actions: refresh + reorder + open + create/rename/delete +
-//! restore. Cross-calls: `open_server` → [`super::emoji::refresh_guild_emoji`]
-//! and [`super::channel::open_channel`]; `create_server`/`delete_server`/
-//! `restore_deleted_guild` → `refresh_guilds`.
+//! Guild-rail actions: refresh + reorder + open + create/rename/delete.
+//! Cross-calls: `open_server` → [`super::emoji::refresh_guild_emoji`]
+//! and [`super::channel::open_channel`]; `create_server`/`delete_server` →
+//! `refresh_guilds`.
 
 use super::super::Shell;
 
@@ -252,32 +252,6 @@ pub fn delete_server(s: Shell, gid: String) {
     });
 }
 
-/// Load the caller's own soft-deleted guilds into `s.trash.deleted_guilds`.
-#[cfg(feature = "hydrate")]
-pub fn load_deleted_guilds(s: Shell) {
-    spawn_local(async move {
-        match api::list_deleted_guilds().await {
-            Ok(r) => s.trash.deleted_guilds.set(r.guilds),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
-    });
-}
-
-/// Restore a soft-deleted guild (owner). On success, refresh the rail and
-/// the deleted-guilds list so the restored server reappears and leaves trash.
-#[cfg(feature = "hydrate")]
-pub fn restore_deleted_guild(s: Shell, gid: String) {
-    spawn_local(async move {
-        match api::restore_guild(&gid).await {
-            Ok(()) => {
-                refresh_guilds(s);
-                load_deleted_guilds(s);
-            }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
-    });
-}
-
 // ---- ssr stubs ----
 
 #[cfg(not(feature = "hydrate"))]
@@ -303,7 +277,3 @@ pub fn set_guild_accent(_s: Shell, _gid: String, _accent: String) {}
 pub fn set_guild_icon(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_server(_s: Shell, _gid: String) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn load_deleted_guilds(_s: Shell) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn restore_deleted_guild(_s: Shell, _gid: String) {}

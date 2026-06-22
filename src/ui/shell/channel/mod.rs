@@ -27,7 +27,7 @@ mod meta;
 mod radial;
 mod skeleton;
 
-pub(crate) use manager::{ChannelManagerBody, ChannelManagerModal};
+pub(crate) use manager::ChannelManagerBody;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};
@@ -59,7 +59,7 @@ use crate::ui::icons::{
     IconEye, IconQuill, IconRefresh, IconSend, IconShout, IconSpell, IconTrash, IconWhisper,
 };
 use crate::ui::markup_view::render_body;
-use crate::ui::modal::Modal;
+use crate::ui::modal::PersonaInfo;
 use crate::ui::AuthCtx;
 
 /// The display name to render for a message — the worn persona's name when
@@ -1895,19 +1895,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // wrapped it into an ugly two-line block); the
                     // `::placeholder` nowrap/ellipsis guard in _content.scss
                     // degrades anything narrower gracefully.
-                    // Orbit speaks the prototype's quiet channel cue
-                    // ("Message #channel…") instead of advertising markdown;
-                    // deck/hud keep the markdown hint. Reactive on the worn channel.
+                    // Orbit (the sole release shell) speaks the prototype's quiet
+                    // channel cue ("Message #channel…") instead of advertising
+                    // markdown. The deck/hud markdown-hint variant lives behind the
+                    // test-pinned skeleton API in `act/prefs.rs`; restore the pref
+                    // branch if a deck/hud skeleton is re-enabled. Reactive on the
+                    // worn channel.
                     placeholder=move || {
-                        if s.prefs.skeleton.get().as_deref() == Some("orbit") {
-                            s.sel
-                                .sel_channel
-                                .get()
-                                .map(|c| format!("Message #{}…", c.name))
-                                .unwrap_or_else(|| "Message…".to_string())
-                        } else {
-                            "type a message — **bold**, *italic*".to_string()
-                        }
+                        s.sel
+                            .sel_channel
+                            .get()
+                            .map(|c| format!("Message #{}…", c.name))
+                            .unwrap_or_else(|| "Message…".to_string())
                     }
                 ></textarea>
                 // `:`-autocomplete popover: matches for the trailing `:query`
@@ -1972,27 +1971,26 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // so this is where a `:3`-style send must dismiss it.
                     ac_token.set(None);
                 }>
-                    // "Save" while editing a message, "Send" for a normal compose.
+                    // Orbit (the sole release shell) uses the prototype's compact
+                    // glyph send (a-orbit.html #sendBtn ➤): a check while editing,
+                    // a send arrow otherwise. The deck/hud word variant ("Save" /
+                    // "Send") lives behind the test-pinned skeleton API in
+                    // `act/prefs.rs`; restore the pref branch if it's re-enabled.
                     {move || {
-                        let editing = s.composer.editing.get().is_some();
-                        // Orbit's composer pill uses the prototype's compact glyph
-                        // send (a-orbit.html #sendBtn ➤); deck/hud keep the word.
-                        if s.prefs.skeleton.get().as_deref() == Some("orbit") {
-                            if editing {
-                                view! { <IconCheck/> }.into_any()
-                            } else {
-                                view! { <IconSend/> }.into_any()
-                            }
-                        } else if editing {
-                            view! { "Save" }.into_any()
+                        if s.composer.editing.get().is_some() {
+                            view! { <IconCheck/> }.into_any()
                         } else {
-                            view! { "Send" }.into_any()
+                            view! { <IconSend/> }.into_any()
                         }
                     }}
                 </button>
             </div>
 
             // Persona info popup — opened by clicking a message's author name.
+            // The shared `PersonaInfo` (crate::ui::modal) owns the markup; this
+            // site builds the persona's send-time avatar snapshot (#26, monogram
+            // fallback) and passes author=Some so the "Controlled by …" trailer
+            // surfaces the controlling account. #14 dedup.
             {move || info.get().map(|m| {
                 // For a personaless message the "default" identity is the
                 // controlling account's nickname.
@@ -2001,21 +1999,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
                 view! {
-                    <Modal class="persona-info" close=move || info.set(None)>
-                        <div class="detail-head">
-                            <h4>{persona}</h4>
-                            <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)><IconClose/></button>
-                        </div>
-                        // Persona's send-time avatar snapshot (#26), monogram fallback.
-                        <div class="info-portrait">{portrait}</div>
-                        {match desc {
-                            // Description supports the same markup as chat (#18).
-                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                        }}
-                        <p class="muted">"Controlled by "<strong>{author}</strong></p>
-                    </Modal>
+                    <PersonaInfo
+                        name=persona
+                        avatar=portrait.into_any()
+                        description=desc
+                        author=Some(author)
+                        on_close=move || info.set(None)/>
                 }
             })}
 

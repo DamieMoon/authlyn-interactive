@@ -393,11 +393,6 @@
 // and the central typing-anchor dot (`.typing-indicator .star-core`) consumes
 // fx-twinkle the same way. Killed, both sit at their static base (the ghost at
 // its dim floor opacity, the anchor at rest) — presence is state.
-// The corridor-hum row dot (`.channel-hum`, _sidebar.scss) is explicit for
-// the same reason: it consumes fx-twinkle with no "fx-" in the class
-// string. Killed, the dot sits static at full opacity and still
-// appears/disappears with its ~8s decay — presence is state; only the
-// twinkle is motion.
 // The Nova DOT orb ring (`.nova-orb-ring`, M6/P3) is explicit too: it consumes
 // fx-nova-ring (rotation) but its class carries no "fx-". Killed, the ring sits
 // at its identity transform — a static dashed halo (state); the orb body never
@@ -408,7 +403,6 @@
 	.typing-indicator .star,
 	.typing-indicator .star-core,
 	.msg.msg-ghost,
-	.channel-hum,
 	.composer .send.sent,
 	.composer .send.sent::after,
 	.radial-menu,

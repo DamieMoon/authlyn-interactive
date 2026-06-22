@@ -165,12 +165,6 @@
 	@include glass;
 }
 
-// M5/P0 #20: under fx-max, the chrome bars escalate back to live refraction.
-.app.fx-max .topbar,
-.app.fx-max .bottom-tabs {
-	@include glass-live;
-}
-
 // M5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and
 // the mobile emoji picker are no longer mounted inside ChannelPane's .content
 // — they are Leptos <Portal>s rendered to document.body (each inside its own
@@ -251,13 +245,6 @@
 // opacity — invisible on gradients this soft.
 .app.fx-max::before {
 	animation: aurora-drift 9s steps(36) infinite alternate;
-}
-.app.fx-max .rail-guild.active {
-	// layered: keep the active ring under the glow — review M2/T3
-	box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--glow-accent);
-}
-.app.fx-max .channel.active {
-	box-shadow: 0 0 14px var(--glow-accent);
 }
 
 // M5/P0 #54(c)+#43: the fx-max warp streak is now a 20%-wide gradient strip

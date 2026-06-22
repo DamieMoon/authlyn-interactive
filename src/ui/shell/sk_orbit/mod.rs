@@ -18,6 +18,7 @@ pub mod blossom;
 pub mod charge;
 pub mod drag;
 pub mod orbit_map;
+pub mod pane_swipe;
 pub mod strip;
 pub mod warp;
 
@@ -86,6 +87,41 @@ fn focusables(root: &leptos::web_sys::Element) -> Vec<leptos::web_sys::HtmlEleme
         }
     }
     out
+}
+
+/// Wrap Tab focus within a portaled dialog `root` (the Modal-parity trap §13),
+/// shared by the help + founding overlays (Finding 10) so their trap can't drift
+/// from the orbit map's. Computes the active element's position among `root`'s
+/// `focusables` and, when Tab/Shift+Tab would leave either end, focuses the
+/// opposite end and returns `true` so the caller `prevent_default()`s. Shift+Tab
+/// from the dialog root itself (idx `None`, the post-open state) wraps to the
+/// last control rather than escaping backwards — exactly the map's rule. Returns
+/// `false` (let the browser move focus normally) when there are no focusables or
+/// the move stays inside.
+#[cfg(feature = "hydrate")]
+fn trap_tab(root: &leptos::web_sys::Element, shift: bool) -> bool {
+    use leptos::wasm_bindgen::JsCast as _;
+    let els = focusables(root);
+    if els.is_empty() {
+        return false;
+    }
+    let active = leptos::web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.active_element())
+        .and_then(|el| el.dyn_into::<leptos::web_sys::HtmlElement>().ok());
+    let idx = active
+        .as_ref()
+        .and_then(|a| els.iter().position(|el| el == a));
+    let last = els.len() - 1;
+    let (wrap, target) = if shift {
+        (idx == Some(0) || idx.is_none(), last)
+    } else {
+        (idx == Some(last), 0)
+    };
+    if wrap {
+        let _ = els[target].focus();
+    }
+    wrap
 }
 
 /// The Orbit shell chrome. Renders as a sibling of the M3 chrome under
@@ -298,6 +334,20 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
         self::drag::StripDrag::new(idx_sv, count_sv, Callback::new(on_strip_commit), strip_ref);
     #[cfg(not(feature = "hydrate"))]
     let _ = (strip_ref, on_strip_commit);
+    // Finding 9 (M7): the six non-channel dispatch panes (Friends/Members/Emoji/
+    // Lorebook/DMs/Cameos) mount full-viewport but were dismissed ONLY by the
+    // top-left back disc — diverging from the product's swipe-right-to-close
+    // paradigm (the wardrobe slide-over). Wrap them in a swipe surface bound to
+    // `pane_swipe::PaneSwipe` (axis-lock reused from `strip::axis_lock`, the SAME
+    // 28% commit the wardrobe Modal uses), and on a completed rightward swipe pop
+    // back to the orbit MAP — the panes' correct dismiss target, exactly where
+    // the back disc lands (`act::show_orbit_map`). The back disc stays the
+    // keyboard/a11y fallback. The Channel pane is NOT wrapped: it owns its own
+    // horizontal swipe (the channel strip), and back-swiping a channel is a
+    // neighbor switch, not a dismiss.
+    let panes_ref = NodeRef::<leptos::html::Div>::new();
+    #[cfg(feature = "hydrate")]
+    let pane_swipe = self::pane_swipe::PaneSwipe::new(panes_ref);
     // Composer-orb charge: the SVG ring fills with message LENGTH via the
     // log curve (#33 — a one-liner is a sliver, a paragraph ~60%, only a saga
     // pegs). The orb is the SOLE send surface under orbit (the in-pane
@@ -375,6 +425,47 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     // orbit-map dock, where servers (the far-docks) spatially live.
     let founding = RwSignal::new(false);
     let new_server_name = RwSignal::new(String::new());
+    // Finding 10 (M7): the help + founding overlays are `aria-modal` dialogs but
+    // dismissed ONLY by scrim-tap / button — no Esc, no focus-trap, no
+    // restore-to-trigger. Give them the SAME Modal-parity handling the orbit map
+    // has (Esc closes, Tab/Shift+Tab wrap within the card via the shared
+    // `focusables`, focus lands in the card on open, focus returns to the trigger
+    // on close — WCAG 2.4.3 §13). They stay portaled compact cards; the scrim-tap
+    // is kept. NodeRefs: the card containers (focus-on-open + Tab-trap root) and
+    // the help "?" button (its restore target — the founding dialog's trigger is
+    // the in-map dock button, which lives in the map portal, so its restore is
+    // best-effort to the document and the trap is what matters there).
+    let help_ref = NodeRef::<leptos::html::Div>::new();
+    let help_btn_ref = NodeRef::<leptos::html::Button>::new();
+    let founding_ref = NodeRef::<leptos::html::Div>::new();
+    // Close help + restore focus to the "?" trigger (mirrors `close_map`).
+    let close_help = move || {
+        help_open.set(false);
+        #[cfg(feature = "hydrate")]
+        if let Some(btn) = help_btn_ref.get_untracked() {
+            let _ = (*btn).focus();
+        }
+    };
+    // Focus the help card when it opens (its `tabindex=-1` makes it focusable; the
+    // first Tab then lands on the first control). Mirrors the map's focus-in Effect.
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        if help_open.get() {
+            if let Some(card) = help_ref.get() {
+                let _ = (*card).focus();
+            }
+        }
+    });
+    // Focus the founding card when it opens (so keystrokes — and the name input's
+    // first Tab — land in scope; the input is the first focusable).
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        if founding.get() {
+            if let Some(card) = founding_ref.get() {
+                let _ = (*card).focus();
+            }
+        }
+    });
     // Close the slide-over AND restore focus to the summon button (§13 Modal-
     // parity restore-to-trigger). Used by on_close (Esc + swipe-to-close) and
     // the explicit ← button.
@@ -453,38 +544,47 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 <div class="fx-sk-orbit-stars-a"></div>
                 <div class="fx-sk-orbit-stars-b"></div>
             </div>
-            <button class="sk-orbit-pill" type="button"
-                node_ref=pill_ref
-                aria-haspopup="dialog"
-                aria-expanded=move || map_open.get().to_string()
-                title="Open the orbit map"
-                on:click=move |_| {
-                    // Reset any prior dive so the enter-warp scales from centre.
-                    dive_origin.set("center".to_string());
-                    diving.set(false);
-                    map_open.set(true);
-                }>
-                <span class="sk-orbit-pill-hash" aria-hidden="true">{channel_sigil}</span>
-                <span class="sk-orbit-pill-name">{channel_name}</span>
-                <span class="sk-orbit-pill-server">{server_name}</span>
-                <span class="sk-orbit-pill-dots" aria-hidden="true">
-                    {move || {
-                        let chans = s.sel.channels.get();
-                        let cur = s.sel.sel_channel.get().map(|c| c.id);
-                        chans.into_iter().map(|c| {
-                            let on = Some(&c.id) == cur.as_ref();
-                            view! { <span class="sk-orbit-dot" class:on=on></span> }
-                        }).collect_view()
-                    }}
-                    // Re-homed sync signal (M5/P2 fidelity): the LIVE/POLLING state
-                    // lost its topbar chip when the bar was removed to match the
-                    // prototype's clean cosmic top; a mint dot on the pill carries
-                    // it — and unlike the old `.sync-chip` it stays visible on mobile.
-                    <span class="sk-orbit-pill-live"
-                        class:live=move || s.sync.sse_live.get()
-                        aria-hidden="true"></span>
-                </span>
-            </button>
+            // C2 (context-bleed fix 2026-06-22): the channel pill (its "# channel /
+            // guild" identity + carousel dots + the map-entry tap) is meaningful
+            // ONLY on the channel surface; off-channel it described a channel you'd
+            // left AND its tap fell through to re-open the orbit map from every
+            // dispatch pane. Gate it to the channel pane — the INVERSE of the
+            // back-disc below (which shows off-channel), mirroring that convention.
+            // Its map-entry semantics stay intact on the channel.
+            {move || (s.sync.pane.get() == Pane::Channel).then(|| view! {
+                <button class="sk-orbit-pill" type="button"
+                    node_ref=pill_ref
+                    aria-haspopup="dialog"
+                    aria-expanded=move || map_open.get().to_string()
+                    title="Open the orbit map"
+                    on:click=move |_| {
+                        // Reset any prior dive so the enter-warp scales from centre.
+                        dive_origin.set("center".to_string());
+                        diving.set(false);
+                        map_open.set(true);
+                    }>
+                    <span class="sk-orbit-pill-hash" aria-hidden="true">{channel_sigil}</span>
+                    <span class="sk-orbit-pill-name">{channel_name}</span>
+                    <span class="sk-orbit-pill-server">{server_name}</span>
+                    <span class="sk-orbit-pill-dots" aria-hidden="true">
+                        {move || {
+                            let chans = s.sel.channels.get();
+                            let cur = s.sel.sel_channel.get().map(|c| c.id);
+                            chans.into_iter().map(|c| {
+                                let on = Some(&c.id) == cur.as_ref();
+                                view! { <span class="sk-orbit-dot" class:on=on></span> }
+                            }).collect_view()
+                        }}
+                        // Re-homed sync signal (M5/P2 fidelity): the LIVE/POLLING state
+                        // lost its topbar chip when the bar was removed to match the
+                        // prototype's clean cosmic top; a mint dot on the pill carries
+                        // it — and unlike the old `.sync-chip` it stays visible on mobile.
+                        <span class="sk-orbit-pill-live"
+                            class:live=move || s.sync.sse_live.get()
+                            aria-hidden="true"></span>
+                    </span>
+                </button>
+            })}
             // B5 (owner deck-finding 2026-06-20) + round-4 (2026-06-22): the
             // dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos) need a
             // consistent way back, and the owner ruling is that leaving a
@@ -499,9 +599,12 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 <button class="sk-orbit-pane-back" type="button" aria-label="Back to orbit map"
                     on:click=move |_| act::show_orbit_map(s)><IconBack/></button>
             })}
-            {move || match s.sync.pane.get() {
-                Pane::Friends => view! { <FriendsPane/> }.into_any(),
-                Pane::Channel => {
+            // Channel pane: its OWN horizontal swipe strip (neighbor switch). Kept
+            // a separate reactive block from the non-channel panes below so the
+            // back-swipe surface (Finding 9) never wraps the channel — back-swiping
+            // a channel is a neighbor switch, not a dismiss. Mutually exclusive
+            // with the non-channel block (both gate on `pane`), so only one mounts.
+            {move || (s.sync.pane.get() == Pane::Channel).then(|| {
                     #[cfg(feature = "hydrate")]
                     let d = strip_drag.clone();
                     // Four handles: pointercancel shares the release path with
@@ -561,14 +664,66 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 </div>
                             })}
                         </div>
-                    }.into_any()
+                    }
+            })}
+            // Finding 9 (M7): the six non-channel dispatch panes, wrapped in the
+            // shared swipe-right-to-back surface. One wrapper (`panes_ref` +
+            // `pane_swipe`) hosts whichever pane is active; an axis-locked
+            // rightward drag past 28% of the viewport (the SAME commit the
+            // wardrobe slide-over uses) pops to the orbit MAP — the back disc's
+            // target — so leaving these surfaces matches the wardrobe dismiss
+            // paradigm instead of the back-button-only divergence. The back disc
+            // (above) stays the keyboard/a11y fallback. Inner `match` re-keys the
+            // pane off `s.sync.pane`; the wrapper is bound ONCE. Absent on the
+            // channel (the channel's own strip block above owns the gesture).
+            {move || (s.sync.pane.get() != Pane::Channel).then(|| {
+                // Per-build clones (the `.then` closure re-runs on every `pane`
+                // change while off-channel, so the engine is cloned each run and
+                // the clones move into the handlers — mirrors the Channel strip's
+                // `strip_drag.clone()`). pointercancel needs its OWN clone: it and
+                // pointerup share the release path (`up`) but can't move the same
+                // value into two closures.
+                #[cfg(feature = "hydrate")]
+                let (ps_down, ps_move, ps_up, ps_cancel) = (
+                    pane_swipe.clone(),
+                    pane_swipe.clone(),
+                    pane_swipe.clone(),
+                    pane_swipe.clone(),
+                );
+                view! {
+                <div class="sk-orbit-panes"
+                    node_ref=panes_ref
+                    on:pointerdown=move |ev| {
+                        #[cfg(feature = "hydrate")] ps_down.down(&ev);
+                        #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                    }
+                    on:pointermove=move |ev| {
+                        #[cfg(feature = "hydrate")] ps_move.moved(&ev);
+                        #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                    }
+                    on:pointerup=move |ev| {
+                        #[cfg(feature = "hydrate")] { if ps_up.up(&ev) { act::show_orbit_map(s); } }
+                        #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                    }
+                    on:pointercancel=move |ev| {
+                        #[cfg(feature = "hydrate")] { if ps_cancel.up(&ev) { act::show_orbit_map(s); } }
+                        #[cfg(not(feature = "hydrate"))] let _ = &ev;
+                    }>
+                    {move || match s.sync.pane.get() {
+                        Pane::Friends => view! { <FriendsPane/> }.into_any(),
+                        Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
+                        Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
+                        Pane::Members => view! { <MembersPane/> }.into_any(),
+                        Pane::DirectMessages => view! { <DirectMessagesPane/> }.into_any(),
+                        Pane::Cameos => view! { <CameosPane/> }.into_any(),
+                        // Unreachable: the outer `.then` gates Channel out. Render
+                        // nothing rather than the strip (which lives in its own
+                        // block above) — the strip must never mount twice.
+                        Pane::Channel => ().into_any(),
+                    }}
+                </div>
                 }
-                Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
-                Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
-                Pane::Members => view! { <MembersPane/> }.into_any(),
-                Pane::DirectMessages => view! { <DirectMessagesPane/> }.into_any(),
-                Pane::Cameos => view! { <CameosPane/> }.into_any(),
-            }}
+            })}
             <p class="error">{move || s.composer.status.get()}</p>
             {move || map_open.get().then(|| view! {
                 <Portal>
@@ -873,6 +1028,15 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     </div>
                 </Portal>
             })}
+            // C2 (context-bleed fix 2026-06-22): the compose orb (and the effect
+            // blossom + tap-away scrim nested in this wrap) is a CHANNEL affordance
+            // — off-channel it bled the same way the pill did and its tap revealed a
+            // composer for a surface (Friends/Members/Emoji/…) that has no message
+            // input. Gate the whole wrap to the channel pane (same convention as the
+            // pill above); one gate on the wrapper removes the orb, blossom AND its
+            // scrim off-channel. The bottom-left help "?" FAB lives OUTSIDE this wrap
+            // and stays on every pane.
+            {move || (s.sync.pane.get() == Pane::Channel).then(|| view! {
             <div class="sk-orbit-orb-wrap">
                 <button type="button"
                     node_ref=orb_ref
@@ -1138,21 +1302,52 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     }
                 })}
             </div>
+            })}
             // Help button (a-orbit.html #helpBtn) — bottom-left, balances the
             // bottom-right orb; opens the gesture-hints overlay. Hidden while
             // composing (SCSS) so it never crowds the keyboard.
             <button class="sk-orbit-help" type="button"
+                node_ref=help_btn_ref
                 aria-haspopup="dialog"
                 aria-expanded=move || help_open.get().to_string()
                 title="Gesture help"
                 on:click=move |_| help_open.set(true)>"?"</button>
             {move || help_open.get().then(|| view! {
                 <Portal>
+                    // Scrim-tap kept; routed through `close_help` so the dismiss
+                    // restores focus to the "?" trigger (§13), same as Esc.
                     <div class="sk-orbit-hints" role="dialog" aria-modal="true"
                         aria-label="Gesture help"
-                        on:click=move |_| help_open.set(false)>
+                        on:click=move |_| close_help()>
+                        // The card is the focus-trap root + focus-on-open target
+                        // (Finding 10): `tabindex=-1` makes it focusable, the Esc
+                        // closes (restoring the trigger), and Tab/Shift+Tab wrap
+                        // within via the shared `trap_tab` — mirroring the map.
                         <div class="sk-orbit-hints-card"
-                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                            node_ref=help_ref tabindex="-1"
+                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                            on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                match ev.key().as_str() {
+                                    "Escape" => {
+                                        ev.prevent_default();
+                                        close_help();
+                                    }
+                                    "Tab" => {
+                                        #[cfg(feature = "hydrate")]
+                                        if let Some(card) = help_ref.get_untracked() {
+                                            use leptos::wasm_bindgen::JsCast as _;
+                                            let root: &leptos::web_sys::Element =
+                                                (*card).unchecked_ref();
+                                            if trap_tab(root, ev.shift_key()) {
+                                                ev.prevent_default();
+                                            }
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = &ev;
+                                    }
+                                    _ => {}
+                                }
+                            }>
                             <h2>"Orbit"</h2>
                             <p class="sk-orbit-hints-sub">"You navigate space, not menus"</p>
                             <div class="sk-orbit-hints-rows">
@@ -1182,7 +1377,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                 }).collect_view()}
                             </div>
                             <button class="sk-orbit-hints-ok" type="button"
-                                on:click=move |_| help_open.set(false)>"Got it "<IconStar/></button>
+                                on:click=move |_| close_help()>"Got it "<IconStar/></button>
                         </div>
                     </div>
                 </Portal>
@@ -1196,8 +1391,34 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     <div class="sk-orbit-hints" role="dialog" aria-modal="true"
                         aria-label="Found a new server"
                         on:click=move |_| founding.set(false)>
+                        // Esc + Tab-trap + focus-on-open (Finding 10), mirroring
+                        // the help card and the orbit map. The card is the trap
+                        // root; the name input is its first focusable.
                         <div class="sk-orbit-hints-card"
-                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
+                            node_ref=founding_ref tabindex="-1"
+                            on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                            on:keydown=move |ev: leptos::ev::KeyboardEvent| {
+                                match ev.key().as_str() {
+                                    "Escape" => {
+                                        ev.prevent_default();
+                                        founding.set(false);
+                                    }
+                                    "Tab" => {
+                                        #[cfg(feature = "hydrate")]
+                                        if let Some(card) = founding_ref.get_untracked() {
+                                            use leptos::wasm_bindgen::JsCast as _;
+                                            let root: &leptos::web_sys::Element =
+                                                (*card).unchecked_ref();
+                                            if trap_tab(root, ev.shift_key()) {
+                                                ev.prevent_default();
+                                            }
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = &ev;
+                                    }
+                                    _ => {}
+                                }
+                            }>
                             <h2>"Found a world"</h2>
                             <p class="sk-orbit-hints-sub">"Name your new server"</p>
                             <input class="sk-orbit-found-input" type="text"
@@ -1297,7 +1518,16 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         {move || is_owner().then(|| view! {
                             <h2>"Server"</h2>
                             <button class="sk-orbit-account-btn" type="button"
-                                on:click=move |_| { close_station(); server_open.set(true); }>
+                                on:click=move |_| {
+                                    close_station();
+                                    // Clear the per-action `composer.status` so a
+                                    // transient from another surface (e.g. a cameo
+                                    // invite error) doesn't bleed into the Server
+                                    // modal's status line — mirrors the Account
+                                    // open path below (Finding 19).
+                                    s.composer.status.set(String::new());
+                                    server_open.set(true);
+                                }>
                                 <IconSettings/>" Server settings"
                             </button>
                         })}

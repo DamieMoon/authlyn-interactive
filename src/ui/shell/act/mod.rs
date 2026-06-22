@@ -11,9 +11,6 @@
 //!   create/rename/delete/swap/restore.
 //! - [`compose_colors`] — composer quick-swap color-swatch history
 //!   (move-to-front/dedup/cap + localStorage load/save).
-//! - [`hum`] — corridor-hum bookkeeping: ephemeral per-channel live-activity
-//!   marks derived from already-received SSE events (pure generation fns +
-//!   the hydrate-only decay timer).
 //! - [`message`] — message read/write: send/edit/delete, the 3-cursor pagination
 //!   loop, sync/ingest/unseen, the background poll, mute/last-seen, lore +
 //!   friends + member ops + the destructive-action confirm dispatcher.
@@ -53,7 +50,6 @@ pub mod emoji;
 pub mod feedback;
 pub mod guild;
 pub mod haptics;
-pub mod hum;
 pub mod message;
 pub mod notify;
 pub mod persona;
@@ -70,7 +66,7 @@ pub use admin::send_system_broadcast;
 pub use cameo::{leave_cameo, open_cameo, refresh_cameos};
 pub use channel::{
     create_channel, move_channel_to_bounds, open_channel, open_deep_link, rename_channel,
-    restore_channel, restore_session, show_current_channel, show_orbit_map, swap_channel,
+    restore_channel, restore_session, show_orbit_map, swap_channel,
 };
 pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
 pub use dm::{create_dm_thread, invite_to_dm, leave_dm, open_dm, refresh_dms};
@@ -81,9 +77,8 @@ pub use channel::move_channel;
 pub use emoji::{create_guild_emoji, delete_guild_emoji, upload_emoji_image};
 pub use feedback::{archive_feedback, build_feedback_context, submit_feedback};
 pub use guild::{
-    create_server, load_deleted_guilds, move_guild_to_bounds, open_server, refresh_guilds,
-    rename_server, restore_deleted_guild, select_server_for_sheet, set_guild_accent,
-    set_guild_icon, swap_guild,
+    create_server, move_guild_to_bounds, open_server, refresh_guilds, rename_server,
+    select_server_for_sheet, set_guild_accent, set_guild_icon, swap_guild,
 };
 // `move_guild` (drag drop target) is hydrate-only — see `move_channel` above.
 #[cfg(feature = "hydrate")]
@@ -91,11 +86,10 @@ pub use guild::move_guild;
 pub use message::{
     accept_friend, add_compose_attachment, add_friend, ask_delete, cancel_delete, cancel_edit,
     cancel_reply, confirm_delete, copy_message_body, create_lore, delete_lore, delete_message,
-    guild_has_unread, hydrate_last_seen, invite_member, load_deleted_channels,
-    load_deleted_messages, load_last_seen, load_muted, move_lore, patch_lore,
-    remove_compose_attachment, remove_friend, restore_deleted_message, retry_compose_attachment,
-    send_message, show_dms, show_emoji_manager, show_friends, show_members, show_wardrobe,
-    start_edit, start_reply, swap_lore, toggle_mute,
+    hydrate_last_seen, invite_member, load_deleted_channels, load_deleted_messages, load_last_seen,
+    load_muted, move_lore, patch_lore, remove_compose_attachment, remove_friend,
+    restore_deleted_message, retry_compose_attachment, send_message, show_dms, show_emoji_manager,
+    show_friends, show_members, show_wardrobe, start_edit, start_reply, swap_lore, toggle_mute,
 };
 pub use sync::start_sync;
 pub use toast::run_toast_action;

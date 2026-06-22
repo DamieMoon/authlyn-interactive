@@ -52,6 +52,7 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use crate::ui::icons::IconClose;
+use crate::ui::markup_view::render_body;
 
 #[cfg(feature = "hydrate")]
 use send_wrapper::SendWrapper;
@@ -444,6 +445,64 @@ where
                 {children()}
             </div>
         </div>
+    }
+}
+
+/// The read-only persona-info profile-peek popup, shared by the wardrobe
+/// persona-grid card tap and the chat author-name tap (the two were near-
+/// identical `<Modal class="persona-info">` markup — Finding 14 dedup). One
+/// markup source so the `.persona-info` head / `.info-portrait` / `.card-desc`
+/// structure (and the style_lint anchoring on those classes) can't drift.
+///
+/// The portrait is passed in **already built** as an `AnyView`: the two sites'
+/// fallback builders differ (the wardrobe `portrait()` renders the persona
+/// crest; the chat `chat_avatar()` renders a monogram disc), so the node is
+/// constructed by each caller and mounted here verbatim — not collapsed.
+///
+/// `author` drives the "Controlled by …" trailer: `Some` renders it (the chat
+/// site, surfacing the controlling account), `None` omits it (the wardrobe
+/// site, where the card already names the persona).
+#[component]
+pub fn PersonaInfo<F>(
+    /// The persona/display name shown in the head's `<h4>`.
+    name: String,
+    /// The portrait node, built by the caller (crest vs monogram differ) and
+    /// mounted verbatim in the `.info-portrait` slot.
+    avatar: AnyView,
+    /// The persona description; `Some` renders the chat markup body, `None`
+    /// renders the muted "No description." fallback.
+    description: Option<String>,
+    /// `Some(account)` renders the "Controlled by <account>" trailer; `None`
+    /// omits it.
+    author: Option<String>,
+    /// Caller-owned close handler — the SAME one the backdrop/Esc fire.
+    on_close: F,
+) -> impl IntoView
+where
+    // `Send` because the body wraps `Modal`, whose `Children` closure is
+    // `Send`-bound (`Box<dyn FnOnce() -> AnyView + Send>`); `on_close` is
+    // captured into it. (`ModalHead` below needs no `Send` — it builds a plain
+    // `<header>`, not a `Modal`.) The call sites close over a `Copy + Send`
+    // `RwSignal`, so the bound is satisfied.
+    F: Fn() + Copy + 'static + Send,
+{
+    view! {
+        <Modal class="persona-info" close=on_close>
+            <div class="detail-head">
+                <h4>{name}</h4>
+                <button class="row-edit" title="close"
+                    on:click=move |_| on_close()><IconClose/></button>
+            </div>
+            <div class="info-portrait" title="persona portrait">{avatar}</div>
+            {match description {
+                // Description supports the same markup as chat (#18).
+                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
+                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+            }}
+            {author.map(|a| view! {
+                <p class="muted">"Controlled by "<strong>{a}</strong></p>
+            })}
+        </Modal>
     }
 }
 

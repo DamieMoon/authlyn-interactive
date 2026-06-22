@@ -1,7 +1,8 @@
-//! L-5: the unified channel-management window — a single [`Modal`] that lets a
-//! guild owner/admin create, rename, delete, and **reorder** channels in one
-//! place (opened from the orbit station's "Server settings" window and, until
-//! the M3 shell retires, the M3 sidebar's "⚙ Manage" button).
+//! L-5: the unified channel-management surface — [`ChannelManagerBody`], the
+//! chrome-less list that lets a guild owner/admin create, rename, delete, and
+//! **reorder** channels in one place. It carries no modal chrome of its own;
+//! the orbit Server window mounts it inline as its "Channels" section (the
+//! caller supplies the scrim/scope).
 //!
 //! Reorder is **finger-drag on the grip** (`⠿`), no ↑/↓/⤒/⤓ buttons (owner
 //! directive 2026-06-17): press the grip and drag the row to its new slot. It is
@@ -22,8 +23,7 @@
 //! `require_manager` (which also rejects a soft-deleted guild) on each call, so
 //! this view never trusts its own gating.
 //!
-//! The rename row reuses [`InlineRename`]; the modal reuses the shared
-//! [`Modal`] (Esc / backdrop / ✕ close).
+//! The rename row reuses [`InlineRename`].
 
 use leptos::prelude::*;
 
@@ -31,32 +31,15 @@ use super::super::{act, PendingDelete, Shell};
 use crate::protocol::ChannelSummary;
 use crate::ui::icons::{IconBook, IconEdit, IconGrip, IconTrash};
 use crate::ui::inline_rename::InlineRename;
-use crate::ui::modal::{Modal, ModalHead};
 
 #[cfg(feature = "hydrate")]
 use leptos::ev::PointerEvent;
 
-/// The channel-management modal — the M3 sidebar's "⚙ Manage" entry. A thin
-/// chrome wrapper (shared [`Modal`] + a head) around the reusable
-/// [`ChannelManagerBody`]; `open` is the caller-owned visibility signal (cleared
-/// on backdrop/Esc/✕). The orbit Server window renders the SAME body inline as
-/// its "Channels" section, so the two stay in lockstep.
-#[component]
-pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
-    view! {
-        <Modal class="channel-manager" close=move || open.set(false)>
-            <ModalHead title="Manage channels" on_close=move || open.set(false)/>
-            <ChannelManagerBody s=s/>
-        </Modal>
-    }
-}
-
 /// The channel-management body — list + finger-drag reorder + new-channel
-/// creator — with NO modal chrome, so it mounts both inside
-/// [`ChannelManagerModal`] (M3 sidebar) and inline as the orbit Server window's
-/// "Channels" section. The caller supplies the `.channel-manager` ancestor that
-/// scopes the styling. Channels are read live from `s.sel.channels` (already
-/// position-sorted by the server).
+/// creator — with NO modal chrome, so it mounts inline as the orbit Server
+/// window's "Channels" section. The caller supplies the `.channel-manager`
+/// ancestor that scopes the styling. Channels are read live from
+/// `s.sel.channels` (already position-sorted by the server).
 #[component]
 pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
     // Inline-rename target (which channel id, if any) and the new-channel

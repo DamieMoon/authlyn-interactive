@@ -1,18 +1,9 @@
-// ---- mobile: single-column content (rail + sidebar hidden) ----
+// ---- mobile (≤768px): composer / wardrobe / persona tap-target overrides ----
+// The orbit shell (sk-orbit) is the sole shell and is single-column by its own
+// layout — there is no rail/sidebar/bottom-tabs grid here to collapse. The dead
+// M3 `.app { grid-template-columns }` + `.rail, .sidebar { display:none }` rules
+// were removed; what remains are the genuine phone-width overrides below.
 @media (max-width: 768px) {
-	.app {
-		grid-template-columns: 1fr; // content fills the screen
-	}
-
-	// The edge-swipe drawer was deleted (M3/T4): rail + sidebar are simply
-	// hidden on mobile so the content column owns the viewport. The M3/T5
-	// replacements (bottom-tabs + channel sheet) live in `_nav.scss`,
-	// loaded after this partial so its @media rules win.
-	.rail,
-	.sidebar {
-		display: none;
-	}
-
 	// Roomier compose box on phones: multi-line typing is common and the soft
 	// keyboard already covers the lower screen, so give the text more room and
 	// let it grow taller before scrolling.

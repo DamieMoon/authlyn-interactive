@@ -857,11 +857,10 @@ pub fn confirm_delete(s: Shell) {
 
 #[cfg(feature = "hydrate")]
 pub fn show_friends(s: Shell) {
-    // Re-entry scroll memory (review M-36): leaving the channel via the
-    // bottom tabs unmounts ChannelPane just like a channel switch does —
-    // capture the reading position FIRST, while the DOM still shows it
-    // (no-op when no message list is mounted). `show_current_channel`
-    // consumes the mark on the way back.
+    // Re-entry scroll memory (review M-36): leaving the channel unmounts
+    // ChannelPane just like a channel switch does — capture the reading
+    // position FIRST, while the DOM still shows it (no-op when no message
+    // list is mounted). The next channel open consumes the mark.
     super::reentry::capture_scroll_mark(s);
     s.sync.pane.set(Pane::Friends);
     reload_friends(s);
@@ -1294,12 +1293,6 @@ pub(super) fn set_last_seen(s: Shell, cid: &str, cur: (String, String)) {
 /// this client has never seen is baselined to its current latest (no
 /// retroactive glow on first sight). One round-trip total — replaces the old
 /// per-channel `list_messages` probe loop.
-///
-/// Covering all guilds (not only the open one) is what lets the rail glow a
-/// guild button whose unread is in a non-open guild — feedback row
-/// grt9ohmw8pj2fi4eqb6h; `notify.unread_guilds` is rebuilt fresh from each
-/// row's `guild_id` (the per-guild channel cache is lazy now, so it can no
-/// longer derive that mapping for never-opened guilds).
 #[cfg(feature = "hydrate")]
 pub(super) fn refresh_unread(s: Shell) {
     let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
@@ -1311,16 +1304,9 @@ pub(super) fn refresh_unread(s: Shell) {
             // catches the deferred read-mark back up.
             set_last_seen(s, oc, cur);
         }
-        // The open channel is always considered seen: clear its unread glow,
-        // ping glow, and count at once (L-4).
+        // The open channel is always considered seen: clear its unread glow (L-4).
         s.notify.unread.update(|u| {
             u.remove(oc);
-        });
-        s.notify.pinged.update(|p| {
-            p.remove(oc);
-        });
-        s.notify.unread_count.update(|c| {
-            c.remove(oc);
         });
     }
     spawn_local(async move {
@@ -1333,7 +1319,6 @@ pub(super) fn refresh_unread(s: Shell) {
         if s.sync.polling.try_get_untracked().is_none() {
             return;
         }
-        let mut unread_guilds: std::collections::HashSet<String> = std::collections::HashSet::new();
         for row in r.channels {
             if Some(&row.channel_id) == open.as_ref() {
                 continue;
@@ -1360,17 +1345,6 @@ pub(super) fn refresh_unread(s: Shell) {
                 continue;
             }
             let has_new = row.unread > 0;
-            // `row.pinged` is per-reader (the server evaluated the unread
-            // mentions for THIS caller), so a true here is genuinely a ping
-            // for me (L-4).
-            let has_ping = row.pinged;
-            if has_new {
-                // M7/P1: DM rows have no guild (guild_id = None) — they feed the
-                // per-channel unread set below, not a guild rail dot.
-                if let Some(gid) = &row.guild_id {
-                    unread_guilds.insert(gid.clone());
-                }
-            }
             let marked = s
                 .notify
                 .unread
@@ -1384,51 +1358,8 @@ pub(super) fn refresh_unread(s: Shell) {
                     }
                 });
             }
-            let pinged_now = s
-                .notify
-                .pinged
-                .with_untracked(|p| p.contains(&row.channel_id));
-            if has_ping != pinged_now {
-                s.notify.pinged.update(|p| {
-                    if has_ping {
-                        p.insert(row.channel_id.clone());
-                    } else {
-                        p.remove(&row.channel_id);
-                    }
-                });
-            }
-            let count_now = s
-                .notify
-                .unread_count
-                .with_untracked(|c| c.get(&row.channel_id).copied().unwrap_or(0));
-            if row.unread != count_now {
-                s.notify.unread_count.update(|c| {
-                    if has_new {
-                        c.insert(row.channel_id.clone(), row.unread);
-                    } else {
-                        c.remove(&row.channel_id);
-                    }
-                });
-            }
-        }
-        // Rebuilt fresh each pass (never incrementally mutated), written only
-        // on change so an idle refresh doesn't re-render every rail badge.
-        if s.notify
-            .unread_guilds
-            .with_untracked(|g| *g != unread_guilds)
-        {
-            s.notify.unread_guilds.set(unread_guilds);
         }
     });
-}
-
-/// True iff any text channel in the given guild has unread messages. Pure
-/// projection over `notify.unread_guilds` (rebuilt by [`refresh_unread`] from
-/// `GET /unread`'s `guild_id` column); called per rail button from a reactive
-/// closure so the badge tracks the signal.
-#[cfg(feature = "hydrate")]
-pub fn guild_has_unread(s: Shell, gid: &str) -> bool {
-    s.notify.unread_guilds.with(|g| g.contains(gid))
 }
 
 /// Toggle mute for a channel: flip the reactive set + persist. A click is a
@@ -1492,11 +1423,9 @@ fn sync_messages(s: Shell, fresh: Vec<MessageEnvelope>) {
 /// created or removed elsewhere appear/disappear without a manual reload.
 ///
 /// Guild-channel loading is LAZY (M1): only the open guild's detail is
-/// fetched (the old cross-guild `join_all` over every guild is gone — rail
-/// unread dots now come from `GET /unread`'s `guild_id` via
-/// `notify.unread_guilds`, see [`refresh_unread`]). The open guild's channels
-/// mirror into `s.sel.channels` so the sidebar/channel-list selector keeps
-/// its single-source-of-truth.
+/// fetched (the old cross-guild `join_all` over every guild is gone). The
+/// open guild's channels mirror into `s.sel.channels` so the
+/// sidebar/channel-list selector keeps its single-source-of-truth.
 #[cfg(feature = "hydrate")]
 pub(super) fn refresh_lists(s: Shell) {
     let sel = s.sel.sel_server.get_untracked();
@@ -1953,10 +1882,6 @@ pub(super) fn start_poll(s: Shell) {
 
 #[cfg(not(feature = "hydrate"))]
 pub fn copy_message_body(_s: Shell, _body: String) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn guild_has_unread(_s: Shell, _gid: &str) -> bool {
-    false
-}
 #[cfg(not(feature = "hydrate"))]
 pub fn send_message(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]

@@ -567,7 +567,7 @@
 // backdrop-filter ancestor sits BETWEEN this scroll box and the sticky head
 // (the panel IS the scroller, the head is its direct child) so iOS WebKit
 // position:sticky never silently breaks.
-.app.sk-orbit .modal:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
+.app.sk-orbit .modal:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail) {
 	position: fixed;
 	inset: 0;
 	z-index: 51; // the modal-card slot (one above the backdrop at 50)
@@ -629,7 +629,7 @@
 // repaint from the momentum-scroll judder of the glass it carries (the WebKit
 // guidance), and because the head is the scroller's DIRECT child no
 // intervening containing block can break the sticky.
-.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) .account-head {
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail) .account-head {
 	position: sticky;
 	top: 0;
 	z-index: 2;
@@ -706,6 +706,23 @@
 		&::after {
 			content: "close";
 		}
+	}
+}
+
+// Persona-editor (`.persona-detail`) slide-over body inset. Unlike the
+// account/server panels (whose `.account-section` children supply their own
+// 18px padding), the persona editor's body is a flat list of `.field` /
+// `.detail-*` rows with no section wrapper — so under the `padding: 0`
+// slide-over panel they'd otherwise sit edge-to-edge. Inset the direct flow
+// children here (the sticky `.account-head` owns its own padding; the nested
+// gallery-remove confirm `.modal` is `position: fixed` and must not be inset
+// as body content). Bottom padding clears the home-indicator safe area.
+.app.sk-orbit .modal.persona-detail > *:not(.account-head):not(.modal) {
+	padding-left: 18px;
+	padding-right: 18px;
+
+	&:last-child {
+		padding-bottom: calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 16px);
 	}
 }
 

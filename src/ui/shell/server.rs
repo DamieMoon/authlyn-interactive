@@ -79,8 +79,9 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
 
     view! {
         <Modal class="server-modal" swipe_close=true
-            close=move || { open.set(false); act::show_orbit_map(s); }>
-            <ModalHead title="Server" on_close=move || { open.set(false); act::show_orbit_map(s); }/>
+            close=move || { s.composer.status.set(String::new()); open.set(false); act::show_orbit_map(s); }>
+            <ModalHead title="Server"
+                on_close=move || { s.composer.status.set(String::new()); open.set(false); act::show_orbit_map(s); }/>
 
             // ---- Server icon ----
             // Upload a guild icon (owner/admin); the server re-derives the
@@ -196,9 +197,9 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
 
             // ---- Channels ----
             // The full channel manager (create / rename / delete / finger-drag
-            // reorder) inlined as a section — the SAME ChannelManagerBody the M3
-            // sidebar's "⚙ Manage" modal wraps. The `.channel-manager` div is the
-            // ancestor its scoped styling needs.
+            // reorder) inlined as a section via the chrome-less
+            // `ChannelManagerBody`. The `.channel-manager` div is the ancestor
+            // its scoped styling needs.
             <section class="account-section">
                 <h3>"Channels"</h3>
                 <div class="channel-manager">

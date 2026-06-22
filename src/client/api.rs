@@ -439,11 +439,6 @@ pub async fn get_unread() -> Result<UnreadResponse, ApiError> {
 // Trash + restore (#22 soft-delete)
 // ---------------------------------------------------------------------------
 
-/// GET /guilds/trash — list the caller's own soft-deleted guilds.
-pub async fn list_deleted_guilds() -> Result<ListGuildsResponse, ApiError> {
-    get("/guilds/trash").await
-}
-
 /// POST /guilds/{gid}/restore — restore a soft-deleted guild (owner only).
 pub async fn restore_guild(gid: &str) -> Result<(), ApiError> {
     post_empty(&format!("/guilds/{gid}/restore")).await

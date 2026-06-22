@@ -19,7 +19,7 @@ use crate::protocol::GalleryImage;
 use crate::ui::crest::Crest;
 use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDisc, IconGrip, IconStar};
 use crate::ui::markup_view::render_body;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead, PersonaInfo};
 
 // ---------------------------------------------------------------------------
 // Gallery actions (inline, cfg-guarded). The shared `act` module lives in
@@ -266,24 +266,19 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                 None => ().into_any(),
             }}
 
-            // Read-only info popup — opened by clicking a card's name.
+            // Read-only info popup — opened by clicking a card's name. The
+            // shared `PersonaInfo` (crate::ui::modal) owns the markup; this site
+            // builds the persona crest portrait and passes author=None (the card
+            // already names the persona, so no "Controlled by" trailer). #14 dedup.
             {move || info.get().map(|p| {
                 let desc = (!p.description.trim().is_empty()).then(|| p.description.clone());
                 view! {
-                    <Modal class="persona-info" close=move || info.set(None)>
-                        <div class="detail-head">
-                            <h4>{p.name.clone()}</h4>
-                            <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)><IconClose/></button>
-                        </div>
-                        <div class="info-portrait" title="persona portrait">
-                            {portrait(&p.avatar_id, &p.name, &p.created_at)}
-                        </div>
-                        {match desc {
-                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                        }}
-                    </Modal>
+                    <PersonaInfo
+                        name=p.name.clone()
+                        avatar=portrait(&p.avatar_id, &p.name, &p.created_at).into_any()
+                        description=desc
+                        author=None
+                        on_close=move || info.set(None)/>
                 }
             })}
 
@@ -573,12 +568,13 @@ fn PersonaDetail(
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
-        <Modal class="persona-detail" close=move || selected.set(None)>
-            <div class="detail-head">
-                <h4>{if owned { "Edit persona" } else { "Edit shared persona" }}</h4>
-                <button class="row-edit" title="close"
-                    on:click=move |_| selected.set(None)><IconClose/></button>
-            </div>
+        <Modal class="persona-detail" swipe_close=true close=move || selected.set(None)>
+            // Sticky slide-over head (the shared `.account-head` chrome — under the
+            // Orbit the editor is a full-screen slide-over, not a centered card, and
+            // needs the same sticky back-arrow head the account/server/wardrobe panels
+            // carry, or it falls through to the orphaned top-left "orbit-void" card).
+            <ModalHead title=if owned { "Edit persona" } else { "Edit shared persona" }
+                on_close=move || selected.set(None)/>
             // Portrait slot — shows the current avatar (or monogram) and an
             // upload control. Picking a file uploads it and sets it as the
             // avatar; the server gates who may change it.

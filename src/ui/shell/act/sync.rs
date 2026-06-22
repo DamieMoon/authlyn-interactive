@@ -30,8 +30,6 @@ use super::super::Shell;
 use super::super::Pane;
 
 #[cfg(feature = "hydrate")]
-use super::hum;
-#[cfg(feature = "hydrate")]
 use super::message;
 #[cfg(feature = "hydrate")]
 use crate::client::api;
@@ -599,18 +597,6 @@ fn dispatch(s: Shell, event: SyncEvent) {
         // Channel-scoped events: a change in the OPEN channel reconciles the
         // message pane; anywhere else only the batched unread summary moves.
         _ => {
-            // Corridor hum (UX evolution #4): a Typing ping or a just-created
-            // message IS "someone is active here right now" — light the
-            // channel-row mark straight from the already-received id-only
-            // event. No fetch follows (the bus stays the only input);
-            // `act::hum` decays the mark past the typing TTL. The row render
-            // suppresses it on the OPEN channel (the typing line announces
-            // the same fact louder there), so no open-channel branch here.
-            if let SyncEvent::Typing { channel_id } | SyncEvent::MessageCreated { channel_id } =
-                &event
-            {
-                hum::mark_hum(s, channel_id.clone());
-            }
             let open = s.sel.sel_channel.get_untracked().map(|c| c.id);
             if event.channel_id().is_some() && event.channel_id() == open.as_deref() {
                 if matches!(event, SyncEvent::Typing { .. }) {

@@ -1,6 +1,8 @@
-//! The authed Discord-style shell: a server rail, a channel sidebar, and a
-//! content pane that switches between channel messages, the lorebook editor,
-//! the wardrobe, and the friends list.
+//! The authed orbit shell: an immersive pill/station landing whose orbit-map
+//! overlay is the home surface, with content panes that switch between channel
+//! messages, the lorebook editor, the wardrobe, and the friends list. Orbit is
+//! the sole + default shell (no rail/sidebar fallback) — the station opens the
+//! shared, skeleton-independent Account & Server modals mounted here.
 //!
 //! State is signal-driven (a `Copy` [`Shell`] handle); deep-link URLs are a
 //! later polish. All data-fetching lives in the `act` module, defined twice —
@@ -9,7 +11,7 @@
 //!
 //! The content panes each live in their own submodule (`channel`, `wardrobe`,
 //! `lorebook`, `friends`); this module owns the shared [`Shell`] state, the
-//! rail/sidebar layout ([`AppShell`]), and the [`act`] action layer.
+//! orbit shell mount ([`AppShell`]), and the [`act`] action layer.
 
 use std::collections::{HashMap, HashSet};
 
@@ -41,7 +43,6 @@ pub(crate) use state::{
 };
 
 use account::AccountModal;
-use channel::ChannelManagerModal;
 use server::ServerModal;
 use sk_orbit::SkOrbitShell;
 use toast::toast_host;
@@ -175,9 +176,7 @@ fn AppShell() -> impl IntoView {
         sse_live: RwSignal::new(false),
         me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
-        sheet_open: RwSignal::new(false),
         wardrobe_open: RwSignal::new(false),
-        manager_open: RwSignal::new(false),
         map_open: RwSignal::new(false),
         switching: RwSignal::new(false),
     };
@@ -204,18 +203,13 @@ fn AppShell() -> impl IntoView {
     let notify = Notify {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
-        pinged: RwSignal::new(HashSet::new()),
-        unread_count: RwSignal::new(HashMap::new()),
-        unread_guilds: RwSignal::new(HashSet::new()),
         last_seen: RwSignal::new(HashMap::new()),
-        humming: RwSignal::new(HashMap::new()),
         web_push_enabled: RwSignal::new(false),
         scroll_marks: RwSignal::new(act::reentry::load_scroll_marks()),
     };
     provide_context(notify);
 
     let trash = Trash {
-        deleted_guilds: RwSignal::new(Vec::new()),
         deleted_channels: RwSignal::new(Vec::new()),
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
@@ -419,14 +413,6 @@ fn AppShell() -> impl IntoView {
                     </Modal>
                 }
             })}
-
-            // Channel-management window (L-5): promoted to `s.sync.manager_open`
-            // so BOTH the M3 sidebar gear and the orbit station can open it; the
-            // `is_owner` gate is authoritative (a non-owner trigger renders nothing).
-            {move || (s.sync.manager_open.get() && is_owner()).then(|| view! {
-                <ChannelManagerModal s=s open=s.sync.manager_open/>
-            })}
-
 
             // Top-level confirm dialog for destructive actions. Shown whenever a
             // `PendingDelete` is queued; backdrop/Cancel clears it without acting,

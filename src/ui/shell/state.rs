@@ -237,20 +237,11 @@ pub(crate) struct SyncState {
     /// without reaching into reactive context from a spawned future (FB10b).
     pub(crate) me: RwSignal<Option<String>>,
     pub(crate) pane: RwSignal<Pane>,
-    /// Mobile-only: whether the channel-switch bottom-sheet is open. Renamed
-    /// from `nav_open` when the edge-swipe drawer was deleted (M3/T4). Set by
-    /// the Servers tab + the topbar channel-name trigger; cleared by the
-    /// backdrop tap, a channel pick, and the other tabs (M3/T5).
-    pub(crate) sheet_open: RwSignal<bool>,
     /// Whether the wardrobe is open as a dismissible modal popup (F-2). The
     /// wardrobe is no longer a full pane you can only leave by selecting
     /// another pane — it overlays the current view and closes on backdrop
     /// click / Esc / X, and auto-closes when a channel is opened.
     pub(crate) wardrobe_open: RwSignal<bool>,
-    /// Whether the unified channel-management window (create/rename/reorder/
-    /// delete, L-5) is open. Promoted from a local `AppShell` signal so the
-    /// orbit station can open it too — both shells set this one signal.
-    pub(crate) manager_open: RwSignal<bool>,
     /// Whether the orbit MAP overlay (the home/landing surface) is open.
     /// Promoted from a `SkOrbitShell`-local signal so the root-mounted
     /// Account/Server modals — which live OUTSIDE `SkOrbitShell` and can't see a
@@ -295,37 +286,10 @@ pub(crate) struct Notify {
     /// Channel ids with unread messages — drives the sidebar's white glow (#23).
     /// Recomputed by the background poll against `last_seen`.
     pub(crate) unread: RwSignal<HashSet<String>>,
-    /// Channel ids whose unread messages include at least one that `@`-mentions
-    /// the signed-in user (L-4) — drives the sidebar's ORANGE ping glow, which
-    /// wins over the plain white unread glow. A subset of `unread` in practice
-    /// (a ping is always also unread). Recomputed alongside `unread` by the
-    /// poll; cleared for a channel when it's opened.
-    pub(crate) pinged: RwSignal<HashSet<String>>,
-    /// Per-channel count of unread messages (channel id → number past
-    /// `last_seen`), capped at the page size — drives the sidebar count badge
-    /// (L-4). Absent / 0 ⇒ no badge. Recomputed alongside `unread` by the poll;
-    /// cleared for a channel when it's opened.
-    pub(crate) unread_count: RwSignal<HashMap<String, usize>>,
-    /// Guild ids owning at least one unread (non-open) text channel — drives
-    /// the rail's per-guild unread dot. Rebuilt fresh on every
-    /// `refresh_unread` pass from `GET /unread`'s `guild_id` column (M1):
-    /// guild-channel loading is lazy now, so the rail can no longer derive
-    /// this mapping from the `guild_channels` cache for never-opened guilds.
-    pub(crate) unread_guilds: RwSignal<HashSet<String>>,
     /// Per-channel high-water mark this client has seen: channel id →
     /// (sent_at, id) of the last seen message. Persisted to localStorage;
     /// unread = the channel has messages past this mark.
     pub(crate) last_seen: RwSignal<HashMap<String, (String, String)>>,
-    /// Corridor hum (UX evolution #4): channels where someone is active
-    /// RIGHT NOW (typing ping / just-created message), keyed channel id →
-    /// arming generation (see `act::hum`). Written ONLY from already-received
-    /// id-only SSE events — zero added fetches, and the poll fallback never
-    /// populates it (graceful absence, like Ghost Quill) — and self-decays
-    /// ~8s after the last event, mirroring the typing TTL. Drives the
-    /// `.channel-hum` twinkle on channel rows in BOTH the desktop sidebar
-    /// and the mobile sheet (shared `ChannelList`). Cosmetic, client-only;
-    /// never sent or persisted.
-    pub(crate) humming: RwSignal<HashMap<String, u64>>,
     /// True once a Web Push subscription has been successfully registered with
     /// the server this session. While true, the poll-loop suppresses its own
     /// client `Notification` (server push already delivers it — see
@@ -346,13 +310,12 @@ pub(crate) struct Notify {
     pub(crate) scroll_marks: RwSignal<HashMap<String, String>>,
 }
 
-/// Soft-deleted-item overlays (#22 Phase 2): own deleted guilds, deleted
-/// channels in the open guild, deleted messages in the open channel, and
-/// whether the channel's trash overlay is open.
+/// Soft-deleted-item overlays (#22 Phase 2): deleted channels in the open
+/// guild, deleted messages in the open channel, and whether the channel's
+/// trash overlay is open.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) struct Trash {
-    pub(crate) deleted_guilds: RwSignal<Vec<GuildSummary>>,
     pub(crate) deleted_channels: RwSignal<Vec<ChannelSummary>>,
     pub(crate) deleted_messages: RwSignal<Vec<MessageEnvelope>>,
     pub(crate) show_msg_trash: RwSignal<bool>,

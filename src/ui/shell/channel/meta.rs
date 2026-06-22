@@ -9,7 +9,7 @@
 use leptos::prelude::*;
 
 use super::super::{act, Shell};
-use super::avatar::{chat_avatar, format_clock_time, format_local_time};
+use super::avatar::{chat_avatar, format_clock_time};
 use super::display_name;
 use crate::markup::Color;
 use crate::protocol::MessageEnvelope;
@@ -41,14 +41,11 @@ pub(super) fn message_meta(
         .filter(|c| Color::from_name(c).is_some())
         .map(|c| format!("who mk-{c}"))
         .unwrap_or_else(|| "who".to_string());
-    // Orbit shows the prototype's terse HH:MM clock; deck/hud keep the verbose
-    // date+time. Branch on the skeleton pref (untracked — a skeleton switch
-    // re-mounts the shell, so no per-row signal subscription is warranted).
-    let when = if s.prefs.skeleton.get_untracked().as_deref() == Some("orbit") {
-        format_clock_time(&m.sent_at)
-    } else {
-        format_local_time(&m.sent_at)
-    };
+    // Orbit (the sole release shell) shows the prototype's terse HH:MM clock.
+    // The deck/hud verbose date+time variant (`format_local_time`) lives behind
+    // the test-pinned skeleton API in `act/prefs.rs`; restore the pref branch
+    // here if a deck/hud skeleton is re-enabled.
+    let when = format_clock_time(&m.sent_at);
     // Avatar: a worn persona keeps its send-time SNAPSHOT (frozen); a bare
     // account shows its LIVE avatar (author_avatar_id, resolved at read). M6/P2.
     let avatar_id = if m.persona_name.is_some() {
@@ -157,17 +154,14 @@ pub(super) fn system_message_meta(s: Shell, m: &MessageEnvelope) -> impl IntoVie
     // No persona on a system message, so `display_name` falls back to the bot's
     // account display name ("Nova DOT").
     let who = display_name(m);
-    // Deck-finputs (2026-06-20): match the regular meta's skeleton-aware time —
-    // orbit shows the terse HH:MM clock, deck/hud the verbose date+time. The
-    // system row was hard-coded to the verbose form, so on orbit its long
-    // "YYYY-MM-DD HH:MM:SS" stamp (vs the others' "HH:MM") overran the meta and
-    // wrapped the time below the SYSTEM/COMMENTATOR badges. Terse here = inline +
-    // parity with every other bubble's clock.
-    let when = if s.prefs.skeleton.get_untracked().as_deref() == Some("orbit") {
-        format_clock_time(&m.sent_at)
-    } else {
-        format_local_time(&m.sent_at)
-    };
+    // Deck-finputs (2026-06-20): orbit (the sole release shell) shows the terse
+    // HH:MM clock — parity with every other bubble (the verbose date+time
+    // overran the meta on a 13-mini and wrapped the time below the badges). The
+    // deck/hud verbose variant (`format_local_time`) lives behind the test-pinned
+    // skeleton API in `act/prefs.rs`; restore the pref branch if it's re-enabled.
+    // `s` is kept on the signature for that re-enable (the pref read needs it).
+    let _ = &s;
+    let when = format_clock_time(&m.sent_at);
 
     view! {
         <div class="meta">

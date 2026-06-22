@@ -3,7 +3,7 @@
 //! transform). Velocity-based commit, scrim coupled to --p, tap-vs-drag
 //! disambiguation (7px slop), per-edge safe-area inset ownership, full a11y
 //! (focus trap, Esc, restore, role=dialog, reduced-motion = instant snap).
-//! Children render touch-clean; desktop opts IN via `desktop_chrome`.
+//! Children render touch-clean.
 //! Shared UI module — imports ZERO ssr/hydrate-only crates beyond leptos.
 
 /// Which screen edge a panel is summoned from.
@@ -399,9 +399,6 @@ pub fn HoloPanel(
     /// Called when a detent commits, with the committed detent key.
     #[prop(into)]
     on_commit: Callback<&'static str>,
-    /// Desktop opts IN to drag-reorder / hover affordances; touch is clean.
-    #[prop(optional)]
-    desktop_chrome: bool,
     /// Start OPEN: on mount, animate to the open (last) detent instead of the
     /// closed `--p=0` resting state. For parent-`<Show>`-mounted panels summoned
     /// by an explicit affordance (the engine is otherwise drag-summoned only).
@@ -505,7 +502,6 @@ pub fn HoloPanel(
         <div
             node_ref=panel_ref
             class=format!("holopanel {edge_class}")
-            class:holopanel--desktop-chrome=desktop_chrome
             role="dialog"
             aria-modal="true"
             aria-label=label
