@@ -629,7 +629,7 @@
 // repaint from the momentum-scroll judder of the glass it carries (the WebKit
 // guidance), and because the head is the scroller's DIRECT child no
 // intervening containing block can break the sticky.
-.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail) .account-head {
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail, .sk-orbit-panes) .account-head {
 	position: sticky;
 	top: 0;
 	z-index: 2;

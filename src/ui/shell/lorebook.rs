@@ -21,7 +21,6 @@ pub(crate) fn LorebookPane() -> impl IntoView {
     let drag_over = RwSignal::new(None::<usize>);
     view! {
         <div class="pane">
-            <h3>"Lorebook"</h3>
             <div class="lore-list">
                 {move || {
                     let entries = s.social.lore.get();

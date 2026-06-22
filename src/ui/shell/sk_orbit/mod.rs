@@ -585,20 +585,9 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     </span>
                 </button>
             })}
-            // B5 (owner deck-finding 2026-06-20) + round-4 (2026-06-22): the
-            // dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos) need a
-            // consistent way back, and the owner ruling is that leaving a
-            // Station-reached surface returns to the orbit MAP (the home), not the
-            // channel underneath — the same fix Station/Server/Account got in
-            // round 3. This shared top-left back disc still dropped to the last
-            // channel; wire it to `act::show_orbit_map` so the top-level pane EXIT
-            // lands on the map. (The in-pane "← Friends" links in friends.rs are
-            // separate controls and still navigate within the pane stack.) Shown
-            // only off the channel, so it never crowds the chat. ≥44px, glass-holo.
-            {move || (s.sync.pane.get() != Pane::Channel).then(|| view! {
-                <button class="sk-orbit-pane-back" type="button" aria-label="Back to orbit map"
-                    on:click=move |_| act::show_orbit_map(s)><IconBack/></button>
-            })}
+            // The dispatch panes' back affordance now lives IN the pane header (the
+            // `.account-head` bar below) — owner deck-finding 2026-06-22; the
+            // floating `.sk-orbit-pane-back` disc is retired.
             // Channel pane: its OWN horizontal swipe strip (neighbor switch). Kept
             // a separate reactive block from the non-channel panes below so the
             // back-swipe surface (Finding 9) never wraps the channel — back-swiping
@@ -709,6 +698,29 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         #[cfg(feature = "hydrate")] { if ps_cancel.up(&ev) { act::show_orbit_map(s); } }
                         #[cfg(not(feature = "hydrate"))] let _ = &ev;
                     }>
+                    // Wardrobe-paradigm pane head (owner deck-finding 2026-06-22):
+                    // the dispatch panes get the same sticky `.account-head` bar the
+                    // wardrobe/account/server slide-overs use — it OWNS the top
+                    // safe-area inset (the gated-off pill used to), and carries the
+                    // title + a back-arrow (`.row-edit` -> "<-" via _modal.scss) +
+                    // the "swipe -> close" hint. DMs/Cameos pop to Friends (their
+                    // parent); the rest pop to the orbit map.
+                    <header class="account-head">
+                        <h2>{move || match s.sync.pane.get() {
+                            Pane::Friends => "Friends",
+                            Pane::DirectMessages => "Direct messages",
+                            Pane::Cameos => "Cameos",
+                            Pane::Members => "Members",
+                            Pane::Emoji => "Custom emoji",
+                            Pane::Lorebook => "Lorebook",
+                            Pane::Channel => "",
+                        }}</h2>
+                        <button class="row-edit" type="button" aria-label="Back"
+                            on:click=move |_| match s.sync.pane.get_untracked() {
+                                Pane::DirectMessages | Pane::Cameos => { s.sync.pane.set(Pane::Friends); }
+                                _ => { act::show_orbit_map(s); }
+                            }><IconBack/></button>
+                    </header>
                     {move || match s.sync.pane.get() {
                         Pane::Friends => view! { <FriendsPane/> }.into_any(),
                         Pane::Lorebook => view! { <LorebookPane/> }.into_any(),

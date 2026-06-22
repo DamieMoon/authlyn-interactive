@@ -50,7 +50,6 @@ pub(crate) fn EmojiManagerPane() -> impl IntoView {
 
     view! {
         <div class="pane">
-            <h3>"Custom emoji"</h3>
             <div class="emoji-mgr-list">
                 {move || s.sel.guild_emoji.get().into_iter().map(|e| {
                     let media_id = e.media_id.clone();

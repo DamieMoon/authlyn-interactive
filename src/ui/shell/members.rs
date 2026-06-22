@@ -196,7 +196,6 @@ pub(crate) fn MembersPane() -> impl IntoView {
 
     view! {
         <div class="pane">
-            <h3>"Members"</h3>
             <div class="member-list">
                 {move || {
                     let owner_view = is_owner();

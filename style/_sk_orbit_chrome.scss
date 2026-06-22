@@ -362,30 +362,9 @@
 	transform: scale(0.6);
 }
 
-// B5 (owner deck-finding 2026-06-20): shared back-to-channel disc for the
-// dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos). The Account
-// modal had a close; the panes had none. Mirrors the bottom-left help disc,
-// pinned TOP-left so it clears the centered pill + the bottom orb/help.
-// Rendered only off the channel (sk_orbit/mod.rs); glass-holo gives it the
-// same glow as the rest of the chrome (the B2 doctrine).
-.app.sk-orbit .sk-orbit-pane-back {
-	position: fixed;
-	top: calc(16px + env(safe-area-inset-top, 0px));
-	left: calc(16px + env(safe-area-inset-left, 0px));
-	z-index: 20;
-	display: grid;
-	place-items: center;
-	width: 44px;
-	height: 44px;
-	border-radius: 50%;
-	@include glass-holo;
-	color: var(--text-muted);
-
-	.icon {
-		width: 1.15rem;
-		height: 1.15rem;
-	}
-}
+// The dispatch panes' back affordance moved INTO the pane `.account-head` bar
+// (the wardrobe-paradigm head, _modal.scss) — owner deck-finding 2026-06-22;
+// the floating `.sk-orbit-pane-back` disc is retired.
 
 // Finding 9 (M7): the swipe-right-to-back wrapper for the six non-channel
 // dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos). A transparent
@@ -403,6 +382,9 @@
 	flex: 1;
 	min-height: 0;
 	width: 100%;
+	// The sticky `.account-head` pane head is this column's scroller-direct
+	// child; the panes scroll under it (round-4 fix 2026-06-22).
+	overflow-y: auto;
 	transition: transform 320ms cubic-bezier(0.18, 0.85, 0.25, 1);
 	touch-action: pan-y;
 }

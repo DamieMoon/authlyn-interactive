@@ -639,7 +639,6 @@ fn orbit_chrome_controls_inherit_glass_material() {
     const MATERIAL_CONTROLS: &[&str] = &[
         "sk-orbit-pill",
         "sk-orbit-help",
-        "sk-orbit-pane-back",
         "sk-orbit-node",
         "sk-orbit-sat",
         "sk-orbit-orb",
@@ -838,7 +837,6 @@ fn registered_interactive_controls_declare_44px_touch_floor() {
         ("style/_sk_orbit_chrome.scss", "sk-orbit-station-close"),
         ("style/_sk_orbit_chrome.scss", "sk-orbit-persona-card"),
         ("style/_sk_orbit_chrome.scss", "sk-orbit-account-btn"),
-        ("style/_sk_orbit_chrome.scss", "sk-orbit-pane-back"),
         ("style/_foundation.scss", "accent-swatch"),
         ("style/_modal.scss", "account-logout"),
         ("style/_modal.scss", "account-save"),

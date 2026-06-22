@@ -11,7 +11,6 @@ pub(crate) fn FriendsPane() -> impl IntoView {
     view! {
         <div class="pane">
             <div class="add-row">
-                <h3>"Friends"</h3>
                 <button on:click=move |_| s.sync.pane.set(super::Pane::DirectMessages)>
                     "Direct messages →"
                 </button>
@@ -75,10 +74,6 @@ pub(crate) fn DirectMessagesPane() -> impl IntoView {
     let selected = RwSignal::new(std::collections::HashSet::<String>::new());
     view! {
         <div class="pane">
-            <div class="add-row">
-                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Friends"</button>
-                <h3>"Direct messages"</h3>
-            </div>
             {move || {
                 let dms = s.sel.dms.get();
                 view! {
@@ -156,10 +151,6 @@ pub(crate) fn CameosPane() -> impl IntoView {
     act::refresh_cameos(s);
     view! {
         <div class="pane">
-            <div class="add-row">
-                <button on:click=move |_| s.sync.pane.set(super::Pane::Friends)>"← Friends"</button>
-                <h3>"Cameos"</h3>
-            </div>
             {move || {
                 let cameos = s.sel.cameos.get();
                 if cameos.is_empty() {
