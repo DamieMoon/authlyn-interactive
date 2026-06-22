@@ -249,7 +249,7 @@ The full pre-commit gate also runs the static
 
 ---
 
-## 7. Versioning (CalVer → SemVer, pending at v27)
+## 7. Versioning (SemVer; CalVer retired at v27)
 
 **Canonical:** [`CLAUDE.md` → Conventions: Versioning](../../CLAUDE.md); scheme
 owned by [`README.md`](../../README.md) + [`Cargo.toml`](../../Cargo.toml).
