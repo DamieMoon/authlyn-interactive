@@ -254,17 +254,16 @@ The full pre-commit gate also runs the static
 **Canonical:** [`CLAUDE.md` → Conventions: Versioning](../../CLAUDE.md); scheme
 owned by [`README.md`](../../README.md) + [`Cargo.toml`](../../Cargo.toml).
 
-| | Current (in-tree) | Pending at the v27 release |
+| | Scheme | Value |
 | --- | --- | --- |
-| scheme | CalVer `YYYY.M.D` | SemVer `27.0.0` |
-| value | `version = "2026.6.1"` ([`Cargo.toml`](../../Cargo.toml) line 4) | `27.0.0` |
-| codename | `saffron-tide` ([`Cargo.toml`](../../Cargo.toml) line 9, `[package.metadata.release]`) | `mendicant-bias` |
+| current | SemVer (from v27) | `version = "27.0.0"` ([`Cargo.toml`](../../Cargo.toml) line 4) |
+| codename | manual two-word | `mendicant-bias` ([`Cargo.toml`](../../Cargo.toml) line 9, `[package.metadata.release]`) |
+| retired | CalVer `YYYY.M.D` | last CalVer build was `2026.6.1` / `saffron-tide` |
 
-The CalVer→SemVer flip is **deferred to the release, not before** — `Cargo.toml`
-is intentionally still on `2026.6.1` / `saffron-tide`. Flip the `version` line +
-codename + `README.md` *at* the v27 release. (Note: the working **branch** is
-already named `mendicant-bias` — that is the branch, not the shipped codename;
-don't conflate.) **Pinning:** none — versioning is a manual release step.
+The CalVer→SemVer flip **shipped at the v27 release** (2026-06-22): the `version`
+line + codename + `README.md` were flipped as the release commit, then
+`mendicant-bias` merged to `main` (tag `v27.0.0`). SemVer from here on.
+**Pinning:** none — versioning is a manual release step.
 
 ---
 

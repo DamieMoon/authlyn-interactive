@@ -129,11 +129,10 @@ local non-served build, which never serves `/sw.js` anyway).
 `BUILD_REV` is the engine of the per-release cache bust in §6. The codename scan is line-based
 and brittle to a multiline/array reformat of that TOML table (`build.rs`, codename block).
 
-> **Versioning is mid-migration.** `Cargo.toml` is still on CalVer `version = "2026.6.1"`,
-> `codename = "saffron-tide"`. The design spec retires CalVer for SemVer `27.0.0` / codename
-> `mendicant-bias`; per [`CLAUDE.md`](../../CLAUDE.md) that line flips **at the release, not
-> before**. The account modal prints `CARGO_PKG_VERSION` + `APP_CODENAME` + `BUILD_REV`
-> ([07-ui-shell](07-ui-shell.md)).
+> **Versioning: SemVer from v27.** `Cargo.toml` is on `version = "27.0.0"`,
+> `codename = "mendicant-bias"` — the CalVer→SemVer flip shipped at the v27 release
+> (2026-06-22), retiring the old `2026.6.1` / `saffron-tide` scheme. The account modal
+> prints `CARGO_PKG_VERSION` + `APP_CODENAME` + `BUILD_REV` ([07-ui-shell](07-ui-shell.md)).
 
 ---
 
@@ -152,15 +151,12 @@ session cookie with **no** per-device root-CA step — the WebKit cookie trap fi
 (see [05-auth-privacy](05-auth-privacy.md) and [`CLAUDE.md`](../../CLAUDE.md)). The old LAN-IP
 `192.168.0.239` + self-signed dev root CA is **retired** — do not probe or review there.
 
-> **Stale warning to reconcile.** [`CLAUDE.md`](../../CLAUDE.md) still says
-> `.github/workflows/deploy.yml` and [`/deploy`](../../.claude/commands/deploy.md) *target the
-> retired fenrir and must be repointed before any v27 deploy*. The workflow and runbook files
-> have **already been repointed to novahome** (`deploy.yml:1` *"Deploy to novahome"*;
-> `deploy.md:5` names the fenrir path as *gone*). What survives unconditionally is the
-> **freeze + owner-gate**: prod is pinned to the faithful CalVer `2026.6.1` build (commit
-> `5cedd5d`), and a v27 / `mendicant-bias` promotion is a separate, explicitly owner-gated
-> decision. Treat the host/cert specifics in `CLAUDE.md` as the historical warning and the
-> workflow file as the current target.
+> **v27 shipped (2026-06-22).** `.github/workflows/deploy.yml` + [`/deploy`](../../.claude/commands/deploy.md)
+> target **novahome** (`deploy.yml:1` *"Deploy to novahome"*; the retired-fenrir path is gone), and
+> `mendicant-bias` was merged to `main` and promoted to prod as **v27.0.0** (tag `v27.0.0`, merge commit
+> `96bad5a`). The earlier freeze — prod pinned to the CalVer `2026.6.1` build (commit `5cedd5d`) — is
+> **lifted**: a push to `main` now auto-deploys to prod, so every future prod-affecting merge to `main`
+> remains an explicitly owner-gated decision.
 
 ### 4.1 Production CD — push to `main`
 
