@@ -69,6 +69,12 @@ pub struct MeResponse {
     /// post-ship wire-compat (older/native clients deserialize cleanly).
     #[serde(default)]
     pub is_admin: bool,
+    /// The caller's account-avatar media id (a `/media/{id}` `<img>` source), or
+    /// `None` for the monogram fallback. Account identity (display_name + avatar)
+    /// is the only LIVE-resolved display data (spec §3, M6). `#[serde(default)]`
+    /// for the same post-ship wire-compat reason as `is_admin`.
+    #[serde(default)]
+    pub avatar_id: Option<String>,
 }
 
 /// Body of `POST /admin/system-message` (admin-only): broadcast `body` as a
@@ -98,36 +104,25 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+/// Body of `PATCH /account` (auth-required) — partial profile update (M6). Every
+/// field optional; an absent field is left untouched. PATCH-shaped per convention
+/// (derives `Default`, all-`Option<>`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PatchAccountRequest {
+    /// New display name (1–32 chars after trim); validated server-side.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Account-avatar media id from a prior `POST /media` (mirrors
+    /// [`SetAvatarRequest::media_id`]); validated to exist server-side.
+    #[serde(default)]
+    pub avatar: Option<String>,
+}
+
 /// Body of `POST /auth/admin/reset-password` (admin-only). Sets `username`'s
 /// password to `new_password` without needing the target's current password.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AdminResetPasswordRequest {
     pub username: String,
-    pub new_password: String,
-}
-
-/// Body of `POST /auth/security-question` (auth-required). Sets the caller's
-/// self-service recovery question and answer (the answer is stored hashed).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SetSecurityQuestionRequest {
-    pub question: String,
-    pub answer: String,
-}
-
-/// Response from `GET /auth/reset/question?username=…`. `question` is `None`
-/// when the user is unknown OR has no question set (indistinguishable, to limit
-/// username enumeration).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ResetQuestionResponse {
-    pub question: Option<String>,
-}
-
-/// Body of `POST /auth/reset/confirm` (public). Resets `username`'s password to
-/// `new_password` iff `answer` matches the stored (hashed) security answer.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ConfirmResetRequest {
-    pub username: String,
-    pub answer: String,
     pub new_password: String,
 }
 
@@ -146,6 +141,17 @@ pub struct CreateGuildRequest {
 pub struct GuildSummary {
     pub id: String,
     pub name: String,
+    /// Per-server accent: a markup-palette name (red…gray) tinting this guild's
+    /// chrome, or empty for the default. `#[serde(default)]` for post-ship
+    /// wire-compat (older/native clients deserialize cleanly).
+    #[serde(default)]
+    pub accent_color: String,
+    /// The guild's icon media id, used directly as a `/media/{id}` `<img>`
+    /// source; `None` renders the monogram fallback. The server derives
+    /// `accent_color` from this icon at upload (M6). `#[serde(default)]` for the
+    /// same post-ship wire-compat reason as `accent_color`.
+    #[serde(default)]
+    pub icon_id: Option<String>,
 }
 
 /// Response from `GET /guilds`.
@@ -178,6 +184,12 @@ pub struct GuildDetail {
     pub id: String,
     pub name: String,
     pub owner_id: String,
+    /// Per-server accent (see `GuildSummary::accent_color`).
+    #[serde(default)]
+    pub accent_color: String,
+    /// Guild icon media id (see `GuildSummary::icon_id`).
+    #[serde(default)]
+    pub icon_id: Option<String>,
     pub channels: Vec<ChannelSummary>,
 }
 
@@ -193,6 +205,10 @@ pub struct CreateChannelRequest {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PatchGuildRequest {
     pub name: Option<String>,
+    /// Markup-palette accent name (red…gray) or empty to clear. Validated
+    /// server-side against the same palette as persona.color.
+    #[serde(default)]
+    pub accent_color: Option<String>,
 }
 
 /// Body of `PATCH /guilds/{id}/channels/{cid}` — partial update.
@@ -264,6 +280,13 @@ pub struct SendMessageRequest {
     /// replying to a reply quotes that reply, not its own parent.
     #[serde(default)]
     pub reply_to_id: Option<String>,
+    /// Optional delivery effect (M4/T5): `"whisper"` (blurred until tapped),
+    /// `"shout"` (shake + warm tint), or `"spell"` (glow + sparks). `None` /
+    /// empty = an ordinary message. The server VALIDATES against that exact
+    /// set; an unknown value is a 400 (mirroring the body checks). Purely
+    /// cosmetic — it gates no behavior.
+    #[serde(default)]
+    pub effect: Option<String>,
 }
 
 /// Body of `PATCH /channels/{cid}/messages/{mid}` — edit a message body.
@@ -272,6 +295,25 @@ pub struct SendMessageRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EditMessageRequest {
     pub body: String,
+}
+
+/// Body of `POST /channels/{cid}/roll` (M4/T6 Fate Engine). The server parses
+/// `expr` against a constrained grammar, rolls with ITS OWN RNG, and persists
+/// the formatted result as an immutable `kind='roll'` message — the client
+/// never computes (so can never forge) an outcome.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RollRequest {
+    /// The roll expression: `NdM`, `NdM+K`, or `NdM-K` (1 ≤ N ≤ 100,
+    /// 2 ≤ M ≤ 1000, |K| ≤ 1000; bare `dM` reads as `1dM`; case-insensitive
+    /// `d`, no whitespace), or the literals `coin` / `oracle`. Anything else
+    /// is a 400.
+    pub expr: String,
+    /// The persona the caller is wearing — same server-side double-check
+    /// semantics as [`SendMessageRequest::persona_id`] (re-validated via
+    /// `can_edit_persona`, falling back to the stored per-channel wear, else
+    /// the bare account).
+    #[serde(default)]
+    pub persona: Option<String>,
 }
 
 /// Successful response from `POST /channels/{cid}/messages`.
@@ -297,6 +339,14 @@ pub struct MessageEnvelope {
     /// unset). Shown as the message author when no persona was worn — the
     /// "default" identity — instead of a raw id.
     pub author_display: String,
+    /// The controlling account's avatar media id (`/media/{id}` source), resolved
+    /// LIVE at read like `author_display` — NOT a send-time snapshot (contrast
+    /// `persona_avatar_id`, which is frozen). `None` ⇒ monogram fallback. Shown
+    /// beside a bare-account message, and carries the account identity behind a
+    /// worn persona's subtle "· name" marker (M6/P2). `#[serde(default)]` for the
+    /// post-ship wire-compat reason its siblings share.
+    #[serde(default)]
+    pub author_avatar_id: Option<String>,
     /// Live link to the persona row (None if the author wore none). May dangle
     /// once the persona is deleted — `persona_name`/`persona_description` are
     /// the source of truth for display.
@@ -345,13 +395,27 @@ pub struct MessageEnvelope {
     /// post-ship wire-compat reason as the siblings above (defaults to `false`).
     #[serde(default)]
     pub is_pinged: bool,
-    /// Message kind: `"user"` (a normal send) or `"system"` (an app-admin "Nova
-    /// DOT" broadcast, authored by the reserved bot account). Drives distinct
-    /// rendering (system badge, no edit/reply/persona-popup). `#[serde(default)]`
+    /// Message kind: `"user"` (a normal send), `"system"` (an app-admin "Nova
+    /// DOT" broadcast, authored by the reserved bot account), or `"roll"` (a
+    /// M4/T6 Fate Engine dice result — authored, persona-aware, immutable).
+    /// Drives distinct rendering and per-kind action gating. `#[serde(default)]`
     /// → `"user"` for the same post-ship wire-compat reason as the siblings above
     /// (and so older/native clients deserialize cleanly).
     #[serde(default = "default_message_kind")]
     pub kind: String,
+    /// Delivery effect picked at send time (M4/T5): `"whisper"`, `"shout"`, or
+    /// `"spell"`; `None` for an ordinary message (and on every legacy row —
+    /// the field is `option<>` in the schema, no backfill). Drives rendering
+    /// only (`effect-{name}` class on the message row). `#[serde(default)]`
+    /// for the same post-ship wire-compat reason as the siblings above.
+    #[serde(default)]
+    pub effect: Option<String>,
+    /// M7/P2: true when this message was sent by a GUEST (a Guest Cameo — a
+    /// `channel_guest`, not a guild member), snapshotted at send time so the
+    /// "GUEST" badge survives the cameo being revoked/expired. `#[serde(default)]`
+    /// → `false` for the same post-ship wire-compat reason as the siblings above.
+    #[serde(default)]
+    pub guest_cameo: bool,
 }
 
 /// serde default for [`MessageEnvelope::kind`]: a message with no `kind` on the
@@ -400,6 +464,49 @@ pub struct ListMessagesResponse {
     /// clients / the trash response wire-compatible.
     #[serde(default)]
     pub active_persona: Option<String>,
+}
+
+/// Body of `POST /channels/{cid}/typing` (M4/T7 Ghost Quill). The ping has
+/// been body-less since #19 and MUST stay wire-compatible: a bare POST (no
+/// body, no Content-Type) is still a plain "I am typing" stamp. When the
+/// SENDER has the Ghost Quill pref ON, the client attaches its current
+/// compose text as `draft`; the server stores it in the ephemeral
+/// typing-draft map (8s TTL, in-memory only — never the DB, never the SSE
+/// bus). Absent or empty `draft` CLEARS any stored entry, so a sender
+/// toggling the pref off (or deleting their text) stops ghosting at the very
+/// next ping. Drafts over 2000 chars are TRUNCATED on a char boundary, never
+/// rejected — a mid-typing ping must not start failing as the composer grows.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TypingPingRequest {
+    #[serde(default)]
+    pub draft: Option<String>,
+    /// The composer's currently ARMED delivery effect (review M-01) — the
+    /// same M4/T5 vocabulary as `SendMessageRequest.effect` (`whisper` /
+    /// `shout` / `spell`). The server masks a whisper-armed `draft` to the
+    /// fixed `(whisper)` placeholder BEFORE storing it, so the spoiler text
+    /// of a message that will land hidden-until-tapped never streams live to
+    /// the very audience it's veiled from. Absent (today's client) keeps the
+    /// plaintext behavior unchanged; non-whisper / unknown values are
+    /// IGNORED rather than rejected — a mid-typing ping must never 400.
+    #[serde(default)]
+    pub effect: Option<String>,
+}
+
+/// One live co-writer draft from `GET /channels/{cid}/typing-drafts`
+/// (M4/T7 Ghost Quill) — the endpoint returns a bare JSON array of these.
+/// Only OTHER members' unexpired drafts appear (your own is excluded, like
+/// the typing indicator); `display_name` is resolved exactly like the typing
+/// names: the author's worn persona in this channel first, else their
+/// account display name / username. Draft text rides ONLY this
+/// permission-checked fetch — the receiving client opts in by fetching, the
+/// sender opted in by attaching the draft to its ping. A whisper-armed
+/// draft arrives as the fixed `(whisper)` placeholder, never the spoiler
+/// text (review M-01 — masked server-side at store time).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TypingDraftEntry {
+    pub account_id: String,
+    pub display_name: String,
+    pub draft: String,
 }
 
 /// Body of `POST /channels/{cid}/mark-read` (L-1) — record the caller's
@@ -501,6 +608,12 @@ pub struct PersonaSummary {
     /// by the server, which orders the list before sending it).
     #[serde(default)]
     pub position: Option<i64>,
+    /// RFC3339 persona-creation instant — the heraldic "debut" that feeds the
+    /// M7/P3 crest. Persona LIFECYCLE creation, NOT first-message. `#[serde(default)]`
+    /// so payloads predating the field deserialize to an empty string (the crest
+    /// then derives from the name alone).
+    #[serde(default)]
+    pub created_at: String,
 }
 
 /// Response from `GET /personas`.
@@ -540,6 +653,10 @@ pub struct PersonaDetail {
     /// (empty for editors).
     #[serde(default)]
     pub editors: Vec<PersonaEditor>,
+    /// RFC3339 persona-creation instant (the crest "debut"; see
+    /// [`PersonaSummary::created_at`]).
+    #[serde(default)]
+    pub created_at: String,
 }
 
 /// Response from `GET /personas/{id}/editors` — owner-only.
@@ -557,6 +674,15 @@ pub struct RedeemPersonaKeyRequest {
 /// Body of `PUT /personas/{id}/avatar` — set the primary image.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetAvatarRequest {
+    pub media_id: String,
+}
+
+/// Body of `PUT /guilds/{id}/icon` — set the guild's icon to an already-uploaded
+/// media blob (the client POSTs the file to `/media` first, then sends the id
+/// here). The server re-derives the per-server `accent_color` from the image
+/// (M6, effect G). Mirrors [`SetAvatarRequest`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetGuildIconRequest {
     pub media_id: String,
 }
 
@@ -676,6 +802,121 @@ pub struct ListFriendsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Direct messages (M7/P1 — guild-less DM threads, 1:1 + groups)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /dms` — start a DM thread. `members` are the *other*
+/// participants' account ids (the creator is added implicitly); each must be an
+/// accepted friend of the creator. One other member = a 1:1 DM (deduped to the
+/// existing thread if any); 2+ = a group. `title` is optional and only
+/// meaningful for groups.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CreateDmRequest {
+    pub members: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// Body of `POST /dms/{tid}/members` — invite one accepted friend into a group.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteToDmRequest {
+    pub account_id: String,
+}
+
+/// One participant of a DM thread, with the live account identity needed to
+/// render the thread row (account identity resolves live, like everywhere else).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DmMemberSummary {
+    pub account_id: String,
+    pub username: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub avatar_id: Option<String>,
+}
+
+/// One DM thread the caller belongs to. `id` is the underlying channel id, so
+/// messages/read-state/active-persona ride the existing `/channels/{id}/…`
+/// routes unchanged. `title` is the optional group name (None / empty for 1:1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DmSummary {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub members: Vec<DmMemberSummary>,
+    /// M7/P1 (review M2): true when the thread is read-only — a 1:1 whose two
+    /// friends unfriended. History stays readable; posting is server-rejected.
+    /// Always false for groups. The server is the source of truth.
+    #[serde(default)]
+    pub locked: bool,
+}
+
+/// Response from `GET /dms` — every DM thread the caller is a member of.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListDmsResponse {
+    pub dms: Vec<DmSummary>,
+}
+
+// ---------------------------------------------------------------------------
+// Guest cameos (M7/P2 — scoped ephemeral guest access to one guild text channel)
+// ---------------------------------------------------------------------------
+
+/// Body of `POST /channels/{cid}/guests` — invite one accepted friend as a guest
+/// in this guild text channel. `account_id` must be an accepted friend of the
+/// caller and not already a member of the channel's guild. `expires_at` is an
+/// optional RFC3339 instant after which the cameo lapses (None = no expiry); the
+/// server enforces it as a lazy-check at every membership query.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct InviteGuestRequest {
+    pub account_id: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// One active guest of a channel (host-side view, `GET /channels/{cid}/guests`),
+/// with the live account identity needed to render the row.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GuestSummary {
+    pub account_id: String,
+    pub username: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub avatar_id: Option<String>,
+    /// Account id of the member who invited this guest (revoke-authz + display).
+    pub invited_by: String,
+    /// RFC3339 expiry instant, or None for an open-ended cameo.
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// Response from `GET /channels/{cid}/guests` — the channel's active guests.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListGuestsResponse {
+    pub guests: Vec<GuestSummary>,
+}
+
+/// One cameo the caller is a guest in (guest-side view, `GET /cameos`). `channel_id`
+/// is the underlying channel id, so messages/read-state/active-persona ride the
+/// existing `/channels/{id}/…` routes unchanged. `guild_name` is the host guild's
+/// name for context (the guest can't otherwise see the guild).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CameoSummary {
+    pub channel_id: String,
+    pub channel_name: String,
+    #[serde(default)]
+    pub guild_name: Option<String>,
+    /// Account id of the member who invited the caller.
+    pub invited_by: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+/// Response from `GET /cameos` — every cameo the caller is currently a guest in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListCameosResponse {
+    pub cameos: Vec<CameoSummary>,
+}
+
+// ---------------------------------------------------------------------------
 // Web Push (#30 background notifications)
 // ---------------------------------------------------------------------------
 
@@ -775,6 +1016,119 @@ pub struct FeedbackItem {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListFeedbackResponse {
     pub items: Vec<FeedbackItem>,
+}
+
+// ---------------------------------------------------------------------------
+// SSE realtime bus (M1)
+// ---------------------------------------------------------------------------
+
+/// M1 realtime: the id-only event vocabulary broadcast over `GET /events`.
+/// Deliberately content-free (notify-and-fetch): clients react by refetching
+/// through the existing permission-checked endpoints, so this enum never
+/// becomes an authorization surface. Shared by ssr (emitter) and hydrate
+/// (EventSource consumer); always-on like every other wire DTO here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SyncEvent {
+    /// A message was created in this channel.
+    MessageCreated { channel_id: String },
+    /// A message was edited in this channel.
+    MessageEdited {
+        channel_id: String,
+        message_id: String,
+    },
+    /// A message was soft-deleted in this channel.
+    MessageDeleted {
+        channel_id: String,
+        message_id: String,
+    },
+    /// Someone (not necessarily you) pinged "typing" in this channel.
+    Typing { channel_id: String },
+    /// Guild/channel/membership metadata changed somewhere visible to you —
+    /// refetch lists. Also used as a generic "resync" nudge after broadcast lag.
+    ListsChanged,
+    /// The caller's read cursor moved in this channel (their OTHER devices
+    /// should refresh unread). Account-targeted on the server; never broadcast.
+    ReadStateChanged { channel_id: String },
+    /// The friends/requests list changed for this account (targeted to the
+    /// two accounts of the friendship edge).
+    FriendsChanged,
+    /// Dev hot-reload: a new build was deployed to the test deck (which runs
+    /// the compiled binary, so there is no cargo-leptos live-reload). A global,
+    /// content-free nudge telling every connected client to `location.reload()`
+    /// onto the new version. Admin-triggered only (`POST /admin/dev/reload`);
+    /// delivered to ALL connections as a DISTINCT NAMED `event: reload` frame,
+    /// bypassing the per-connection visibility filter (it is not channel-scoped
+    /// — `channel_id()` is `None`).
+    Reload,
+    /// Forward-compat catch-all: an event type this build doesn't know
+    /// (a newer server during version skew). Consumers MUST ignore it;
+    /// the server never constructs it.
+    #[serde(other)]
+    Unknown,
+}
+
+impl SyncEvent {
+    /// The channel this event is VISIBILITY-scoped to, if any. `None`
+    /// (ListsChanged) means "deliver to everyone and let the refetch re-derive
+    /// visibility".
+    ///
+    /// `ReadStateChanged` carries a `channel_id` field but reports `None` here:
+    /// it (like `FriendsChanged`) is account-targeted on the server, and the
+    /// targeted delivery lane bypasses channel-visibility filtering entirely —
+    /// this method is never consulted for it. Returning the id would be wrong
+    /// anyway: visibility filtering would silently drop the nudge whenever the
+    /// recipient's visible-set is momentarily stale.
+    pub fn channel_id(&self) -> Option<&str> {
+        match self {
+            SyncEvent::MessageCreated { channel_id }
+            | SyncEvent::MessageEdited { channel_id, .. }
+            | SyncEvent::MessageDeleted { channel_id, .. }
+            | SyncEvent::Typing { channel_id } => Some(channel_id),
+            SyncEvent::ListsChanged
+            | SyncEvent::ReadStateChanged { .. }
+            | SyncEvent::FriendsChanged
+            | SyncEvent::Reload
+            | SyncEvent::Unknown => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Batched unread summary (M1 — GET /unread)
+// ---------------------------------------------------------------------------
+
+/// M1: one row per visible text channel in `GET /unread`. M7/P1: also DM
+/// threads (`kind='dm'`), which have no guild — `guild_id` is then `None`, and
+/// the client routes that row to the DM-list badge instead of a guild rail dot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelUnread {
+    pub channel_id: String,
+    /// M7/P1 + M7/P2: `None` for a DM thread AND for a cameo channel seen as a
+    /// guest (both surface standalone, not under a guild rail). The client keys a
+    /// guild rail dot ONLY on `Some(guild_id)`, so a guildless row glows just its
+    /// own channel in the DM / cameo list — no rail dot for a guild the caller
+    /// can't see. Which list the row belongs to is resolved by the separate
+    /// `sel.dms` / `sel.cameos` signals (by channel id), not a kind field here.
+    #[serde(default)]
+    pub guild_id: Option<String>,
+    /// Messages newer than the caller's read cursor (capped at 100). 0 when
+    /// the channel has no cursor yet — the client baselines instead of glowing.
+    pub unread: usize,
+    /// True iff any unread message pings the caller.
+    pub pinged: bool,
+    /// Latest live message's cursor pair, for client-side baselining of
+    /// never-visited channels. None when the channel is empty.
+    #[serde(default)]
+    pub latest_sent_at: Option<String>,
+    #[serde(default)]
+    pub latest_id: Option<String>,
+}
+
+/// M1: response of `GET /unread`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnreadResponse {
+    pub channels: Vec<ChannelUnread>,
 }
 
 #[cfg(test)]

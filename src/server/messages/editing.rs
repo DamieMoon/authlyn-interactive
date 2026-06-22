@@ -1,6 +1,8 @@
 //! Per-message mutations: edit own, delete (soft, #22), restore, and the
 //! trash listing. Split from `server/messages.rs` in Wave 3; behavior preserved
-//! verbatim.
+//! verbatim. Also enforces roll immutability (M4/T6): `kind='roll'` rows are
+//! server-generated outcomes, so the author's own edit and delete are explicit
+//! 403s here (cheating-proof — see `rolling.rs`).
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
@@ -15,7 +17,7 @@ use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::retry::with_write_conflict_retry;
 use crate::server::state::AppState;
 
-use super::reading::{resolve_attachment_mimes, MessageRow, MESSAGES_PAGE_LIMIT, MSG_PROJECTION};
+use super::reading::{MessageRow, MESSAGES_PAGE_LIMIT, MSG_PROJECTION};
 use super::{channel_access, AccessOutcome, MAX_BODY_CHARS};
 
 // ---------------------------------------------------------------------------
@@ -43,8 +45,15 @@ pub async fn edit_message(
 
     // Membership gate first (privacy 404 for non-members / unknown channel),
     // then the author check (403). The message must live in this channel.
-    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
-        return resp;
+    let kind = match require_own_message(&state, &cid, &mid, &account.0).await {
+        Ok(kind) => kind,
+        Err(resp) => return resp,
+    };
+    // Roll immutability (M4/T6, 6.2b — audit critical): the roller IS the
+    // author, so without this explicit guard they could PATCH the
+    // server-generated body into a forged result. Rolls are FULLY immutable.
+    if kind == "roll" {
+        return error_response(StatusCode::FORBIDDEN, "roll results cannot be edited");
     }
 
     let result = with_write_conflict_retry(|| async {
@@ -59,7 +68,19 @@ pub async fn edit_message(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // During an edit the compose box holds the EDIT text, and today's
+            // client pings it as a Ghost Quill draft — so the landed edit must
+            // drop the stored entry exactly like clear-on-send (`posting.rs`)
+            // and clear-on-roll (`rolling.rs`), or a stale ghost row lingers
+            // beside the just-edited message for up to the TTL (review M-02).
+            super::typing::clear_draft(&state, &cid, &account.0);
+            state.emit(crate::protocol::SyncEvent::MessageEdited {
+                channel_id: cid.clone(),
+                message_id: mid.clone(),
+            });
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "edit_message update failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -77,8 +98,15 @@ pub async fn delete_message(
     Path((cid, mid)): Path<(String, String)>,
     account: AuthAccount,
 ) -> Response {
-    if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
-        return resp;
+    let kind = match require_own_message(&state, &cid, &mid, &account.0).await {
+        Ok(kind) => kind,
+        Err(resp) => return resp,
+    };
+    // Roll immutability (M4/T6, 6.2b — audit critical): without this guard the
+    // roller could delete an unfavorable roll. No edit, no delete — and since a
+    // roll can never be soft-deleted, the restore path needs no guard.
+    if kind == "roll" {
+        return error_response(StatusCode::FORBIDDEN, "roll results cannot be deleted");
     }
 
     // Soft-delete (#22): hidden by the deleted_at = NONE read filters; the
@@ -94,7 +122,13 @@ pub async fn delete_message(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            state.emit(crate::protocol::SyncEvent::MessageDeleted {
+                channel_id: cid.clone(),
+                message_id: mid.clone(),
+            });
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_message failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -117,18 +151,40 @@ pub async fn restore_message(
     if let Err(resp) = require_own_message(&state, &cid, &mid, &account.0).await {
         return resp;
     }
+    // Conditional write: only a row that IS soft-deleted transitions — the
+    // pinned idempotent 204 on an already-live message matches nothing and
+    // writes nothing. RETURN VALUE surfaces whether the transition happened,
+    // so the bus emit below fires only for a REAL reappearance (review M-41
+    // follow-up: the no-op 204 used to broadcast a spurious message_created,
+    // fanning a full open-channel refetch to every member's connection).
+    // This `UPDATE … WHERE … RETURN VALUE` shape is verified on the 3.1.3
+    // dev binary only — it falls under the MSG_PROJECTION VERSION-SKEW
+    // runbook gate in reading.rs (prod still runs 3.0.4).
     let result = with_write_conflict_retry(|| async {
-        state
+        let mut resp = state
             .db
-            .query("UPDATE type::record('message', $mid) SET deleted_at = NONE;")
+            .query(
+                "UPDATE type::record('message', $mid) SET deleted_at = NONE
+                    WHERE deleted_at != NONE RETURN VALUE meta::id(id);",
+            )
             .bind(("mid", mid.clone()))
             .await?
             .check()?;
-        Ok(())
+        let restored: Vec<String> = resp.take(0)?;
+        Ok(!restored.is_empty())
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(transitioned) => {
+            if transitioned {
+                // A restored message reappears — notify-and-fetch treats it
+                // as new arrival.
+                state.emit(crate::protocol::SyncEvent::MessageCreated {
+                    channel_id: cid.clone(),
+                });
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_message failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -193,22 +249,26 @@ async fn load_deleted_messages(
         .await?
         .check()?;
     let rows: Vec<MessageRow> = resp.take(0)?;
-    let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
-    resolve_attachment_mimes(state, &mut out).await?;
-    Ok(out)
+    Ok(rows.into_iter().map(MessageRow::into_envelope).collect())
 }
 
-/// Gate for the per-message mutations (edit/delete): the caller must be a
-/// member of the channel's guild (else privacy-404) *and* the message must
-/// exist in this channel and be authored by the caller (else 403). The two
-/// "not yours" cases — a stranger's message vs. a missing message — both
+/// Gate for the per-message mutations (edit/delete/restore): the caller must
+/// be a member of the channel's guild (else privacy-404) *and* the message
+/// must exist in this channel and be authored by the caller (else 403). The
+/// two "not yours" cases — a stranger's message vs. a missing message — both
 /// collapse to 403 so a member can't probe which message ids exist by edit.
+///
+/// Returns the message's `kind` on success so the edit/delete handlers can
+/// enforce roll immutability (M4/T6, 6.2b): system messages are already
+/// un-editable as an authorship side-effect (the author is `nova_dot`, never
+/// the caller), but a roll IS authored by the caller, so its immutability
+/// needs the explicit kind check at the call sites.
 async fn require_own_message(
     state: &AppState,
     cid: &str,
     mid: &str,
     account: &str,
-) -> Result<(), Response> {
+) -> Result<String, Response> {
     match channel_access(state, cid, account).await {
         Ok(AccessOutcome::Ok(_)) => {}
         Ok(AccessOutcome::ChannelNotFound) | Ok(AccessOutcome::NotMember) => {
@@ -223,8 +283,8 @@ async fn require_own_message(
         }
     }
 
-    match message_author(state, cid, mid).await {
-        Ok(Some(author)) if author == account => Ok(()),
+    match message_author_and_kind(state, cid, mid).await {
+        Ok(Some((author, kind))) if author == account => Ok(kind),
         Ok(Some(_)) | Ok(None) => Err(error_response(
             StatusCode::FORBIDDEN,
             "you can only modify your own messages",
@@ -239,26 +299,30 @@ async fn require_own_message(
     }
 }
 
-/// The author account id of a message *scoped to a channel*, or `None` when
-/// no such message exists in that channel.
-async fn message_author(
+/// The author account id and `kind` of a message *scoped to a channel*, or
+/// `None` when no such message exists in that channel. The `?? 'user'`
+/// coalesce mirrors `MSG_PROJECTION` (reading.rs) — `kind` is materialised by
+/// the schema backfill, but a defensive default beats a decode error.
+async fn message_author_and_kind(
     state: &AppState,
     cid: &str,
     mid: &str,
-) -> surrealdb::Result<Option<String>> {
+) -> surrealdb::Result<Option<(String, String)>> {
     #[derive(SurrealValue)]
     struct Row {
         author_key: String,
+        kind: String,
     }
     let mut resp = state
         .db
         .query(
-            "SELECT meta::id(author) AS author_key FROM type::record('message', $mid)
+            "SELECT meta::id(author) AS author_key, (kind ?? 'user') AS kind
+                FROM type::record('message', $mid)
                 WHERE channel = type::record('channel', $cid);",
         )
         .bind(("mid", mid.to_string()))
         .bind(("cid", cid.to_string()))
         .await?
         .check()?;
-    Ok(resp.take::<Option<Row>>(0)?.map(|r| r.author_key))
+    Ok(resp.take::<Option<Row>>(0)?.map(|r| (r.author_key, r.kind)))
 }

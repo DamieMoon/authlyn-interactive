@@ -125,7 +125,18 @@ pub async fn add_friend(
         Ok(Some(_)) => {
             // reverse pending → accept it
             return match set_accepted(&state, &target, &account.0).await {
-                Ok(_) => StatusCode::OK.into_response(),
+                Ok(_) => {
+                    // M7/P1 (review M2): the auto-accept path also unlocks a
+                    // previously-locked 1:1 DM between the pair. Best-effort.
+                    if let Err(e) =
+                        crate::server::dms::set_one_to_one_lock(&state, &target, &account.0, false)
+                            .await
+                    {
+                        tracing::error!(error = %e, "unlocking the 1:1 DM on re-friend failed");
+                    }
+                    emit_friends_changed(&state, &account.0, &target);
+                    StatusCode::OK.into_response()
+                }
                 Err(e) => {
                     tracing::error!(error = %e, "auto-accept failed");
                     error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -167,7 +178,10 @@ pub async fn add_friend(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::CREATED.into_response(),
+        Ok(()) => {
+            emit_friends_changed(&state, &caller, &target);
+            StatusCode::CREATED.into_response()
+        }
         Err(e) if is_unique_violation(&e) => {
             error_response(StatusCode::CONFLICT, "request already exists")
         }
@@ -198,12 +212,22 @@ pub async fn accept_friend(
                   AND state = 'pending'
                 RETURN meta::id(id) AS id_key;",
         )
-        .bind(("aid", aid))
-        .bind(("me", account.0))
+        .bind(("aid", aid.clone()))
+        .bind(("me", account.0.clone()))
         .await
         .and_then(|mut r| r.take::<Vec<IdRow>>(0));
     match updated {
-        Ok(rows) if !rows.is_empty() => StatusCode::OK.into_response(),
+        Ok(rows) if !rows.is_empty() => {
+            // M7/P1 (review M2): re-friending unlocks the previously-locked 1:1 DM
+            // (if one survived the unfriend), restoring posting. Best-effort.
+            if let Err(e) =
+                crate::server::dms::set_one_to_one_lock(&state, &account.0, &aid, false).await
+            {
+                tracing::error!(error = %e, "unlocking the 1:1 DM on re-friend failed");
+            }
+            emit_friends_changed(&state, &account.0, &aid);
+            StatusCode::OK.into_response()
+        }
         Ok(_) => error_response(StatusCode::NOT_FOUND, "no pending request from that user"),
         Err(e) => {
             tracing::error!(error = %e, "accept_friend failed");
@@ -233,12 +257,40 @@ pub async fn remove_friend(
                 OR (requester = type::record('account', $other)
                  AND addressee = type::record('account', $me));",
         )
-        .bind(("me", account.0))
-        .bind(("other", aid))
+        .bind(("me", account.0.clone()))
+        .bind(("other", aid.clone()))
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // M7/P1 (review M2): unfriending makes the shared 1:1 DM read-only
+            // (history preserved, posting server-rejected). Best-effort — the
+            // unfriend already committed, so a lock failure is logged, not
+            // surfaced; groups have no 1:1 pair and are untouched.
+            if let Err(e) =
+                crate::server::dms::set_one_to_one_lock(&state, &account.0, &aid, true).await
+            {
+                tracing::error!(error = %e, "locking the 1:1 DM on unfriend failed");
+            }
+            // M7/P2 (owner ruling): unfriending revokes any active Guest Cameo
+            // between the two — the friend-gate fell, so access dies (past badged
+            // messages stay; history is immutable). Best-effort + emits its own
+            // ListsChanged to the affected guest.
+            if let Err(e) =
+                crate::server::cameos::revoke_cameos_between(&state, &account.0, &aid).await
+            {
+                tracing::error!(error = %e, "revoking the cameo on unfriend failed");
+            }
+            // Emitted even when nothing matched (idempotent DELETE): a spare
+            // id-only nudge costs the target one refetch; detecting no-op
+            // deletes would need a RETURN clause and buys nothing. Side
+            // effect, accepted: `aid` is unvalidated here, so any
+            // authenticated caller can nudge an arbitrary account into one
+            // permission-checked `/friends` refetch — harmless (id-only,
+            // rate-bounded by the caller's own requests).
+            emit_friends_changed(&state, &account.0, &aid);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "remove_friend failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -249,6 +301,17 @@ pub async fn remove_friend(
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/// M1.5: every friend mutation nudges EXACTLY the two accounts of the
+/// friendship edge over the SSE bus (account-targeted, never broadcast) —
+/// an incoming request / accept / removal becomes visible live on the other
+/// party's open clients instead of waiting for an unrelated event.
+fn emit_friends_changed(state: &AppState, a: &str, b: &str) {
+    state.emit_for(
+        vec![a.to_string(), b.to_string()],
+        crate::protocol::SyncEvent::FriendsChanged,
+    );
+}
 
 /// The `state` of the directed `requester -> addressee` friendship, if any.
 async fn pair_state(

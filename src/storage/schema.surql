@@ -1,7 +1,8 @@
 -- authlyn-interactive — SurrealDB schema (Discord-style roleplay platform)
 --
 -- Loaded on startup by `db::apply_schema`. All DEFINEs use `IF NOT EXISTS`
--- so re-applying on every boot is a no-op.
+-- so re-applying on every boot is a no-op — except `message.kind`, which uses
+-- OVERWRITE because its enum ASSERT was widened after shipping (see its block).
 --
 -- Server-trusted model: the server stores plaintext content directly.
 -- `record<...>` links are type annotations only (SurrealDB does not enforce
@@ -16,16 +17,24 @@ DEFINE FIELD IF NOT EXISTS username      ON account TYPE string;
 DEFINE FIELD IF NOT EXISTS username_ci   ON account TYPE string;  -- lowercased, for case-insensitive uniqueness
 DEFINE FIELD IF NOT EXISTS display_name  ON account TYPE string DEFAULT '';
 DEFINE FIELD IF NOT EXISTS password_hash ON account TYPE string;  -- argon2id PHC string
--- Self-service password recovery (option<> ⇒ NONE is valid on old rows, so no
--- backfill is needed and adding these can't trip the SCHEMAFULL NONE-coercion crash).
-DEFINE FIELD IF NOT EXISTS security_question    ON account TYPE option<string>;  -- user-set reset prompt
-DEFINE FIELD IF NOT EXISTS security_answer_hash ON account TYPE option<string>;  -- argon2id hash of the normalized answer
 DEFINE FIELD IF NOT EXISTS avatar        ON account TYPE option<record<media_blob>>;
 DEFINE FIELD IF NOT EXISTS created_at    ON account TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS account_username_ci ON account FIELDS username_ci UNIQUE;
 -- Same NONE-coercion guard as persona: accounts predating `display_name` hold
 -- NONE there, which would 500 any account UPDATE (e.g. change-password).
 UPDATE account SET display_name = (display_name ?? '') WHERE display_name = NONE;
+
+-- Security question/answer (self-service password recovery) was REMOVED
+-- (2026-06-17): obsolete, and the self-service reset was an account-takeover
+-- vector — a session could set a recovery credential WITHOUT the password, then
+-- reset through it. Admin reset (/auth/admin/reset-password) is the sole
+-- recovery path now. Purge any stored values, then drop the fields. Idempotent:
+-- UNSET of an absent key and REMOVE FIELD IF EXISTS are both no-ops on reboot.
+-- Runs AFTER the display_name guard above so this account UPDATE can't hit the
+-- SCHEMAFULL NONE-coercion 500 on pre-display_name rows.
+UPDATE account UNSET security_question, security_answer_hash;
+REMOVE FIELD IF EXISTS security_question ON account;
+REMOVE FIELD IF EXISTS security_answer_hash ON account;
 
 -- Reserved Nova DOT system/bot account — the author of every `kind='system'`
 -- message (the app-admin broadcast feature). Seeded here (pure SurrealQL) so it
@@ -110,16 +119,40 @@ DEFINE FIELD IF NOT EXISTS created_at ON guild TYPE datetime DEFAULT time::now()
 -- sweep hard-deletes past the rollback window (guild 30d). option<> ⇒ NONE is
 -- valid, no backfill needed. EVERY guild read filters `deleted_at = NONE`.
 DEFINE FIELD IF NOT EXISTS deleted_at ON guild TYPE option<datetime>;
+-- Per-server accent (Open Question #5 / _foundation.scss): a markup-palette
+-- name (red…gray, the SAME 8-name vocabulary as persona.color / --tint-*) or
+-- NONE for the default electric-blue accent. option<> ⇒ NONE is valid on every
+-- pre-existing guild row, so NO backfill is needed and adding it can't trip the
+-- SCHEMAFULL NONE-coercion crash (same reasoning as account.avatar
+-- and message.effect). Purely cosmetic; gates nothing. NO format ASSERT: the
+-- palette is validated server-side (server/accent.rs), mirroring persona.color
+-- (a free TYPE string with no ASSERT). If a format ASSERT is ever added it MUST
+-- use DEFINE FIELD OVERWRITE, not IF NOT EXISTS (enum-OVERWRITE invariant).
+DEFINE FIELD IF NOT EXISTS accent_color ON guild TYPE option<string>;
 
--- Channels (nested under a guild; `kind` gates text vs lorebook) --------
+-- Channels (guild text/lorebook channels, or guild-less DM threads) -----
 DEFINE TABLE IF NOT EXISTS channel SCHEMAFULL;
-DEFINE FIELD IF NOT EXISTS guild      ON channel TYPE record<guild>;
+-- M7/P1: a DM thread is a channel with NO guild, so `guild` is option<>.
+-- OVERWRITE (not IF NOT EXISTS): on a populated DB the field already exists as
+-- the strict `record<guild>`, and IF NOT EXISTS is a no-op there — it would keep
+-- the strict type and reject `guild = NONE` on every DM create. Existing rows all
+-- hold a guild (valid for option<record>), so no backfill / no NONE-coercion.
+-- (The file-wide IF NOT EXISTS exception, here for a record-link widening.)
+DEFINE FIELD OVERWRITE     guild      ON channel TYPE option<record<guild>>;
 DEFINE FIELD IF NOT EXISTS name       ON channel TYPE string;
-DEFINE FIELD IF NOT EXISTS kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook'];
+-- M7/P1: `'dm'` added. OVERWRITE (not IF NOT EXISTS) — widening an enum ASSERT
+-- needs OVERWRITE or the old narrow ASSERT silently survives and rejects 'dm'
+-- (the same trap as message.kind below). DEFAULT 'text' unchanged.
+DEFINE FIELD OVERWRITE     kind       ON channel TYPE string DEFAULT 'text' ASSERT $value IN ['text', 'lorebook', 'dm'];
 DEFINE FIELD IF NOT EXISTS position   ON channel TYPE int DEFAULT 0;
 DEFINE FIELD IF NOT EXISTS created_at ON channel TYPE datetime DEFAULT time::now();
 -- Soft-delete (#22): NONE = live (purge window: channel 1d). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON channel TYPE option<datetime>;
+-- Read-only lock (M7/P1, review M2): NONE = live; a timestamp = locked. Set on a
+-- 1:1 DM when the two friends unfriend (owner ruling: history is preserved but
+-- posting is blocked), cleared on re-friend. New optional field → no backfill.
+-- Only ever set on kind='dm' channels today; guild channels stay NONE.
+DEFINE FIELD IF NOT EXISTS locked_at ON channel TYPE option<datetime>;
 DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 
 -- Guild membership (the worn persona lives here, per-guild) -------------
@@ -130,6 +163,14 @@ DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'm
 DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<persona>>;
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;
+-- M1 hot path (review M-37): `access::visible_channels` asks "which guilds is
+-- this account in?" on every /events connect, every per-connection ListsChanged
+-- visibility reload, and every GET /unread. An account-only predicate cannot
+-- use the (guild, account) composite above (account is not a prefix field), so
+-- it planned as a guild_member TableScan (EXPLAIN, SurrealDB 3.1.3). Plain
+-- non-unique index; DEFINE INDEX builds over existing rows at apply time, so
+-- there is no backfill hazard (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS guild_member_account ON guild_member FIELDS account;
 
 -- Per-channel worn persona (supersedes per-guild guild_member.active_persona).
 -- One row per (account, channel); UPSERT on wear, DELETE on unwear. Brand-new
@@ -139,6 +180,66 @@ DEFINE FIELD IF NOT EXISTS account ON channel_active_persona TYPE record<account
 DEFINE FIELD IF NOT EXISTS channel ON channel_active_persona TYPE record<channel>;
 DEFINE FIELD IF NOT EXISTS persona ON channel_active_persona TYPE record<persona>;
 DEFINE INDEX IF NOT EXISTS channel_active_persona_pair ON channel_active_persona FIELDS account, channel UNIQUE;
+
+-- DM membership (M7/P1): one row per (account, dm-thread). A DM thread is a
+-- channel with kind='dm' and guild=NONE; this is the dm-kind analog of
+-- guild_member that `access::resolve_membership` / `access::visible_channels`
+-- branch to on kind. Brand-new table → no NONE-backfill hazard. No active_persona
+-- here: DM persona wear rides channel_active_persona like every channel. The
+-- optional group title lives in channel.name.
+DEFINE TABLE IF NOT EXISTS dm_member SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS channel   ON dm_member TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS account   ON dm_member TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS joined_at ON dm_member TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS dm_member_pair ON dm_member FIELDS channel, account UNIQUE;
+-- Account-only lookup (mirror guild_member_account, review M-37): visible_channels
+-- asks "which DM threads is this account in?" on every /events connect + /unread.
+-- DEFINE INDEX builds over existing rows at apply time — no backfill hazard
+-- (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS dm_member_account ON dm_member FIELDS account;
+
+-- DM 1:1 dedup lock (M7/P1, review H1): one row per LIVE 1:1 DM, keyed by the
+-- sorted account-id pair so concurrent "message X" double-taps (or both parties
+-- initiating at once) converge on ONE thread. A check-then-create read can't do
+-- this — the two racing creates touch disjoint records, so MVCC never arbitrates
+-- without a shared UNIQUE key. Groups never get a row (a pair key is meaningless
+-- for 3+), so this table only ever holds distinct non-NONE keys → the UNIQUE
+-- index never sees a NONE collision. THAT is why this is a side table, not a
+-- channel.pair_key column: a UNIQUE index on such a column would reject the many
+-- guild/group/soft-deleted channels sharing pair_key=NONE and crash schema-apply
+-- on the populated channel table. Lifecycle: created inside the 1:1 thread's
+-- create transaction; deleted when the thread is soft-deleted (leave_dm last
+-- member) or hard-purged — so a dm_pair row exists iff a live 1:1 thread does.
+DEFINE TABLE IF NOT EXISTS dm_pair SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS pair_key ON dm_pair TYPE string;
+DEFINE FIELD IF NOT EXISTS channel  ON dm_pair TYPE record<channel>;
+DEFINE INDEX IF NOT EXISTS dm_pair_key ON dm_pair FIELDS pair_key UNIQUE;
+
+-- Guest cameos (M7/P2): the THIRD channel-membership model. A row grants an
+-- accepted friend scoped, ephemeral read+post access to ONE guild text channel
+-- (spec §9.7 "Guest Cameos") — the guest never gets a guild_member row, so every
+-- guild-management gate (require_manager/caller_role read guild_member only)
+-- auto-404s them, and visible_channels surfaces only this one channel. This is
+-- the kind='text' analog of dm_member that access::resolve_membership /
+-- access::channel_access / access::visible_channels branch to alongside
+-- guild_member. Brand-new table → no NONE-backfill hazard.
+-- Ephemerality (owner ruling, 2026-06-19): manual revoke/leave DELETEs the row;
+-- `expires_at` (NONE = no expiry) is enforced as a LAZY-CHECK predicate
+-- (`expires_at = NONE OR expires_at > time::now()`) at every membership query —
+-- an expired row resolves to non-member without a sweep. `invited_by` keys both
+-- the revoke-authz (inviter may revoke) and the unfriend-revoke hook in friends.
+DEFINE TABLE IF NOT EXISTS channel_guest SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS channel    ON channel_guest TYPE record<channel>;
+DEFINE FIELD IF NOT EXISTS account    ON channel_guest TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS invited_by ON channel_guest TYPE record<account>;
+DEFINE FIELD IF NOT EXISTS created_at ON channel_guest TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS expires_at ON channel_guest TYPE option<datetime>;
+DEFINE INDEX IF NOT EXISTS channel_guest_pair    ON channel_guest FIELDS channel, account UNIQUE;
+-- Account-only lookup (mirror dm_member_account / guild_member_account, review
+-- M-37): visible_channels + /cameos ask "which channels is this account a guest
+-- in?" on every /events connect + /unread. DEFINE INDEX builds over existing rows
+-- at apply time — no backfill hazard (guarded by tests/schema_apply.rs).
+DEFINE INDEX IF NOT EXISTS channel_guest_account ON channel_guest FIELDS account;
 
 -- Messages (channel-scoped, plaintext, persona-aware) ------------------
 DEFINE TABLE IF NOT EXISTS message SCHEMAFULL;
@@ -163,14 +264,31 @@ DEFINE FIELD IF NOT EXISTS body    ON message TYPE string;                   -- 
 -- Discord-style: rendered as a compacting grid, click opens a lightbox.
 DEFINE FIELD IF NOT EXISTS attachments ON message TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS tier    ON message TYPE string DEFAULT 'default'; -- forward-compat AI-visibility
--- System vs user message. A `kind='system'` message is authored by the reserved
+-- Message kind discriminator. `kind='system'` is authored by the reserved
 -- `account:nova_dot` bot (app-admin broadcast) and rendered distinctly (no persona,
--- immutable to edits). DEFAULT 'user' keeps every normal send unchanged. This is a
--- non-option field added to the POPULATED `message` table, so legacy rows hold NONE
--- and would crash the row-revalidating backfills below — it is materialised in the
--- SAME first backfill statement (see the DATA-SAFETY block), NOT a separate one.
-DEFINE FIELD IF NOT EXISTS kind    ON message TYPE string DEFAULT 'user'
-    ASSERT $value IN ['user', 'system'];
+-- immutable to edits). `kind='roll'` (M4/T6 Fate Engine) is a server-rolled dice
+-- result: authored by the roller, persona-aware, and FULLY immutable (the edit and
+-- delete handlers 403 on it — cheating-proof). DEFAULT 'user' keeps every normal
+-- send unchanged. This is a non-option field added to the POPULATED `message`
+-- table, so legacy rows hold NONE and would crash the row-revalidating backfills
+-- below — it is materialised in the SAME first backfill statement (see the
+-- DATA-SAFETY block), NOT a separate one.
+-- OVERWRITE (the file-wide IF NOT EXISTS exception): the enum was widened after
+-- the field shipped, and IF NOT EXISTS never re-applies over an existing field —
+-- the old two-value ASSERT would silently survive on prod and reject every roll.
+-- Re-defining is idempotent and does NOT re-validate existing rows (only writes
+-- validate), so the backfill hazard below is untouched by it.
+DEFINE FIELD OVERWRITE kind    ON message TYPE string DEFAULT 'user'
+    ASSERT $value IN ['user', 'system', 'roll'];
+-- Message effect (M4/T5): an optional roleplay delivery flourish picked at
+-- send time — 'whisper' (blurred until tapped), 'shout' (shake + warm tint),
+-- 'spell' (glow + sparks) — or NONE for an ordinary message. Purely cosmetic
+-- (rendering only; does not gate any action). `option<>` ⇒ NONE is a valid
+-- value on legacy rows, so NO backfill is needed and the first-backfill block
+-- below stays untouched (the SCHEMAFULL NONE-coercion hazard does not apply).
+-- The ASSERT admits NONE explicitly, then restricts set members.
+DEFINE FIELD IF NOT EXISTS effect  ON message TYPE option<string>
+    ASSERT $value = NONE OR $value IN ['whisper', 'shout', 'spell'];
 -- Reply-to (L-3): the message this one is replying to (Discord-style quote),
 -- or NONE for a non-reply. A live record link — the reply preview is resolved
 -- by a null-safe join at read time (MSG_PROJECTION), NOT snapshotted, and a
@@ -189,6 +307,14 @@ DEFINE FIELD IF NOT EXISTS reply_to ON message TYPE option<record<message>>;
 -- link is a type annotation only (not referentially enforced); a since-deleted
 -- pinged account simply dangles, and the read-path `is_pinged` check tolerates it.
 DEFINE FIELD IF NOT EXISTS pinged_users ON message TYPE array<record<account>> DEFAULT [];
+-- Guest-cameo badge (M7/P2): true iff the author posted as a GUEST (a channel_guest,
+-- not a guild_member) in this channel — snapshotted at send time (spec §10: "guest
+-- badges at send-time"), so the badge survives the cameo being revoked/expired and
+-- the channel_guest row deleted. A non-option bool added to the POPULATED `message`
+-- table → legacy rows hold NONE and would crash the row-revalidating backfill below;
+-- it is materialised in the SAME first backfill statement (see DATA-SAFETY), NOT a
+-- separate one — exactly the `kind`/`attachments`/`pinged_users` discipline.
+DEFINE FIELD IF NOT EXISTS guest_cameo ON message TYPE bool DEFAULT false;
 -- Soft-delete (#22): NONE = live (purge window: message 1h). See guild.deleted_at.
 DEFINE FIELD IF NOT EXISTS deleted_at ON message TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS sent_at ON message TYPE datetime DEFAULT time::now();
@@ -219,11 +345,15 @@ DEFINE INDEX IF NOT EXISTS message_channel_sent ON message FIELDS channel, sent_
 -- of the three is still NONE. A separate preceding `kind` backfill can't work — it
 -- would hit the still-NONE arrays. `kind ?? 'user'` only fills a NONE (legacy) row
 -- and preserves an already-set 'user'/'system'.
+-- `guest_cameo` (M7/P2, non-option bool) folds in for the identical reason: a
+-- separate UPDATE would revalidate the row and trip the still-NONE arrays/kind.
+-- `?? false` fills only a NONE (legacy) row and preserves an already-set value.
 UPDATE message
     SET attachments = attachments ?? [],
         pinged_users = pinged_users ?? [],
-        kind = kind ?? 'user'
-    WHERE attachments = NONE OR pinged_users = NONE OR kind = NONE;
+        kind = kind ?? 'user',
+        guest_cameo = guest_cameo ?? false
+    WHERE attachments = NONE OR pinged_users = NONE OR kind = NONE OR guest_cameo = NONE;
 
 UPDATE message SET
     persona_name = persona.name,

@@ -15,6 +15,11 @@ use crate::server::state::AppState;
 
 use super::{channel_access, AccessOutcome, MAX_ATTACHMENTS, MAX_BODY_CHARS};
 
+/// The full set of valid message effects (M4/T5) — must match the
+/// `message.effect` ASSERT in `storage/schema.surql`. Validated HERE so an
+/// unknown value is a clean 400 (the DB ASSERT alone would surface as a 500).
+const MESSAGE_EFFECTS: [&str; 3] = ["whisper", "shout", "spell"];
+
 // ---------------------------------------------------------------------------
 // POST /channels/{cid}/messages
 // ---------------------------------------------------------------------------
@@ -56,6 +61,58 @@ pub async fn post_message(
     if attachments.len() > MAX_ATTACHMENTS {
         return error_response(StatusCode::BAD_REQUEST, "too many attachments");
     }
+
+    // Delivery effect (M4/T5): absent / empty-after-trim means "no effect"
+    // (mirroring `reply_to_id`); anything else must be in the known set, else
+    // 400 — server-validated like every other body field, never trusted to
+    // the DB ASSERT. Pure body validation (no DB), so it may precede the gate.
+    let effect = match req.effect.as_deref().map(str::trim) {
+        Some(e) if !e.is_empty() => {
+            if MESSAGE_EFFECTS.contains(&e) {
+                Some(e.to_string())
+            } else {
+                return error_response(StatusCode::BAD_REQUEST, "unknown message effect");
+            }
+        }
+        _ => None,
+    };
+
+    // Membership gate BEFORE any DB-probing validation (review M-26): the
+    // privacy-404 invariant requires a non-member to see the identical 404 no
+    // matter what they probe with. `reply_target_valid` / `all_media_exist`
+    // answer with a 400 that depends on whether the probed row exists, so
+    // running either first hands a non-member a 400-vs-404 existence oracle on
+    // (cid, rid) / media ids. Only pure body checks may precede this gate.
+    let access = match channel_access(&state, &cid, &account.0).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!(error = %e, "channel_access failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
+    let (stored_persona, via_guest) = match access {
+        AccessOutcome::Ok(ctx) => {
+            // Text channels and (M7/P1) DM threads accept messages; lorebook
+            // channels do not.
+            if ctx.kind != "text" && ctx.kind != "dm" {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "cannot post messages to a non-text channel",
+                );
+            }
+            // M7/P1 (review M2): a locked DM (the two friends unfriended) is
+            // read-only — the history stays readable, but new posts are rejected.
+            if ctx.locked {
+                return error_response(StatusCode::FORBIDDEN, "this conversation is locked");
+            }
+            // M7/P2: snapshot the guest-cameo badge when the author posts as a guest.
+            (ctx.active_persona, ctx.via_guest)
+        }
+        AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
+            return error_response(StatusCode::NOT_FOUND, "channel not found");
+        }
+    };
+
     // Reject unknown media ids so a row never stores a dangling attachment.
     match all_media_exist(&state, &attachments).await {
         Ok(true) => {}
@@ -80,53 +137,20 @@ pub async fn post_message(
         },
         _ => None,
     };
-
-    let access = match channel_access(&state, &cid, &account.0).await {
-        Ok(a) => a,
+    let active_persona = match resolve_send_persona(
+        &state,
+        &account.0,
+        req.persona_id.as_deref(),
+        stored_persona.as_deref(),
+    )
+    .await
+    {
+        Ok(p) => p,
         Err(e) => {
-            tracing::error!(error = %e, "channel_access failed");
+            tracing::error!(error = %e, "can_edit_persona failed");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    let stored_persona = match access {
-        AccessOutcome::Ok(ctx) => {
-            if ctx.kind != "text" {
-                return error_response(
-                    StatusCode::BAD_REQUEST,
-                    "cannot post messages to a non-text channel",
-                );
-            }
-            ctx.active_persona
-        }
-        AccessOutcome::ChannelNotFound | AccessOutcome::NotMember => {
-            return error_response(StatusCode::NOT_FOUND, "channel not found");
-        }
-    };
-    // Attribution is decided at send time and re-derived server-side on EVERY
-    // send. The client may SUGGEST persona_id; we honor it only if the caller may
-    // still edit it, else fall back to the stored per-channel wear — but that
-    // stored `channel_active_persona` value is ALSO re-checked here, never
-    // trusted: a revoked editor or a deleted persona must not keep stamping via a
-    // stale wear row (the row is cleared on revoke/leave/delete, and this re-gate
-    // is the defense-in-depth that holds even if a cleanup path is ever missed).
-    // Final fallback: speak as the bare account.
-    let mut active_persona: Option<String> = None;
-    for candidate in [req.persona_id.as_deref(), stored_persona.as_deref()]
-        .into_iter()
-        .flatten()
-    {
-        match crate::server::permissions::can_edit_persona(&state, candidate, &account.0).await {
-            Ok(true) => {
-                active_persona = Some(candidate.to_string());
-                break;
-            }
-            Ok(false) => continue,
-            Err(e) => {
-                tracing::error!(error = %e, "can_edit_persona failed");
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
-            }
-        }
-    }
 
     // Ping-mentions (L-4): parse `@username` runs out of the body and resolve
     // them — case-insensitively — to account ids of members of THIS channel's
@@ -149,16 +173,26 @@ pub async fn post_message(
         &account.0,
         active_persona.as_deref(),
         &body,
+        "user",
         &attachments,
         reply_to.as_deref(),
         &pinged_users,
+        effect.as_deref(),
+        via_guest,
     )
     .await
     {
         Ok(id) => {
+            // The composed text just landed as a real message: drop the
+            // author's Ghost Quill draft so no ghost row lingers beside it
+            // for up to the TTL (M4/T7 clear-on-send).
+            super::typing::clear_draft(&state, &cid, &account.0);
             // Fire-and-forget Web Push to the guild's other members (#30). Never
             // blocks or fails the send; a no-op when push is disabled.
             crate::server::push::notify_new_message(state.clone(), id.clone(), account.0.clone());
+            state.emit(crate::protocol::SyncEvent::MessageCreated {
+                channel_id: cid.clone(),
+            });
             (StatusCode::CREATED, Json(SendMessageResponse { id })).into_response()
         }
         Err(e) => {
@@ -168,22 +202,53 @@ pub async fn post_message(
     }
 }
 
+/// Attribution is decided at send time and re-derived server-side on EVERY
+/// send. The client may SUGGEST a persona; we honor it only if the caller may
+/// still edit it, else fall back to the stored per-channel wear — but that
+/// stored `channel_active_persona` value is ALSO re-checked here, never
+/// trusted: a revoked editor or a deleted persona must not keep stamping via a
+/// stale wear row (the row is cleared on revoke/leave/delete, and this re-gate
+/// is the defense-in-depth that holds even if a cleanup path is ever missed).
+/// Final fallback: speak as the bare account (`None`). Shared by
+/// [`post_message`] and the Fate Engine's `roll_message` so the
+/// `can_edit_persona` double-check can never diverge between the two senders.
+pub(super) async fn resolve_send_persona(
+    state: &AppState,
+    account: &str,
+    suggested: Option<&str>,
+    stored: Option<&str>,
+) -> surrealdb::Result<Option<String>> {
+    for candidate in [suggested, stored].into_iter().flatten() {
+        if crate::server::permissions::can_edit_persona(state, candidate, account).await? {
+            return Ok(Some(candidate.to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// Persist one message row, snapshotting the worn persona's identity onto it.
+/// `kind` is a compile-time literal from the callers (`"user"` here, `"roll"`
+/// in `rolling.rs`) — bound as a parameter regardless, never spliced. Shared
+/// so a roll rides the exact same persist + snapshot path as a normal send.
 #[allow(clippy::too_many_arguments)]
-async fn persist_message(
+pub(super) async fn persist_message(
     state: &AppState,
     cid: &str,
     author: &str,
     persona: Option<&str>,
     body: &str,
+    kind: &str,
     attachments: &[String],
     reply_to: Option<&str>,
     pinged_users: &[String],
+    effect: Option<&str>,
+    guest_cameo: bool,
 ) -> surrealdb::Result<String> {
     // `persona` is optional; only set the field when the caller is wearing
-    // one, so a personaless author leaves it NONE. `reply_to` is likewise only
-    // set when this is a reply, so a non-reply leaves it NONE. Both are spliced
-    // as static column fragments (no user values in the SQL text); the values
-    // ride in via `.bind()`.
+    // one, so a personaless author leaves it NONE. `reply_to` and `effect` are
+    // likewise only set when present, so an ordinary message leaves them NONE.
+    // All are spliced as static column fragments (no user values in the SQL
+    // text); the values ride in via `.bind()`.
     let persona_set = if persona.is_some() {
         // Snapshot the worn persona's name/description onto the row so the
         // message survives the persona being renamed or deleted later.
@@ -202,6 +267,24 @@ async fn persist_message(
     } else {
         ""
     };
+    // Already validated against MESSAGE_EFFECTS by the caller; the value still
+    // rides in via `.bind()`, never the SQL text.
+    let effect_set = if effect.is_some() {
+        ",
+            effect = $effect"
+    } else {
+        ""
+    };
+    // M7/P2: snapshot the guest-cameo badge at send time (spec §10). Only set when
+    // the author posts AS a guest (a channel_guest, not a guild_member — computed
+    // by channel_access as `via_guest`); a normal send leaves the schema DEFAULT
+    // false. A static literal fragment, no bound value needed.
+    let guest_set = if guest_cameo {
+        ",
+            guest_cameo = true"
+    } else {
+        ""
+    };
     // `pinged_users` is always set (empty array when nobody is mentioned); the
     // resolved account ids ride in as bound `RecordId`s, never spliced into SQL.
     let sql = format!(
@@ -209,8 +292,9 @@ async fn persist_message(
             channel = type::record('channel', $cid),
             author  = type::record('account', $author),
             body    = $body,
+            kind    = $kind,
             attachments = $attachments,
-            pinged_users = $pinged_users{persona_set}{reply_set}
+            pinged_users = $pinged_users{persona_set}{reply_set}{effect_set}{guest_set}
             RETURN meta::id(id) AS id_key;"
     );
     let pinged_records: Vec<surrealdb::types::RecordId> = pinged_users
@@ -223,6 +307,7 @@ async fn persist_message(
         .bind(("cid", cid.to_string()))
         .bind(("author", author.to_string()))
         .bind(("body", body.to_string()))
+        .bind(("kind", kind.to_string()))
         .bind(("attachments", attachments.to_vec()))
         .bind(("pinged_users", pinged_records));
     if let Some(persona) = persona {
@@ -230,6 +315,9 @@ async fn persist_message(
     }
     if let Some(reply_to) = reply_to {
         q = q.bind(("reply_to", reply_to.to_string()));
+    }
+    if let Some(effect) = effect {
+        q = q.bind(("effect", effect.to_string()));
     }
     let mut resp = q.await?.check()?;
     let row: Option<IdRow> = resp.take(0)?;
@@ -259,7 +347,8 @@ async fn reply_target_valid(state: &AppState, cid: &str, rid: &str) -> surrealdb
 
 /// Resolve `@username` mention names (already lowercased by
 /// [`crate::markup::collect_mentions`]) to the account-id keys of accounts who
-/// are MEMBERS of the channel `cid`'s guild (L-4). Case-insensitive: matches on
+/// are MEMBERS of the channel `cid` — guild members, or (M7/P1) DM-thread
+/// members for a `kind='dm'` channel (L-4). Case-insensitive: matches on
 /// `account.username_ci` (the lowercased column registration maintains). Empty
 /// input → empty output. Only resolved members are returned — an `@name` that
 /// isn't a member of this guild (or isn't a real account) is silently dropped,
@@ -277,32 +366,53 @@ async fn resolve_mentions(
     if names.is_empty() {
         return Ok(Vec::new());
     }
+    // M7/P1: mentions resolve against the channel's membership table — guild
+    // members for a guild channel, dm_member for a DM thread (where $gid resolves
+    // to NONE, so the guild_member arm is empty and the dm_member arm carries it).
+    // M7/P2: a guild text channel ALSO resolves its active (unexpired) guests
+    // (channel_guest), so guests ↔ members can @ping each other in a cameo. A
+    // channel is exactly one kind; the three arms are unioned (a DM has no guests).
     let mut resp = state
         .db
         .query(
-            "LET $gid = (SELECT VALUE meta::id(guild) FROM ONLY type::record('channel', $cid)
-                WHERE deleted_at = NONE AND guild.deleted_at = NONE);
+            "LET $chan = type::record('channel', $cid);
+             LET $gid = (SELECT VALUE (IF guild != NONE THEN meta::id(guild) ELSE NONE END)
+                FROM ONLY $chan
+                WHERE deleted_at = NONE AND (guild = NONE OR guild.deleted_at = NONE));
              SELECT VALUE meta::id(account) FROM guild_member
                 WHERE meta::id(guild) = $gid
+                  AND account.username_ci IN $names;
+             SELECT VALUE meta::id(account) FROM dm_member
+                WHERE channel = $chan
+                  AND account.username_ci IN $names;
+             SELECT VALUE meta::id(account) FROM channel_guest
+                WHERE channel = $chan
+                  AND (expires_at = NONE OR expires_at > time::now())
                   AND account.username_ci IN $names;",
         )
         .bind(("cid", cid.to_string()))
         .bind(("names", names.to_vec()))
         .await?
         .check()?;
-    // Statement 0 is the LET (no materialized rows); the SELECT VALUE is take(1).
-    let ids: Vec<String> = resp.take(1)?;
+    // Statements 0 and 1 are the LETs (no materialized rows); the guild SELECT is
+    // take(2), the DM SELECT take(3), the guest SELECT take(4).
+    let mut ids: Vec<String> = resp.take(2)?;
+    let dm_ids: Vec<String> = resp.take(3)?;
+    let guest_ids: Vec<String> = resp.take(4)?;
+    ids.extend(dm_ids);
+    ids.extend(guest_ids);
     Ok(ids)
 }
 
 /// True when every id in `ids` names an existing `media_blob` (empty → true).
 /// Stops a message from persisting a dangling attachment reference.
 ///
-/// W5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
+/// M5/H4: binds the ids as `RecordId`s and reads them via `FROM $records` so
 /// SurrealDB plans a per-record `RecordIdScan` (Union of PK lookups, gated
 /// by `id IS NOT NONE` to drop missing rows) instead of a full `TableScan`
-/// — which was the actual plan for `WHERE meta::id(id) IN $ids` on
-/// 3.1.0-beta.3 (verified via `EXPLAIN`).
+/// — which was the actual plan for `WHERE meta::id(id) IN $ids` (verified
+/// via `EXPLAIN` on the SurrealDB 3.1.3 server binary; same plan shape as
+/// the `MSG_PROJECTION` attachment_mimes arm in `reading.rs`).
 async fn all_media_exist(state: &AppState, ids: &[String]) -> surrealdb::Result<bool> {
     if ids.is_empty() {
         return Ok(true);

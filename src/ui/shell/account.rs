@@ -6,7 +6,8 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
-use crate::ui::modal::Modal;
+use crate::ui::icons::IconClose;
+use crate::ui::modal::{Modal, ModalHead};
 use crate::ui::AuthCtx;
 
 // Global JS helper defined in `public/register-sw.js`: forces a service-worker
@@ -29,18 +30,10 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     let new_pw = RwSignal::new(String::new());
     let confirm = RwSignal::new(String::new());
 
-    // ---- preferences section: message-delete confirmation toggle ----
-    // Seeded from localStorage (default ON); each change persists immediately.
-    let confirm_delete_msg = RwSignal::new(act::confirm_delete_message_enabled());
-
     // ---- feedback section: local form state ----
     let feedback_open = RwSignal::new(false);
     let fb_kind = RwSignal::new("other".to_string());
     let fb_body = RwSignal::new(String::new());
-
-    // ---- security-question section (self-service reset): local form state ----
-    let sq_question = RwSignal::new(String::new());
-    let sq_answer = RwSignal::new(String::new());
 
     // ---- admin: reset a user's password (only shown inside the admin gate) ----
     let ar_username = RwSignal::new(String::new());
@@ -50,6 +43,13 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // Gated on the caller's `is_admin` flag (from /auth/me); the server re-checks.
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
     let is_admin = move || auth.user.get().map(|u| u.is_admin).unwrap_or(false);
+    // ---- profile section (M6): display_name input seeded from the live AuthCtx ----
+    let dn = RwSignal::new(
+        auth.user
+            .get_untracked()
+            .map(|u| u.display_name)
+            .unwrap_or_default(),
+    );
     let broadcast_body = RwSignal::new(String::new());
     // `Some`/`true` shows the irreversible-broadcast confirm dialog.
     let pending_broadcast = RwSignal::new(false);
@@ -59,7 +59,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // Loaded when the modal opens. ----
     let inbox = RwSignal::new(None::<Vec<crate::protocol::FeedbackItem>>);
     // Pending feedback-archive id; `Some(id)` shows the in-modal confirm
-    // dialog (replaces the W3-era `window.confirm` blocking call, which was
+    // dialog (replaces the M3-era `window.confirm` blocking call, which was
     // inconsistent with the rest of the app's PendingDelete pattern).
     let pending_archive = RwSignal::new(None::<String>);
     Effect::new(move |_| {
@@ -92,20 +92,6 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         current.set(String::new());
         new_pw.set(String::new());
         confirm.set(String::new());
-    };
-
-    let save_security_question = move |_| {
-        let q = sq_question.get_untracked();
-        let a = sq_answer.get_untracked();
-        if q.trim().is_empty() || a.trim().is_empty() {
-            s.composer
-                .status
-                .set("question and answer are required".to_string());
-            return;
-        }
-        act::set_security_question(s, q, a);
-        // Keep the question visible; clear only the answer.
-        sq_answer.set(String::new());
     };
 
     let send_feedback = move |_| {
@@ -141,12 +127,76 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     view! {
         // Backdrop click closes; the Modal wrapper handles stop_propagation
         // on the inner panel so inner clicks don't bubble up and close it.
-        <Modal class="account-modal" close=move || open.set(false)>
-                <header class="account-head">
-                    <h2>"Account"</h2>
-                    <button class="row-edit" title="Close"
-                        on:click=move |_| open.set(false)>"✕"</button>
-                </header>
+        // `swipe_close` opts this dialog into the Orbit full-screen
+        // slide-over's swipe-right-to-close gesture (a-orbit.html:979-997). It's
+        // a no-op outside `.app.sk-orbit` (the engine's `enabled` flag gates the
+        // pointer handlers) and the slide-over LOOK is `.app.sk-orbit`-scoped
+        // SCSS in `_modal.scss` — so the desktop/deck/hud modal is unchanged.
+        // The X close button reads as the prototype's back-arrow disc (#soClose)
+        // under orbit purely via SCSS; the "swipe → close" grip is drawn there too.
+        <Modal class="account-modal" swipe_close=true
+            close=move || { open.set(false); act::show_orbit_map(s); }>
+                <ModalHead title="Account" on_close=move || { open.set(false); act::show_orbit_map(s); }/>
+
+                // ---- Profile (M6): display name + account avatar ----
+                <section class="account-section">
+                    <h3>"Profile"</h3>
+                    <div class="server-icon-row">
+                        <span class="server-icon-preview" aria-hidden="true">
+                            {move || match auth.user.get().and_then(|u| u.avatar_id) {
+                                Some(id) => view! {
+                                    <img src=format!("/media/{id}?w=128") alt=""/>
+                                }
+                                .into_any(),
+                                None => {
+                                    let name = auth
+                                        .user
+                                        .get()
+                                        .map(|u| {
+                                            if u.display_name.is_empty() {
+                                                u.username
+                                            } else {
+                                                u.display_name
+                                            }
+                                        })
+                                        .unwrap_or_default();
+                                    view! {
+                                        <span class="server-icon-mono">
+                                            {crate::ui::avatar::monogram(&name, '?')}
+                                        </span>
+                                    }
+                                    .into_any()
+                                }
+                            }}
+                        </span>
+                        <label class="server-icon-upload">
+                            <span>"Upload avatar"</span>
+                            <input type="file" accept="image/*"
+                                on:change=move |_ev| {
+                                    #[cfg(feature = "hydrate")]
+                                    {
+                                        use leptos::wasm_bindgen::JsCast;
+                                        if let Some(input) = _ev.target().and_then(|t| {
+                                            t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
+                                        }) {
+                                            if let Some(file) =
+                                                input.files().and_then(|fl| fl.get(0))
+                                            {
+                                                act::set_account_avatar(s, auth, file);
+                                            }
+                                        }
+                                    }
+                                }/>
+                        </label>
+                    </div>
+                    <input type="text" maxlength="32" placeholder="display name"
+                        prop:value=move || dn.get()
+                        on:input=move |ev| dn.set(event_target_value(&ev))/>
+                    <button class="account-save"
+                        on:click=move |_| act::save_display_name(s, auth, dn.get_untracked())>
+                        "Save profile"
+                    </button>
+                </section>
 
                 // ---- Change password ----
                 <section class="account-section">
@@ -163,35 +213,12 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                     <button class="account-save" on:click=save>"Save"</button>
                 </section>
 
-                // ---- Security question (lets you reset your own password) ----
-                <section class="account-section">
-                    <h3>"Security question"</h3>
-                    <p class="muted">
-                        "Set a question and answer so you can reset your own password if you forget it."
-                    </p>
-                    <input type="text" placeholder="security question (e.g. first pet's name?)"
-                        prop:value=move || sq_question.get()
-                        on:input=move |ev| sq_question.set(event_target_value(&ev))/>
-                    <input type="password" placeholder="answer"
-                        prop:value=move || sq_answer.get()
-                        on:input=move |ev| sq_answer.set(event_target_value(&ev))/>
-                    <button class="account-save" on:click=save_security_question>
-                        "Save security question"
-                    </button>
-                </section>
-
                 // ---- Preferences ----
+                // (The old "Ask before deleting a message" toggle is gone:
+                // message deletion is instant with a 6s undo toast now — UX
+                // evolution #11 — so there is no confirm modal to gate.)
                 <section class="account-section">
                     <h3>"Preferences"</h3>
-                    <label class="pref-row">
-                        <input type="checkbox" prop:checked=move || confirm_delete_msg.get()
-                            on:change=move |ev| {
-                                let on = event_target_checked(&ev);
-                                confirm_delete_msg.set(on);
-                                act::set_confirm_delete_message(on);
-                            }/>
-                        <span>"Ask before deleting a message"</span>
-                    </label>
                     <label class="pref-row">
                         <input type="checkbox" prop:checked=move || s.prefs.dialogue_style.get()
                             on:change=move |ev| {
@@ -201,6 +228,35 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                             }/>
                         <span>"Style roleplay dialogue"</span>
                     </label>
+                    // Ghost Quill (M4/T7): opt-in BOTH ways — this toggle
+                    // governs sharing your own in-progress text AND seeing
+                    // others'. Default OFF; the label spells out the privacy
+                    // trade so opting in is informed.
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.prefs.ghost_quill.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.prefs.ghost_quill.set(on);
+                                act::set_ghost_quill(on);
+                            }/>
+                        <span>"Ghost Quill — share your in-progress drafts & see others' (live co-writing)"</span>
+                    </label>
+                    // M5/P0 #19 Visual Haptics: the visual feedback is always
+                    // primary; this opt-in mirrors it to navigator.vibrate where
+                    // supported (Android — iOS PWAs have no vibrate). Default OFF.
+                    <label class="pref-row">
+                        <input type="checkbox" prop:checked=move || s.prefs.haptic_vibrate.get()
+                            on:change=move |ev| {
+                                let on = event_target_checked(&ev);
+                                s.prefs.haptic_vibrate.set(on);
+                                act::set_haptic_vibrate(on);
+                            }/>
+                        <span>"Vibration feedback (where supported)"</span>
+                    </label>
+                    // v27 (M5/P2): the structural-skeleton picker is retired —
+                    // Orbit is the sole shell for the release (deck/hud are
+                    // post-release). This section returns when a second skeleton
+                    // ships; the prefs.rs persistence surface is kept for it.
                     <button class="account-save" on:click=check_for_update>
                         "Check for updates"
                     </button>
@@ -337,7 +393,7 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                                         <button class="fb-del" title="Delete feedback"
                                                             on:click=move |_| {
                                                                 pending_archive.set(Some(id.clone()));
-                                                            }>"✕"</button>
+                                                            }><IconClose/></button>
                                                     </div>
                                                     <p class="fb-body">{body}</p>
                                                     {context.map(|c| view! {
@@ -352,6 +408,21 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         </section>
                     }
                 })}
+
+                // ---- Session ----
+                // The deliberate "Log out" home (mobile finding #50a). It used
+                // to sit in the topbar, one fat-finger from the ⚙/🔔 cluster
+                // in a phone's worst reach zone; bottom-of-settings is the
+                // canonical sign-out spot, and the section rule above keeps it
+                // clear of every other control. Full-width ≥44px target
+                // (`.account-logout`, _modal.scss).
+                <section class="account-section">
+                    <h3>"Session"</h3>
+                    <button class="danger account-logout"
+                        on:click=move |_| act::logout(s, auth)>
+                        "Log out"
+                    </button>
+                </section>
 
                 <p class="account-status">{move || s.composer.status.get()}</p>
 

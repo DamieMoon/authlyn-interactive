@@ -20,6 +20,13 @@ async fn register_sets_cookie_and_me_resolves_it() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["username"], "Alice");
     assert!(body["account_id"].is_string());
+    // M6/P2: /auth/me carries the live profile — display_name (empty until set)
+    // and avatar_id (null until an avatar is set).
+    assert_eq!(body["display_name"], "");
+    assert!(
+        body["avatar_id"].is_null(),
+        "no avatar set → avatar_id null"
+    );
 }
 
 #[cfg(feature = "ssr")]
@@ -27,6 +34,81 @@ async fn register_sets_cookie_and_me_resolves_it() {
 async fn me_without_cookie_is_401() {
     let a = common::arena().await;
     let (status, _, _) = common::send(&a.router, Method::GET, "/auth/me", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn patch_account_updates_display_name() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Alice", "hunter2hunter2").await;
+
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        "/account",
+        Some(&cookie),
+        Some(&json!({ "display_name": "  Alice the Bold  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // /auth/me reflects the trimmed display name.
+    let (_, _, body) = common::send(&a.router, Method::GET, "/auth/me", Some(&cookie), None).await;
+    assert_eq!(body["display_name"], "Alice the Bold");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn patch_account_rejects_bad_display_name() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Alice", "hunter2hunter2").await;
+
+    for bad in ["".to_string(), "   ".to_string(), "x".repeat(33)] {
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::PATCH,
+            "/account",
+            Some(&cookie),
+            Some(&json!({ "display_name": &bad })),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "display_name {bad:?} must be rejected"
+        );
+    }
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn patch_account_unknown_avatar_is_404() {
+    let a = common::arena().await;
+    let cookie = common::register_account(&a.router, "Alice", "hunter2hunter2").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        "/account",
+        Some(&cookie),
+        Some(&json!({ "avatar": "deadbeefdeadbeefdeadbeefdeadbeef" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "unknown avatar media 404s");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn patch_account_without_cookie_is_401() {
+    let a = common::arena().await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        "/account",
+        None,
+        Some(&json!({ "display_name": "Nope" })),
+    )
+    .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 

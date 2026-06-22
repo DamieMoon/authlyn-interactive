@@ -1,16 +1,21 @@
-// Self-hosted webfonts + body typography for the Grimoire palette.
+// Self-hosted webfonts — Duo typography (M2, Void Station).
 //
-// Two SIL OFL families:
-//   - Crimson Pro (body) — humanist serif, 400 + 600, Latin subset
-//   - EB Garamond (display) — lapidary serif, 400 + 600, Latin subset
+// Two SIL OFL families from the fontsource jsdelivr mirror:
+//   - Space Grotesk (UI chrome, 400 + 500 + 600 + 700, Latin subset) — body
+//     default via --font-ui in _tokens.scss (orbit declares 700 for the core
+//     name / node hashes / dock buttons and 500 for node labels)
+//   - Crimson Pro (prose, 400 + 600, Latin subset) — message text /
+//     composer / lorebook / persona descriptions via --font-prose
 //
-// Subset woff2 files in public/fonts/ are ~18–24 KB each (≈82 KB total,
-// gzip-immutable cached). Fetched from the fontsource jsdelivr mirror at
-// build time of the W6/C5 commit; both fonts are SIL OFL so re-hosting is
-// allowed.
+// Subset woff2 files in public/fonts/ are ~13–19 KB each (≈64 KB total).
+// Caching is the service worker's job, not HTTP headers: the static-file
+// fallback sends no Cache-Control, and sw.js serves /fonts/ cache-first
+// from its versioned runtime cache, busted per release via CACHE_VERSION
+// (see public/sw.js). Re-hosting is allowed under the SIL OFL.
 //
-// `font-display: swap` so the first paint uses the system serif fallback
-// chain (Georgia / Cambria) and re-renders when the woff2 arrives — no FOIT.
+// `font-display: swap` so the first paint uses the system fallback chain
+// (sans for chrome, Georgia/Cambria for prose) and re-renders when the
+// woff2 arrives — no FOIT.
 
 @font-face {
 	font-family: "Crimson Pro";
@@ -29,17 +34,71 @@
 }
 
 @font-face {
-	font-family: "EB Garamond";
+	font-family: "Space Grotesk";
 	font-style: normal;
 	font-weight: 400;
 	font-display: swap;
-	src: url("/fonts/eb-garamond-400.woff2") format("woff2");
+	src: url("/fonts/space-grotesk-400.woff2") format("woff2");
 }
 
 @font-face {
-	font-family: "EB Garamond";
+	font-family: "Space Grotesk";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("/fonts/space-grotesk-500.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Space Grotesk";
 	font-style: normal;
 	font-weight: 600;
 	font-display: swap;
-	src: url("/fonts/eb-garamond-600.woff2") format("woff2");
+	src: url("/fonts/space-grotesk-600.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Space Grotesk";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/space-grotesk-700.woff2") format("woff2");
+}
+
+// JetBrains Mono (orbit chrome / monospace — timestamps, tags) via --font-mono
+// in _tokens.scss; Latin subset, 400 + 700. SIL OFL, re-hosted from the same
+// fontsource jsdelivr mirror as the families above.
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/jetbrains-mono-700.woff2") format("woff2");
+}
+
+// Crimson Pro ITALIC (roleplay action / emphasis prose) — the italic faces
+// paired with the normal Crimson Pro above; without them italics fall back to a
+// faux-oblique synthesis. Latin subset, 400 + 600. SIL OFL, same mirror.
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: italic;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-italic-400.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Crimson Pro";
+	font-style: italic;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/fonts/crimson-pro-italic-600.woff2") format("woff2");
 }

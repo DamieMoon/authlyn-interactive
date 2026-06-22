@@ -1,12 +1,12 @@
 [package]
 name = "authlyn-interactive"
-# CalVer: YYYY.M.D. Bump the date on every release; codename in [package.metadata.release].
-version = "2026.6.1"
+# SemVer from v27 (retired CalVer YYYY.M.D at the v27 release; see the design spec). codename in [package.metadata.release].
+version = "27.0.0"
 edition = "2021"
 
 [package.metadata.release]
 # Suggested codename for this build. Pick a fresh two-word name manually and set it here.
-codename = "saffron-tide"
+codename = "mendicant-bias"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -18,13 +18,6 @@ name = "nova-mcp"
 path = "src/bin/nova-mcp.rs"
 required-features = ["nova"]
 
-# Native desktop/Android client (Freya). Only built with the `freya` feature,
-# so the default build / cargo-leptos never compiles it (mirrors nova-mcp).
-[[bin]]
-name = "authlyn-native"
-path = "src/bin/authlyn-native.rs"
-required-features = ["freya"]
-
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
@@ -32,7 +25,13 @@ axum = { version = "0.8.0", optional = true, features = ["multipart"] }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 leptos_meta = { version = "0.8.0" }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+# Async runtime for the axum server (ssr; nova adds its own features
+# below). `sync` enables `tokio::sync::broadcast` — the process-wide M1
+# realtime event hub on `AppState` that fans mutation events out to SSE.
+# `time` backs the SSE quiet-stream session re-check (`tokio::time::timeout`
+# around the bus `recv()` in `server/events.rs`, review M-05 follow-up) — do
+# not rely on axum enabling it transitively.
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
 # Browser `Date` for local-timezone timestamp formatting in the channel view.
 # Hydrate-only, same wiring as wasm-bindgen above.
@@ -42,8 +41,22 @@ js-sys = { version = "0.3", optional = true }
 # `window.matchMedia("(pointer: coarse)")`. The XmlHttpRequest* + ProgressEvent
 # interfaces back the progress-reporting media upload (F-8): gloo-net's Fetch
 # has no upload-progress hook, so `api::upload_media` drives a raw XHR and
-# subscribes to `upload.onprogress`. Hydrate-only; feature-unified.
-web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "Element", "NodeList", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event"] }
+# subscribes to `upload.onprogress`. EventSource + MessageEvent back the M1
+# SSE sync consumer (`GET /events` stream + its onmessage payloads). DomRect
+# backs the radial menu's topbar-bottom measurement (M4/T4 audit,
+# `getBoundingClientRect` in shell/channel/radial.rs) — no leptos-family
+# crate enables it, so it must be listed here. ResizeObserver backs the
+# measured `--composer-h` placement var (UX evolution #11): the composer
+# band's height mirrored onto <html> so the toast capsule and channel floats
+# anchor to it (shell/channel/mod.rs). Navigator + AddEventListenerOptions back
+# the M5/P0 #19 Visual Haptics helper (shell/act/haptics.rs): `vibrate_with_duration`
+# is on `Navigator`, and the once-only animationend cleanup uses
+# `AddEventListenerOptions::set_once`; AddEventListenerOptions is also enabled by
+# tachys (feature-unified) but listed here so the binding never depends on a
+# transitive crate keeping it. Location backs the dev hot-reload listener
+# (`shell/act/sync.rs`): the test-deck auto-refresh calls `window.location().reload()`
+# when a `event: reload` SSE frame lands after a deploy. Hydrate-only; feature-unified.
+web-sys = { version = "0.3", optional = true, features = ["MediaQueryList", "Notification", "NotificationPermission", "FormData", "File", "FileList", "HtmlInputElement", "ClipboardEvent", "DataTransfer", "DataTransferItem", "DataTransferItemList", "DomRect", "Element", "NodeList", "ResizeObserver", "XmlHttpRequest", "XmlHttpRequestUpload", "XmlHttpRequestResponseType", "ProgressEvent", "Event", "EventSource", "MessageEvent", "Navigator", "AddEventListenerOptions", "Location"] }
 
 # Browser-only client helpers (hydrate feature). gloo-net wraps the Fetch API
 # for the REST calls in `src/client/api.rs`; gloo-storage persists the device
@@ -56,12 +69,13 @@ gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 # Await browser Promises (serviceWorker.ready, pushManager.subscribe) when
 # wiring Web Push from the client. Hydrate-only; wasm-only.
 wasm-bindgen-futures = { version = "0.4", optional = true }
-# `futures-util::future::join_all` (hydrate-only). Already in the wasm graph
-# transitively via `wasm-bindgen-futures` and `gloo-net`, so exposing it
-# explicitly adds no new crates. Used by `shell/wardrobe.rs` (W7/B3) to
-# correlate parallel `upload_media` results with input order before posting
-# the persona-gallery batch endpoint. `default-features = false` to stay off
-# the std-formatted prelude bloat — we only use `future::join_all`.
+# Futures combinators, serving BOTH graphs. Hydrate: `future::join_all` in
+# `shell/wardrobe.rs` (M7/B3) correlates parallel `upload_media` results with
+# input order before posting the persona-gallery batch endpoint (already in
+# the wasm graph transitively via `wasm-bindgen-futures` and `gloo-net`, so
+# exposing it explicitly adds no new crates). Ssr: `Stream` helpers for the
+# M1 realtime SSE `GET /events` stream. `default-features = false` to stay
+# off the std-formatted prelude bloat.
 futures-util = { version = "0.3", default-features = false, features = ["alloc", "async-await"], optional = true }
 
 # SurrealDB client (ssr-only; never compiled into the WASM bundle).
@@ -124,22 +138,10 @@ rmcp     = { version = "0.8", features = ["server", "macros", "transport-streama
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart"], optional = true }
 anyhow   = { version = "1", optional = true }
 
-# Native GUI for the desktop/Android client (the `freya` feature + the
-# `authlyn-native` bin). True no-webview, Skia-rendered, own reactive core
-# (0.4 dropped Dioxus). Pinned to the exact rc that Phase 0 de-risked — rc
-# churn is real. Native-only; never in the leptos ssr/hydrate graph.
-freya    = { version = "=0.4.0-rc.21", optional = true }
-
-# Native OS file picker for the composer's attach button (the `freya` feature).
-# `AsyncFileDialog` is driven from a Freya `spawn` task on the tokio runtime —
-# the sync dialog would block winit/Skia. 0.17 dropped the tokio/async-std
-# feature split, so default features suffice (XDG portal backend on Linux; no
-# libgtk-3 build dep). Native-only; never in the ssr/hydrate/nova graph.
-rfd      = { version = "0.17", optional = true }
 
 # `Send + Sync` shim for !Send wasm types. Already vendored transitively via
 # leptos; declared explicitly so `src/ui/modal.rs` can hold an `HtmlElement`
-# across the `Effect` / `on_cleanup` boundary (W7/D2 focus-restoration). Wasm
+# across the `Effect` / `on_cleanup` boundary (M7/D2 focus-restoration). Wasm
 # is single-threaded, the wrapper panics on cross-thread access — exactly the
 # semantics we want for the !Send web-sys types. Hydrate-only.
 send_wrapper = { version = "0.6", optional = true }
@@ -162,11 +164,19 @@ tower = { version = "0.5", features = ["util"] }
 futures = "0.3"
 
 # Build-time only: feeds the `examples/gen_emoji_json.rs` one-shot generator
-# that emits `public/emoji.json` (W7/D1). `emojis` is a static phf table; the
+# that emits `public/emoji.json` (M7/D1). `emojis` is a static phf table; the
 # generator pulls it once, writes the JSON to the repo, and the wasm hydrate
 # build then ships only the JSON asset — not the crate. Dev-deps don't enter
 # the lib graph, so the wasm bundle stays free of this ~80 KB brotli payload.
 emojis = "0.8.2"
+
+http-body-util = "0.1"   # frame-by-frame reading of SSE test responses (M1)
+
+# Generates solid-color PNG fixtures in `tests/guilds.rs` to pin the M6 guild-icon
+# server-side accent derivation (a red icon → "red", flat gray → "gray"). Dev-dep
+# only: the lib's own `image` dep is ssr-optional, so the integration-test crate
+# needs its own edge; stays out of the shipping lib/bin graph (no-extra-runtime-deps).
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
 hydrate = [
@@ -197,6 +207,7 @@ ssr = [
     "dep:time",
     "dep:image",
     "dep:web-push",
+    "dep:futures-util",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
@@ -216,21 +227,6 @@ nova = [
     "tokio/rt-multi-thread",
     "dep:tracing",
     "dep:tracing-subscriber",
-]
-# The native desktop/Android client (Freya). Standalone bin behind a disjoint
-# feature, like `nova`: it imports zero ssr/hydrate crates and reuses only the
-# always-on `protocol`/`markup` modules. Build with
-# `cargo build --bin authlyn-native --features freya`. Pulls Freya (Skia/winit)
-# + reqwest (loopback http; no TLS yet) + a tokio runtime — all native-only,
-# never in the leptos ssr/hydrate graph.
-freya = [
-    "dep:freya",
-    "dep:reqwest",
-    "dep:bytes",
-    "dep:rfd",
-    "dep:tokio",
-    "tokio/macros",
-    "tokio/rt-multi-thread",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
@@ -284,7 +280,12 @@ site-addr = "127.0.0.1:3000"
 reload-port = 3001
 
 #  The browserlist query used for optimizing the CSS.
-browserquery = "defaults"
+# Pin iOS into the query: with plain "defaults", Lightning CSS strips the
+# `-webkit-backdrop-filter` prefix from the compiled bundle, and pre-Safari-18
+# iOS (which still needs the prefix) would render the M2 glass chrome
+# unblurred — the owner tests on iOS. Keep iOS old enough in the query that
+# the prefix survives optimization.
+browserquery = "defaults, fully supports es6-module, iOS >= 15"
 
 # The environment Leptos will run in, usually either "DEV" or "PROD"
 env = "DEV"

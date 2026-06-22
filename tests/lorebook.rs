@@ -198,3 +198,69 @@ async fn empty_content_is_rejected() {
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
+
+/// The grip-drag reorder commits as absolute-position PATCHes: `act::move_lore`
+/// renumbers entries to their array index and PATCHes every row whose position
+/// drifted. This pins the wire contract that drag relies on — PATCHing
+/// `position` re-sorts the list — which create-time ordering alone never
+/// exercised.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn patching_position_reorders_the_list() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, _text, lcid) = guild_with_lorebook(&a.router, &owner).await;
+
+    // castle@0, dragons@1.
+    let (_, _, c0) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{lcid}/lorebook"),
+        Some(&owner),
+        Some(
+            &json!({ "title": "Castle", "keys": ["castle"], "content": "the keep", "position": 0 }),
+        ),
+    )
+    .await;
+    let castle_id = c0["id"].as_str().unwrap().to_string();
+    let (_, _, c1) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{lcid}/lorebook"),
+        Some(&owner),
+        Some(&json!({ "title": "Dragons", "keys": ["dragon"], "content": "they hoard gold", "position": 1 })),
+    )
+    .await;
+    let dragons_id = c1["id"].as_str().unwrap().to_string();
+
+    // Drag Dragons above Castle: the renumber-and-PATCH the drag emits
+    // (Dragons -> 0, Castle -> 1), one PATCH per moved row.
+    for (eid, pos) in [(&dragons_id, 0), (&castle_id, 1)] {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::PATCH,
+            &format!("/channels/{lcid}/lorebook/{eid}"),
+            Some(&owner),
+            Some(&json!({ "position": pos })),
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    // The list now leads with Dragons, in the new absolute order.
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{lcid}/lorebook"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let entries = body["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["title"], "Dragons");
+    assert_eq!(entries[0]["position"], 0);
+    assert_eq!(entries[1]["title"], "Castle");
+    assert_eq!(entries[1]["position"], 1);
+}

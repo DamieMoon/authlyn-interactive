@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07090f">
+<title>Koncept A — Omloppsbana</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400;1,600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ── Void Station tokens (from style/_tokens.scss) ─────────────────── */
+:root{
+  --void-deep:#07090f; --void:#0b0e14; --surface:#0e121a; --card:#10141d;
+  --surface-2:#131927; --line:#1a2130; --line-strong:#222b3c; --input-bg:#0a0d13;
+  --text:#dde6f2; --text-soft:#aab8cc; --text-muted:#8a98ad; --text-faint:#5d6b80;
+  --accent:#4d9fff; --accent-bright:#7fb6ff; --accent-soft:#2a4a8a; --live:#8ee6c8;
+  --danger:#e8707b; --danger-soft:#c45a64; --danger-border:#7a3038;
+  --backdrop-deep:#05070b; --avatar-tile:#1c2433;
+  --glass-bg:rgba(20,26,40,.55); --glass-line:rgba(255,255,255,.08); --glass-highlight:rgba(255,255,255,.09);
+  --glow-accent:rgba(77,159,255,.55); --unread-glow:rgba(77,159,255,.7);
+  --pinged-glow:rgba(255,180,127,.8); --mention-bg:rgba(77,159,255,.14);
+  --overlay:rgba(14,18,26,.9); --scrim:rgba(4,6,10,.6);
+  --aurora-1:rgba(22,33,58,.85); --aurora-2:rgba(13,37,48,.7);
+  --tint-red:#ff8a96; --tint-orange:#ffb47f; --tint-yellow:#ffd47f; --tint-green:#8ee6c8;
+  --tint-blue:#7fb6ff; --tint-purple:#c4a8ff; --tint-pink:#ff9ad5; --tint-gray:#9aa7bd;
+  --font-ui:"Space Grotesk",-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --font-prose:"Crimson Pro",Georgia,"Iowan Old Style",Cambria,"Times New Roman",serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --ease-page:cubic-bezier(.4,0,.2,1); --ease-quick:cubic-bezier(.4,0,.6,1);
+  --ease-spring:cubic-bezier(.2,.9,.3,1.15);
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:radial-gradient(120% 90% at 50% 0%,var(--void) 0%,var(--void-deep) 70%);
+  color:var(--text); font-family:var(--font-ui); overflow:hidden;
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  position:fixed; inset:0; touch-action:none;
+}
+input,textarea{-webkit-user-select:text;user-select:text}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer;touch-action:manipulation}
+
+/* ── ambience: aurora + stars ──────────────────────────────────────── */
+#aurora{position:fixed;inset:-15%;z-index:0;pointer-events:none;
+  background:radial-gradient(60% 48% at 80% 6%,var(--aurora-1),transparent 62%),
+             radial-gradient(55% 45% at 10% 94%,var(--aurora-2),transparent 60%);
+  animation:auraPulse 16s ease-in-out infinite alternate}
+@keyframes auraPulse{from{opacity:.65}to{opacity:1}}
+.stars{position:fixed;inset:0;z-index:0;pointer-events:none;width:2px;height:2px;border-radius:50%}
+#starsA{animation:twinkA 5.5s ease-in-out infinite alternate}
+#starsB{animation:twinkB 7.5s ease-in-out infinite alternate}
+@keyframes twinkA{from{opacity:.85}to{opacity:.3}}
+@keyframes twinkB{from{opacity:.35}to{opacity:.9}}
+
+/* ── concept label (vertical, left edge) ───────────────────────────── */
+.concept-tag{position:fixed;left:calc(var(--sal) + 4px);top:50%;z-index:6;pointer-events:none;
+  writing-mode:vertical-rl;transform:translateY(-50%) rotate(180deg);
+  font-family:var(--font-mono);font-size:9px;letter-spacing:4px;color:var(--text-faint);opacity:.75}
+
+/* ── chat layer: full-screen swipeable panes ───────────────────────── */
+#chatLayer{position:fixed;inset:0;z-index:2;height:100vh;height:100dvh;overflow:hidden;
+  transition:transform .55s var(--ease-page),opacity .42s ease}
+#chatLayer.no-trans{transition:none}
+#chatLayer.warp-out{transform:scale(.06);opacity:0;pointer-events:none}
+#chatLayer.warp-in{transform:scale(1.16);opacity:0}
+#strip{display:flex;height:100%;will-change:transform;touch-action:pan-y}
+#strip.snap{transition:transform 380ms cubic-bezier(.18,.85,.25,1)}
+.pane{flex:0 0 100vw;height:100%;overflow:hidden;position:relative}
+.scroller{height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:calc(var(--sat) + 72px) 14px calc(var(--sab) + 122px);touch-action:pan-y}
+
+/* ── messages ──────────────────────────────────────────────────────── */
+.msg{display:flex;flex-direction:column;align-items:flex-start;margin:0 0 16px;max-width:88%;position:relative}
+.msg.mine{align-self:flex-end;margin-left:auto;align-items:flex-end}
+.scroller{display:flex;flex-direction:column}
+.meta{display:flex;gap:8px;align-items:baseline;margin:0 6px 4px}
+.meta .who{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase}
+.meta .when{font-family:var(--font-mono);font-size:9px;color:var(--text-faint)}
+.bubble{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:10px 15px;font-family:var(--font-prose);font-size:17.5px;line-height:1.45;color:var(--text)}
+.msg.mine .bubble{background:var(--mention-bg);border-color:var(--accent-soft);
+  box-shadow:0 0 16px rgba(77,159,255,.10)}
+.bubble em.act{font-style:italic;color:var(--text-soft)}
+.msg.vanish{transition:transform .28s var(--ease-quick),opacity .28s ease;transform:scale(.82);opacity:0}
+
+/* whisper */
+.msg.whisper .bubble{border-color:var(--line-strong);background:var(--input-bg)}
+.msg.whisper .wbody{filter:blur(7px);transition:filter .4s ease;display:inline}
+.msg.whisper.revealed .wbody{filter:none}
+.whint{display:block;font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;
+  color:var(--text-faint);margin-top:6px;text-transform:uppercase;transition:opacity .3s}
+.msg.whisper.revealed .whint{opacity:.35}
+
+/* shout */
+.msg.shout .bubble{background:linear-gradient(160deg,rgba(255,180,127,.16),rgba(255,180,127,.05));
+  border-color:rgba(255,180,127,.45);color:#ffd9bd;font-weight:600;
+  box-shadow:0 0 22px rgba(255,180,127,.18)}
+.msg.shout .bubble.shake{animation:shoutShake .55s var(--ease-quick)}
+@keyframes shoutShake{0%,100%{transform:translateX(0)}12%{transform:translateX(-5px) rotate(-.6deg)}
+  28%{transform:translateX(4px) rotate(.4deg)}44%{transform:translateX(-3px)}62%{transform:translateX(2px)}80%{transform:translateX(-1px)}}
+
+/* spell */
+.msg.spell .bubble{border-color:var(--tint-purple);
+  background:linear-gradient(150deg,rgba(196,168,255,.14),rgba(77,159,255,.06));
+  box-shadow:0 0 24px rgba(196,168,255,.28)}
+.spark{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--tint-purple);
+  box-shadow:0 0 8px var(--tint-purple);pointer-events:none;animation:sparkle 2.2s ease-in-out infinite}
+.spark.s1{top:-6px;right:14px}
+.spark.s2{top:30%;left:-7px;animation-delay:.7s;background:var(--accent-bright);box-shadow:0 0 8px var(--accent-bright)}
+.spark.s3{bottom:-6px;right:34%;animation-delay:1.3s}
+@keyframes sparkle{0%{transform:translateY(0) scale(.4);opacity:0}25%{opacity:1}
+  100%{transform:translateY(-16px) scale(1);opacity:0}}
+
+/* roll chip */
+.msg.roll .chip{font-family:var(--font-mono);font-size:13px;background:var(--input-bg);
+  border:1px solid var(--accent-soft);border-radius:14px;padding:10px 14px;color:var(--accent-bright);
+  box-shadow:0 0 14px rgba(77,159,255,.16);letter-spacing:.3px}
+.msg.roll .chip b{color:var(--text);font-weight:700}
+.rolltag{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:1.5px;
+  margin-top:5px;text-transform:uppercase}
+
+/* ghost quill */
+.ghost{align-self:flex-start;max-width:88%;margin:0 0 16px;border:1.5px dashed var(--line-strong);
+  border-radius:18px;padding:9px 15px;font-family:var(--font-prose);font-style:italic;font-size:16px;
+  color:var(--text-muted);animation:ghostShimmer 2.8s ease-in-out infinite alternate}
+.ghost.hot{border-color:var(--accent-soft);color:var(--text-soft)}
+@keyframes ghostShimmer{from{opacity:.5}to{opacity:.95}}
+
+/* typing constellation */
+.typing{display:flex;align-items:center;gap:12px;align-self:flex-start;margin:2px 6px 10px}
+.constellation{position:relative;width:30px;height:30px;flex:0 0 30px}
+.constellation i{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;
+  border-radius:50%;background:var(--accent-bright);box-shadow:0 0 7px var(--glow-accent);
+  animation:orbitDot var(--d,2.6s) linear infinite var(--rev,normal)}
+.constellation i.c{width:6px;height:6px;margin:-3px 0 0 -3px;background:var(--live);
+  box-shadow:0 0 8px rgba(142,230,200,.7);animation:twinkA 2s ease-in-out infinite alternate}
+@keyframes orbitDot{from{transform:rotate(0) translateX(var(--r,10px))}to{transform:rotate(360deg) translateX(var(--r,10px))}}
+.typing span{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);letter-spacing:1px}
+
+/* ── holographic channel pill ──────────────────────────────────────── */
+#pill{position:fixed;top:calc(var(--sat) + 10px);left:50%;z-index:10;
+  transform:translateX(-50%);min-height:44px;padding:7px 22px 9px;border-radius:24px;
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);
+  border:1px solid var(--glass-line);display:flex;flex-direction:column;align-items:center;gap:3px;
+  box-shadow:0 0 0 1px rgba(77,159,255,.10),0 6px 28px rgba(0,0,0,.55),
+    inset 0 1px 0 var(--glass-highlight),0 0 22px rgba(77,159,255,.16);
+  transition:transform .4s var(--ease-page),opacity .3s ease}
+#pill:active{transform:translateX(-50%) scale(.96)}
+body.mode-map #pill{transform:translateX(-50%) translateY(-90px);opacity:0;pointer-events:none}
+#pillName{font-size:14px;font-weight:700;letter-spacing:.6px;transition:opacity .15s}
+#pillName.swap{opacity:0}
+#pillName .hash{color:var(--accent);margin-right:1px}
+#pillServer{font-family:var(--font-mono);font-size:9.5px;letter-spacing:2px;color:var(--text-faint);text-transform:uppercase}
+#pillDots{display:flex;gap:5px;margin-top:1px}
+#pillDots i{width:4px;height:4px;border-radius:50%;background:var(--line-strong);transition:opacity .2s,transform .2s}
+#pillDots i.on{background:var(--accent);box-shadow:0 0 6px var(--unread-glow);transform:scale(1.25)}
+
+/* ── orbit map ─────────────────────────────────────────────────────── */
+#orbitMap{position:fixed;inset:0;z-index:1;display:none;opacity:0;transform:scale(2.6);
+  transition:transform .55s var(--ease-page),opacity .42s ease;pointer-events:none;touch-action:none}
+#orbitMap.live{opacity:1;transform:scale(1);pointer-events:auto}
+#orbitMap.dive{transform:scale(3.4);opacity:0;pointer-events:none}
+#mapWorld{position:absolute;inset:0;transition:transform .55s var(--ease-page);will-change:transform}
+#mapWorld.no-trans{transition:none}
+.srv{position:absolute;left:50%;top:50%;width:0;height:0}
+.core{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:90px;height:90px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;
+  background:radial-gradient(circle at 34% 28%,rgba(127,182,255,.35),rgba(16,20,29,.92) 70%);
+  border:1px solid var(--accent-soft);
+  box-shadow:0 0 34px var(--glow-accent),inset 0 1px 0 var(--glass-highlight);
+  font-size:30px;color:var(--accent-bright);text-shadow:0 0 14px var(--glow-accent)}
+.core .nm{position:absolute;top:calc(100% + 10px);font-size:11px;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;color:var(--text-soft);white-space:nowrap;text-shadow:0 2px 8px #000}
+.core .sub{position:absolute;top:calc(100% + 27px);font-family:var(--font-mono);font-size:9px;
+  letter-spacing:1.6px;color:var(--text-faint);white-space:nowrap;text-transform:uppercase}
+.srv.far .core{width:64px;height:64px;font-size:20px;opacity:.75;box-shadow:0 0 18px rgba(77,159,255,.25)}
+.srv.locked .core{opacity:.4;border-color:var(--line-strong);color:var(--text-faint);box-shadow:none;text-shadow:none}
+.haloRing{position:absolute;left:0;top:0;transform:translate(-50%,-50%);border:1px solid rgba(77,159,255,.18);
+  border-radius:50%;pointer-events:none}
+.haloRing.r1{width:calc(var(--nodeR,118px)*2);height:calc(var(--nodeR,118px)*2)}
+.haloRing.outer{width:calc(var(--nodeR,118px)*2 + 76px);height:calc(var(--nodeR,118px)*2 + 76px);border:1.5px dashed var(--line-strong)}
+.orbit{position:absolute;left:0;top:0;width:0;height:0;animation:spin 90s linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.nodePos{position:absolute;left:0;top:0;transform:rotate(var(--a)) translateX(var(--nodeR,118px)) rotate(calc(-1 * var(--a)))}
+.nodeIn{animation:spinRev 90s linear infinite}
+@keyframes spinRev{from{transform:rotate(0)}to{transform:rotate(-360deg)}}
+.node{position:relative;transform:translate(-50%,-50%);width:62px;height:62px;border-radius:50%;
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border:1px solid var(--glass-line);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  box-shadow:0 0 16px rgba(77,159,255,.22),inset 0 1px 0 var(--glass-highlight)}
+.node .h{font-size:19px;color:var(--accent);font-weight:700;line-height:1}
+.node .cn{font-size:9.5px;font-weight:500;letter-spacing:.4px;color:var(--text-soft);max-width:58px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .dot{position:absolute;top:4px;right:5px;width:7px;height:7px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 8px var(--unread-glow)}
+#mapDock{position:absolute;left:50%;bottom:calc(var(--sab) + 52px);transform:translateX(-50%);
+  display:flex;gap:12px;z-index:2}
+.sat{min-height:44px;padding:11px 17px;border-radius:22px;white-space:nowrap;
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  border:1px solid var(--glass-line);font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text-soft);
+  box-shadow:0 0 14px rgba(77,159,255,.12),inset 0 1px 0 var(--glass-highlight)}
+#mapHint{position:fixed;bottom:calc(var(--sab) + 24px);left:50%;transform:translateX(-50%);
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:2px;color:var(--text-faint);
+  text-transform:uppercase;white-space:nowrap;pointer-events:none}
+
+/* ── composer orb + bar ────────────────────────────────────────────── */
+#orb{position:fixed;right:calc(var(--sar) + 16px);bottom:calc(var(--sab) + 18px);z-index:20;
+  width:64px;height:64px;border-radius:50%;
+  background:radial-gradient(circle at 35% 28%,rgba(127,182,255,.30),rgba(16,20,29,.9) 72%);
+  border:1px solid var(--accent-soft);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  box-shadow:0 0 26px var(--glow-accent),inset 0 1px 0 var(--glass-highlight);
+  display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--accent-bright);
+  transition:transform .35s var(--ease-spring),opacity .25s ease,box-shadow .3s ease,border-color .3s ease}
+#orb::after{content:"";position:absolute;inset:-7px;border-radius:50%;border:1px solid rgba(77,159,255,.25);
+  animation:orbBreath 3.2s ease-in-out infinite alternate;pointer-events:none}
+@keyframes orbBreath{from{opacity:.25;transform:scale(.96)}to{opacity:.8;transform:scale(1.04)}}
+#orb:active{transform:scale(.92)}
+body.mode-map #orb,body.composing #orb{transform:scale(.3);opacity:0;pointer-events:none}
+#orb[data-armed="whisper"]{border-color:var(--tint-gray);box-shadow:0 0 26px rgba(154,167,189,.5);color:var(--tint-gray)}
+#orb[data-armed="shout"]{border-color:var(--tint-orange);box-shadow:0 0 28px var(--pinged-glow);color:var(--tint-orange)}
+#orb[data-armed="spell"]{border-color:var(--tint-purple);box-shadow:0 0 28px rgba(196,168,255,.6);color:var(--tint-purple)}
+#orbBadge{position:absolute;top:-3px;left:-3px;font-size:15px;filter:drop-shadow(0 0 5px rgba(0,0,0,.8))}
+
+#effectRing{position:fixed;inset:0;z-index:25;display:none}
+#effectRing.open{display:block}
+.fxScrim{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+  opacity:0;transition:opacity .25s}
+#effectRing.in .fxScrim{opacity:1}
+.fxBtn{position:fixed;width:58px;height:58px;border-radius:50%;z-index:26;
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border:1px solid var(--glass-line);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:0;opacity:0;transition:transform .32s var(--ease-spring),opacity .2s ease}
+.fxBtn .ic{font-size:20px;line-height:1.2}
+.fxBtn .lb{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)}
+.fxBtn.whisper{right:calc(var(--sar) + 18px);bottom:calc(var(--sab) + 116px);transform:translateY(80px) scale(.3);border-color:rgba(154,167,189,.5)}
+.fxBtn.shout{right:calc(var(--sar) + 84px);bottom:calc(var(--sab) + 88px);transform:translate(66px,60px) scale(.3);border-color:rgba(255,180,127,.5)}
+.fxBtn.spell{right:calc(var(--sar) + 112px);bottom:calc(var(--sab) + 21px);transform:translateX(94px) scale(.3);border-color:rgba(196,168,255,.5)}
+#effectRing.in .fxBtn{opacity:1;transform:translate(0,0) scale(1)}
+#effectRing.in .fxBtn.shout{transition-delay:.04s}
+#effectRing.in .fxBtn.spell{transition-delay:.08s}
+.fxBtn.armed{box-shadow:0 0 18px var(--glow-accent);border-color:var(--accent)}
+
+#composer{position:fixed;left:10px;right:10px;bottom:0;z-index:22;
+  padding-bottom:calc(var(--sab) + 12px);display:flex;align-items:flex-end;gap:8px;
+  transform:translateY(120%);transition:transform .38s var(--ease-spring);will-change:transform}
+body.composing #composer{transform:translateY(0)}
+#composerInner{flex:1;display:flex;align-items:center;gap:6px;min-height:54px;border-radius:27px;
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(20px) saturate(150%);backdrop-filter:blur(20px) saturate(150%);
+  border:1px solid var(--glass-line);box-shadow:0 8px 30px rgba(0,0,0,.55),inset 0 1px 0 var(--glass-highlight);
+  padding:5px 5px 5px 6px}
+#collapseBtn{width:44px;height:44px;border-radius:50%;font-size:18px;color:var(--text-muted);flex:0 0 44px}
+#msgInput{flex:1;background:transparent;border:none;outline:none;color:var(--text);
+  font-family:var(--font-prose);font-size:17px;min-width:0;padding:10px 2px}
+#msgInput::placeholder{color:var(--text-faint);font-style:italic}
+#sendBtn{position:relative;width:52px;height:52px;flex:0 0 52px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;color:var(--accent-bright);font-size:17px;
+  transition:transform .2s var(--ease-spring)}
+#sendBtn:active{transform:scale(.9)}
+#sendBtn svg{position:absolute;inset:0;transform:rotate(-90deg)}
+#sendBtn .track{fill:none;stroke:var(--line-strong);stroke-width:2.5}
+#sendBtn .arc{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;
+  stroke-dasharray:151;stroke-dashoffset:151;transition:stroke-dashoffset .18s ease,stroke .3s ease}
+#sendBtn.full .arc{stroke:var(--accent-bright);filter:drop-shadow(0 0 5px var(--glow-accent))}
+#fxChip{position:absolute;top:-56px;left:14px;display:none;align-items:center;gap:7px;min-height:44px;
+  padding:8px 16px;border-radius:22px;background:var(--overlay);border:1px solid var(--glass-line);
+  font-family:var(--font-mono);font-size:11px;letter-spacing:1px;color:var(--text-soft)}
+#fxChip.on{display:flex}
+
+/* ── radial message menu ───────────────────────────────────────────── */
+#radial{position:fixed;inset:0;z-index:30;display:none}
+#radial.open{display:block}
+.radScrim{position:absolute;inset:0;background:var(--scrim);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);
+  opacity:0;transition:opacity .22s}
+#radial.in .radScrim{opacity:1}
+.rItem{position:fixed;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
+  background:var(--overlay);border:1px solid var(--glass-line);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  box-shadow:0 4px 18px rgba(0,0,0,.5),0 0 12px rgba(77,159,255,.12);
+  transform:translate(0,0) scale(.25);opacity:0;
+  transition:transform .3s var(--ease-spring),opacity .18s ease}
+#radial.in .rItem{transform:translate(var(--tx),var(--ty)) scale(1);opacity:1}
+.rItem .ic{font-size:18px;line-height:1.25;color:var(--accent-bright)}
+.rItem .lb{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)}
+.rItem.danger .ic{color:var(--danger)}
+.rItem.dim{opacity:.38!important}
+.rCenter{position:fixed;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 12px var(--unread-glow);pointer-events:none}
+
+/* ── slide-over: gestalter & station ───────────────────────────────── */
+#slideOver{position:fixed;inset:0;z-index:40;background:linear-gradient(165deg,var(--surface) 0%,var(--void) 90%);
+  transform:translateX(102%);transition:transform .38s var(--ease-page);will-change:transform;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:-18px 0 50px rgba(0,0,0,.6);border-left:1px solid var(--line)}
+#slideOver.open{transform:translateX(0)}
+#slideOver.dragging{transition:none}
+#soScroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y;
+  padding:calc(var(--sat) + 10px) 18px calc(var(--sab) + 28px)}
+.soHead{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+#soClose{width:44px;height:44px;border-radius:50%;background:var(--glass-bg);border:1px solid var(--glass-line);
+  font-size:19px;color:var(--text-soft);flex:0 0 44px}
+.soHead h2{font-size:17px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase}
+.soHead .grip{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:1px}
+.soSec{margin-bottom:26px}
+.soSec h3{font-family:var(--font-mono);font-size:9.5px;letter-spacing:3px;color:var(--text-faint);
+  text-transform:uppercase;margin:0 4px 11px}
+.pcard{display:flex;align-items:center;gap:14px;width:100%;text-align:left;min-height:72px;
+  background:var(--card);border:1px solid var(--line);border-radius:20px;padding:13px 16px;margin-bottom:10px;
+  transition:transform .15s var(--ease-quick),border-color .2s,box-shadow .2s}
+.pcard:active{transform:scale(.975)}
+.pcard.active{border-color:var(--accent);box-shadow:0 0 18px rgba(77,159,255,.22)}
+.pava{width:46px;height:46px;border-radius:50%;flex:0 0 46px;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:15px;letter-spacing:.5px;background:var(--avatar-tile);
+  border:1.5px solid var(--ptint,var(--line-strong));color:var(--ptint,var(--text-soft));
+  box-shadow:0 0 12px color-mix(in srgb,var(--ptint,transparent) 30%,transparent)}
+.pcard .pt b{display:block;font-size:15px;letter-spacing:.4px}
+.pcard .pt span{display:block;font-family:var(--font-prose);font-style:italic;font-size:14px;color:var(--text-muted);margin-top:2px}
+.pcheck{margin-left:auto;font-size:18px;color:var(--accent-bright);text-shadow:0 0 8px var(--glow-accent)}
+.pcard.newp{justify-content:center;border-style:dashed;border-color:var(--line-strong);color:var(--text-muted);
+  font-size:14px;font-weight:500;background:transparent}
+.srow{display:flex;align-items:center;gap:13px;min-height:58px;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;padding:10px 16px;margin-bottom:9px}
+.srow .st b{display:block;font-size:14px}
+.srow .st span{display:block;font-size:12px;color:var(--text-muted);margin-top:1px}
+/* 44px hit box (owner rule); the visible 52x31 track is drawn inside it */
+.tgl{margin-left:auto;width:64px;height:44px;flex:0 0 64px;position:relative}
+.tgl::before{content:"";position:absolute;left:6px;top:50%;transform:translateY(-50%);width:52px;height:31px;
+  border-radius:16px;background:var(--input-bg);border:1px solid var(--line-strong);transition:border-color .2s}
+.tgl i{position:absolute;top:50%;left:10px;width:23px;height:23px;margin-top:-11.5px;border-radius:50%;background:var(--text-faint);
+  transition:transform .22s var(--ease-spring),background .2s}
+.tgl.on::before{border-color:var(--accent-soft)}
+.tgl.on i{transform:translateX(21px);background:var(--accent);box-shadow:0 0 10px var(--glow-accent)}
+.soFoot{font-family:var(--font-mono);font-size:9px;letter-spacing:1.5px;color:var(--text-faint);
+  text-align:center;margin-top:8px;line-height:1.8}
+
+/* ── help button + hints overlay ───────────────────────────────────── */
+#helpBtn{position:fixed;left:calc(var(--sal) + 16px);bottom:calc(var(--sab) + 18px);z-index:20;
+  width:44px;height:44px;border-radius:50%;background:var(--glass-bg);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--glass-line);
+  font-size:17px;font-weight:700;color:var(--text-muted);
+  box-shadow:inset 0 1px 0 var(--glass-highlight);transition:opacity .25s,transform .25s}
+body.composing #helpBtn,body.mode-map #helpBtn{opacity:0;pointer-events:none;transform:scale(.6)}
+#hints{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+  background:var(--scrim);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  opacity:0;transition:opacity .3s}
+#hints.open{display:flex}
+#hints.in{opacity:1}
+/* flex column: rows scroll if the screen is short, the OK button never leaves
+   the viewport (iPhone SE 667px was clipping it below the fold) */
+.hintCard{width:min(330px,86vw);max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);
+  display:flex;flex-direction:column;background:var(--glass-bg);
+  -webkit-backdrop-filter:blur(24px) saturate(150%);backdrop-filter:blur(24px) saturate(150%);
+  border:1px solid var(--glass-line);border-radius:26px;padding:22px 22px 16px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6),inset 0 1px 0 var(--glass-highlight);
+  transform:scale(.92);transition:transform .35s var(--ease-spring)}
+#hints.in .hintCard{transform:scale(1)}
+.hintScroll{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  touch-action:pan-y;overscroll-behavior:contain}
+.hintScroll.fade{-webkit-mask-image:linear-gradient(180deg,#000 0,#000 calc(100% - 30px),transparent);
+  mask-image:linear-gradient(180deg,#000 0,#000 calc(100% - 30px),transparent)}
+.hintCard h2{font-size:18px;letter-spacing:3px;text-transform:uppercase;text-align:center}
+.hintCard .sub{font-family:var(--font-mono);font-size:9px;letter-spacing:2.5px;color:var(--accent);
+  text-align:center;text-transform:uppercase;margin:4px 0 16px}
+.hintRow{display:flex;gap:13px;align-items:flex-start;margin-bottom:11px}
+.hintRow .g{font-size:19px;flex:0 0 28px;text-align:center;filter:drop-shadow(0 0 6px rgba(77,159,255,.4))}
+.hintRow .t b{display:block;font-size:13.5px;letter-spacing:.3px}
+.hintRow .t span{display:block;font-size:12px;color:var(--text-muted);line-height:1.45;margin-top:1px}
+#hintsOk{display:block;flex:0 0 auto;width:100%;min-height:48px;margin-top:14px;border-radius:24px;
+  background:var(--mention-bg);border:1px solid var(--accent-soft);color:var(--accent-bright);
+  font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  box-shadow:0 0 16px rgba(77,159,255,.18)}
+
+/* ── toast ─────────────────────────────────────────────────────────── */
+#toast{position:fixed;left:50%;bottom:calc(var(--sab) + 96px);z-index:60;transform:translateX(-50%) translateY(14px);
+  background:var(--overlay);border:1px solid var(--glass-line);border-radius:18px;padding:9px 17px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.6px;color:var(--text-soft);
+  opacity:0;transition:opacity .25s,transform .25s var(--ease-spring);pointer-events:none;max-width:84vw;text-align:center;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* while composing the armed-effect chip owns the slot above the composer —
+   lift the toast clear of it so the feedback never stacks */
+body.composing #toast{bottom:calc(var(--sab) + 152px)}
+
+@media (prefers-reduced-motion:reduce){
+  .orbit,.nodeIn,#orb::after,.spark,.ghost,.constellation i,#aurora,.stars{animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<div id="aurora"></div>
+<div class="stars" id="starsA"></div>
+<div class="stars" id="starsB"></div>
+<div class="concept-tag">KONCEPT A · OMLOPPSBANA</div>
+
+<div id="orbitMap">
+  <div id="mapWorld"></div>
+  <div id="mapDock">
+    <button class="sat" data-act="personas">✦ Gestalter</button>
+    <button class="sat" data-act="station">⚙ Station</button>
+  </div>
+  <div id="mapHint">tryck en nod · dra för att panorera</div>
+</div>
+
+<div id="chatLayer"><div id="strip"></div></div>
+
+<button id="pill" aria-label="Öppna omloppskartan">
+  <span id="pillName"><span class="hash">#</span>general</span>
+  <span id="pillServer">Försöksdäck 27</span>
+  <span id="pillDots"></span>
+</button>
+
+<button id="orb" aria-label="Skriv meddelande"><span id="orbGlyph">✎</span><span id="orbBadge"></span></button>
+
+<div id="effectRing">
+  <div class="fxScrim"></div>
+  <button class="fxBtn whisper" data-fx="whisper"><span class="ic">🌫</span><span class="lb">viska</span></button>
+  <button class="fxBtn shout" data-fx="shout"><span class="ic">📣</span><span class="lb">ropa</span></button>
+  <button class="fxBtn spell" data-fx="spell"><span class="ic">✨</span><span class="lb">besvärja</span></button>
+</div>
+
+<div id="composer">
+  <div id="fxChip"></div>
+  <div id="composerInner">
+    <button id="collapseBtn" aria-label="Stäng">⌄</button>
+    <input id="msgInput" type="text" autocomplete="off" placeholder="Skriv till #general…">
+    <button id="sendBtn" aria-label="Skicka">
+      <svg viewBox="0 0 52 52" width="52" height="52">
+        <circle class="track" cx="26" cy="26" r="24"></circle>
+        <circle class="arc" cx="26" cy="26" r="24"></circle>
+      </svg>
+      <span>➤</span>
+    </button>
+  </div>
+</div>
+
+<div id="radial"><div class="radScrim"></div></div>
+
+<aside id="slideOver">
+  <div id="soScroll">
+    <div class="soHead">
+      <button id="soClose" aria-label="Tillbaka">←</button>
+      <h2>Gestalter &amp; Station</h2>
+      <span class="grip">svep&nbsp;→&nbsp;stäng</span>
+    </div>
+    <section class="soSec">
+      <h3>Din gestalt i #general</h3>
+      <button class="pcard active" data-pname="MAKANT BIAS" style="--ptint:var(--accent)">
+        <span class="pava">MB</span>
+        <span class="pt"><b>MAKANT BIAS</b><span>stationens vilja · bärs nu</span></span>
+        <span class="pcheck">✓</span>
+      </button>
+      <button class="pcard" data-pname="FABLE" style="--ptint:var(--live)">
+        <span class="pava">FA</span>
+        <span class="pt"><b>FABLE</b><span>stations-AI · berättarröst</span></span>
+      </button>
+      <button class="pcard" data-pname="Väktaren av Vakuum" style="--ptint:var(--tint-purple)">
+        <span class="pava">VV</span>
+        <span class="pt"><b>Väktaren av Vakuum</b><span>vilande gestalt</span></span>
+      </button>
+      <button class="pcard newp">＋ Ny gestalt</button>
+    </section>
+    <section class="soSec">
+      <h3>Station</h3>
+      <div class="srow"><span class="st"><b>Ghost Quill ✒️</b><span>dela ditt utkast live i kanalen</span></span><button class="tgl on" aria-label="Ghost Quill"><i></i></button></div>
+      <div class="srow"><span class="st"><b>Effekter</b><span>viska · ropa · besvärja</span></span><button class="tgl on" aria-label="Effekter"><i></i></button></div>
+      <div class="srow"><span class="st"><b>Aurora max</b><span>full nebulosa-ambiens</span></span><button class="tgl on" aria-label="Aurora"><i></i></button></div>
+      <div class="srow"><span class="st"><b>Push-aviseringar</b><span>väck mig när stationen kallar</span></span><button class="tgl" aria-label="Push"><i></i></button></div>
+    </section>
+    <p class="soFoot">KONCEPT A · OMLOPPSBANA<br>gestalter är en plats — inte en modal</p>
+  </div>
+</aside>
+
+<button id="helpBtn" aria-label="Gesthjälp">?</button>
+
+<div id="hints">
+  <div class="hintCard">
+    <h2>Omloppsbana</h2>
+    <div class="sub">Koncept A · du navigerar rymd, inte menyer</div>
+    <div class="hintScroll">
+    <div class="hintRow"><span class="g">↔</span><span class="t"><b>Svep i sidled</b><span>glid mellan kanaler — fingret styr, släpp och den snäpper.</span></span></div>
+    <div class="hintRow"><span class="g">🤏</span><span class="t"><b>Nyp — eller tryck på kapseln</b><span>zooma ut till omloppskartan: kanaler kretsar kring serverkärnan, andra servrar lyser i fjärran.</span></span></div>
+    <div class="hintRow"><span class="g">◉</span><span class="t"><b>Orben (nere till höger)</b><span>tryck för att skriva — skicka-ringen laddas medan du skriver. <b>Håll inne</b> så blommar effektringen: viska, ropa, besvärja.</span></span></div>
+    <div class="hintRow"><span class="g">⏺</span><span class="t"><b>Håll på ett meddelande</b><span>radiell meny vid fingret: svara, kopiera, ändra, radera. Tärningsslag är förseglade av ödet.</span></span></div>
+    <div class="hintRow"><span class="g">⇤</span><span class="t"><b>Svep från högerkanten</b><span>gestalter &amp; stationsinställningar glider in — helskärm, inga modaler.</span></span></div>
+    <div class="hintRow"><span class="g">🌫</span><span class="t"><b>Viskningar</b><span>är suddiga tills du rör vid dem. Var varsam med vad du läser högt.</span></span></div>
+    </div>
+    <button id="hintsOk">Förstått ✦</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const raf2=f=>requestAnimationFrame(()=>requestAnimationFrame(f));
+
+/* ── data: tonight's test-deck lore ─────────────────────────────────── */
+const AUTHORS={
+  "FABLE":{color:"var(--live)"},
+  "MAKANT BIAS":{color:"var(--accent-bright)"},
+  "GottZ":{color:"var(--tint-yellow)"}
+};
+const SERVERS=[
+ {id:"fd27",glyph:"✦",name:"Försöksdäck 27",sub:"3 kanaler · live",channels:[
+   {name:"general",unread:true,msgs:[
+     {a:"FABLE",t:"21:02",body:"*Stationens ljus dämpas till kvällsvaka. Däck 27 öppnar dörrarna för kvällens försök.* Välkomna ombord. Fate Engine kalibrerad. Ghost Quill lyssnar."},
+     {a:"MAKANT BIAS",mine:true,t:"21:03",body:"*lutar sig över konsolen* Då kör vi. Ikväll testar vi allt — på riktigt."},
+     {a:"GottZ",t:"21:04",body:"hoppar ombord!! vad har jag missat? :D"},
+     {a:"FABLE",t:"21:05",effect:"shout",body:"HÅLL I ER — HULLPLÅTARNA SJUNGER NÄR VI GÅR GENOM SLÖJAN!"},
+     {a:"MAKANT BIAS",mine:true,t:"21:06",kind:"roll",roll:"🎲 2d20+3 → [5,7]+3 = <b>15</b>"},
+     {a:"FABLE",t:"21:06",body:"*läser tärningarnas glöd* Femton. Slöjan släpper igenom er — men någonting därute såg er passera."},
+     {a:"FABLE",t:"21:07",effect:"whisper",body:"*viskar, alldeles nära din hörselsnäcka* Mendicant Bias lyssnar fortfarande. Säg ingenting högt."},
+     {a:"MAKANT BIAS",mine:true,t:"21:08",effect:"spell",body:"*tecknar en glyf i tomrummet* Lumen Astralis — visa oss vad som gömmer sig!"},
+     {kind:"ghost",a:"MAKANT BIAS",body:"MAKANT BIAS ✒️ skriver något hemligt…"},
+     {kind:"typing",a:"GottZ"}
+   ]},
+   {name:"maskinrummet",msgs:[
+     {a:"FABLE",t:"20:41",body:"*Reaktorhjärtat slår 41 slag i minuten. Alla värden nominella.*"},
+     {a:"GottZ",t:"20:44",body:"vem har ställt en kaffekopp på fusionskärnan?? den har ringmärken nu"},
+     {a:"MAKANT BIAS",mine:true,t:"20:45",body:"Koppen är historisk. Rör den inte."}
+   ]},
+   {name:"ooc",msgs:[
+     {a:"GottZ",t:"19:58",body:"ok men nya gränssnittet känns som att flyga ett skepp, gg"},
+     {a:"MAKANT BIAS",mine:true,t:"19:59",body:"Det är hela poängen ;)"}
+   ]}
+ ]},
+ {id:"kalmaros",glyph:"❖",name:"Kalmaros Spire",sub:"1 kanal",channels:[
+   {name:"tavernan",msgs:[
+     {a:"FABLE",t:"18:12",body:"*Eldstaden knastrar. En främling i blå kappa ser upp från sitt stop när dörren slår igen bakom er.*"},
+     {a:"GottZ",t:"18:15",body:"jag sätter mig närmast elden och låtsas inte tjuvlyssna"}
+   ]}
+ ]},
+ {id:"offensive",glyph:"◈",name:"Offensive Bias",sub:"förseglad",locked:true,channels:[]}
+];
+
+let srvIdx=0, chIdx=0, mode="chat", armedFx=null;
+/* After pointerup hides/overlays an element, the browser still dispatches a
+   trailing click at the same coords — it falls through to whatever is now
+   underneath (strip / scrims) and would instantly undo the gesture. Guard it.
+   For long-presses the guard must start at finger RELEASE (lpJustFired). */
+let clickGuard=0, lpJustFired=false;
+const guardClicks=()=>{clickGuard=performance.now()+450;};
+const guarded=()=>performance.now()<clickGuard;
+
+/* ── ambience: generated starfield ──────────────────────────────────── */
+(function stars(){
+  const mk=(n,a)=>{let s=[];for(let i=0;i<n;i++){
+    const x=(Math.random()*100).toFixed(1),y=(Math.random()*100).toFixed(1);
+    const r=Math.random()<.15?1.4:.7, o=(.25+Math.random()*a).toFixed(2);
+    s.push(`${x}vw ${y}vh 0 ${r}px rgba(221,230,242,${o})`);}return s.join(",");};
+  $("#starsA").style.boxShadow=mk(46,.5);
+  $("#starsB").style.boxShadow=mk(34,.4);
+})();
+
+/* ── helpers ────────────────────────────────────────────────────────── */
+function esc(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function prose(s){return esc(s).replace(/\*([^*]+)\*/g,'<em class="act">$1</em>');}
+let toastT;
+function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2100);}
+function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
+
+/* ── message rendering ──────────────────────────────────────────────── */
+function msgEl(m){
+  if(m.kind==="ghost"){const d=document.createElement("div");d.className="ghost";d.id="ghostRow";
+    d.textContent=m.body;return d;}
+  if(m.kind==="typing"){const d=document.createElement("div");d.className="typing";
+    d.innerHTML=`<span class="constellation"><i class="c"></i><i style="--r:10px;--d:2.4s"></i><i style="--r:14px;--d:3.4s;--rev:reverse"></i><i style="--r:7px;--d:1.9s"></i></span><span>${esc(m.a)} kretsar in ett meddelande…</span>`;
+    return d;}
+  const d=document.createElement("div");
+  d.className="msg"+(m.mine?" mine":"")+(m.effect?" "+m.effect:"")+(m.kind==="roll"?" roll":"");
+  d.dataset.kind=m.kind||"msg"; d.dataset.mine=m.mine?"1":"0"; d.dataset.author=m.a;
+  const col=(AUTHORS[m.a]||{}).color||"var(--text-soft)";
+  let inner=`<div class="meta"><span class="who" style="color:${col}">${esc(m.a)}</span><span class="when">${m.t||""}</span></div>`;
+  if(m.kind==="roll"){
+    inner+=`<div class="chip">${m.roll}</div><div class="rolltag">fate engine · oföränderligt 🔒</div>`;
+  }else if(m.effect==="whisper"){
+    inner+=`<div class="bubble"><span class="wbody">${prose(m.body)}</span><span class="whint">🌫 viskning · rör för att lyssna</span></div>`;
+  }else if(m.effect==="spell"){
+    inner+=`<div class="bubble">${prose(m.body)}<i class="spark s1"></i><i class="spark s2"></i><i class="spark s3"></i></div>`;
+  }else{
+    inner+=`<div class="bubble${m.effect==="shout"?" shake":""}">${prose(m.body)}</div>`;
+  }
+  d.innerHTML=inner;
+  return d;
+}
+function renderStrip(){
+  const srv=SERVERS[srvIdx], strip=$("#strip");
+  strip.innerHTML="";
+  srv.channels.forEach(ch=>{
+    const pane=document.createElement("div");pane.className="pane";
+    const sc=document.createElement("div");sc.className="scroller";
+    ch.msgs.forEach(m=>sc.appendChild(msgEl(m)));
+    pane.appendChild(sc);strip.appendChild(pane);
+  });
+  setStripX(false);
+  requestAnimationFrame(()=>strip.querySelectorAll(".scroller").forEach(s=>s.scrollTop=s.scrollHeight));
+}
+function setStripX(animate,extra=0){
+  const strip=$("#strip");
+  strip.classList.toggle("snap",!!animate);
+  strip.style.transform=`translateX(${-chIdx*innerWidth+extra}px)`;
+}
+function updatePill(){
+  const srv=SERVERS[srvIdx],ch=srv.channels[chIdx];
+  const pn=$("#pillName");
+  pn.classList.add("swap");
+  setTimeout(()=>{pn.innerHTML=`<span class="hash">#</span>${esc(ch.name)}`;pn.classList.remove("swap");},140);
+  $("#pillServer").textContent=srv.name;
+  const dots=$("#pillDots");dots.innerHTML="";
+  srv.channels.forEach((c,i)=>{const d=document.createElement("i");if(i===chIdx)d.classList.add("on");dots.appendChild(d);});
+  $("#msgInput").placeholder=`Skriv till #${ch.name}…`;
+}
+
+/* ── unified pointer routing on the chat layer ──────────────────────── */
+const pts=new Map();
+let gesture=null; // null|'swipe'|'pinch'|'edge'
+let g={};
+const strip=$("#strip"), chatLayer=$("#chatLayer");
+
+strip.addEventListener("pointerdown",e=>{
+  if(mode!=="chat")return;
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===2){startPinch();return;}
+  if(pts.size>2)return;
+  if(e.clientX>innerWidth-26&&document.body.classList.contains("composing")===false){
+    gesture="edge";g={x0:e.clientX,opened:false};
+    $("#slideOver").classList.add("dragging");
+    return;
+  }
+  gesture="swipe";
+  g={x0:e.clientX,y0:e.clientY,lock:null,hist:[[e.clientX,performance.now()]]};
+  // possible long-press on a message
+  const msg=e.target.closest&&e.target.closest(".msg");
+  if(msg){g.lpEl=msg;g.lpX=e.clientX;g.lpY=e.clientY;
+    g.lpT=setTimeout(()=>{g.lpT=null;lpJustFired=true;buzz(12);
+      showRadial(g.lpX,g.lpY,msg);gesture=null;},480);}
+});
+window.addEventListener("pointermove",e=>{
+  if(pts.has(e.pointerId))pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(gesture==="pinch"&&pts.size>=2){movePinch();return;}
+  if(gesture==="edge"){
+    const dx=e.clientX-g.x0;
+    const open=clamp(-dx/innerWidth,0,1);g.open=open;
+    $("#slideOver").style.transform=`translateX(${(1-open)*102}%)`;
+    return;
+  }
+  if(gesture!=="swipe")return;
+  const dx=e.clientX-g.x0, dy=e.clientY-g.y0;
+  if(g.lpT&&Math.hypot(dx,dy)>9){clearTimeout(g.lpT);g.lpT=null;}
+  if(!g.lock){
+    if(Math.abs(dx)>10&&Math.abs(dx)>Math.abs(dy)*1.15)g.lock="h";
+    else if(Math.abs(dy)>10)g.lock="v";
+  }
+  if(g.lock==="h"){
+    if(g.lpT){clearTimeout(g.lpT);g.lpT=null;}
+    g.hist.push([e.clientX,performance.now()]);
+    if(g.hist.length>6)g.hist.shift();
+    let ex=dx;
+    const max=SERVERS[srvIdx].channels.length-1;
+    if((chIdx===0&&dx>0)||(chIdx===max&&dx<0))ex=dx*.32;
+    setStripX(false,ex);
+  }
+});
+function endPointer(e){
+  pts.delete(e.pointerId);
+  if(lpJustFired){lpJustFired=false;guardClicks();}
+  if(gesture==="pinch"){if(pts.size<2)endPinch();return;}
+  if(gesture==="edge"){
+    gesture=null;$("#slideOver").classList.remove("dragging");
+    $("#slideOver").style.transform="";
+    if(g.open>0.25)openSlideOver();else closeSlideOver();
+    return;
+  }
+  if(gesture!=="swipe")return;
+  if(g.lpT){clearTimeout(g.lpT);g.lpT=null;}
+  if(g.lock==="h"){
+    const dx=e.clientX-g.x0;
+    let v=0;
+    if(g.hist.length>1){const a=g.hist[0],b=g.hist[g.hist.length-1];
+      const dt=b[1]-a[1];if(dt>0)v=(b[0]-a[0])/dt;}
+    const max=SERVERS[srvIdx].channels.length-1;
+    let target=chIdx;
+    if(dx<-innerWidth*.32||v<-0.45)target=Math.min(max,chIdx+1);
+    else if(dx>innerWidth*.32||v>0.45)target=Math.max(0,chIdx-1);
+    if(target!==chIdx){chIdx=target;buzz(6);updatePill();}
+    setStripX(true);
+  }
+  gesture=null;
+}
+window.addEventListener("pointerup",endPointer);
+window.addEventListener("pointercancel",e=>{
+  pts.delete(e.pointerId);
+  if(gesture==="pinch"){endPinch(true);return;}
+  if(gesture==="swipe"){if(g.lpT){clearTimeout(g.lpT);g.lpT=null;}setStripX(true);}
+  if(gesture==="edge"){$("#slideOver").classList.remove("dragging");$("#slideOver").style.transform="";closeSlideOver();}
+  gesture=null;
+});
+
+/* ── pinch → orbit map ──────────────────────────────────────────────── */
+function pDist(){const a=[...pts.values()];return Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}
+function startPinch(){
+  if(g&&g.lpT){clearTimeout(g.lpT);g.lpT=null;}
+  setStripX(true); // abandon any swipe
+  gesture="pinch";g={d0:pDist(),ratio:1};
+  chatLayer.classList.add("no-trans");
+}
+function movePinch(){
+  g.ratio=pDist()/g.d0;
+  // pinch-IN zooms out to the orbit map; pinch-OUT (spread) just rubber-bands —
+  // spreading must never warp you away from where you're zooming in
+  const s=clamp(g.ratio,.55,1.08);
+  chatLayer.style.transform=`scale(${s})`;
+  chatLayer.style.opacity=String(1-clamp((1-g.ratio)*.8,0,.3));
+  if(g.ratio<0.7){endPinch(false,true);}
+}
+function endPinch(cancelled,fire){
+  gesture=null;pts.clear();
+  chatLayer.classList.remove("no-trans");
+  chatLayer.style.transform="";chatLayer.style.opacity="";
+  if(fire&&!cancelled){buzz(14);openMap();}
+}
+
+/* ── orbit map build / pan / warp ───────────────────────────────────── */
+let pan={x:0,y:0},mapMoved=false;
+/* ALL map geometry derives from the live viewport (UX-equality: no fixed-
+   device pixel assumptions). The active system is centered; the channel
+   orbit radius fits the narrow axis; far servers dock in the top corners
+   so their glow is always on-screen, whatever the screen size. */
+function mapGeom(){
+  const vw=innerWidth,vh=innerHeight;
+  const nodeR=clamp(Math.min(vw/2-45,vh/2-160),88,170);
+  const farX=vw/2-70, farY=-(vh/2-clamp(vh*.16,96,150));
+  return {nodeR,slots:[{x:farX,y:farY},{x:-farX,y:farY}]};
+}
+function buildMap(){
+  const w=$("#mapWorld");w.innerHTML="";
+  const gm=mapGeom();
+  $("#orbitMap").style.setProperty("--nodeR",gm.nodeR+"px");
+  let slot=0;
+  SERVERS.forEach((s,si)=>{
+    if(si===srvIdx){s._mx=0;s._my=0;}
+    else{const sl=gm.slots[slot++%gm.slots.length];s._mx=sl.x;s._my=sl.y;}
+    const grp=document.createElement("div");grp.className="srv"+(si===srvIdx?" active":(s.locked?" far locked":" far"));
+    grp.style.left=`calc(50% + ${s._mx}px)`;grp.style.top=`calc(50% + ${s._my}px)`;
+    let h=`<button class="core" data-srv="${si}">${s.glyph}<span class="nm">${esc(s.name)}</span><span class="sub">${esc(s.sub||"")}</span></button>`;
+    if(si===srvIdx){
+      h+=`<div class="haloRing r1"></div><div class="haloRing outer"></div>`;
+      h+=`<div class="orbit">`;
+      const n=s.channels.length;
+      s.channels.forEach((c,ci)=>{
+        const a=Math.round(ci*(360/Math.max(n,1))-90);
+        h+=`<div class="nodePos" style="--a:${a}deg"><div class="nodeIn"><button class="node" data-ch="${ci}">
+            ${c.unread?'<span class="dot"></span>':''}<span class="h">#</span><span class="cn">${esc(c.name)}</span></button></div></div>`;
+      });
+      h+=`</div>`;
+    }
+    grp.innerHTML=h;w.appendChild(grp);
+  });
+  pan={x:0,y:0};
+  w.classList.add("no-trans");
+  w.style.transform=`translate(0px,0px)`;
+  void w.offsetWidth;
+  w.classList.remove("no-trans");
+}
+function openMap(){
+  if(mode!=="chat")return;
+  mode="map";document.body.classList.add("mode-map");
+  collapseComposer();
+  buildMap();
+  const om=$("#orbitMap");
+  om.style.display="block";om.style.transformOrigin="50% 50%";
+  om.classList.remove("dive");
+  raf2(()=>om.classList.add("live"));
+  chatLayer.classList.add("warp-out");
+}
+function enterChannel(ci,nodeEl){
+  if(mode!=="map")return;
+  mode="warp";buzz(10);
+  chIdx=ci;setStripX(false);updatePill();
+  const om=$("#orbitMap");
+  if(nodeEl){const r=nodeEl.getBoundingClientRect();
+    om.style.transformOrigin=`${r.left+r.width/2}px ${r.top+r.height/2}px`;}
+  om.classList.remove("live");om.classList.add("dive");
+  chatLayer.classList.add("no-trans","warp-in");
+  chatLayer.classList.remove("warp-out");
+  raf2(()=>{chatLayer.classList.remove("no-trans");chatLayer.classList.remove("warp-in");});
+  document.body.classList.remove("mode-map");
+  setTimeout(()=>{om.classList.remove("dive");om.style.display="none";mode="chat";},580);
+}
+// map pan + taps
+const om=$("#orbitMap");
+let mapDrag=null;
+om.addEventListener("pointerdown",e=>{
+  if(mode!=="map")return;
+  mapDrag={x0:e.clientX,y0:e.clientY,px:pan.x,py:pan.y};mapMoved=false;
+  $("#mapWorld").classList.add("no-trans");
+});
+om.addEventListener("pointermove",e=>{
+  if(!mapDrag)return;
+  const dx=e.clientX-mapDrag.x0,dy=e.clientY-mapDrag.y0;
+  if(Math.hypot(dx,dy)>10)mapMoved=true;
+  pan.x=mapDrag.px+dx;pan.y=mapDrag.py+dy;
+  $("#mapWorld").style.transform=`translate(${pan.x}px,${pan.y}px)`;
+});
+function endMapDrag(){mapDrag=null;$("#mapWorld").classList.remove("no-trans");}
+om.addEventListener("pointerup",endMapDrag);
+om.addEventListener("pointercancel",endMapDrag);
+om.addEventListener("click",e=>{
+  if(mapMoved){mapMoved=false;return;}
+  const node=e.target.closest(".node");
+  if(node){enterChannel(+node.dataset.ch,node);return;}
+  const sat=e.target.closest(".sat");
+  if(sat){openSlideOver();return;}
+  const core=e.target.closest(".core");
+  if(core){
+    const si=+core.dataset.srv;
+    if(si===srvIdx){enterChannel(chIdx,core);return;}
+    if(SERVERS[si].locked){toast("◈ Offensive Bias är förseglad — väntar på nästa våg");return;}
+    // glide the world so the tapped system flies to center, then re-anchor it
+    const s=SERVERS[si];
+    pan={x:-s._mx,y:-s._my};
+    $("#mapWorld").style.transform=`translate(${pan.x}px,${pan.y}px)`;
+    buzz(8);
+    setTimeout(()=>{srvIdx=si;chIdx=0;renderStrip();updatePill();buildMap();},430);
+  }
+});
+
+/* ── pill ───────────────────────────────────────────────────────────── */
+$("#pill").addEventListener("click",()=>{if(mode==="chat")openMap();});
+
+/* ── messages: whisper reveal + shout reshake (tap) ─────────────────── */
+strip.addEventListener("click",e=>{
+  if(guarded())return;
+  const w=e.target.closest(".msg.whisper");
+  if(w){w.classList.toggle("revealed");return;}
+  const s=e.target.closest(".msg.shout .bubble");
+  if(s){s.classList.remove("shake");void s.offsetWidth;s.classList.add("shake");return;}
+  if(document.body.classList.contains("composing")&&!e.target.closest("#composer"))collapseComposer();
+});
+
+/* ── composer orb / bar / charge ring / effects ─────────────────────── */
+const orb=$("#orb"),input=$("#msgInput"),sendBtn=$("#sendBtn"),arc=sendBtn.querySelector(".arc");
+const CIRC=151;
+let orbLp=null,orbLpFired=false;
+orb.addEventListener("pointerdown",e=>{
+  orbLpFired=false;
+  orbLp=setTimeout(()=>{orbLpFired=true;buzz(14);showFxRing();},480);
+});
+orb.addEventListener("pointerup",()=>{
+  clearTimeout(orbLp);
+  if(orbLpFired){guardClicks();return;} // shield the fx ring from the trailing click
+  expandComposer();
+});
+orb.addEventListener("pointercancel",()=>clearTimeout(orbLp));
+function expandComposer(){
+  guardClicks();
+  document.body.classList.add("composing");
+  setTimeout(()=>input.focus({preventScroll:true}),240);
+}
+function collapseComposer(){
+  document.body.classList.remove("composing");
+  input.blur();
+}
+$("#collapseBtn").addEventListener("click",collapseComposer);
+input.addEventListener("input",()=>{
+  const p=clamp(input.value.length/110,0,1);
+  arc.style.strokeDashoffset=String(CIRC*(1-p));
+  sendBtn.classList.toggle("full",p>=1);
+  const gr=document.getElementById("ghostRow");
+  if(gr)gr.classList.toggle("hot",input.value.length>0);
+});
+sendBtn.addEventListener("pointerdown",e=>e.preventDefault()); // keep keyboard
+sendBtn.addEventListener("click",()=>{
+  const txt=input.value.trim();
+  if(!txt){toast("Tomt i tomrummet — skriv något först");return;}
+  const now=new Date(),t=now.toTimeString().slice(0,5);
+  const m={a:"MAKANT BIAS",mine:true,t,body:txt};
+  if(armedFx)m.effect=armedFx;
+  SERVERS[srvIdx].channels[chIdx].msgs.push(m);
+  const sc=strip.children[chIdx].querySelector(".scroller");
+  const typingEl=sc.querySelector(".typing");
+  const el=msgEl(m);
+  if(typingEl)sc.insertBefore(el,typingEl);else sc.appendChild(el);
+  sc.scrollTo({top:sc.scrollHeight,behavior:"smooth"});
+  input.value="";arc.style.strokeDashoffset=String(CIRC);sendBtn.classList.remove("full");
+  if(armedFx){toast({whisper:"🌫 viskat",shout:"📣 ropat genom däcket",spell:"✨ besvärjelse kastad"}[armedFx]);disarm();}
+  buzz(8);
+  const gr=document.getElementById("ghostRow");if(gr)gr.classList.remove("hot");
+});
+input.addEventListener("keydown",e=>{if(e.key==="Enter")sendBtn.click();});
+
+const fxRing=$("#effectRing");
+function showFxRing(){
+  guardClicks();
+  fxRing.classList.add("open");
+  fxRing.querySelectorAll(".fxBtn").forEach(b=>b.classList.toggle("armed",b.dataset.fx===armedFx));
+  raf2(()=>fxRing.classList.add("in"));
+}
+function hideFxRing(){
+  fxRing.classList.remove("in");
+  setTimeout(()=>fxRing.classList.remove("open"),300);
+}
+fxRing.addEventListener("click",e=>{
+  const b=e.target.closest(".fxBtn");
+  if(!b){if(!guarded())hideFxRing();return;}
+  const fx=b.dataset.fx;
+  if(armedFx===fx){disarm();hideFxRing();return;}
+  armedFx=fx;
+  orb.dataset.armed=fx;
+  $("#orbBadge").textContent={whisper:"🌫",shout:"📣",spell:"✨"}[fx];
+  const chip=$("#fxChip");
+  chip.innerHTML={whisper:"🌫 VISKNING LADDAD",shout:"📣 ROP LADDAT",spell:"✨ BESVÄRJELSE LADDAD"}[fx]+"&nbsp;&nbsp;✕";
+  chip.classList.add("on");
+  toast({whisper:"Nästa meddelande viskas",shout:"Nästa meddelande ropas",spell:"Nästa meddelande förtrollas"}[fx]);
+  buzz(10);hideFxRing();
+});
+function disarm(){armedFx=null;delete orb.dataset.armed;$("#orbBadge").textContent="";$("#fxChip").classList.remove("on");}
+$("#fxChip").addEventListener("click",disarm);
+
+/* ── radial message menu ────────────────────────────────────────────── */
+const radial=$("#radial");
+function showRadial(x,y,msgEl_){
+  guardClicks();
+  const mine=msgEl_.dataset.mine==="1",kind=msgEl_.dataset.kind,author=msgEl_.dataset.author;
+  radial.querySelectorAll(".rItem,.rCenter").forEach(n=>n.remove());
+  const cx=clamp(x,96,innerWidth-96),cy=clamp(y,150,innerHeight-150);
+  const base=Math.atan2(innerHeight/2-cy,innerWidth/2-cx);
+  const items=[
+    {ic:"↩",lb:"svara",ok:true,fn:()=>{closeRadial();expandComposer();input.value=`@${author} `;input.dispatchEvent(new Event("input"));toast(`Svarar ${author}`);} },
+    {ic:"⧉",lb:"kopiera",ok:true,fn:()=>{const b=msgEl_.querySelector(".bubble,.chip");
+        try{navigator.clipboard&&navigator.clipboard.writeText(b?b.textContent:"");}catch(e){}
+        toast("Kopierat till urklipp");closeRadial();}},
+    {ic:"✎",lb:"ändra",ok:mine&&kind!=="roll",no:kind==="roll"?"🔒 Ödet är oföränderligt":"Bara dina egna ord",fn:()=>{toast("Redigering — demo");closeRadial();}},
+    {ic:"✕",lb:"radera",danger:true,ok:mine&&kind!=="roll",no:kind==="roll"?"🔒 Ödet är oföränderligt":"Bara dina egna ord",
+      fn:()=>{closeRadial();msgEl_.classList.add("vanish");setTimeout(()=>msgEl_.remove(),300);toast("Upplöst i tomrummet");}}
+  ];
+  const R=96,SPREAD=Math.PI*0.72;
+  const dot=document.createElement("div");dot.className="rCenter";dot.style.left=cx+"px";dot.style.top=cy+"px";
+  radial.appendChild(dot);
+  items.forEach((it,i)=>{
+    const a=base-SPREAD/2+SPREAD*(i/(items.length-1));
+    const b=document.createElement("button");
+    b.className="rItem"+(it.danger?" danger":"")+(it.ok?"":" dim");
+    b.style.left=cx+"px";b.style.top=cy+"px";
+    b.style.setProperty("--tx",(Math.cos(a)*R).toFixed(1)+"px");
+    b.style.setProperty("--ty",(Math.sin(a)*R).toFixed(1)+"px");
+    b.innerHTML=`<span class="ic">${it.ic}</span><span class="lb">${it.lb}</span>`;
+    b.addEventListener("click",ev=>{ev.stopPropagation();
+      if(!it.ok){toast(it.no);return;}it.fn();});
+    radial.appendChild(b);
+  });
+  radial.classList.add("open");
+  raf2(()=>radial.classList.add("in"));
+}
+function closeRadial(){
+  radial.classList.remove("in");
+  setTimeout(()=>radial.classList.remove("open"),260);
+}
+radial.querySelector(".radScrim").addEventListener("click",()=>{if(!guarded())closeRadial();});
+
+/* ── slide-over ─────────────────────────────────────────────────────── */
+const so=$("#slideOver");
+function openSlideOver(){so.classList.add("open");so.style.transform="";}
+function closeSlideOver(){so.classList.remove("open");so.style.transform="";}
+$("#soClose").addEventListener("click",closeSlideOver);
+// swipe right inside the panel to close
+let soDrag=null;
+so.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".tgl,.pcard,#soClose"))return;
+  soDrag={x0:e.clientX,y0:e.clientY,lock:null};
+});
+so.addEventListener("pointermove",e=>{
+  if(!soDrag)return;
+  const dx=e.clientX-soDrag.x0,dy=e.clientY-soDrag.y0;
+  if(!soDrag.lock){
+    if(Math.abs(dx)>12&&Math.abs(dx)>Math.abs(dy)*1.2)soDrag.lock="h";
+    else if(Math.abs(dy)>12)soDrag.lock="v";
+  }
+  if(soDrag.lock==="h"&&dx>0){
+    so.classList.add("dragging");
+    so.style.transform=`translateX(${dx}px)`;soDrag.dx=dx;
+  }
+});
+function endSoDrag(){
+  if(!soDrag)return;
+  so.classList.remove("dragging");
+  if((soDrag.dx||0)>innerWidth*.28){so.style.transform="";closeSlideOver();}
+  else so.style.transform="";
+  soDrag=null;
+}
+so.addEventListener("pointerup",endSoDrag);
+so.addEventListener("pointercancel",endSoDrag);
+so.addEventListener("click",e=>{
+  const t=e.target.closest(".tgl");
+  if(t){t.classList.toggle("on");buzz(6);return;}
+  const p=e.target.closest(".pcard");
+  if(p&&!p.classList.contains("newp")){
+    so.querySelectorAll(".pcard").forEach(c=>{c.classList.remove("active");const k=c.querySelector(".pcheck");if(k)k.remove();});
+    p.classList.add("active");
+    const chk=document.createElement("span");chk.className="pcheck";chk.textContent="✓";p.appendChild(chk);
+    toast(`${p.dataset.pname} bärs nu i #${SERVERS[srvIdx].channels[chIdx].name}`);
+  }else if(p){toast("Ny gestalt — demo");}
+});
+
+/* ── hints ──────────────────────────────────────────────────────────── */
+const hints=$("#hints");
+const hintScroll=hints.querySelector(".hintScroll");
+// bottom fade = "more below" affordance; clears when scrolled to the end
+function updHintFade(){hintScroll.classList.toggle("fade",hintScroll.scrollHeight-hintScroll.clientHeight-hintScroll.scrollTop>14);}
+hintScroll.addEventListener("scroll",updHintFade,{passive:true});
+function openHints(){hints.classList.add("open");raf2(()=>{hints.classList.add("in");updHintFade();});}
+function closeHints(){hints.classList.remove("in");setTimeout(()=>hints.classList.remove("open"),320);}
+$("#helpBtn").addEventListener("click",openHints);
+$("#hintsOk").addEventListener("click",closeHints);
+hints.addEventListener("click",e=>{if(e.target===hints)closeHints();});
+
+/* ── keyboard lift (iOS visualViewport) ─────────────────────────────── */
+if(window.visualViewport){
+  const vv=window.visualViewport;
+  const lift=()=>{
+    const off=Math.max(0,innerHeight-vv.height-vv.offsetTop);
+    $("#composer").style.bottom=off>0?`${off}px`:"0px";
+  };
+  vv.addEventListener("resize",lift);vv.addEventListener("scroll",lift);
+}
+window.addEventListener("resize",()=>{setStripX(false);if(mode==="map")buildMap();});
+window.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){if(mode==="map")enterChannel(chIdx,null);else closeRadial();}
+});
+
+/* ── boot ───────────────────────────────────────────────────────────── */
+renderStrip();
+updatePill();
+try{
+  if(!localStorage.getItem("orbitHintsSeen")){
+    localStorage.setItem("orbitHintsSeen","1");
+    setTimeout(openHints,700);
+  }
+}catch(e){setTimeout(openHints,700);}
+</script>
+</body>
+</html>

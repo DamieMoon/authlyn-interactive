@@ -15,6 +15,14 @@ use crate::server::state::AppState;
 // DELETE /guilds/{id}
 // ---------------------------------------------------------------------------
 
+/// DELETE /guilds/{id} — soft-delete a guild the caller **owns** (#22).
+/// `require_owner` gates it (admins can't; non-member → 404, plain member →
+/// 403). It stamps `deleted_at` and leaves channels/members/messages intact, so
+/// it vanishes from every read (all filter `deleted_at = NONE`) but
+/// `restore_guild` brings the whole guild back; the purge sweep hard-deletes it
+/// + its children after the 30d window. Round-trip pinned by
+/// `tests/soft_delete.rs::guild_soft_delete_then_restore`; the immutable-while-
+/// trashed contract by `tests/soft_delete.rs::manager_mutations_on_a_soft_deleted_guild_are_404`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn delete_guild(
     State(state): State<AppState>,
@@ -39,7 +47,10 @@ pub async fn delete_guild(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            state.emit(crate::protocol::SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_guild failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -70,7 +81,10 @@ pub async fn restore_guild(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(crate::protocol::SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_guild failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

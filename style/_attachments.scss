@@ -56,7 +56,7 @@
 		aspect-ratio: 1 / 1;
 		border-radius: 8px;
 		background: var(--attachment-bg);
-		color: var(--ink);
+		color: var(--text);
 		text-decoration: none;
 		cursor: pointer;
 
@@ -128,7 +128,7 @@
 			border-radius: 50%;
 			border: none;
 			background: var(--backdrop-deep);
-			color: var(--ink);
+			color: var(--text);
 			cursor: pointer;
 			line-height: 1;
 			font-size: 0.8rem;
@@ -156,7 +156,7 @@
 			.att-progress-bar {
 				height: 100%;
 				border-radius: inherit;
-				background: var(--gold);
+				background: var(--accent);
 				transition: width 0.15s linear;
 			}
 
@@ -175,7 +175,7 @@
 			align-items: center;
 			justify-content: center;
 			border-radius: 8px;
-			background: color-mix(in srgb, var(--ink-danger) 28%, transparent);
+			background: color-mix(in srgb, var(--danger) 28%, transparent);
 
 			.att-retry {
 				width: 1.8rem;
@@ -184,7 +184,7 @@
 				border-radius: 50%;
 				border: none;
 				background: var(--backdrop-deep);
-				color: var(--gold-warm);
+				color: var(--accent-bright);
 				cursor: pointer;
 				line-height: 1;
 				font-size: 1rem;

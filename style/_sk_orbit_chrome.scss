@@ -1,0 +1,1532 @@
+// M5/P2 Orbit (`sk-orbit`) structural skeleton. Full-viewport channel
+// panes in a horizontal swipe strip, a holographic channel pill opening the
+// orbit-map picker (pill-tap entry only), a floating composer orb with a charge
+// ring + effect blossom, and a right-edge HoloPanel slide-over. EVERY rule is
+// `.app.sk-orbit`-prefixed so it can never match a deck/hud session or the
+// retained M3 scaffolding. Loaded AFTER the M3 nav partials in main.scss so an
+// equal-specificity tie resolves in orbit's favour. Motion is transform/opacity
+// only (tests/style_lint.rs); glass is glass-etched at Standard, glass-live
+// under .fx-max. Safe-area: each edge is owned exactly once (the pill owns top,
+// the orb/composer owns bottom, the slide-over owns its own edges).
+@use "tokens" as *;
+@use "foundation" as *;
+
+// Orbit is a single full-viewport stage — the M3 rail/sidebar columns are not
+// part of this skeleton. The shared overlays (sheet/modals/toast/ceremony) and
+// the body-portal overlays (radial/lightbox/emoji) are unchanged.
+.app.sk-orbit {
+	display: block;
+	position: relative;
+	// svh, NOT dvh: on the iOS 26.5 standalone PWA `100dvh` resolves to the
+	// VISUAL viewport (778px here) while the document's layout/client height is
+	// the SMALL viewport (`100svh` = 762px — measured). A dvh shell is 16px
+	// taller than the document can show → a thin phantom vertical scroll on top
+	// of the composer-spill one. svh matches the layout viewport exactly, and
+	// the bottom chrome (orb/help/stars) is all `position: fixed` to the visual
+	// viewport, so the shorter shell leaves no visible gap.
+	min-height: 100vh; // fallback first
+	min-height: 100svh;
+	// iOS WebKit: suppress native text-selection + the long-press callout so the
+	// long-press radial action menu (channel/radial.rs) is NOT hijacked into
+	// selecting the whole screen blue (owner found this on his real iPhone;
+	// Playwright never showed it). Mirrors the prototype's body rule
+	// (a-orbit.html:40); the composer textarea opts back IN below.
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+// Re-enable selection where the user actually types (prototype a-orbit.html:43);
+// chat copy flows through the message action menu, not native selection.
+.app.sk-orbit textarea,
+.app.sk-orbit input {
+	-webkit-user-select: text;
+	user-select: text;
+}
+.app.sk-orbit .content.sk-orbit-content {
+	height: 100vh; // fallback first
+	height: 100svh; // svh = the layout viewport (=document client height) on the
+	// iOS standalone PWA; dvh resolved 16px TALLER than the document could show
+	// → a phantom vertical scroll (see the `.app.sk-orbit` min-height note).
+	display: flex;
+	flex-direction: column;
+	// Positioning context for the scene-light ::before (so its inset:0 maps to
+	// the content box, not the grandparent .app.sk-orbit).
+	position: relative;
+	// Clip BOTH axes at the 100dvh shell. `clip`, NOT `hidden`: per CSS Overflow
+	// L3 (MDN), `clip` forbids all scrolling and creates NO scroll container, so
+	// the sticky pill and the per-pane `.messages` auto-scroll are untouched
+	// (`hidden` would have made this a scroll container and trapped both).
+	//   - overflow-x: the 300vw swipe-strip's off-screen prev/next panes (owner
+	//     2026-06-17 side-scroller — every channel let the page scroll right 1vw).
+	//   - overflow-y: the at-rest `.composer` is `position:absolute` and hidden by
+	//     translating DOWN; its translated box stayed in the document's scrollable
+	//     overflow (iOS 26.5 keeps overflow-y VISIBLE under an x-only clip —
+	//     measured, contra the "Safari clips both axes" claim), spilling ~150px
+	//     below 100dvh → a phantom vertical scrollbar on near-empty channels.
+	//     Clipping y contains that spill at the shell. (When composing, the
+	//     composer slides to translateY(0) inside the viewport, so it's not clipped.)
+	overflow: clip;
+}
+// Scene-light (#B, eye-candy): an ambient wash from the active speaker's tint. Only
+// at the eye-candy tier (.fx-max) — NEVER at Standard. Static gradient (no
+// keyframe); the tint updates reactively via --scene-tint.
+.app.fx-max.sk-orbit .sk-orbit-content::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+	background: radial-gradient(
+		120% 80% at 50% 100%,
+		var(--scene-tint, transparent) 0%,
+		transparent 60%
+	);
+	opacity: 0.12;
+}
+// ---- F3 Starfield (Standard tier, NOT fx-max) ----
+// The prototype's void-station ambience: a fixed full-screen starfield BELOW
+// content (z-index:-1), so the panes/chrome float over a faint star wash. Two
+// COUNTER-PHASED layers (one fading out while the other fades in) read as a
+// slow, alive twinkle — the prototype's #starsA/#starsB (a-orbit.html:52-56).
+// Gated by `.app.sk-orbit` (set on `.app` alongside `.sk-orbit`) so it
+// only paints under this skeleton.
+//
+// Each layer is a single 1px FIXED box whose stars are a STATIC pre-baked
+// multi-value box-shadow (the sanctioned pattern — the dots are spread as
+// box-shadow offsets; box-shadow is NEVER animated, only opacity is). The
+// twinkle keyframes touch OPACITY ONLY, and each layer carries an `fx-`
+// prefixed class so the GLOBAL reduced-motion kill (`[class*="fx-"]`,
+// _motion.scss) auto-covers both — no _motion.scss edit, no local guard.
+// `:is(.app.sk-orbit, .sk-orbit-map)` so the field renders BOTH behind the chat
+// (under `.app`) AND inside the body-portal map (a `.app` sibling the fixed app
+// field can't reach). In the map it rests at z:-1 — above the map's own bg layer
+// (CSS paints negative-z children over the parent background), below the core.
+:is(.app.sk-orbit, .sk-orbit-map) .sk-orbit-stars {
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	// Each child layer is a degenerate 1px box; the visible field is its
+	// box-shadow. Centre it so the vw/vh-anchored offsets land on-screen.
+	overflow: hidden;
+}
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-a,
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-b {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 1px;
+	height: 1px;
+	border-radius: 50%;
+}
+// ~46 dots (≈0.7px, a few 1.4px), faint→bright twinkle.
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-a {
+	box-shadow:
+		7.2vw 14.6vh 0 0.7px rgba(221, 230, 242, 0.42),
+		18.3vw 71.4vh 0 0.7px rgba(221, 230, 242, 0.33),
+		29.1vw 8.2vh 0 1.4px rgba(221, 230, 242, 0.55),
+		41.7vw 52.9vh 0 0.7px rgba(221, 230, 242, 0.4),
+		3.4vw 88.1vh 0 0.7px rgba(221, 230, 242, 0.36),
+		63.8vw 23.5vh 0 0.7px rgba(221, 230, 242, 0.5),
+		88.2vw 11.3vh 0 1.4px rgba(221, 230, 242, 0.47),
+		54.1vw 6.7vh 0 0.7px rgba(221, 230, 242, 0.39),
+		72.6vw 41.2vh 0 0.7px rgba(221, 230, 242, 0.34),
+		11.9vw 33.8vh 0 0.7px rgba(221, 230, 242, 0.45),
+		95.4vw 61.7vh 0 0.7px rgba(221, 230, 242, 0.31),
+		47.3vw 19.4vh 0 0.7px rgba(221, 230, 242, 0.48),
+		26.8vw 94.6vh 0 1.4px rgba(221, 230, 242, 0.52),
+		81.1vw 78.2vh 0 0.7px rgba(221, 230, 242, 0.37),
+		6.5vw 49.3vh 0 0.7px rgba(221, 230, 242, 0.41),
+		34.7vw 64.8vh 0 0.7px rgba(221, 230, 242, 0.35),
+		59.2vw 87.1vh 0 0.7px rgba(221, 230, 242, 0.44),
+		92.8vw 38.5vh 0 0.7px rgba(221, 230, 242, 0.32),
+		15.6vw 5.9vh 0 0.7px rgba(221, 230, 242, 0.46),
+		68.4vw 96.2vh 0 0.7px rgba(221, 230, 242, 0.3),
+		43.9vw 73.7vh 0 1.4px rgba(221, 230, 242, 0.5),
+		78.5vw 14.1vh 0 0.7px rgba(221, 230, 242, 0.38),
+		22.1vw 56.4vh 0 0.7px rgba(221, 230, 242, 0.43),
+		51.7vw 31.8vh 0 0.7px rgba(221, 230, 242, 0.33),
+		86.3vw 84.9vh 0 0.7px rgba(221, 230, 242, 0.47),
+		9.8vw 67.2vh 0 0.7px rgba(221, 230, 242, 0.36),
+		37.4vw 42.6vh 0 0.7px rgba(221, 230, 242, 0.4),
+		64.9vw 9.4vh 0 0.7px rgba(221, 230, 242, 0.34),
+		97.2vw 51.1vh 0 1.4px rgba(221, 230, 242, 0.49),
+		19.3vw 79.8vh 0 0.7px rgba(221, 230, 242, 0.42),
+		56.8vw 62.3vh 0 0.7px rgba(221, 230, 242, 0.31),
+		74.1vw 27.9vh 0 0.7px rgba(221, 230, 242, 0.45),
+		4.7vw 17.6vh 0 0.7px rgba(221, 230, 242, 0.37),
+		31.2vw 91.4vh 0 0.7px rgba(221, 230, 242, 0.43),
+		48.6vw 46.8vh 0 0.7px rgba(221, 230, 242, 0.35),
+		83.9vw 69.5vh 0 0.7px rgba(221, 230, 242, 0.48),
+		12.4vw 23.1vh 0 0.7px rgba(221, 230, 242, 0.33),
+		61.7vw 84.2vh 0 0.7px rgba(221, 230, 242, 0.46),
+		90.5vw 4.8vh 0 0.7px rgba(221, 230, 242, 0.39),
+		26.3vw 58.7vh 0 0.7px rgba(221, 230, 242, 0.41),
+		53.8vw 11.9vh 0 0.7px rgba(221, 230, 242, 0.34),
+		77.2vw 73.4vh 0 1.4px rgba(221, 230, 242, 0.5),
+		8.1vw 96.8vh 0 0.7px rgba(221, 230, 242, 0.36),
+		39.6vw 35.2vh 0 0.7px rgba(221, 230, 242, 0.44),
+		66.4vw 67.1vh 0 0.7px rgba(221, 230, 242, 0.32),
+		94.7vw 28.4vh 0 0.7px rgba(221, 230, 242, 0.47);
+	animation: fx-sk-orbit-twinkle-a 5.5s ease-in-out infinite alternate;
+}
+// ~34 offset dots, counter-phased (bright→faint while -a does faint→bright).
+:is(.app.sk-orbit, .sk-orbit-map) .fx-sk-orbit-stars-b {
+	box-shadow:
+		13.7vw 6.2vh 0 0.7px rgba(221, 230, 242, 0.4),
+		45.2vw 88.3vh 0 0.7px rgba(221, 230, 242, 0.34),
+		71.8vw 17.6vh 0 1.4px rgba(221, 230, 242, 0.52),
+		27.4vw 49.1vh 0 0.7px rgba(221, 230, 242, 0.38),
+		89.6vw 72.9vh 0 0.7px rgba(221, 230, 242, 0.33),
+		5.9vw 33.5vh 0 0.7px rgba(221, 230, 242, 0.45),
+		58.3vw 9.8vh 0 0.7px rgba(221, 230, 242, 0.41),
+		82.7vw 54.2vh 0 0.7px rgba(221, 230, 242, 0.35),
+		18.1vw 81.7vh 0 1.4px rgba(221, 230, 242, 0.48),
+		49.6vw 26.4vh 0 0.7px rgba(221, 230, 242, 0.37),
+		74.3vw 93.1vh 0 0.7px rgba(221, 230, 242, 0.32),
+		10.8vw 62.8vh 0 0.7px rgba(221, 230, 242, 0.44),
+		36.5vw 14.3vh 0 0.7px rgba(221, 230, 242, 0.39),
+		63.2vw 77.6vh 0 0.7px rgba(221, 230, 242, 0.34),
+		91.7vw 41.9vh 0 1.4px rgba(221, 230, 242, 0.5),
+		23.9vw 68.4vh 0 0.7px rgba(221, 230, 242, 0.36),
+		52.4vw 4.7vh 0 0.7px rgba(221, 230, 242, 0.43),
+		78.9vw 58.1vh 0 0.7px rgba(221, 230, 242, 0.31),
+		7.6vw 86.5vh 0 0.7px rgba(221, 230, 242, 0.46),
+		41.3vw 38.2vh 0 0.7px rgba(221, 230, 242, 0.33),
+		67.8vw 63.7vh 0 0.7px rgba(221, 230, 242, 0.42),
+		95.1vw 19.4vh 0 0.7px rgba(221, 230, 242, 0.37),
+		15.4vw 51.8vh 0 1.4px rgba(221, 230, 242, 0.49),
+		47.9vw 96.3vh 0 0.7px rgba(221, 230, 242, 0.35),
+		73.6vw 31.6vh 0 0.7px rgba(221, 230, 242, 0.4),
+		29.2vw 74.9vh 0 0.7px rgba(221, 230, 242, 0.32),
+		86.8vw 12.7vh 0 0.7px rgba(221, 230, 242, 0.45),
+		3.1vw 64.3vh 0 0.7px rgba(221, 230, 242, 0.38),
+		56.7vw 47.5vh 0 0.7px rgba(221, 230, 242, 0.34),
+		81.4vw 89.2vh 0 1.4px rgba(221, 230, 242, 0.5),
+		20.8vw 22.1vh 0 0.7px rgba(221, 230, 242, 0.41),
+		61.5vw 69.8vh 0 0.7px rgba(221, 230, 242, 0.36),
+		93.2vw 53.4vh 0 0.7px rgba(221, 230, 242, 0.33),
+		34.6vw 84.7vh 0 0.7px rgba(221, 230, 242, 0.44);
+	animation: fx-sk-orbit-twinkle-b 7.5s ease-in-out infinite alternate;
+}
+// OPACITY-ONLY twinkle, counter-phased (-a faint→bright, -b bright→faint), so
+// the field is always alive but never fully dims. style_lint-safe (no paint
+// property in the keyframe body).
+@keyframes fx-sk-orbit-twinkle-a {
+	from { opacity: 0.85; }
+	to { opacity: 0.3; }
+}
+@keyframes fx-sk-orbit-twinkle-b {
+	from { opacity: 0.35; }
+	to { opacity: 0.9; }
+}
+// (M5/P2: the orbit `.sk-orbit-topbar` was REMOVED to match the prototype's
+// clean cosmic top — a-orbit.html has no top bar at all. The pill is now the
+// SOLE top-inset owner, below; the old `.topbar.sk-orbit-topbar` padding-top
+// override is gone with it, which also kills the §13 double-count of the top
+// inset (the base .topbar padding-top + the pill both re-added env()).)
+
+// F4 PILL — the holographic channel capsule (the prototype's #pill,
+// a-orbit.html:144-159). A two-line COLUMN (name over server-tag, dots below),
+// not the old single-row chip. border-radius drops 999px→24px (a rounded
+// rectangle, not a lozenge). The richer drop/halo box-shadow is RE-STATED here
+// AFTER the glass-holo include (the include sets its own shorthand; a later
+// shorthand wins the cascade), so the capsule reads as a deep floating pane:
+// outer accent rim + deep drop + accent halo + glass-holo's inset specular,
+// matching #pill's stack. Static (style_lint: box-shadow never in a keyframe).
+//
+// M5/P2 INTEGRATED-HEADER rebuild (owner's #1 complaint: the pill FLOATED over
+// the messages on real WebKit). ROOT CAUSE (proven on WebKit, 360pt): the pill
+// was `position:fixed` over a scroll list living INSIDE the `transform`ed
+// `.sk-orbit-strip` — that transform is a stacking-context/containing-block
+// boundary the fixed pill's `backdrop-filter` could NOT cross, so the blur
+// computed but never frosted the chat, and crisp message text bled THROUGH and
+// ABOVE the capsule. Fix per the WebKit sticky-in-scroll-container rule: the
+// pill is no longer fixed — it is the in-flow FIRST child (a sticky header row)
+// of the `.sk-orbit-content` flex COLUMN, sitting ABOVE the strip (`flex:1`
+// below). Messages now scroll WITHIN their pane, strictly below the pill band,
+// so nothing can ever render beside/behind/above it again. Centred as a capsule
+// via `align-self`+`margin:auto` (the old `left:50%;translateX(-50%)` centring
+// only worked while fixed). DEPENDENCY: A1's `.messages` top reserve
+// (`_sk_orbit_chat.scss`, was `calc(72px + sat)` for the fixed pill) must drop
+// to a small breathing pad now the pill owns a real header row — filed as a
+// cross-agent request (the prototype's `.scroller` top pad existed only because
+// ITS pill floated; an in-flow header needs none).
+.app.sk-orbit .sk-orbit-pill {
+	// `sticky` (not `fixed`): the pill is in normal flow as the column's header
+	// row, so it reserves real layout space the strip starts below — the
+	// integrated-header pattern. `top` keeps it pinned to the top inset if
+	// `.sk-orbit-content` ever becomes the scroller (today the per-pane
+	// `.messages` scrolls, so sticky resolves to a static top row — exactly the
+	// desired non-floating header, never trapped by the strip transform).
+	position: sticky;
+	top: calc(0.5rem + env(safe-area-inset-top, 0px));
+	// Centre the capsule within the full-width header row (replaces the fixed
+	// `left:50%`+translateX centring) and own the top safe-area inset here.
+	align-self: center;
+	margin: calc(0.5rem + env(safe-area-inset-top, 0px)) auto 0;
+	flex: 0 0 auto;
+	z-index: 30;
+	min-height: 44px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	padding: 7px 22px 9px; // a-orbit.html:145 — exact prototype metrics
+	border-radius: 24px;
+	color: var(--text);
+	@include glass-holo;
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
+		0 6px 28px rgba(0, 0, 0, 0.55),
+		0 0 22px color-mix(in srgb, var(--glow-accent) 30%, transparent),
+		inset 0 1px 0 var(--glass-highlight);
+	// Press feedback (the prototype's #pill:active). transition stays
+	// transform-only (motion doctrine). Now in normal flow (no fixed centring to
+	// preserve), so the press is a plain scale.
+	transition: transform 150ms ease;
+}
+.app.sk-orbit .sk-orbit-pill:active {
+	transform: scale(0.96);
+}
+.app.fx-max .sk-orbit-pill {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-pill-name {
+	font-size: 14px;
+	font-weight: 700;
+	letter-spacing: 0.6px;
+}
+// The leading `#` (its own span under the contract) takes the live guild accent
+// — `--accent` is rebound per-guild at the `.app` root (src/ui/accent.rs).
+.app.sk-orbit .sk-orbit-pill-hash {
+	color: var(--accent);
+}
+.app.sk-orbit .sk-orbit-pill-server {
+	font-family: var(--font-mono); // defined token (_tokens.scss:95)
+	font-size: 9.5px;
+	letter-spacing: 2px;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+.app.sk-orbit .sk-orbit-pill-dots {
+	display: inline-flex;
+	gap: 5px;
+}
+.app.sk-orbit .sk-orbit-dot {
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--line-strong);
+}
+// The active channel's dot lights up with the unread-glow halo (a static
+// box-shadow — never animated) and pops slightly larger.
+.app.sk-orbit .sk-orbit-dot.on {
+	background: var(--accent);
+	box-shadow: 0 0 6px var(--unread-glow);
+	transform: scale(1.25);
+}
+// Re-homed SSE sync signal (M5/P2): a status dot trailing the channel dots —
+// mint + STATIC glow when live, faint when polling — replacing the removed
+// topbar `.sync-chip`, and now visible on mobile (where that chip was display:none).
+.app.sk-orbit .sk-orbit-pill-live {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--text-faint);
+}
+.app.sk-orbit .sk-orbit-pill-live.live {
+	background: var(--live);
+	box-shadow: 0 0 6px color-mix(in srgb, var(--live) 65%, transparent);
+}
+
+// Help button (a-orbit.html #helpBtn): bottom-left "?" glass disc, balancing the
+// bottom-right orb. Hidden while composing so it never crowds the keyboard.
+.app.sk-orbit .sk-orbit-help {
+	position: fixed;
+	left: calc(16px + env(safe-area-inset-left, 0px));
+	bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+	z-index: 20;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	@include glass-holo;
+	font-size: 17px;
+	font-weight: 700;
+	color: var(--text-muted);
+	transition: opacity 0.25s, transform 0.25s;
+}
+.app.sk-orbit .sk-orbit-content.composing .sk-orbit-help {
+	opacity: 0;
+	pointer-events: none;
+	transform: scale(0.6);
+}
+
+// The dispatch panes' back affordance moved INTO the pane `.account-head` bar
+// (the wardrobe-paradigm head, _modal.scss) — owner deck-finding 2026-06-22;
+// the floating `.sk-orbit-pane-back` disc is retired.
+
+// Finding 9 (M7): the swipe-right-to-back wrapper for the six non-channel
+// dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos). A transparent
+// flex column that fills the content shell (so its child pane lays out exactly
+// as it did when it was a direct `.sk-orbit-content` child), bound to the
+// `pane_swipe::PaneSwipe` gesture: the engine writes an inline
+// `transform: translateX(Npx)` per move and a `.dragging` class to kill the
+// spring-back transition (mirrors the `.sk-orbit-strip--snap` discipline). At
+// rest (and on a non-committing release) the transition eases the panel home.
+// `touch-action: pan-y` — the engine owns the horizontal axis; vertical scroll
+// falls through to the pane's own list.
+.app.sk-orbit .sk-orbit-panes {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	// The sticky `.account-head` pane head is this column's scroller-direct
+	// child; the panes scroll under it (round-4 fix 2026-06-22).
+	overflow-y: auto;
+	transition: transform 320ms cubic-bezier(0.18, 0.85, 0.25, 1);
+	touch-action: pan-y;
+}
+// Mid-drag: the engine adds `.dragging` so its per-move inline-transform writes
+// track the finger 1:1 (a permanent transition would smooth/lag them — the same
+// reason the swipe-strip drops `--snap` mid-drag).
+.app.sk-orbit .sk-orbit-panes.dragging {
+	transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-panes {
+		transition: none;
+	}
+}
+
+// Gesture-hints overlay (a-orbit.html #hints / .hintCard) — a portaled modal
+// legend of the orbit's gestures. Unprefixed (body-portal contract, like
+// .sk-orbit-map); the class names are unique to this skeleton.
+.sk-orbit-hints {
+	position: fixed;
+	inset: 0;
+	z-index: 90;
+	// Swallow touch on the full-cover overlay so iOS WebKit can't scroll/bounce
+	// the chat behind it (same bug class as `.sk-orbit-map`; owner found it on
+	// his iPhone). The inner `.sk-orbit-hints-rows` is its own scroll container
+	// and still scrolls (proven by `.account-modal` inside its touch-action:none
+	// backdrop) — its overscroll is contained below.
+	touch-action: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--scrim);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
+	animation: sk-orbit-hints-in 300ms ease;
+}
+@keyframes sk-orbit-hints-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+.sk-orbit-hints-card {
+	width: min(330px, 86vw);
+	max-height: calc(100dvh - 48px);
+	display: flex;
+	flex-direction: column;
+	background: var(--glass-bg);
+	-webkit-backdrop-filter: blur(24px) saturate(150%);
+	backdrop-filter: blur(24px) saturate(150%);
+	border: 1px solid var(--glass-line);
+	border-radius: 26px;
+	padding: 22px 22px 16px;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 var(--glass-highlight);
+	animation: sk-orbit-hints-card-in 350ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+@keyframes sk-orbit-hints-card-in {
+	from { opacity: 0; transform: scale(0.92); }
+	to { opacity: 1; transform: scale(1); }
+}
+.sk-orbit-hints-card h2 {
+	margin: 0;
+	font-size: 18px;
+	letter-spacing: 3px;
+	text-transform: uppercase;
+	text-align: center;
+}
+.sk-orbit-hints-sub {
+	margin: 4px 0 16px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 2.5px;
+	color: var(--accent);
+	text-align: center;
+	text-transform: uppercase;
+}
+.sk-orbit-hints-rows {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	// Don't chain the inner scroll to the (now touch-action:none) overlay/page.
+	overscroll-behavior: contain;
+}
+.sk-orbit-hint-row {
+	display: flex;
+	gap: 13px;
+	align-items: flex-start;
+	margin-bottom: 11px;
+}
+.sk-orbit-hint-g {
+	font-size: 19px;
+	flex: 0 0 28px;
+	text-align: center;
+	filter: drop-shadow(0 0 6px rgba(77, 159, 255, 0.4));
+}
+.sk-orbit-hint-t b {
+	display: block;
+	font-size: 13.5px;
+	letter-spacing: 0.3px;
+}
+.sk-orbit-hint-t span {
+	display: block;
+	font-size: 12px;
+	color: var(--text-muted);
+	line-height: 1.45;
+	margin-top: 1px;
+}
+.sk-orbit-hints-ok {
+	display: block;
+	flex: 0 0 auto;
+	width: 100%;
+	min-height: 48px;
+	margin-top: 14px;
+	border-radius: 24px;
+	background: var(--mention-bg);
+	border: 1px solid var(--accent-soft);
+	color: var(--accent-bright);
+	font-weight: 700;
+	letter-spacing: 1px;
+}
+// Founding (create-server) name field — lives in the hints-card shell.
+.sk-orbit-found-input {
+	display: block;
+	width: 100%;
+	min-height: 48px; // touch floor
+	margin: 6px 0 2px;
+	padding: 0 16px;
+	border-radius: 24px;
+	background: var(--mention-bg);
+	border: 1px solid var(--accent-soft);
+	color: inherit;
+	font-size: 16px; // >=16px so iOS doesn't zoom the viewport on focus
+	letter-spacing: 0.3px;
+}
+.sk-orbit-found-input::placeholder {
+	color: var(--text-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+	.sk-orbit-hints,
+	.sk-orbit-hints-card {
+		animation: none;
+	}
+}
+
+// §13 exactly-once: the orb (.sk-orbit-orb-wrap) owns the bottom inset when IT is
+// the visible affordance (at rest), and the composer owns it when IT is (while
+// composing) — they are NEVER co-present (the orb hides while composing, below),
+// so the home-indicator inset is still counted exactly once.
+//
+// Composer (M5/P2 choreography + glass-pill re-skin — the prototype's #composer /
+// #composerInner, a-orbit.html:246-253). `position:absolute` against the
+// full-height `.channel-view` (already `position:relative`) so it leaves the
+// flex flow — `.messages` (flex:1) reclaims the space, no gap — and can SLIDE:
+// hidden (translateY) at rest, revealed by `.composing` when the orb is tapped.
+// It stays a positioning context for the emoji popover (absolute ≡ relative for
+// that). Re-skinned to the floating glass pill: rounded, glass-holo, deep drop.
+//
+// HIDDEN-AT-REST is BULLETPROOFED for real iOS WebKit (the orchestrator's #a:
+// on the real PWA the composer SHOWED at rest — the slide-out alone was not
+// reliably hiding it). The composer is `position:absolute` and its containing
+// block `.channel-view` is itself `transform`ed + lives inside the scrolled,
+// `transform`ed `.sk-orbit-strip`; a PERCENTAGE translate (translateY(120%))
+// resolves against that box, which on real iOS can compute short of fully
+// off-screen (or paint one frame at translateY(0) before the class lands). So
+// the rest state ALSO sets `opacity:0` + `visibility:hidden` — a hard hide no
+// percentage-transform quirk can defeat, on every engine + the POCO C3 floor.
+// The visible state is driven ENTIRELY by the `.composing` class (not a
+// transitionend): adding it flips visibility/opacity instantly and slides the
+// transform in. Motion stays transform/opacity only (style_lint); `visibility`
+// is not animated (it steps with the class).
+.app.sk-orbit .composer {
+	position: absolute;
+	left: 10px;
+	right: 10px;
+	bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+	z-index: 26;
+	min-height: 54px;
+	border-radius: 27px;
+	align-items: center;
+	padding: 5px 6px;
+	@include glass-holo;
+	// Re-state the deep drop AFTER the include (the mixin sets its own shorthand).
+	box-shadow:
+		0 8px 30px rgba(0, 0, 0, 0.55),
+		inset 0 1px 0 var(--glass-highlight);
+	// Hidden until the orb reveals it. translateY(120%) matches the prototype's
+	// #composer (a-orbit.html:248); opacity:0 + visibility:hidden are the hard
+	// guarantee the slide-out cannot regress on real iOS (see the block note).
+	transform: translateY(120%);
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		transform 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.15),
+		opacity 0.28s ease;
+}
+.sk-orbit-content.composing .composer {
+	transform: translateY(0);
+	opacity: 1;
+	visibility: visible;
+}
+.app.fx-max.sk-orbit .composer {
+	@include glass-live;
+}
+// The orb hides while composing (the prototype's `body.composing #orb`,
+// a-orbit.html:221) — it scales away and stops catching pointers; the in-composer
+// send button takes over. A spring transition mirrors the reveal.
+.app.sk-orbit .sk-orbit-orb-wrap {
+	transition:
+		transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.15),
+		opacity 0.25s ease;
+}
+.sk-orbit-content.composing .sk-orbit-orb-wrap {
+	transform: scale(0.3);
+	opacity: 0;
+	pointer-events: none;
+}
+// The orb is a COMPOSE trigger now, not a send button, so its charge-arc ring is
+// vestigial (always empty when the orb is visible). Drop it — the breathing
+// `::after` halo + the ✎ glyph carry the resting orb (the prototype's #orb has
+// no arc); the send-arc length feedback lives on the in-composer send button.
+.app.sk-orbit .sk-orbit-ring {
+	display: none;
+}
+// M5/P2 fidelity: collapse the reused M3 markdown toolbar to the prototype's
+// input-only composer — keep ONLY 📎 attach + 😀 emoji (owner ruling: real
+// function the static mockup couldn't model); markdown stays typeable as **/* in
+// the field. Every other `.fmt` (B/i/H/-#/</>/{}/▼/👁) + colour swatches hide.
+.app.sk-orbit .composer .toolbar .fmt:not(.attach):not([title="emoji"]),
+.app.sk-orbit .composer .toolbar .swatch {
+	display: none;
+}
+
+// The orbit MAP is <Portal>'d to document.body (sk_orbit/mod.rs), so it lands
+// as a SIBLING of `.app`, NOT a descendant — an `.app.sk-orbit `-prefixed
+// selector can never match it (verified live: prefixed rules left the nodes
+// `position: static`, scrambling the geometry). So these portaled-overlay
+// rules are UNPREFIXED, exactly like the other body-portal overlays
+// (`.radial-menu` / `.lightbox` in `_content.scss`/`_lightbox.scss`); the
+// `sk-orbit-*` class names are unique to this skeleton, so they're self-scoping
+// (only `SkOrbitShell`, which renders only under `.app.sk-orbit`, emits them).
+.sk-orbit-map {
+	position: fixed;
+	inset: 0;
+	z-index: 80;
+	// Swallow touch on the full-cover overlay so iOS WebKit can't route a vertical
+	// drag to the document and rubber-band the chat BEHIND the map. The app's
+	// <body> stays pannable (`_base.scss` touch-action:manipulation, shared with
+	// non-orbit routes, so it can't be globally locked like the prototype's
+	// `body{position:fixed}`). touch-action intersects along the touch hit-path, so
+	// this root declaration covers the whole map subtree (scrim/core/nodes/dock).
+	// Mirrors the prototype's #orbitMap (a-orbit.html:163); pinned by
+	// tests/style_lint.rs::orbit_map_overlay_blocks_touch_scroll.
+	touch-action: none;
+	// Owns its own insets (body-level overlay, like the body-portal contract).
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+		env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+	// FULL cosmic backdrop — the app's exact aurora stack (_foundation.scss:214-217
+	// / a-orbit.html #aurora): two nebula ellipses (blue top-right, teal bottom-
+	// left) OVER an opaque void→void-deep base. The opaque base (LAST layer) keeps
+	// the chat from bleeding through the body-portal; the nebula ellipses restore
+	// the prototype's bloom the earlier flat-void backdrop had dropped (fidelity
+	// audit 2026-06-16). The starfield rides inside the portal (the
+	// `.sk-orbit-stars` clone, emitted in mod.rs) since the fixed app starfield
+	// (z:-1 under `.app`) cannot reach a z:80 portal sibling.
+	background:
+		radial-gradient(ellipse 60% 48% at 80% 6%, var(--aurora-1) 0%, transparent 60%),
+		radial-gradient(ellipse 55% 45% at 10% 94%, var(--aurora-2) 0%, transparent 55%),
+		radial-gradient(120% 90% at 50% 0%, var(--void) 0%, var(--void-deep) 70%);
+	// Map-enter WARP (a-orbit.html #orbitMap → .live): zoom in from scale(2.6),
+	// matching the prototype's `.55s` page-eased transform — NOT the old
+	// scale(1.04) pop. The whole map (core + nodes + dock) rides the warp.
+	animation: sk-orbit-map-in 550ms var(--ease-page, cubic-bezier(0.22, 0.61, 0.36, 1));
+	// Node-dive EXIT transition (a-orbit.html #orbitMap.dive): the `.diving` class
+	// zooms the map INTO the tapped node + fades over .55s before the deferred
+	// un-mount, the signature "fly into the channel" gesture.
+	transition: transform 0.55s var(--ease-page, cubic-bezier(0.22, 0.61, 0.36, 1)),
+		opacity 0.42s ease;
+}
+.sk-orbit-map.diving {
+	transform: scale(3.4);
+	opacity: 0;
+	pointer-events: none;
+}
+@keyframes sk-orbit-map-in {
+	// Opacity reaches full BEFORE the zoom finishes so the opaque cosmic backdrop
+	// occludes the chat almost immediately — the warp reveals deep space, never a
+	// flash of the channel behind (the prototype is a full takeover throughout).
+	from { opacity: 0; transform: scale(2.6); }
+	22% { opacity: 1; }
+	to { opacity: 1; transform: scale(1); }
+}
+.sk-orbit-map-scrim {
+	position: absolute;
+	inset: 0;
+	// Transparent click-catcher only (close-on-tap-outside): the map's own opaque
+	// aurora+void backdrop already occludes the chat, so the old var(--scrim) dim
+	// just muted the cosmos over it. Kept as the full-bleed dismiss target.
+	background: transparent;
+	border: none;
+}
+// MAP CORE — the active server's nucleus (the prototype's .core,
+// a-orbit.html:169-178). A 90px glowing disc with a radial accent gradient
+// (NOT glass-holo — the core is a luminous body, not frosted chrome), the
+// glyph emblem centred, and the name/count labels stacked BELOW the disc.
+.sk-orbit-core {
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, -50%);
+	width: 90px;
+	height: 90px;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	background: radial-gradient(
+		circle at 34% 28%,
+		rgba(127, 182, 255, 0.35),
+		rgba(16, 20, 29, 0.92) 70%
+	);
+	border: 1px solid var(--accent-soft);
+	// Static (style_lint: box-shadow never in a keyframe).
+	box-shadow: 0 0 34px var(--glow-accent), inset 0 1px 0 var(--glass-highlight);
+	color: var(--accent-bright);
+	z-index: 1;
+}
+.sk-orbit-core-glyph {
+	font-size: 30px;
+	line-height: 1;
+	color: var(--accent-bright);
+	text-shadow: 0 0 14px var(--glow-accent);
+}
+// Per-server icon filling the nucleus disc (M6/P1); the disc's 1px border + glow
+// stay as the ring. `object-fit: cover` crops to the circle. Replaces the ✦ glyph
+// only when an icon is set.
+.sk-orbit-core-icon {
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	object-fit: cover;
+	display: block;
+}
+// Name + sub-count stack beneath the disc (grid-centred glyph stays put;
+// these are pulled out of flow so they don't squash the emblem).
+.sk-orbit-core-name {
+	position: absolute;
+	top: calc(100% + 10px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 2px;
+	text-transform: uppercase;
+	color: var(--text-soft);
+	white-space: nowrap;
+	text-shadow: 0 2px 8px #000;
+}
+.sk-orbit-core-sub {
+	position: absolute;
+	top: calc(100% + 27px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 1.6px;
+	text-transform: uppercase;
+	color: var(--text-faint);
+	white-space: nowrap;
+}
+// MAP NODE — a channel orbiting the core (the prototype's .node,
+// a-orbit.html:190-198). A 62px glass disc with the `#` hash over the channel
+// name. (`.sk-orbit-far` — other servers docked in the corners — is NOT renamed
+// by the contract and keeps its own pill shape below.)
+// The revolving channel ring (a-orbit.html `.orbit`): a zero-size point pinned
+// at the star centre that rotates 90s linear infinite, carrying every node
+// around its orbit. transform-origin is the point itself (0×0 box → its own
+// centre = the star). Children place themselves RELATIVE to this point.
+.sk-orbit-ring {
+	// Static 0×0 anchor at the star centre — the per-node `.sk-orbit-orbit`
+	// children now each carry their OWN revolution (M5/P2 wave 3: seeded Kepler
+	// orbits), so the ring itself no longer spins.
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	width: 0;
+	height: 0;
+	z-index: 2;
+}
+// Per-node revolving frame: a 0×0 point at the star centre rotating at the
+// channel's OWN seeded period (`--orbit-period` from orbit_map::channel_orbit —
+// inner channels faster, period ∝ r^1.5). `.retro` reverses the ~17% that orbit
+// the other way. Children place themselves relative to this point.
+.sk-orbit-orbit {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	animation: sk-orbit-spin var(--orbit-period, 90s) linear infinite;
+}
+.sk-orbit-orbit.retro {
+	animation-direction: reverse;
+}
+// Static placement (a-orbit.html `.nodePos`): rotate to the seeded start angle
+// `--orbit-a`, push out by the seeded radius `--orbit-r`, then un-rotate so the
+// node rests upright. The static angle is what makes reduced-motion (spin off)
+// rest each node at its OWN angle/radius instead of stacking all at 0°.
+.sk-orbit-nodepos {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform: rotate(var(--orbit-a, 0deg)) translateX(var(--orbit-r, 118px))
+		rotate(calc(-1 * var(--orbit-a, 0deg)));
+}
+@keyframes sk-orbit-spin {
+	from { transform: rotate(0); }
+	to { transform: rotate(360deg); }
+}
+@keyframes sk-orbit-spin-rev {
+	from { transform: rotate(0); }
+	to { transform: rotate(-360deg); }
+}
+.sk-orbit-node {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 2;
+	width: 62px;
+	height: 62px;
+	border-radius: 50%;
+	// Centre the disc on the `.sk-orbit-nodepos` placement point (the angular
+	// position now lives on the parent, not an inline per-node transform).
+	transform: translate(-50%, -50%);
+	@include glass-holo;
+	color: var(--text);
+}
+// Counter-rotates the ring's spin (`spinRev`, same 90s) so the glyph/label/dot
+// stay screen-upright as the node revolves (a-orbit.html `.nodeIn`). Fills the
+// node disc and centres the stacked hash + name.
+.sk-orbit-node-in {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	border-radius: 50%;
+	// Counter-spin at the SAME per-node period so the glyph/label stay upright as
+	// the node orbits (a-orbit.html `.nodeIn`); flips with the orbit for retrograde.
+	animation: sk-orbit-spin-rev var(--orbit-period, 90s) linear infinite;
+}
+.sk-orbit-orbit.retro .sk-orbit-node-in {
+	animation-direction: reverse;
+}
+.sk-orbit-node-hash {
+	font-size: 19px;
+	color: var(--accent);
+	font-weight: 700;
+	line-height: 1;
+}
+.sk-orbit-node-name {
+	font-size: 9.5px;
+	// Medium weight + slight positive tracking (a-orbit.html `.node .cn`:195) —
+	// needs the self-hosted 500 face or it falls back to 400.
+	font-weight: 500;
+	letter-spacing: 0.4px;
+	color: var(--text-soft);
+	max-width: 58px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+// Halo rings — the visible orbital TRACKS the nodes ride (a-orbit.html
+// `.haloRing.r1` solid + `.outer` dashed). Static (the track does not revolve),
+// centred on the star; width/height set inline from the live orbit radius.
+.sk-orbit-halo {
+	position: absolute;
+	top: 50vh;
+	left: 50vw;
+	transform: translate(-50%, -50%);
+	border-radius: 50%;
+	pointer-events: none;
+	z-index: 0;
+}
+.sk-orbit-halo-inner {
+	border: 1px solid rgba(77, 159, 255, 0.18);
+}
+.sk-orbit-halo-outer {
+	border: 1.5px dashed var(--line-strong);
+}
+// Map dock (a-orbit.html #mapDock + .sat): personas + station entry, centred
+// above the bottom edge. Glass pills; the dock OWNS this map's bottom inset.
+.sk-orbit-map-dock {
+	position: absolute;
+	left: 50%;
+	bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+	transform: translateX(-50%);
+	display: flex;
+	gap: 12px;
+	z-index: 3;
+}
+.sk-orbit-sat {
+	min-height: 44px;
+	padding: 11px 17px;
+	border-radius: 22px;
+	white-space: nowrap;
+	@include glass-holo;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 1px;
+	color: var(--text-soft);
+}
+// Map hint caption (a-orbit.html #mapHint), below the dock.
+.sk-orbit-map-hint {
+	position: absolute;
+	bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+	left: 50%;
+	transform: translateX(-50%);
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 2px;
+	color: var(--text-faint);
+	text-transform: uppercase;
+	white-space: nowrap;
+	pointer-events: none;
+}
+// Far server — a docked-in-the-corner MINI nucleus (a-orbit.html `.srv.far
+// .core`, line 179): the same luminous core disc as the active star but 64px,
+// dimmer (opacity .75) with a softer glow, the monogram emblem centred and the
+// name labelled below. (Was a flat glass name-pill.)
+.sk-orbit-far {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 2;
+	width: 64px;
+	height: 64px;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	background: radial-gradient(
+		circle at 34% 28%,
+		rgba(127, 182, 255, 0.35),
+		rgba(16, 20, 29, 0.92) 70%
+	);
+	border: 1px solid var(--accent-soft);
+	opacity: 0.75;
+	// Static (style_lint: box-shadow never in a keyframe). Softer than the active
+	// core's glow.
+	box-shadow: 0 0 18px rgba(77, 159, 255, 0.25);
+	color: var(--accent-bright);
+}
+.sk-orbit-far-glyph {
+	font-size: 20px;
+	line-height: 1;
+	color: var(--accent-bright);
+	text-shadow: 0 0 12px var(--glow-accent);
+}
+// Per-server icon filling a far (docked) disc (M6/P1); monogram fallback when
+// no icon. Mirrors `.sk-orbit-core-icon`, sized by the 64px parent.
+.sk-orbit-far-icon {
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	object-fit: cover;
+	display: block;
+}
+// Name below the mini disc (mirrors `.sk-orbit-core-name`, a touch smaller).
+.sk-orbit-far-name {
+	position: absolute;
+	top: calc(100% + 7px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: 1.4px;
+	text-transform: uppercase;
+	color: var(--text-soft);
+	white-space: nowrap;
+	text-shadow: 0 2px 8px #000;
+}
+.sk-orbit-node-dot {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--unread-glow);
+}
+// Reduced-motion: the open animation is decorative; the class lacks `fx-`, so
+// list it explicitly (the global kill only catches [class*="fx-"]).
+@media (prefers-reduced-motion: reduce) {
+	.sk-orbit-map {
+		animation: none;
+		// Dive is a transition; strip it too so reduced-motion just un-mounts.
+		transition: none;
+	}
+	// The orbital revolution + its node counter-spin (a-orbit.html kills
+	// `.orbit`/`.nodeIn` here too). Not `fx-`-named, so the global kill misses
+	// them — strip them explicitly; nodes rest at their t=0 placement.
+	.sk-orbit-orbit,
+	.sk-orbit-node-in {
+		animation: none;
+	}
+}
+
+// M5/P2 #5 — the 3-pane swipe strip. A 300vw flex row translated by --strip-x:
+// the MIDDLE slot is the live ChannelPane; prev/next are name-only label peeks
+// (full neighbor render is the Phase-7 carry). Transform is the only animated
+// property (motion doctrine, tests/style_lint.rs).
+.app.sk-orbit .sk-orbit-strip {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	width: 300vw;
+	transform: translateX(var(--strip-x, -100vw));
+	touch-action: pan-y; // we own horizontal; let vertical scroll through
+}
+// The settle transition lives ONLY on the --snap class: present at rest and for
+// the commit/snap-back, REMOVED by StripDrag mid-drag (drag.rs set_dragging) so
+// the per-move --strip-x writes track the finger 1:1. A permanent transition
+// would interpolate toward each write over 380ms — a smoothed, lagging follow,
+// not 1:1 — which is the prototype's `.snap`-toggle behavior (a-orbit.html).
+.app.sk-orbit .sk-orbit-strip--snap {
+	transition: transform 380ms cubic-bezier(0.18, 0.85, 0.25, 1);
+}
+// M5/P2 #d single-channel collapse: with no prev/next peek panes (mod.rs only
+// mounts them at count>1), the lone cur pane is the strip's FIRST slot. The
+// default 300vw width + `translateX(-100vw)` resting offset assumes cur is the
+// MIDDLE of three, so it would shove the only pane off-screen left. Drop to a
+// single 100vw slot at offset 0 (the cur pane fills the viewport) and stop
+// claiming the horizontal axis — there is nothing to swipe to, so let touches
+// scroll the list freely. Overrides the `--strip-x` transform unconditionally
+// (the drag engine never writes it at count≤1, but this is belt-and-suspenders).
+.app.sk-orbit .sk-orbit-strip--single {
+	width: 100vw;
+	transform: none;
+	touch-action: auto;
+}
+.app.sk-orbit .sk-orbit-pane {
+	width: 100vw;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.app.sk-orbit .sk-orbit-pane-prev,
+.app.sk-orbit .sk-orbit-pane-next {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 100vh;
+}
+.app.sk-orbit .sk-orbit-peek {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+// No-neighbor edge affordance (M5/P2 void-fix): a deliberate "orbit's edge"
+// boundary so the edge rubber-band reveals a designed end, never a black void.
+// Compositor-only — static pre-baked glow (the sanctioned box-shadow pattern,
+// like .sk-orbit-orb::before), NO backdrop-filter, NO animated props
+// (tests/style_lint.rs).
+.app.sk-orbit .sk-orbit-peek-edge {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.7rem;
+	color: var(--text-muted);
+}
+.app.sk-orbit .sk-orbit-peek-edge-ring {
+	width: 72px;
+	height: 72px;
+	border-radius: 50%;
+	border: 1px dashed var(--glass-line);
+	box-shadow: 0 0 28px var(--glow-accent), inset 0 0 18px var(--glow-accent);
+	opacity: 0.55;
+}
+.app.sk-orbit .sk-orbit-peek-edge-text {
+	font-family: var(--font-mono);
+	font-size: 0.72rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	opacity: 0.7;
+}
+// Anchor the peek content to the edge ADJACENT to the live pane. The edge
+// rubber-band only reveals ~30vw of the neighbor's LEADING edge, so a centered
+// affordance sits off-screen during the swipe (DOM-present but invisible — the
+// trap a DOM-only assertion misses). prev reveals its RIGHT edge; next its LEFT.
+.app.sk-orbit .sk-orbit-pane-prev .sk-orbit-peek {
+	justify-content: flex-end;
+	padding-right: 5vw;
+}
+.app.sk-orbit .sk-orbit-pane-next .sk-orbit-peek {
+	justify-content: flex-start;
+	padding-left: 5vw;
+}
+// Reduced-motion: instant snap (kill the commit settle too).
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-strip--snap {
+		transition: none;
+	}
+}
+
+// ---- Composer orb + charge ring (#E / #33) ----
+// The floating orb is the SOLE send surface under orbit: hide the in-pane
+// M5/P2 choreography: the orb is now a COMPOSE trigger, not the send button, so
+// the in-composer send button is the real send affordance — shown ONLY while
+// composing (the orb owns the resting state; the send arc owns the typing state —
+// the prototype's #orb → #sendBtn handoff). Hidden at rest, when the orb is the
+// affordance on screen.
+.sk-orbit-content:not(.composing) .composer .send {
+	display: none;
+}
+// While composing, the send is the prototype's circular arc button (#sendBtn,
+// a-orbit.html:258-266): a 48px disc carrying the ➤ glyph (set in the component)
+// with the charge ring (`.send::before`) curved to a circle to match.
+.app.sk-orbit .composer .send {
+	width: 48px;
+	height: 48px;
+	min-width: 48px;
+	flex: 0 0 48px;
+	padding: 0;
+	border-radius: 50%;
+	font-size: 17px;
+	color: var(--accent-bright);
+}
+.app.sk-orbit .composer .send::before {
+	inset: -3px;
+	border-radius: 50%;
+}
+.app.sk-orbit .sk-orbit-orb-wrap {
+	position: fixed;
+	right: calc(0.9rem + env(safe-area-inset-right, 0px));
+	bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px)); // OWNS bottom edge
+	z-index: 30;
+}
+.app.sk-orbit .sk-orbit-orb {
+	position: relative;
+	width: 64px; // a-orbit.html:211 — the SVG charge-ring viewBox is unit-relative, scales
+	height: 64px;
+	border-radius: 50%;
+	@include glass-holo;
+	color: var(--text);
+	display: grid;
+	place-items: center;
+	// Resting halo (the prototype's #orb `box-shadow:0 0 26px var(--glow-accent)`)
+	// — a STATIC accent bloom so the inert composer orb still reads as a luminous
+	// body, re-stated AFTER glass-holo's shorthand so it wins the cascade (and the
+	// glass-holo inset specular is folded back in to keep the frosted rim).
+	box-shadow: 0 0 26px var(--glow-accent), inset 0 1px 0 var(--glass-highlight);
+	// Press feedback (the prototype's `#orb:active{transform:scale(.92)}`) +
+	// spring settle. transform-only transition (motion doctrine, style_lint).
+	transition: transform 350ms var(--ease-spring);
+}
+.app.fx-max .sk-orbit-orb {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-orb:active {
+	transform: scale(0.92);
+}
+.app.sk-orbit .sk-orbit-ring {
+	position: absolute;
+	inset: 0;
+	transform: rotate(-90deg); // start the arc at 12 o'clock
+}
+.app.sk-orbit .sk-orbit-ring-track {
+	fill: none;
+	stroke: var(--glass-line);
+	stroke-width: 3;
+}
+.app.sk-orbit .sk-orbit-ring-arc {
+	fill: none;
+	stroke: var(--accent);
+	stroke-width: 3;
+	stroke-linecap: round;
+	stroke-dasharray: 151; // CIRC
+	stroke-dashoffset: var(--dash, 151);
+	transition: stroke-dashoffset 120ms ease;
+}
+.app.sk-orbit .sk-orbit-orb.armed .sk-orbit-ring-arc {
+	stroke: var(--pinged-glow);
+}
+// PEGGED ring (the prototype's `#sendBtn.full .arc`, a-orbit.html:266): when the
+// charge ring tops out, the arc brightens + gets a STATIC accent drop-shadow
+// (state, not motion — no keyframe; style_lint-safe). The Rust orb adds `.full`
+// to `.sk-orbit-orb` when charge == 1 (naming contract).
+.app.sk-orbit .sk-orbit-orb.full .sk-orbit-ring-arc {
+	stroke: var(--accent-bright);
+	filter: drop-shadow(0 0 5px var(--glow-accent));
+}
+// Pre-rendered glow: static max box-shadow on ::before, opacity pulsed (the
+// sanctioned pattern — keyframes never animate box-shadow). Only while armed.
+.app.sk-orbit .sk-orbit-orb::before {
+	content: "";
+	position: absolute;
+	inset: -2px;
+	border-radius: 50%;
+	box-shadow: 0 0 16px var(--glow-accent);
+	opacity: 0;
+	pointer-events: none;
+}
+.app.sk-orbit .sk-orbit-orb.charging::before {
+	opacity: 0.7;
+}
+
+// ---- Idle breathing aura (the prototype's `#orb::after` orbBreath) ----
+// The resting composer orb is otherwise inert; a SECOND pseudo-layer breathes a
+// faint accent ring so it reads as alive. STATIC accent border + glow (the
+// sanctioned pattern — paint never enters the keyframe); the `fx-orb-breath`
+// keyframe animates ONLY opacity + transform (style_lint-safe). The global
+// reduced-motion kill (`[class*="fx-"]`, _motion.scss) matches CLASS attributes,
+// but this animation rides the orb's `::after` pseudo (no class to match), so it
+// is killed explicitly in this file's reduced-motion block below — exactly as
+// the prototype lists `#orb::after` in its own reduced-motion rule (a-orbit.html
+// :388), and matching how `.sk-orbit-map`'s open keyframe is handled here.
+.app.sk-orbit .sk-orbit-orb::after {
+	content: "";
+	position: absolute;
+	inset: -6px;
+	border-radius: 50%;
+	border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+	box-shadow: 0 0 14px var(--glow-accent);
+	pointer-events: none;
+	animation: fx-orb-breath 3.2s ease-in-out infinite alternate;
+}
+@keyframes fx-orb-breath {
+	from {
+		opacity: 0.25;
+		transform: scale(0.96);
+	}
+	to {
+		opacity: 0.8;
+		transform: scale(1.04);
+	}
+}
+
+// ---- Per-effect recolor (the prototype's `#orb[data-armed=…]`) ----
+// When an effect is armed the Rust orb sets `data-armed="whisper|shout|spell"`
+// on `.sk-orbit-orb` (naming contract). Recolor three surfaces per effect: the
+// resting ::before glow (STATIC box-shadow), the centre glyph, and the
+// charge-ring arc. whisper → grey, shout → orange (--pinged-glow), spell →
+// purple (--tint-purple). The ::before opacity is forced on so the tinted glow
+// shows even before charging.
+.app.sk-orbit .sk-orbit-orb[data-armed] {
+	border-color: var(--accent-soft);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed]::before {
+	opacity: 0.75;
+}
+// whisper — muted grey.
+.app.sk-orbit .sk-orbit-orb[data-armed="whisper"] {
+	border-color: var(--tint-gray);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="whisper"]::before {
+	box-shadow: 0 0 26px color-mix(in srgb, var(--tint-gray) 55%, transparent);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="whisper"] .sk-orbit-orb-glyph {
+	color: var(--tint-gray);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="whisper"] .sk-orbit-ring-arc {
+	stroke: var(--tint-gray);
+}
+// shout — warm orange.
+.app.sk-orbit .sk-orbit-orb[data-armed="shout"] {
+	border-color: var(--tint-orange);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="shout"]::before {
+	box-shadow: 0 0 28px var(--pinged-glow);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="shout"] .sk-orbit-orb-glyph {
+	color: var(--tint-orange);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="shout"] .sk-orbit-ring-arc {
+	stroke: var(--pinged-glow);
+}
+// spell — arcane purple.
+.app.sk-orbit .sk-orbit-orb[data-armed="spell"] {
+	border-color: var(--tint-purple);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="spell"]::before {
+	box-shadow: 0 0 28px color-mix(in srgb, var(--tint-purple) 60%, transparent);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="spell"] .sk-orbit-orb-glyph {
+	color: var(--tint-purple);
+}
+.app.sk-orbit .sk-orbit-orb[data-armed="spell"] .sk-orbit-ring-arc {
+	stroke: var(--tint-purple);
+}
+
+// Centre glyph (the prototype's `#orbGlyph`, a-orbit.html:416). 24px, tight
+// line-box so the send arrow / armed emoji sits dead-centre in the disc.
+.app.sk-orbit .sk-orbit-orb-glyph {
+	font-size: 24px;
+	line-height: 1;
+	// Resting compose-pen is luminous accent-blue like the prototype's #orb
+	// (a-orbit.html:215, color:var(--accent-bright)); the armed whisper/shout/
+	// spell states recolor this below. The orb's own color is --text (the ring
+	// label), so the glyph sets its own accent here for the M6 currentColor glow.
+	color: var(--accent-bright);
+}
+
+// ---- M6 affordance-icon glow (owner directive 2026-06-17) ----
+// The diegetic orbit glyphs — the orb's compose-pen / armed-effect badge, the
+// server nucleus, and the effect-blossom chips — are now inline-SVG `.icon`s
+// (icons.rs). They inherit the accent (and the whisper/shout/spell tint) via
+// `currentColor` already; this restores the luminous bloom the text glyphs
+// carried. `text-shadow` never reaches an SVG's stroke, so glow with
+// `drop-shadow(currentColor)` — it tracks whatever colour the glyph currently
+// is (accent at rest, the armed tint when an effect is loaded). `display:block`
+// drops the inline baseline so the icon sits dead-centre in its disc, matching
+// the prototype's centred glyph. The utilitarian affordance icons (menus, dock,
+// nav, close) deliberately get NO bloom — they mirror the prototype's flat
+// accent-coloured action glyphs.
+.app.sk-orbit {
+	.sk-orbit-orb-glyph .icon,
+	.sk-orbit-core-glyph .icon,
+	.sk-orbit-chip-ic .icon {
+		display: block;
+		filter: drop-shadow(0 0 8px currentColor);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-ring-arc {
+		transition: none;
+	}
+	// fx-orb-breath rides a ::after with a hard-coded animation (no class to
+	// match the global kill), so kill it explicitly here, alongside the orb's
+	// resting state (the prototype lists `#orb::after` in its reduced-motion
+	// block too, a-orbit.html:388).
+	.app.sk-orbit .sk-orbit-orb::after {
+		animation: none;
+	}
+}
+
+// ---- Effect blossom (whisper/shout/spell) on orb long-hold ----
+// Tap-away dismiss catcher behind the blossom (the prototype's .fxScrim,
+// a-orbit.html:229) — a full-screen layer under the chips so a tap anywhere
+// closes the blossom without sending. Sits BELOW the orb-wrap's chips
+// (z-index:30 via .sk-orbit-orb-wrap) but above the pane, so the chips stay
+// tappable while the rest dismisses.
+//
+// B4 (owner deck-finding 2026-06-20): this was a MODAL scrim — `var(--scrim)`
+// (the modal-backdrop token, rgba(4,6,10,.6)) at `opacity:1` + `blur(4px)`
+// under the unconditional `fx-max`. Holding the compose orb (480ms → blossom)
+// dropped a full-viewport 60%-black blurred window over the whole app behind
+// three small chips: "att hålla intryckt … blockerar allt genom ett
+// transparent, mörkt fönster". The effect picker is a lightweight popover, NOT
+// a modal — so this is now a fully TRANSPARENT tap-catcher: it still intercepts
+// the dismiss tap (default pointer-events:auto), but the chat stays fully
+// visible and the chips (glass-holo, self-blurred) float over it. No fx-max
+// blackout branch (a transparent catcher has nothing to intensify).
+.app.sk-orbit .sk-orbit-blossom-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 29; // just under the orb-wrap (z-index:30) so chips stay on top
+	background: transparent;
+	border: none;
+}
+// Chips fan UP from the orb; the per-chip --chip-i staggers the open. The open
+// is a transform/opacity keyframe (style_lint-safe). FULL WAI-ARIA menu keyboard
+// model lives in sk_orbit/mod.rs: role=menu/menuitem with a roving tabindex
+// (exactly one chip tabbable; ArrowUp/Down rove + refocus), Escape closes +
+// refocuses the orb, focus-on-open lands on the first chip, and the orb (the
+// SOLE effect surface) exposes a keyboard OPEN path (ArrowUp/Down) so the
+// pointer-hold open is not the only way in. The `.sk-orbit-blossom-scrim` above
+// gives tap-outside dismiss.
+.app.sk-orbit .sk-orbit-blossom {
+	position: absolute;
+	right: 0;
+	bottom: 60px;
+	display: flex;
+	flex-direction: column-reverse;
+	// Chips hug the orb's right edge and grow LEFTWARD (into the screen) so the
+	// widest label ("WHISPER") can never overflow past the right safe-area — the
+	// round-4 deck clip. A viewport-width clamp backs it up.
+	align-items: flex-end;
+	max-width: calc(100vw - 1.8rem - env(safe-area-inset-right, 0px) - env(safe-area-inset-left, 0px));
+	gap: 0.5rem;
+}
+.app.sk-orbit .sk-orbit-chip {
+	// A pill, not a fixed 44px circle: "WHISPER" (7 uppercase letters) does not
+	// fit a 44px disc and clipped off-screen (round-4 deck finding). min-width
+	// keeps the ≥44px touch floor; width:max-content lets the label set the pill
+	// width (growing left via the blossom's align-items:flex-end). 22px radius =
+	// half the 44px height → a circle for the short labels, a pill for the long.
+	min-width: 44px;
+	width: max-content;
+	height: 44px;
+	padding: 0 0.5rem;
+	border-radius: 22px;
+	@include glass-holo;
+	color: var(--text);
+	display: grid;
+	// Stack the contract's icon-over-label inner spans, both centred (the
+	// prototype's `.fxBtn` column layout, a-orbit.html:234).
+	grid-auto-flow: row;
+	place-items: center;
+	gap: 0;
+	animation: sk-orbit-chip-in 180ms ease-out backwards;
+	animation-delay: calc(var(--chip-i, 0) * 40ms);
+}
+// Chip inner (naming contract: `.sk-orbit-chip-ic` glyph + `.sk-orbit-chip-lb`
+// label). The glyph reads at the prototype's icon size (`.fxBtn .ic` 20px,
+// a-orbit.html:236), the label is the small uppercase caption (`.fxBtn .lb`,
+// :237) — stacked so the 44px disc shows icon-over-label like the prototype.
+.app.sk-orbit .sk-orbit-chip-ic {
+	font-size: 20px;
+	line-height: 1.2;
+}
+.app.sk-orbit .sk-orbit-chip-lb {
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 1px;
+	text-transform: uppercase;
+	color: var(--text-muted);
+}
+// Per-effect edge tint (the prototype's `.fxBtn.whisper/.shout/.spell`
+// border-color, a-orbit.html:238-240): the Rust chip carries a
+// `whisper|shout|spell` class (naming contract). A STATIC tinted rim ring
+// (box-shadow, never a keyframe) so each chip telegraphs its effect's colour
+// before it's picked. Re-stated AFTER glass-holo so the tint wins the cascade.
+.app.sk-orbit .sk-orbit-chip.whisper {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--tint-gray) 50%, transparent),
+		0 0 14px color-mix(in srgb, var(--tint-gray) 30%, transparent);
+}
+.app.sk-orbit .sk-orbit-chip.shout {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--tint-orange) 50%, transparent),
+		0 0 14px color-mix(in srgb, var(--tint-orange) 30%, transparent);
+}
+.app.sk-orbit .sk-orbit-chip.spell {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--tint-purple) 50%, transparent),
+		0 0 14px color-mix(in srgb, var(--tint-purple) 30%, transparent);
+}
+@keyframes sk-orbit-chip-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.85);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.app.sk-orbit .sk-orbit-chip {
+		animation: none;
+	}
+}
+
+// Right-edge HoloPanel slide-over (Task 7). The panel transform + scrim +
+// four-edge insets are HoloPanel's (_holopanel.scss) — this owns ONLY the inner
+// content layout. Summoned from the map dock now (the floating ☰ was removed,
+// 1:1 — the prototype has no such button). The slide-over OWNS its own edges, so
+// the orb/composer bottom inset is not double-counted (it's a separate fixed layer).
+//
+// M5/P2 #c FULL-SCREEN slide-over (the prototype's #slideOver is `inset:0`,
+// `translateX(102%)→0`, a-orbit.html:294 — "personas are a place, not a
+// modal": a whole-screen takeover, NOT a partial drawer). So the station fills
+// the viewport width (was `min(86vw,380px)`, which left a chat sliver behind
+// it). Visually consistent with A3's generic modal→slide-over law (their law,
+// our orbit-specific instance); the HoloPanel engine still drives the slide.
+// Slide-over back/close button (the prototype's #soClose, a-orbit.html:303) —
+// a 44px round glass disc at the head of the station panel.
+.app.sk-orbit .sk-orbit-station-close {
+	width: 44px;
+	height: 44px;
+	flex: 0 0 44px;
+	border-radius: 50%;
+	@include glass-holo;
+	color: var(--text-soft);
+	font-size: 19px;
+	display: grid;
+	place-items: center;
+}
+.app.sk-orbit .sk-orbit-station {
+	// FULL-SCREEN (the prototype's `#slideOver inset:0`): the HoloPanel root is
+	// position:fixed + owns insets; this inner scroll surface fills it edge-to-
+	// edge so the slide-over is a whole-screen takeover, not a partial drawer.
+	width: 100vw;
+	max-width: 100%;
+	height: 100%;
+	overflow-y: auto;
+	// Own the top + bottom safe-area insets for the full-screen surface (the
+	// HoloPanel root owns left/right; this content owns the vertical padding so
+	// the head clears the notch and the last row clears the home indicator).
+	padding: calc(1rem + env(safe-area-inset-top, 0px)) 1rem
+		calc(1.25rem + env(safe-area-inset-bottom, 0px));
+	@include glass-etched;
+	color: var(--text);
+}
+.app.fx-max .sk-orbit-station {
+	@include glass-live;
+}
+.app.sk-orbit .sk-orbit-persona-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0.5rem 0 1rem;
+}
+.app.sk-orbit .sk-orbit-persona-card {
+	display: flex;
+	align-items: center;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+	padding: 0.5rem 0.8rem;
+	border-radius: 0.6rem;
+	// B2 (owner deck-finding 2026-06-20): was a flat opaque `--card` chip with
+	// no glow while the rest of the chrome glows. Route it through the shared
+	// glass-holo material (the same `0 0 12px --glow-accent` doctrine as the
+	// pill/orb/chips) so the station persona chips glow like everything else.
+	@include glass-holo;
+	color: var(--text);
+}
+.app.sk-orbit .sk-orbit-persona-card.active {
+	// Worn persona: accent rim + a brighter accent bloom (restated after the
+	// glass-holo shorthand so it wins; the inset specular is folded back in).
+	border-color: var(--accent);
+	box-shadow: 0 0 18px var(--glow-accent), inset 0 1px 0 var(--glass-highlight);
+}
+// Station nav buttons (Manage personas / Friends / Direct messages / Members /
+// Emoji / Server settings / Account). B2 (owner deck-finding 2026-06-20): these
+// were bare flex rows with no glass + no glow ("Öppnar man Station så glöder
+// inte knappar") while every other chrome control glows. Route them through the
+// shared glass-holo material (the `0 0 12px --glow-accent` doctrine) so the
+// whole station list glows like the pill/orb/chips, and give the leading icon a
+// consistent size + gap. Stays ≥44px (tap floor).
+.app.sk-orbit .sk-orbit-account-btn {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	width: 100%;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+	margin-bottom: 0.45rem;
+	padding: 0 0.85rem;
+	border-radius: 0.7rem;
+	@include glass-holo;
+	color: var(--text);
+	font-weight: 600;
+	text-align: left;
+
+	.icon {
+		width: 1.2rem;
+		height: 1.2rem;
+		flex: none;
+	}
+}

@@ -153,6 +153,11 @@ pub async fn broadcast_system_message(
             created.id_key,
             SYSTEM_ACCOUNT.to_string(),
         );
+        // SSE bus: a broadcast row is a message like any other — live
+        // subscribers learn of it the same way (Task 6/7 review carry-over).
+        state.emit(crate::protocol::SyncEvent::MessageCreated {
+            channel_id: cid.clone(),
+        });
     }
 
     Ok(SystemBroadcastResult {

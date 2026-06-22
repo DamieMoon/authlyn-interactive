@@ -10,11 +10,16 @@
 
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use leptos::ev::PointerEvent;
+
 use super::{act, PendingDelete, Shell};
 use crate::markup::Color;
 use crate::protocol::GalleryImage;
+use crate::ui::crest::Crest;
+use crate::ui::icons::{IconCheck, IconCircle, IconClose, IconDisc, IconGrip, IconStar};
 use crate::ui::markup_view::render_body;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead, PersonaInfo};
 
 // ---------------------------------------------------------------------------
 // Gallery actions (inline, cfg-guarded). The shared `act` module lives in
@@ -76,7 +81,7 @@ fn gallery_multi_upload(
     if files.is_empty() {
         return;
     }
-    // Client cap — same shape as the composer (W7/B1-client).
+    // Client cap — same shape as the composer (M7/B1-client).
     let overflowed = files.len() > GALLERY_BATCH_MAX;
     let files: Vec<web_sys::File> = files.into_iter().take(GALLERY_BATCH_MAX).collect();
     if overflowed {
@@ -185,10 +190,12 @@ fn set_avatar_from_gallery(s: Shell, pid: String, media_id: String) {
 fn set_avatar_from_gallery(_s: Shell, _pid: String, _media_id: String) {}
 
 /// A persona portrait: the uploaded avatar image when `avatar_id` is `Some`,
-/// otherwise the name's first letter as a monogram. Shared by the card, the
-/// detail editor and the info popup. The `<img>` is styled inline so it fills
-/// whatever portrait slot it sits in (main.scss is owned by another stream).
-fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
+/// otherwise (M7/P3) a deterministic heraldic crest derived from the persona's
+/// `name` + `debut`. Shared by the card, the detail editor and the info popup.
+/// The `<img>` is styled inline so it fills whatever portrait slot it sits in
+/// (main.scss is owned by another stream); the crest fills its slot via
+/// `style/_crest.scss`.
+fn portrait(avatar_id: &Option<String>, name: &str, debut: &str) -> impl IntoView {
     match avatar_id {
         Some(id) => {
             let src = format!("/media/{id}");
@@ -199,8 +206,9 @@ fn portrait(avatar_id: &Option<String>, name: &str) -> impl IntoView {
             .into_any()
         }
         None => {
-            let mono = crate::ui::avatar::monogram(name, '?');
-            view! { {mono} }.into_any()
+            // No uploaded avatar → the persona's crest. Two like-named personas
+            // differ because the debut date folds into the blazon hash.
+            view! { <Crest name=name.to_string() debut=debut.to_string()/> }.into_any()
         }
     }
 }
@@ -218,13 +226,16 @@ pub(crate) fn WardrobePane() -> impl IntoView {
     // description, case-insensitive). Reorder controls are hidden while a query
     // is active, since card indices then wouldn't map to the full list.
     let search = RwSignal::new(String::new());
-    // L-5: shared drag-source index for HTML5 drag-to-reorder across cards.
-    // `None` between drags. Only live while not filtering (see PersonaCard).
+    // Finger-drag reorder state, shared across cards (the channel-manager
+    // pattern): `drag_from` is the grabbed card's index (set on the grip's
+    // pointerdown), `drag_over` the card the finger is currently over (the live
+    // drop target). `None` between drags; only live while not filtering (see
+    // PersonaCard), so indices map to the full list.
     let drag_from = RwSignal::new(None::<usize>);
+    let drag_over = RwSignal::new(None::<usize>);
 
     view! {
         <div class="pane wardrobe">
-            <h3>"Wardrobe"</h3>
             <div class="add-row">
                 <input prop:value=move || name.get()
                     on:input=move |ev| name.set(event_target_value(&ev))
@@ -255,24 +266,19 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                 None => ().into_any(),
             }}
 
-            // Read-only info popup — opened by clicking a card's name.
+            // Read-only info popup — opened by clicking a card's name. The
+            // shared `PersonaInfo` (crate::ui::modal) owns the markup; this site
+            // builds the persona crest portrait and passes author=None (the card
+            // already names the persona, so no "Controlled by" trailer). #14 dedup.
             {move || info.get().map(|p| {
                 let desc = (!p.description.trim().is_empty()).then(|| p.description.clone());
                 view! {
-                    <Modal class="persona-info" close=move || info.set(None)>
-                        <div class="detail-head">
-                            <h4>{p.name.clone()}</h4>
-                            <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)>"✕"</button>
-                        </div>
-                        <div class="info-portrait" title="persona portrait">
-                            {portrait(&p.avatar_id, &p.name)}
-                        </div>
-                        {match desc {
-                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                        }}
-                    </Modal>
+                    <PersonaInfo
+                        name=p.name.clone()
+                        avatar=portrait(&p.avatar_id, &p.name, &p.created_at).into_any()
+                        description=desc
+                        author=None
+                        on_close=move || info.set(None)/>
                 }
             })}
 
@@ -296,7 +302,8 @@ pub(crate) fn WardrobePane() -> impl IntoView {
                         .map(|(idx, p)| {
                             view! {
                                 <PersonaCard s=s p=p selected=selected info=info
-                                    idx=idx len=len reorder=!filtering drag_from=drag_from/>
+                                    idx=idx len=len reorder=!filtering
+                                    drag_from=drag_from drag_over=drag_over/>
                             }
                         })
                         .collect_view()
@@ -320,9 +327,11 @@ fn PersonaCard(
     idx: usize,
     len: usize,
     reorder: bool,
-    // L-5: shared drag-source index for HTML5 drag-to-reorder. Drag is only
-    // wired when `reorder` (filtering off), so indices map to the full list.
+    // Finger-drag reorder (the channel-manager grip pattern): `drag_from` is the
+    // grabbed card's index, `drag_over` the card the finger is over. Wired only
+    // when `reorder` (filtering off), so indices map to the full list.
     drag_from: RwSignal<Option<usize>>,
+    drag_over: RwSignal<Option<usize>>,
 ) -> impl IntoView {
     let pid = p.id.clone();
     let pid_worn = pid.clone();
@@ -338,40 +347,98 @@ fn PersonaCard(
     let info_p = p.clone();
     let remove_name = p.name.clone();
 
+    // Finger-drag reorder handlers (hydrate-only; no-op on ssr). The grip
+    // captures the pointer on `down`, hit-tests the card under the finger on
+    // `move` (elementFromPoint → the `.persona-card[data-idx]` it lands in — a
+    // 2-D test for the wrapping grid, vs the channel list's y-only row scan),
+    // and commits via `act::move_persona` on `up`. Mirrors `channel/manager.rs`.
+    #[cfg(feature = "hydrate")]
+    let on_grip_down = move |ev: PointerEvent| {
+        use leptos::wasm_bindgen::JsCast as _;
+        // Don't let the press bubble to an enclosing swipe-close surface that
+        // would set_pointer_capture and steal the move stream (the channel grip
+        // guards the same way against the orbit Server window's swipe_close).
+        ev.stop_propagation();
+        if let Some(el) = ev
+            .current_target()
+            .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+        {
+            let _ = el.set_pointer_capture(ev.pointer_id());
+        }
+        drag_from.set(Some(idx));
+        drag_over.set(Some(idx));
+        ev.prevent_default();
+    };
+    #[cfg(feature = "hydrate")]
+    let on_grip_move = move |ev: PointerEvent| {
+        if drag_from.get_untracked().is_none() {
+            return;
+        }
+        // Keep the touch on the reorder gesture instead of scrolling the grid.
+        ev.prevent_default();
+        let Some(doc) = leptos::web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        // elementFromPoint is a pure coordinate hit-test (pointer capture doesn't
+        // affect it), so it finds the card under the finger even though the grip
+        // captured the pointer. closest() climbs from the hit child to the card.
+        if let Some(el) = doc.element_from_point(ev.client_x() as f32, ev.client_y() as f32) {
+            if let Ok(Some(card)) = el.closest(".persona-card") {
+                if let Some(t) = card
+                    .get_attribute("data-idx")
+                    .and_then(|v| v.parse::<usize>().ok())
+                {
+                    drag_over.set(Some(t));
+                }
+            }
+        }
+    };
+    #[cfg(feature = "hydrate")]
+    let on_grip_up = move |_ev: PointerEvent| {
+        if let (Some(from), Some(to)) = (drag_from.get_untracked(), drag_over.get_untracked()) {
+            if from != to {
+                act::move_persona(s, from, to);
+            }
+        }
+        drag_from.set(None);
+        drag_over.set(None);
+    };
+
     // Suppress spurious "unused" warnings: clippy can't always trace captures
-    // through the view! macro (mirrors the lorebook reorder workaround).
-    let _ = (idx, len, reorder, drag_from);
+    // through the view! macro (mirrors the lorebook reorder workaround). `len`
+    // is no longer button-driven but kept for the call site; the rest ride the grip.
+    let _ = (idx, len, reorder, drag_from, drag_over);
 
     view! {
-        // Drag-to-reorder (only when not filtering). dragstart records this
-        // card, dragover allows the drop, drop moves the dragged card here.
-        <div class="persona-card" class:worn=move || worn.get()
-            draggable=move || if reorder { "true" } else { "false" }
-            on:dragstart=move |_ev| {
-                if reorder {
-                    drag_from.set(Some(idx));
-                }
-            }
-            on:dragover=move |_ev| {
-                #[cfg(feature = "hydrate")]
-                if reorder {
-                    _ev.prevent_default();
-                }
-            }
-            on:drop=move |_ev| {
-                #[cfg(feature = "hydrate")]
-                if reorder {
-                    _ev.prevent_default();
-                    if let Some(from) = drag_from.get_untracked() {
-                        act::move_persona(s, from, idx);
+        // Finger-drag reorder on the grip (the channel-manager pattern), keyed
+        // off `data-idx` for the elementFromPoint hit-test. `.dragging` lifts the
+        // grabbed card; `.drag-over` marks the live drop target.
+        <div class="persona-card"
+            attr:data-idx=move || idx.to_string()
+            class:worn=move || worn.get()
+            class:dragging=move || drag_from.get() == Some(idx)
+            class:drag-over=move || drag_over.get() == Some(idx) && drag_from.get() != Some(idx)>
+            // Drag handle — replaces the M3 ↑/↓/⤒/⤓ buttons AND the HTML5 drag
+            // (iOS WebKit ignores HTML5 DnD), matching channel reorder (owner
+            // directive 2026-06-17). Shown only when not filtering.
+            {reorder.then(|| view! {
+                <span class="persona-grip" title="Drag to reorder"
+                    on:pointerdown=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_down(_ev);
                     }
-                    drag_from.set(None);
-                }
-            }
-            on:dragend=move |_ev| drag_from.set(None)>
+                    on:pointermove=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_move(_ev);
+                    }
+                    on:pointerup=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                    }
+                    on:pointercancel=move |_ev| {
+                        #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                    }><IconGrip/></span>
+            })}
             // Portrait slot: the uploaded avatar if set, else the monogram.
             <div class="card-portrait" title="persona portrait">
-                {portrait(&p.avatar_id, &p.name)}
+                {portrait(&p.avatar_id, &p.name, &p.created_at)}
             </div>
             // Clicking the name/blurb opens the read-only info popup.
             <button class="card-open" title="View persona"
@@ -385,23 +452,6 @@ fn PersonaCard(
                 }}
             </button>
             <div class="card-actions">
-                // Reorder ↑/↓ — mirrors the lorebook `.lore-reorder` pattern.
-                // Hidden while a search filter is active (indices wouldn't map
-                // to the full list). ↑ disabled on the first card, ↓ on the last.
-                {reorder.then(|| view! {
-                    <button class="persona-reorder" title="Move up"
-                        disabled=move || idx == 0
-                        on:click=move |_| act::swap_persona(s, idx, true)>"↑"</button>
-                    <button class="persona-reorder" title="Move down"
-                        disabled=move || idx == len.saturating_sub(1)
-                        on:click=move |_| act::swap_persona(s, idx, false)>"↓"</button>
-                    <button class="persona-reorder" title="Bring to top"
-                        disabled=move || idx == 0
-                        on:click=move |_| act::move_persona_to_bounds(s, idx, true)>"⤒"</button>
-                    <button class="persona-reorder" title="Bring to bottom"
-                        disabled=move || idx == len.saturating_sub(1)
-                        on:click=move |_| act::move_persona_to_bounds(s, idx, false)>"⤓"</button>
-                })}
                 <Show when=move || worn.get()
                     fallback=move || {
                         let pid = pid_wear.clone();
@@ -411,7 +461,7 @@ fn PersonaCard(
                             </button>
                         }
                     }>
-                    <button class="worn" on:click=move |_| act::unwear(s)>"Worn ✓"</button>
+                    <button class="worn" on:click=move |_| act::unwear(s)>"Worn "<IconCheck/></button>
                 </Show>
                 // Owner and editor alike may edit (the editor's view hides sharing).
                 <button title="edit persona"
@@ -459,11 +509,12 @@ fn PersonaDetail(
         .get_untracked()
         .into_iter()
         .find(|p| p.id == pid);
-    let (seed_name, seed_desc, seed_color) = seed
-        .map(|p| (p.name, p.description, p.color))
+    let (seed_name, seed_desc, seed_color, seed_debut) = seed
+        .map(|p| (p.name, p.description, p.color, p.created_at))
         .unwrap_or_default();
-    // Name used for the monogram fallback in the portrait slot.
+    // Name + debut used for the crest in the portrait slot.
     let portrait_name = seed_name.clone();
+    let portrait_debut = seed_debut;
     // Live avatar for the portrait: re-read `s.social.personas` so a fresh upload shows
     // without re-opening the editor.
     let pid_portrait = pid.clone();
@@ -517,17 +568,18 @@ fn PersonaDetail(
     view! {
         // Modal: click the backdrop to close, so a long description can never
         // trap the user. The inner panel scrolls (CSS caps its height).
-        <Modal class="persona-detail" close=move || selected.set(None)>
-            <div class="detail-head">
-                <h4>{if owned { "Edit persona" } else { "Edit shared persona" }}</h4>
-                <button class="row-edit" title="close"
-                    on:click=move |_| selected.set(None)>"✕"</button>
-            </div>
+        <Modal class="persona-detail" swipe_close=true close=move || selected.set(None)>
+            // Sticky slide-over head (the shared `.account-head` chrome — under the
+            // Orbit the editor is a full-screen slide-over, not a centered card, and
+            // needs the same sticky back-arrow head the account/server/wardrobe panels
+            // carry, or it falls through to the orphaned top-left "orbit-void" card).
+            <ModalHead title=if owned { "Edit persona" } else { "Edit shared persona" }
+                on_close=move || selected.set(None)/>
             // Portrait slot — shows the current avatar (or monogram) and an
             // upload control. Picking a file uploads it and sets it as the
             // avatar; the server gates who may change it.
             <div class="detail-portrait" title="persona portrait">
-                {move || portrait(&avatar.get(), &portrait_name)}
+                {move || portrait(&avatar.get(), &portrait_name, &portrait_debut)}
             </div>
             <label class="field">
                 <span>"Picture"</span>
@@ -556,7 +608,7 @@ fn PersonaDetail(
             //
             // `tabindex="0"` makes the gallery region focusable so a user can
             // click into it and Ctrl+V to fan into `gallery_multi_upload`
-            // (W7/B4). `on:paste` fires when focus is in the region; text
+            // (M7/B4). `on:paste` fires when focus is in the region; text
             // pastes pass through (only `prevent_default()` on image items).
             <div class="field gallery-field" tabindex="0"
                 on:paste=move |_ev| {
@@ -603,18 +655,18 @@ fn PersonaDetail(
                                         <img src=src alt="gallery image"
                                             style="width:100%;height:100%;object-fit:cover;border-radius:inherit"/>
                                         {is_avatar.then(|| view! {
-                                            <span class="gallery-badge" title="Current avatar">"★"</span>
+                                            <span class="gallery-badge" title="Current avatar"><IconStar/></span>
                                         })}
                                     </button>
                                     <button class="gallery-remove danger" title="remove image"
                                         on:click=move |_| pending_remove.set(Some(img_id.clone()))>
-                                        "✕"
+                                        <IconClose/>
                                     </button>
                                 </div>
                             }
                         }).collect_view().into_any()
                     }}
-                    // Optimistic upload-in-progress placeholders (W7/B3): one
+                    // Optimistic upload-in-progress placeholders (M7/B3): one
                     // skeleton thumb per file mid-flight. Cleared on batch
                     // success; retained on batch failure so the user knows the
                     // commit didn't take.
@@ -731,7 +783,7 @@ fn PersonaDetail(
                 <div class="color-row">
                     <button class="swatch-pick none" title="Default"
                         class:active=move || edit_color.get().is_empty()
-                        on:click=move |_| edit_color.set(String::new())>"○"</button>
+                        on:click=move |_| edit_color.set(String::new())><IconCircle/></button>
                     {Color::ALL.into_iter().map(|c| {
                         let name = c.name();
                         let pick = name.to_string();
@@ -739,7 +791,7 @@ fn PersonaDetail(
                         view! {
                             <button class=format!("swatch-pick mk-{name}") title=name
                                 class:active=move || edit_color.get() == active_name
-                                on:click=move |_| edit_color.set(pick.clone())>"●"</button>
+                                on:click=move |_| edit_color.set(pick.clone())><IconDisc/></button>
                         }
                     }).collect_view()}
                 </div>

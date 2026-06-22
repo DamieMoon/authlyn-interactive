@@ -1,6 +1,6 @@
 //! Shared inline-rename / inline-edit input + save/cancel pair.
 //!
-//! Three sites consume this today (W6/C7):
+//! Three sites consume this today (M6/C7):
 //!   - server name rename in `shell/mod.rs` (sidebar header)
 //!   - channel name rename in `shell/mod.rs` (`ChannelRow`)
 //!   - message body edit in `shell/channel/mod.rs` (the message-row inline
@@ -18,6 +18,8 @@ use leptos::callback::Callback;
 use leptos::ev::KeyboardEvent;
 use leptos::html::{Input, Textarea};
 use leptos::prelude::*;
+
+use crate::ui::icons::{IconCheck, IconClose};
 
 /// `value` — initial buffer contents (the existing name / body).
 ///
@@ -114,8 +116,8 @@ pub fn InlineRename(
     view! {
         {input_field}
         <button class="row-edit" title="save"
-            on:click=move |_| on_save.run(buf.get_untracked())>"✓"</button>
+            on:click=move |_| on_save.run(buf.get_untracked())><IconCheck/></button>
         <button class="row-edit" title="cancel"
-            on:click=move |_| on_cancel.run(())>"✕"</button>
+            on:click=move |_| on_cancel.run(())><IconClose/></button>
     }
 }

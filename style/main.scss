@@ -9,20 +9,24 @@
 @use "tokens" as *;
 @use "typography";
 @use "base";
+@use "foundation";
+@use "motion";
 @use "auth";
-@use "layout";
-@use "rail";
-@use "sidebar";
 @use "content";
 @use "wardrobe";
+@use "crest"; // M7/P3 Crests — after wardrobe so it can lean on the portrait-slot box
 @use "markup";
 @use "modal";
 @use "msg_who";
 @use "mobile";
+@use "sk_orbit_chrome"; // M5/P2 Orbit chrome (pill/composer/orb/map/station) — after the M3 scaffolding it overrides
+@use "sk_orbit_chat"; // M5/P2 Orbit chat-card look — split from sk_orbit, loads right after chrome to preserve cascade
 @use "attachments";
 @use "skeleton";
+@use "holopanel";
 @use "lorebook";
 @use "lightbox";
+@use "toast";
 @use "trash";
 @use "wave_b";
 @use "mobile_emoji";

@@ -789,7 +789,7 @@ async fn persona_color_create_patch_and_snapshot() {
 }
 
 // ---------------------------------------------------------------------------
-// POST /personas/{id}/gallery/batch — atomic multi-image upload (W7/B3)
+// POST /personas/{id}/gallery/batch — atomic multi-image upload (M7/B3)
 // ---------------------------------------------------------------------------
 
 /// Bulk-CREATE `n` `media_blob` rows owned by `account_id`. Mirrors the
@@ -1009,7 +1009,7 @@ async fn batch_gallery_non_owner_non_editor_is_privacy_404() {
 /// batch is rejected (404) and nothing is inserted — proving the transaction
 /// rolls back rather than persisting a partial gallery.
 ///
-/// Single-batch contiguity is what the endpoint promises (per W7/B3 spec).
+/// Single-batch contiguity is what the endpoint promises (per M7/B3 spec).
 /// Two concurrent batches CAN still race the SELECT MAX outside the
 /// transaction; their positions may interleave but each batch's own
 /// positions stay contiguous.

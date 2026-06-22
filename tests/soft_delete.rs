@@ -411,6 +411,372 @@ async fn message_soft_delete_then_restore() {
 }
 
 // ---------------------------------------------------------------------------
+// Restore authorization (M-09/M-41): the undo-toast hot path's adversarial
+// family. POST .../restore rides the shared require_own_message gate, but the
+// UPDATE behind it is UNSCOPED (`UPDATE type::record('message', $mid) SET
+// deleted_at = NONE`) — the gate is the ONLY thing between any authenticated
+// user and un-deleting someone else's message, so every arm of the 403/404
+// matrix is pinned here.
+// ---------------------------------------------------------------------------
+
+/// Soft-delete `mid` as its author, asserting the 204.
+#[cfg(feature = "ssr")]
+async fn soft_delete_message(router: &axum::Router, cookie: &str, cid: &str, mid: &str) {
+    let (st, _, _) = common::send(
+        router,
+        Method::DELETE,
+        &format!("/channels/{cid}/messages/{mid}"),
+        Some(cookie),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NO_CONTENT,
+        "soft-delete the fixture message"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restoring_someone_elses_deleted_message_is_403() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let mid = post_message(&a.router, &owner, &cid, "deliberately deleted").await;
+    soft_delete_message(&a.router, &owner, &cid, &mid).await;
+
+    // A second member of the same guild — the channel IS visible to them.
+    let member = common::register_account(&a.router, "Member", "password123").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Member" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&member),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "another member must not resurrect a message its author deleted"
+    );
+
+    // The message stays deleted: absent from the live page, still in the trash.
+    let (_, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert!(
+        !message_ids(&list).contains(&mid),
+        "the rejected restore must not un-delete the row"
+    );
+    let (_, _, trash) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages/trash"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert!(message_ids(&trash).contains(&mid));
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restore_collapses_to_privacy_404_for_non_members_and_unknown_channels() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let mid = post_message(&a.router, &owner, &cid, "private history").await;
+    soft_delete_message(&a.router, &owner, &cid, &mid).await;
+
+    let outsider = common::register_account(&a.router, "Outsider", "password123").await;
+
+    // Non-member on the real (cid, mid) pair.
+    let (st_real, _, body_real) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+    // Any caller on an unknown channel.
+    let (st_unknown, _, body_unknown) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/nosuchchannel/messages/{mid}/restore"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+    // The canonical privacy-404 every other channel handler emits.
+    let (st_canon, _, body_canon) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&outsider),
+        None,
+    )
+    .await;
+
+    assert_eq!(st_real, StatusCode::NOT_FOUND);
+    assert_eq!(st_unknown, StatusCode::NOT_FOUND);
+    assert_eq!(st_canon, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body_real, body_unknown,
+        "non-member and unknown-channel restore bodies must be indistinguishable"
+    );
+    assert_eq!(
+        body_real, body_canon,
+        "the restore privacy-404 body must be byte-identical to the list handler's"
+    );
+
+    // And the probe must not have restored anything.
+    let (_, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert!(!message_ids(&list).contains(&mid));
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restoring_a_purged_message_is_403_not_500() {
+    // After the hard-delete sweep the row is gone; the gate's "missing message"
+    // arm collapses to the same 403 as "not yours" (no existence probe by mid).
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let mid = post_message(&a.router, &owner, &cid, "soon purged").await;
+    soft_delete_message(&a.router, &owner, &cid, &mid).await;
+
+    a.db.query("UPDATE type::record('message', $mid) SET deleted_at = time::now() - 2h;")
+        .bind(("mid", mid.clone()))
+        .await
+        .expect("backdate")
+        .check()
+        .expect("backdate check");
+    let state = AppState::new(a.db.clone(), a.media_dir.clone());
+    purge_soft_deleted(&state).await.expect("purge");
+    assert!(!row_exists(&a.db, "message", &mid).await, "fixture purged");
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "restoring a purged (hard-deleted) message must 403, never 500"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restore_of_an_already_live_message_is_an_idempotent_204() {
+    // The undo toast can race its own timeout — a double restore (and a restore
+    // of a never-deleted message) must stay a 204 no-op, not an error.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (_gid, cid) = guild_with_channel(&a.router, &owner).await;
+    let mid = post_message(&a.router, &owner, &cid, "bounces back").await;
+    soft_delete_message(&a.router, &owner, &cid, &mid).await;
+
+    for label in ["first restore", "second (already-live) restore"] {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::POST,
+            &format!("/channels/{cid}/messages/{mid}/restore"),
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT, "{label} must 204");
+    }
+
+    // A restore of a message that was never deleted is the same no-op.
+    let never_deleted = post_message(&a.router, &owner, &cid, "never deleted").await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{never_deleted}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // The restored message appears exactly once in the live page.
+    let (_, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    let ids = message_ids(&list);
+    assert_eq!(
+        ids.iter().filter(|id| **id == mid).count(),
+        1,
+        "double restore must not duplicate the row"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restore_with_a_cross_channel_message_id_is_403() {
+    // The author gate is channel-scoped (`WHERE channel = $cid`), so a valid
+    // mid presented under a DIFFERENT channel id must not be found — 403, and
+    // the unscoped UPDATE behind the gate must never run.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let (gid, cid1) = guild_with_channel(&a.router, &owner).await;
+    let (st, _, c) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "second", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let cid2 = c["id"].as_str().unwrap().to_string();
+
+    let mid = post_message(&a.router, &owner, &cid1, "lives in channel 1").await;
+    soft_delete_message(&a.router, &owner, &cid1, &mid).await;
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid2}/messages/{mid}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "a cross-channel (cid, mid) pair must not pass the channel-scoped gate"
+    );
+
+    // Still deleted in its real channel.
+    let (_, _, list) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/channels/{cid1}/messages"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert!(
+        !message_ids(&list).contains(&mid),
+        "the cross-channel restore must not have touched the row"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn restore_in_a_soft_deleted_channel_or_guild_is_privacy_404() {
+    // channel_access filters `deleted_at` on both the channel AND its guild,
+    // so a trashed container collapses the restore to the privacy-404 — a
+    // deleted channel's history must not be mutable through the undo path.
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+
+    // Arm 1: the message's CHANNEL is soft-deleted (an extra channel, so the
+    // guild stays non-empty).
+    let (gid, _default_cid) = guild_with_channel(&a.router, &owner).await;
+    let (st, _, c) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/channels"),
+        Some(&owner),
+        Some(&json!({ "name": "doomed", "kind": "text" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let cid = c["id"].as_str().unwrap().to_string();
+    let mid = post_message(&a.router, &owner, &cid, "trapped").await;
+    soft_delete_message(&a.router, &owner, &cid, &mid).await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid}/channels/{cid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "soft-delete the channel");
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages/{mid}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "restore inside a soft-deleted channel must privacy-404"
+    );
+
+    // Arm 2: the GUILD is soft-deleted; restore via its (live) default channel.
+    let (gid2, cid2) = guild_with_channel(&a.router, &owner).await;
+    let mid2 = post_message(&a.router, &owner, &cid2, "guild goes down").await;
+    soft_delete_message(&a.router, &owner, &cid2, &mid2).await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::DELETE,
+        &format!("/guilds/{gid2}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "soft-delete the guild");
+
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid2}/messages/{mid2}/restore"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "restore inside a soft-deleted guild must privacy-404"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // purge_soft_deleted: windowed hard-delete + cascade
 // ---------------------------------------------------------------------------
 
@@ -702,5 +1068,172 @@ async fn purge_cascades_channel_to_its_messages() {
     assert!(
         row_exists(&a.db, "guild", &gid).await,
         "the live guild is untouched by a channel purge"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// DM purge cascade (M7/P1): a purged kind='dm' channel must take its dm_member
+// rows, symmetric with the guild_member cascade. The LEAVE path hard-deletes
+// each leaver's row and soft-deletes the thread only at zero members, so it
+// never orphans — the first test pins that. The cascade itself guards any
+// NON-leave soft-delete path (a future admin thread-delete / moderation tool /
+// an unfriend-driven soft-delete), exercised directly in the second test so it
+// cannot silently regress; without the purge's `DELETE dm_member` arm the rows
+// would survive their channel.
+// ---------------------------------------------------------------------------
+
+/// Register an account, returning `(session_cookie, account_id)`.
+#[cfg(feature = "ssr")]
+async fn register_with_id(router: &axum::Router, name: &str) -> (String, String) {
+    let (st, cookie, body) = common::send(
+        router,
+        Method::POST,
+        "/auth/register",
+        None,
+        Some(&json!({ "username": name, "password": "password123" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "register({name})");
+    (
+        cookie.unwrap(),
+        body["account_id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// The dm_member row ids still attached to a channel.
+#[cfg(feature = "ssr")]
+async fn dm_member_ids(
+    db: &surrealdb::Surreal<surrealdb::engine::remote::ws::Client>,
+    cid: &str,
+) -> Vec<String> {
+    let mut resp = db
+        .query(
+            "SELECT VALUE meta::id(id) FROM dm_member
+                WHERE channel = type::record('channel', $cid);",
+        )
+        .bind(("cid", cid.to_string()))
+        .await
+        .expect("dm_member query")
+        .check()
+        .expect("dm_member check");
+    resp.take(0).expect("take dm_member ids")
+}
+
+/// Register Alice + Bob, make them friends, and open a 1:1 DM. Returns
+/// `(alice_cookie, bob_cookie, dm_channel_id)`.
+#[cfg(feature = "ssr")]
+async fn one_to_one_dm(a: &common::Arena) -> (String, String, String) {
+    let (alice, alice_id) = register_with_id(&a.router, "Alice").await;
+    let (bob, bob_id) = register_with_id(&a.router, "Bob").await;
+    // Alice friend-requests Bob; Bob accepts.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/friends",
+        Some(&alice),
+        Some(&json!({ "username": "Bob" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "friend request");
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/friends/{alice_id}/accept"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "friend accept");
+    let (st, _, dm) = common::send(
+        &a.router,
+        Method::POST,
+        "/dms",
+        Some(&alice),
+        Some(&json!({ "members": [bob_id] })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "create 1:1 DM: {dm:?}");
+    let cid = dm["id"].as_str().unwrap().to_string();
+    (alice, bob, cid)
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn leaving_a_dm_removes_member_rows_so_the_leave_path_never_orphans() {
+    // leave_dm hard-deletes the leaver's dm_member row; the thread is soft-deleted
+    // only once membership hits zero. So at the moment the channel is soft-deleted
+    // there are already zero dm_member rows — the leave path cannot orphan any.
+    let a = common::arena().await;
+    let (alice, bob, cid) = one_to_one_dm(&a).await;
+    assert_eq!(dm_member_ids(&a.db, &cid).await.len(), 2, "two members");
+
+    for who in [&alice, &bob] {
+        let (st, _, _) = common::send(
+            &a.router,
+            Method::DELETE,
+            &format!("/dms/{cid}/members/me"),
+            Some(who),
+            None,
+        )
+        .await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+    }
+
+    assert!(
+        dm_member_ids(&a.db, &cid).await.is_empty(),
+        "both leaves hard-deleted every dm_member row before soft-delete"
+    );
+    // The channel row itself still exists (soft-deleted, not yet purged); only
+    // its membership rows are gone.
+    assert!(
+        row_exists(&a.db, "channel", &cid).await,
+        "the soft-deleted DM channel row survives until purge"
+    );
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn purge_should_cascade_dm_member_rows() {
+    // Cascade guard: a kind='dm' channel soft-deleted while it STILL has members
+    // (the shape a non-leave soft-delete path produces) must take its dm_member
+    // rows on purge — exactly as the 30d guild purge takes guild_member. Without
+    // the purge's `DELETE dm_member` arm these rows would orphan onto the
+    // dm_member_account index forever.
+    let a = common::arena().await;
+    let (alice, _bob, cid) = one_to_one_dm(&a).await;
+    let mid = post_message(&a.router, &alice, &cid, "in the doomed DM").await;
+
+    let members = dm_member_ids(&a.db, &cid).await;
+    assert_eq!(members.len(), 2, "two dm_member rows before purge");
+
+    // Soft-delete the channel directly, members still attached, and backdate it
+    // past the 1d window (members present is the contrast with the leave path).
+    a.db.query("UPDATE type::record('channel', $cid) SET deleted_at = time::now() - 2d;")
+        .bind(("cid", cid.clone()))
+        .await
+        .expect("backdate")
+        .check()
+        .expect("backdate check");
+
+    let state = AppState::new(a.db.clone(), a.media_dir.clone());
+    purge_soft_deleted(&state).await.expect("purge");
+
+    assert!(
+        !row_exists(&a.db, "channel", &cid).await,
+        "the DM channel past 1d is hard-deleted"
+    );
+    assert!(
+        !row_exists(&a.db, "message", &mid).await,
+        "cascade: the DM's message is hard-deleted"
+    );
+    for id in &members {
+        assert!(
+            !row_exists(&a.db, "dm_member", id).await,
+            "cascade: the purged DM's dm_member row {id} must be hard-deleted"
+        );
+    }
+    assert!(
+        dm_member_ids(&a.db, &cid).await.is_empty(),
+        "no orphan dm_member rows survive the purged DM channel"
     );
 }

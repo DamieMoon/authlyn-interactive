@@ -1,6 +1,8 @@
-//! Channel actions: open (incl. deep link + session restore), create/rename/
+//! Channel actions: open (incl. deep link, session restore + the re-entry
+//! NEW-divider/scroll-memory capture, UX evolution #9), create/rename/
 //! delete/swap/restore. Cross-calls: `open_channel_at` dispatches into
-//! [`super::message`] for the per-channel sync setup; channel reorders defer to
+//! [`super::message`] for the per-channel sync setup and [`super::reentry`]
+//! for the re-entry capture/restore; channel reorders defer to
 //! [`super::guild::open_server`] for the post-reorder reload.
 
 use super::super::Shell;
@@ -20,6 +22,17 @@ use leptos::task::spawn_local;
 #[cfg(feature = "hydrate")]
 pub fn open_channel(s: Shell, ch: ChannelSummary) {
     open_channel_at(s, ch, None);
+}
+
+/// Open the orbit MAP overlay (the home/landing surface). Wired to every
+/// USER-dismiss of a station-reached surface (Station back/swipe/Esc, the
+/// Server-settings modal close, the Account & preferences modal close) so
+/// leaving them returns to the orbit home, not whatever channel is mounted
+/// underneath. NOT called on programmatic closes (opening a channel clears the
+/// wardrobe; logout clears `account_open`) — those must never pop the map.
+#[cfg(feature = "hydrate")]
+pub fn show_orbit_map(s: Shell) {
+    s.sync.map_open.set(true);
 }
 
 /// Load the persisted per-channel drafts (channel id -> text) from
@@ -62,14 +75,71 @@ pub fn save_draft(s: Shell, text: &str) {
 #[cfg(feature = "hydrate")]
 pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     use super::super::Pane;
+    // M4/T4 radial: a long-press armed in the OUTGOING channel must not fire
+    // over the incoming pane (its envelope/cid are stale — a cross-channel
+    // reply banner), and an already-open menu must not survive the switch.
+    // Bumps the LongPress generation + closes the menu; no-op when no
+    // ChannelPane is mounted.
+    super::super::channel::disarm_radial();
+    // Re-entry scroll memory (UX evolution #9): record where the user stands
+    // in the OUTGOING channel before any state below is touched — the DOM
+    // still shows it. Leaving at the tail clears the mark instead (re-entry
+    // should land at the tail again); no-op when no message list is mounted
+    // (a sheet pick from another pane keeps the previously captured mark).
+    super::reentry::capture_scroll_mark(s);
     let cid = ch.id.clone();
     let kind = ch.kind.clone();
     // Re-opening the channel you're already on (e.g. returning from the
     // Wardrobe pane) must NOT reset the worn persona from the server — a
     // just-worn value could be clobbered by a stale read before its write
     // commits. Only adopt the server's remembered persona when SWITCHING
-    // to a different channel.
+    // to a different channel. Also gates the warp below.
     let same_channel = s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone());
+    // M4/T3: warp transition — flag the content pane as switching so the dip
+    // (and the .fx-max streak) plays over the message-list swap. M5/P0 #54
+    // rebased the class from `.content` onto the inner `.channel-view` wrapper
+    // (channel/mod.rs) so .content stays transform-free; the warp dip is now
+    // scoped to the channel stream (the lorebook pane no longer dips).
+    // Gated on an ACTUAL switch: a same-channel re-click replays
+    // nothing, while the initial session restore (no prior channel) keeps
+    // its deliberate entry warp. A detached timer clears it after ~180ms
+    // (matching the CSS timing); the spawned future doesn't run until this
+    // synchronous body — which sets the pane and clears the messages — has
+    // yielded. A rapid second switch inside the window has its warp cut to
+    // the first timer's remainder — cosmetic, not worth a generation counter
+    // (unlike the send pulse, M4/T2, whose truncation earned one).
+    if !same_channel {
+        // M5/P2: set the directional warp sign (deferred from Foundation T0.2)
+        // from the channel-list index direction of this switch. Written on the
+        // document root so `.channel-view.fx-switching` (_content.scss:46) reads
+        // it. Visible in orbit (swipe strip + warp); harmless under M3.
+        {
+            let chans = s.sel.channels.get_untracked();
+            let from_idx = s
+                .sel
+                .sel_channel
+                .get_untracked()
+                .and_then(|c| chans.iter().position(|x| x.id == c.id));
+            let to_idx = chans.iter().position(|x| x.id == cid);
+            let dir = crate::ui::shell::sk_orbit::warp::warp_dir(from_idx, to_idx);
+            if let Some(root) = leptos::web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.document_element())
+            {
+                use leptos::wasm_bindgen::JsCast as _;
+                if let Some(html) = root.dyn_ref::<leptos::web_sys::HtmlElement>() {
+                    let _ = html.style().set_property("--warp-dir", &dir.to_string());
+                }
+            }
+        }
+        s.sync.switching.set(true);
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(180).await;
+            // `try_` (review M-10): a detached timer can outlive the shell
+            // (logout inside the 180ms window).
+            let _ = s.sync.switching.try_set(false);
+        });
+    }
     // Per-channel draft scoping: when actually switching channels, restore the
     // incoming channel's saved draft (feedback fvffwu / fkqdtp). The outgoing
     // channel's text is already in `drafts` — `save_draft` keeps the map current
@@ -109,6 +179,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         s.msg.loading_older.set(false);
         s.msg.more_history.set(true);
         s.msg.anchor_to.set(None);
+        // Re-entry (UX evolution #9): the unread frontier is re-captured per
+        // open below — a stale divider must never paint over the incoming
+        // channel's list.
+        s.msg.new_divider.set(None);
         s.msg.seen.update(|h| h.clear());
         // First page is now in flight: show loading skeletons until it lands
         // (the spawned task below clears this on every exit path) (F-7).
@@ -116,24 +190,28 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
         // Drop the previous channel's typing indicator at once; the poll
         // repopulates it from the new channel's response.
         s.msg.typing.set(Vec::new());
-        // Opening clears the unread glow, the ping glow, and the count badge at
-        // once (L-4); the high-water mark advances once messages load below.
+        // …and the previous channel's Ghost Quill rows (M4/T7): ghosts are
+        // channel-scoped and must never leak across a switch.
+        s.msg.ghost_drafts.set(Vec::new());
+        // Opening clears the unread glow at once (L-4); the high-water mark
+        // advances once messages load below.
         s.notify.unread.update(|u| {
             u.remove(&cid);
         });
-        s.notify.pinged.update(|p| {
-            p.remove(&cid);
-        });
-        s.notify.unread_count.update(|c| {
-            c.remove(&cid);
-        });
+        // Recompute the unread set promptly: it is rebuilt only by
+        // `refresh_unread` (from `GET /unread`), and under SSE there is no
+        // periodic tick to pick up the channel the user just read — without
+        // this the glow of a now-fully-read channel would linger until the
+        // next event.
+        super::message::refresh_unread(s);
         // Ask the SW to close any tray notifications for this channel so a
         // burst of stacked notifs disappears once the user lands on the
         // channel that produced them (feedback row kx24k2cwftdppidhmh0e).
         super::notify::clear_notifs_for_channel(&cid);
-        // Capture the prior last-seen mark BEFORE the page load advances it, so
-        // we can jump to the OLDEST unread message on open (L-4). An explicit
-        // `anchor` (a notification deep-link) always wins over the unread jump.
+        // Capture the prior last-seen mark BEFORE the page load advances it:
+        // it is BOTH the unread-jump target (L-4) and the NEW-divider baseline
+        // (re-entry, UX evolution #9). An explicit `anchor` (a notification
+        // deep-link) always wins over the unread jump.
         let prior_seen = s.notify.last_seen.with_untracked(|m| m.get(&cid).cloned());
         super::message::start_poll(s);
         let seen_cid = cid.clone();
@@ -143,7 +221,16 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 // page was in flight, drop it so we don't paint the previous
                 // channel's messages under the new header (feedback gwiif7xy).
                 // The newer switch owns `loading_initial` now, so leave it.
-                if s.sel.sel_channel.get_untracked().map(|c| c.id) != Some(cid.clone()) {
+                // `try_` (review M-10): a shell disposed by logout mid-fetch
+                // bails the same way; the rest of this tail rides the proof
+                // on the same tick.
+                if s.sel
+                    .sel_channel
+                    .try_get_untracked()
+                    .flatten()
+                    .map(|c| c.id)
+                    != Some(cid.clone())
+                {
                     return;
                 }
                 // First page landed: drop the loading skeletons (F-7). Cleared
@@ -167,31 +254,64 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
                 super::message::ingest(s, l.messages);
                 s.msg.oldest.set(oldest);
                 s.msg.more_history.set(full_page);
-                // Deep-link: now the page is in the DOM, ask the scroll
-                // Effect to bring the notified message into view. An explicit
-                // deep-link anchor wins; otherwise jump to the OLDEST unread
-                // message — the first one strictly past the prior last-seen
-                // composite cursor (L-4). String-tuple compare matches the
-                // cursor's strict (sent_at, id) tie-break, same as `hydrate_last_seen`.
-                let jump = anchor.or_else(|| {
-                    let prior = prior_seen.as_ref()?;
-                    s.msg.messages.with_untracked(|msgs| {
-                        msgs.iter()
-                            .find(|m| (m.sent_at.clone(), m.id.clone()) > *prior)
-                            .map(|m| m.id.clone())
-                    })
+                // Re-entry (UX evolution #9): the unread frontier. `prior_seen`
+                // was captured BEFORE the page load advanced the mark; when
+                // rows strictly past it exist (the composite tie-break lives
+                // in `reentry::first_past_baseline`), stash it as the NEW-divider
+                // baseline — a render-time ornament only: it never enters
+                // seen/cursor bookkeeping and only READS the read-state path
+                // (mark_read / set_last_seen semantics are untouched).
+                let first_unread = prior_seen.as_ref().and_then(|prior| {
+                    s.msg
+                        .messages
+                        .with_untracked(|msgs| super::reentry::first_past_baseline(msgs, prior))
                 });
+                if first_unread.is_some() {
+                    s.msg.new_divider.set(prior_seen.clone());
+                }
+                // The saved scroll mark is consumed UNCONDITIONALLY, one-shot
+                // per OPEN — never lazily inside the precedence chain (review):
+                // a mark left un-eaten because a deep-link or the NEW-divider
+                // jump won here would survive to a LATER open and yank the
+                // user back to a days-old position they have long since read
+                // past (leave mid-history → return with unread → read to tail
+                // → close the PWA → reopen). Eager + last-slot keeps the
+                // precedence identical while making "one-shot on the next
+                // open" literally true.
+                let restored = super::reentry::take_restore_anchor(s, &cid);
+                // Jump precedence: an explicit deep-link anchor wins; else
+                // land AT the NEW divider, so the frontier is marked, not
+                // inferred (L-4's jump used to target the first unread row
+                // itself, leaving the marker-less boundary to be guessed);
+                // else restore the remembered scroll anchor consumed above.
+                // No mark = the default tail behaviour, untouched.
+                let jump = anchor
+                    .or_else(|| {
+                        first_unread
+                            .is_some()
+                            .then(|| super::reentry::NEW_DIVIDER_ANCHOR.to_string())
+                    })
+                    .or(restored);
                 if let Some(mid) = jump {
                     s.msg.anchor_to.set(Some(mid));
                 }
                 if let Some(cur) = s.msg.cursor.get_untracked() {
                     super::message::set_last_seen(s, &seen_cid, cur);
                 }
-            } else if s.sel.sel_channel.get_untracked().map(|c| c.id) == Some(cid.clone()) {
+            } else {
                 // First-page fetch failed and we're still on this channel: drop
                 // the skeletons so the pane doesn't shimmer forever (F-7). A
                 // newer switch already owns the flag, so only clear it for ours.
-                s.msg.loading_initial.set(false);
+                // (`try_`, review M-10: a disposed shell skips the same way.)
+                let open = s
+                    .sel
+                    .sel_channel
+                    .try_get_untracked()
+                    .flatten()
+                    .map(|c| c.id);
+                if open.as_deref() == Some(cid.as_str()) {
+                    s.msg.loading_initial.set(false);
+                }
             }
         });
     }
@@ -206,6 +326,12 @@ pub fn open_deep_link(s: Shell, gid: String, cid: String, message: Option<String
         let Ok(d) = api::get_guild(&gid).await else {
             return;
         };
+        // Disposal guard (review M-10): the fetch can resolve after logout
+        // disposed the shell — bail before the plain same-tick writes below
+        // (and before re-persisting the server key for a dead session).
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
+        }
         let _ = LocalStorage::set(KEY_SERVER, &gid);
         s.sel.sel_server.set(Some(gid.clone()));
         s.sel.sel_owner.set(Some(d.owner_id.clone()));
@@ -240,6 +366,12 @@ pub fn restore_session(s: Shell) -> bool {
             LocalStorage::delete(KEY_CHANNEL);
             return;
         };
+        // Disposal guard (review M-10): the fetch can resolve after logout
+        // disposed the shell — the plain writes below (and the open_channel
+        // chain) assume a live shell.
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
+        }
         s.sel.sel_server.set(Some(gid.clone()));
         s.sel.sel_owner.set(Some(d.owner_id.clone()));
         s.sel.channels.set(d.channels.clone());
@@ -272,8 +404,17 @@ pub fn create_channel(s: Shell, name: String, kind: String) {
     }
     spawn_local(async move {
         match api::create_channel(&gid, &name, &kind).await {
-            Ok(_) => super::guild::open_server(s, gid),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            // Disposal proof (review M-10): `open_server` writes signals
+            // plainly on entry, so prove the shell alive before calling.
+            Ok(_) => {
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                super::guild::open_server(s, gid)
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -287,11 +428,19 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
     spawn_local(async move {
         match api::patch_channel(&gid, &cid, &name).await {
             Ok(()) => {
-                s.sel.channels.update(|cs| {
-                    if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
-                        c.name = name.clone();
-                    }
-                });
+                // `try_update` doubles as the disposal proof (review M-10);
+                // the second write rides the same tick.
+                if s.sel
+                    .channels
+                    .try_update(|cs| {
+                        if let Some(c) = cs.iter_mut().find(|c| c.id == cid) {
+                            c.name = name.clone();
+                        }
+                    })
+                    .is_none()
+                {
+                    return;
+                }
                 s.sel.sel_channel.update(|sc| {
                     if let Some(c) = sc {
                         if c.id == cid {
@@ -300,7 +449,9 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
                     }
                 });
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -314,14 +465,20 @@ pub fn delete_channel(s: Shell, gid: String, cid: String) {
     spawn_local(async move {
         match api::delete_channel(&gid, &cid).await {
             Ok(()) => {
-                if s.sel.sel_channel.get_untracked().map(|c| c.id).as_deref() == Some(cid.as_str())
-                {
+                // `try_` read doubles as the disposal proof (review M-10) —
+                // `open_server` below writes signals plainly on entry.
+                let Some(sel) = s.sel.sel_channel.try_get_untracked() else {
+                    return;
+                };
+                if sel.map(|c| c.id).as_deref() == Some(cid.as_str()) {
                     s.sel.sel_channel.set(None);
                     s.sync.pane.set(Pane::Friends);
                 }
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -406,9 +563,15 @@ fn persist_channel_order(s: Shell, gid: String, list: Vec<ChannelSummary>) {
     spawn_local(async move {
         for (cid, pos) in patches {
             if let Err(e) = api::set_channel_position(&gid, &cid, pos).await {
-                s.composer.status.set(api::humanize(&e));
+                // `try_` (review M-10): mid-loop awaits can outlive the shell.
+                let _ = s.composer.status.try_set(api::humanize(&e));
                 break;
             }
+        }
+        // Disposal proof (review M-10): `open_server` writes signals plainly
+        // on entry.
+        if s.sync.polling.try_get_untracked().is_none() {
+            return;
         }
         super::guild::open_server(s, gid);
     });
@@ -420,11 +583,19 @@ fn persist_channel_order(s: Shell, gid: String, list: Vec<ChannelSummary>) {
 pub fn restore_channel(s: Shell, gid: String, cid: String) {
     spawn_local(async move {
         match api::restore_channel(&gid, &cid).await {
+            // Disposal proof (review M-10): `open_server` writes signals
+            // plainly on entry (`load_deleted_channels` only spawns, but it
+            // rides the same proof).
             Ok(()) => {
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
                 super::message::load_deleted_channels(s, gid.clone());
                 super::guild::open_server(s, gid);
             }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
         }
     });
 }
@@ -435,6 +606,8 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn show_orbit_map(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_drafts() -> std::collections::HashMap<String, String> {

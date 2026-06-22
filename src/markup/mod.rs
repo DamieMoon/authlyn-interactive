@@ -51,13 +51,14 @@
 //! inside them.
 //!
 //! ## Layout
-//! - [`tokenize`] — UTF-8-boundary-safe scanner producing `Tok`s.
-//! - [`tree`] — stack-based builder turning `Tok`s into `Node`s (with the
+//! - `tokenize` — UTF-8-boundary-safe scanner producing `Tok`s.
+//! - `tree` — stack-based builder turning `Tok`s into `Node`s (with the
 //!   leniency unwind).
-//! - [`blocks`] — block-level pass (line-leading markers + fenced code),
+//! - `blocks` — block-level pass (line-leading markers + fenced code),
 //!   composing the inline pipeline for non-code content.
 
 mod blocks;
+pub mod crest;
 mod tokenize;
 mod tree;
 

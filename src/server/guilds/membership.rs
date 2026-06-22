@@ -9,7 +9,7 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    InviteMemberRequest, ListMembersResponse, MemberSummary, SetMemberRoleRequest,
+    InviteMemberRequest, ListMembersResponse, MemberSummary, SetMemberRoleRequest, SyncEvent,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
@@ -94,6 +94,16 @@ async fn load_members(state: &AppState, gid: &str) -> surrealdb::Result<Vec<Memb
 // POST /guilds/{id}/members
 // ---------------------------------------------------------------------------
 
+/// POST /guilds/{id}/members — invite a user by case-insensitive username as a
+/// plain `member` (manager only). Identity is the caller's cookie; `req.username`
+/// only names the *target*, never the caller. Unknown username → 404.
+///
+/// Dual-path idempotency against the `guild_member_pair (guild, account)` UNIQUE
+/// index: a `caller_role` pre-check returns 409 if the user is already a member,
+/// and a concurrent invite that loses the UNIQUE race is mapped via
+/// [`is_unique_violation`] to the same idempotent `409`, never a 500 — so two
+/// racing invites yield exactly one row. Pinned by
+/// `tests/guilds.rs::concurrent_invite_yields_one_member_row`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, invitee))]
 pub async fn invite_member(
     State(state): State<AppState>,
@@ -150,7 +160,10 @@ pub async fn invite_member(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::CREATED.into_response(),
+        Ok(()) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::CREATED.into_response()
+        }
         Err(e) if is_unique_violation(&e) => {
             error_response(StatusCode::CONFLICT, "user is already a member")
         }
@@ -218,7 +231,10 @@ pub async fn remove_member(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "remove_member failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -275,7 +291,10 @@ pub async fn set_member_role(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "set_member_role failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

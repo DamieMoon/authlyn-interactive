@@ -1,51 +1,51 @@
-//! The authed Discord-style shell: a server rail, a channel sidebar, and a
-//! content pane that switches between channel messages, the lorebook editor,
-//! the wardrobe, and the friends list.
+//! The authed orbit shell: an immersive pill/station landing whose orbit-map
+//! overlay is the home surface, with content panes that switch between channel
+//! messages, the lorebook editor, the wardrobe, and the friends list. Orbit is
+//! the sole + default shell (no rail/sidebar fallback) — the station opens the
+//! shared, skeleton-independent Account & Server modals mounted here.
 //!
-//! State is signal-driven (a `Copy` [`Shell`] handle); deep-link URLs are a
+//! State is signal-driven (a `Copy` `Shell` handle); deep-link URLs are a
 //! later polish. All data-fetching lives in the `act` module, defined twice —
 //! real on hydrate, no-op stubs on ssr — so the view's handlers call it
 //! ungated and the gloo-net client never enters the ssr graph.
 //!
 //! The content panes each live in their own submodule (`channel`, `wardrobe`,
-//! `lorebook`, `friends`); this module owns the shared [`Shell`] state, the
-//! rail/sidebar layout ([`AppShell`]), and the [`act`] action layer.
+//! `lorebook`, `friends`); this module owns the shared `Shell` state, the
+//! orbit shell mount (`AppShell`), and the [`act`] action layer.
 
 use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 
-use crate::protocol::{ChannelSummary, ListFriendsResponse};
+use crate::protocol::ListFriendsResponse;
 
-// Trash DTOs reused from protocol (no new types needed — server returns the
-// existing GuildSummary / ChannelSummary / MessageEnvelope shapes for trash too).
-use crate::ui::avatar::monogram;
 use crate::ui::emoji::EmojiResolver;
-use crate::ui::inline_rename::InlineRename;
-use crate::ui::modal::Modal;
+use crate::ui::modal::{Modal, ModalHead};
 use crate::ui::AuthCtx;
 
 mod account;
 mod channel;
 mod emoji_manager;
 mod friends;
+pub mod holopanel;
 mod lorebook;
 mod members;
+mod server;
+pub mod sk_orbit;
 mod state;
+mod toast;
 mod wardrobe;
 
 #[cfg(feature = "hydrate")]
 pub(crate) use state::COMPOSER_MAX_ATTACHMENTS;
 pub(crate) use state::{
-    Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Trash,
+    Composer, MessageView, Modals, Notify, Prefs, Selection, Social, SyncState, Toasts, Trash,
 };
 
 use account::AccountModal;
-use channel::{ChannelManagerModal, ChannelPane};
-use emoji_manager::EmojiManagerPane;
-use friends::FriendsPane;
-use lorebook::LorebookPane;
-use members::MembersPane;
+use server::ServerModal;
+use sk_orbit::SkOrbitShell;
+use toast::toast_host;
 use wardrobe::WardrobePane;
 
 #[component]
@@ -77,26 +77,35 @@ pub(crate) enum Pane {
     Lorebook,
     Emoji,
     Members,
+    /// M7/P1: the DM thread list (demo-grade orbit surface; placement is a
+    /// deck-pass decision).
+    DirectMessages,
+    /// M7/P2: the Guest Cameos list — channels the caller is a guest in
+    /// (demo-grade; placement is a deck-pass decision).
+    Cameos,
 }
 
 /// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
 /// (with a human prompt in `confirm_prompt`); the top-level confirm modal in
 /// `AppShell` dispatches the matching `act::` fn when the user confirms. Storing
 /// a closure in a signal is awkward in Leptos, so we describe the action as data.
+///
+/// Message deletes no longer queue here (UX evolution #11): they act
+/// instantly with a 6s undo toast instead (`act::delete_message`); the
+/// confirm modal stays for the heavier owner-gated restores below.
 #[derive(Clone)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 pub(crate) enum PendingDelete {
-    Message { cid: String, mid: String },
     Channel { gid: String, cid: String },
     Server { gid: String },
     Persona { pid: String },
 }
 
-/// Aggregate of the shell's reactive state, grouped into 9 sub-structs.
+/// Aggregate of the shell's reactive state, grouped into 10 sub-structs.
 ///
 /// Each sub-struct is also `provide_context`'d in `AppShell` so a deeper
 /// component can pull just the slice it needs via `use_context::<Selection>()`
-/// (the pane-component migration in W6/C8). `act::*` keeps taking the full
+/// (the pane-component migration in M6/C8). `act::*` keeps taking the full
 /// aggregate handle so action functions stay short and uncluttered.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
@@ -110,98 +119,7 @@ pub(crate) struct Shell {
     pub(crate) notify: Notify,
     pub(crate) trash: Trash,
     pub(crate) prefs: Prefs,
-}
-
-/// Touch/pointer edge-swipe gesture for the mobile nav drawer (feedback row
-/// 1k0avo909pw47mmfn1zt). Attaches `pointerdown`/`pointermove`/`pointerup`
-/// listeners to `window` for the page lifetime (via `forget()`, mirroring
-/// [`act::wire_focus_clears_notifs`]).
-///
-/// Rules (discrete toggle — CSS animates the existing `transform` transition):
-/// - A drag that STARTS in the left ~20% of the viewport and moves right by
-///   more than 40px (with the horizontal travel dominating any vertical, so
-///   normal vertical scrolling isn't hijacked) opens the drawer.
-/// - A leftward drag of more than 40px while the drawer is open closes it.
-///
-/// The handlers only `.set()` the existing `nav_open` signal, which remains
-/// the single source of truth (scrim-click and channel/guild selection still
-/// drive it too). Event coordinates and `window.innerWidth` are read by
-/// reflection so no extra `web-sys` interface features are needed (same
-/// pattern as `act/notify.rs`).
-#[cfg(feature = "hydrate")]
-fn wire_swipe_drawer(s: Shell) {
-    use std::cell::Cell;
-    use std::rc::Rc;
-    use wasm_bindgen::closure::Closure;
-    use wasm_bindgen::{JsCast, JsValue};
-
-    const EDGE_FRACTION: f64 = 0.20;
-    const THRESHOLD_PX: f64 = 40.0;
-
-    let Some(win) = leptos::web_sys::window() else {
-        return;
-    };
-
-    // Read `event.clientX` / `clientY` reflectively (no MouseEvent feature).
-    fn coord(ev: &JsValue, key: &str) -> Option<f64> {
-        js_sys::Reflect::get(ev, &JsValue::from_str(key))
-            .ok()
-            .and_then(|v| v.as_f64())
-    }
-    // Viewport width via reflection on `window.innerWidth`.
-    fn viewport_width(win: &leptos::web_sys::Window) -> f64 {
-        js_sys::Reflect::get(win, &JsValue::from_str("innerWidth"))
-            .ok()
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-    }
-
-    // (start_x, start_y, started_in_edge) — None while no drag is in flight.
-    let start: Rc<Cell<Option<(f64, f64, bool)>>> = Rc::new(Cell::new(None));
-
-    let down = {
-        let start = start.clone();
-        let win = win.clone();
-        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
-            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
-                start.set(None);
-                return;
-            };
-            let vw = viewport_width(&win);
-            let in_edge = vw > 0.0 && x <= vw * EDGE_FRACTION;
-            start.set(Some((x, y, in_edge)));
-        })
-    };
-
-    let up = {
-        let start = start.clone();
-        Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
-            let Some((sx, sy, in_edge)) = start.replace(None) else {
-                return;
-            };
-            let (Some(x), Some(y)) = (coord(&ev, "clientX"), coord(&ev, "clientY")) else {
-                return;
-            };
-            let dx = x - sx;
-            let dy = y - sy;
-            // Require horizontal travel to dominate so vertical scrolls
-            // don't toggle the drawer.
-            if dy.abs() >= dx.abs() {
-                return;
-            }
-            let open = s.sync.nav_open.get_untracked();
-            if !open && in_edge && dx > THRESHOLD_PX {
-                s.sync.nav_open.set(true);
-            } else if open && dx < -THRESHOLD_PX {
-                s.sync.nav_open.set(false);
-            }
-        })
-    };
-
-    let _ = win.add_event_listener_with_callback("pointerdown", down.as_ref().unchecked_ref());
-    let _ = win.add_event_listener_with_callback("pointerup", up.as_ref().unchecked_ref());
-    down.forget();
-    up.forget();
+    pub(crate) toasts: Toasts,
 }
 
 #[component]
@@ -209,7 +127,7 @@ fn AppShell() -> impl IntoView {
     let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
 
     // Construct each state sub-struct, then make each available via
-    // `provide_context` so pane components (W6/C8) can pull just the slice
+    // `provide_context` so pane components (M6/C8) can pull just the slice
     // they need without taking the full Shell aggregate as a prop.
     let sel = Selection {
         guilds: RwSignal::new(Vec::new()),
@@ -219,6 +137,8 @@ fn AppShell() -> impl IntoView {
         guild_channels: RwSignal::new(HashMap::new()),
         guild_emoji: RwSignal::new(Vec::new()),
         sel_channel: RwSignal::new(None),
+        dms: RwSignal::new(Vec::new()),
+        cameos: RwSignal::new(Vec::new()),
     };
     provide_context(sel);
 
@@ -232,6 +152,8 @@ fn AppShell() -> impl IntoView {
         anchor_to: RwSignal::new(None),
         seen: RwSignal::new(HashSet::new()),
         typing: RwSignal::new(Vec::new()),
+        ghost_drafts: RwSignal::new(Vec::new()),
+        new_divider: RwSignal::new(None),
     };
     provide_context(msg);
 
@@ -243,15 +165,20 @@ fn AppShell() -> impl IntoView {
         last_used_colors: RwSignal::new(act::load_color_history()),
         replying_to: RwSignal::new(None),
         editing: RwSignal::new(None),
+        sent: RwSignal::new(false),
+        sent_gen: StoredValue::new(0),
+        effect_mode: RwSignal::new(None),
     };
     provide_context(composer);
 
     let sync = SyncState {
         polling: RwSignal::new(false),
+        sse_live: RwSignal::new(false),
         me: RwSignal::new(auth.user.get_untracked().map(|u| u.account_id)),
         pane: RwSignal::new(Pane::Friends),
-        nav_open: RwSignal::new(false),
         wardrobe_open: RwSignal::new(false),
+        map_open: RwSignal::new(false),
+        switching: RwSignal::new(false),
     };
     provide_context(sync);
 
@@ -276,15 +203,13 @@ fn AppShell() -> impl IntoView {
     let notify = Notify {
         muted: RwSignal::new(HashSet::new()),
         unread: RwSignal::new(HashSet::new()),
-        pinged: RwSignal::new(HashSet::new()),
-        unread_count: RwSignal::new(HashMap::new()),
         last_seen: RwSignal::new(HashMap::new()),
         web_push_enabled: RwSignal::new(false),
+        scroll_marks: RwSignal::new(act::reentry::load_scroll_marks()),
     };
     provide_context(notify);
 
     let trash = Trash {
-        deleted_guilds: RwSignal::new(Vec::new()),
         deleted_channels: RwSignal::new(Vec::new()),
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
@@ -293,8 +218,20 @@ fn AppShell() -> impl IntoView {
 
     let prefs = Prefs {
         dialogue_style: RwSignal::new(act::rp_dialogue_style_enabled()),
+        ghost_quill: RwSignal::new(act::ghost_quill_enabled()),
+        haptic_vibrate: RwSignal::new(act::haptic_vibrate_enabled()),
+        // v27 (M5/P2): orbit is the sole + default shell — forced here
+        // unconditionally (no ceremony, no chooser, no M3 fallback path). The
+        // `skeleton` signal is kept (vestigial reads in channel/* + the
+        // skeleton_switch.rs surface) but can no longer vary.
+        skeleton: RwSignal::new(Some(act::SKELETON_FALLBACK.to_string())),
     };
     provide_context(prefs);
+
+    let toasts = Toasts {
+        current: RwSignal::new(None),
+    };
+    provide_context(toasts);
 
     let s = Shell {
         sel,
@@ -306,14 +243,27 @@ fn AppShell() -> impl IntoView {
         notify,
         trash,
         prefs,
+        toasts,
     };
-    // Make the aggregate available to pane components (W6/C8) so they can drop
+    // Make the aggregate available to pane components (M6/C8) so they can drop
     // their `s: Shell` prop in favour of `use_context::<Shell>()`.
     provide_context(s);
 
     // Keep `s.sync.me` in sync with the auth context (it resolves async after mount).
     Effect::new(move |_| {
         s.sync.me.set(auth.user.get().map(|u| u.account_id));
+    });
+    // M7/P2 deck-pass fix (UI-5): the inline `composer.status` line is a
+    // per-action transient (e.g. a cameo-invite "already a member of this guild"
+    // surfaced from MembersPane). It used to bleed across panes — visible while
+    // navigating Members -> Friends -> Cameos. Pane navigation is the natural
+    // reset point, so clear it on every pane switch. One Effect covers ALL
+    // transitions (rail nav + the in-pane back/forward buttons), not just the
+    // friends.rs sites. Reading `pane` subscribes; writing `status` doesn't, so
+    // there's no feedback loop. Client-only (Effects don't run on ssr).
+    Effect::new(move |_| {
+        let _ = s.sync.pane.get();
+        s.composer.status.set(String::new());
     });
     // Provide the emoji resolver to the whole shell subtree so the markup
     // renderer turns `:shortcode:` into a custom-emoji image or a unicode glyph
@@ -327,51 +277,32 @@ fn AppShell() -> impl IntoView {
             .collect::<HashMap<String, String>>()
     });
     provide_context(EmojiResolver::new(emoji_map));
-    // W7/D1: kick off the lazy `/emoji.json` fetch at shell mount so the
+    // M7/D1: kick off the lazy `/emoji.json` fetch at shell mount so the
     // picker and `:shortcode:` resolver are warm by the time the first
     // composer renders. No-op if already loaded or in flight.
     crate::ui::emoji::data::warm();
-    let new_server = RwSignal::new(String::new());
-    let new_channel = RwSignal::new(String::new());
-    // Channel-creator dialog: open/closed + the chosen kind (text|lorebook;
-    // the extension point where Gallery lands later).
-    let new_channel_kind = RwSignal::new("text".to_string());
-    let channel_creator_open = RwSignal::new(false);
-    let new_invite = RwSignal::new(String::new());
     // Account-management modal visibility (change password, future options).
     let account_open = RwSignal::new(false);
-    // Guild-trash panel open/closed (rail trash button toggles it).
-    let guild_trash_open = RwSignal::new(false);
-    // Deleted-channel list open/closed in the sidebar (owner-only).
-    let chan_trash_open = RwSignal::new(false);
-    // L-5: the unified channel-management window (create/rename/delete/reorder),
-    // opened from the owner-gated "⚙ Manage" button in the server header.
-    let channel_manager_open = RwSignal::new(false);
-    // L-5: index of the rail guild currently being dragged (HTML5 DnD), or None
-    // between drags. Set on dragstart, read on drop, cleared on dragend/drop.
-    let rail_drag_from = RwSignal::new(None::<usize>);
-    // L-5: same, for the sidebar channel rows (shared across rows so the drop
-    // target row can read which row started the drag).
-    let chan_drag_from = RwSignal::new(None::<usize>);
-    // Inline-rename edit state (owner only): the server title and per-channel rows.
-    // The edit buffers live INSIDE `<InlineRename>` now (W6/C7); these signals
-    // just gate whether the input is rendered at all.
-    let editing_server = RwSignal::new(false);
-    let editing_channel = RwSignal::new(None::<String>);
+    // Server-management modal visibility (owner-gated: accent, invitations,
+    // channels). Mirrors `account_open` — a shared, skeleton-independent window
+    // rendered below and opened from the orbit station's "Server settings"
+    // button.
+    let server_open = RwSignal::new(false);
     // The invite/manage controls show only to the owner of the open server.
     let is_owner = move || {
         let me = auth.user.get().map(|u| u.account_id);
         me.is_some() && me == s.sel.sel_owner.get()
     };
-    // The open server's name, derived from the rail list (auto-updates on rename).
-    let server_name = move || {
+    // The open guild's accent name (empty = default), derived from the rail
+    // list so it auto-updates on a set-accent patch.
+    let accent_name = move || {
         let sid = s.sel.sel_server.get();
         s.sel
             .guilds
             .get()
             .into_iter()
             .find(|g| Some(&g.id) == sid.as_ref())
-            .map(|g| g.name)
+            .map(|g| g.accent_color)
             .unwrap_or_default()
     };
 
@@ -435,388 +366,36 @@ fn AppShell() -> impl IntoView {
         // app instead of being silently dropped (feedback br3ebxgjj1lh3qfbz3n8).
         #[cfg(feature = "hydrate")]
         act::wire_notification_click(s);
-        // Mobile edge-swipe: a rightward drag starting in the left edge zone
-        // opens the nav drawer; a leftward drag while open closes it. The
-        // handlers only `.set()` the existing `nav_open` signal, so it stays
-        // the single source of truth (scrim-click / channel-open still win).
-        #[cfg(feature = "hydrate")]
-        wire_swipe_drawer(s);
     });
 
-    let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
-
     view! {
-        <div class="app" class:nav-open=move || s.sync.nav_open.get() class:dialogue-style=move || s.prefs.dialogue_style.get()>
-            <nav class="rail">
-                <button class="rail-home" title="Friends"
-                    on:click=move |_| { act::show_friends(s); s.sync.nav_open.set(false); }>"@"</button>
-                {move || {
-                    let guilds = s.sel.guilds.get();
-                    let len = guilds.len();
-                    // `len`/`idx` feed the rail-reorder `disabled` closures, which
-                    // the `view!` macro strips on ssr — silence the unused warning.
-                    let _ = len;
-                    guilds.into_iter().enumerate().map(|(idx, g)| {
-                        let gid = g.id.clone();
-                        let initial = monogram(&g.name, '#');
-                        let gid_active = gid.clone();
-                        let gid_unread = gid.clone();
-                        view! {
-                            // Drag-to-reorder (HTML5): the wrap is draggable;
-                            // dragstart records this index, dragover allows the
-                            // drop, drop moves the dragged guild here (L-5).
-                            <div class="rail-guild-wrap" draggable="true"
-                                on:dragstart=move |_ev| rail_drag_from.set(Some(idx))
-                                on:dragover=move |_ev| {
-                                    #[cfg(feature = "hydrate")] _ev.prevent_default();
-                                }
-                                on:drop=move |_ev| {
-                                    #[cfg(feature = "hydrate")] {
-                                        _ev.prevent_default();
-                                        if let Some(from) = rail_drag_from.get_untracked() {
-                                            act::move_guild(s, from, idx);
-                                        }
-                                        rail_drag_from.set(None);
-                                    }
-                                }
-                                on:dragend=move |_ev| rail_drag_from.set(None)>
-                                <button class="rail-guild" title=g.name
-                                    class:active=move || s.sel.sel_server.get().as_deref() == Some(gid_active.as_str())
-                                    class:unread=move || act::guild_has_unread(s, &gid_unread)
-                                    on:click=move |_| act::open_server(s, gid.clone())>
-                                    {initial}
-                                </button>
-                                // Personal rail reorder (#17/FB2 + L-5): ↑/↓ swap
-                                // a neighbour, ⤒/⤓ bring to top/bottom. ↑/⤒
-                                // disabled on the first guild, ↓/⤓ on the last.
-                                <div class="rail-reorder">
-                                    <button class="rail-reorder-btn" title="Move up"
-                                        disabled=move || idx == 0
-                                        on:click=move |_| act::swap_guild(s, idx, true)>"↑"</button>
-                                    <button class="rail-reorder-btn" title="Move down"
-                                        disabled=move || idx == len.saturating_sub(1)
-                                        on:click=move |_| act::swap_guild(s, idx, false)>"↓"</button>
-                                    <button class="rail-reorder-btn" title="Bring to top"
-                                        disabled=move || idx == 0
-                                        on:click=move |_| act::move_guild_to_bounds(s, idx, true)>"⤒"</button>
-                                    <button class="rail-reorder-btn" title="Bring to bottom"
-                                        disabled=move || idx == len.saturating_sub(1)
-                                        on:click=move |_| act::move_guild_to_bounds(s, idx, false)>"⤓"</button>
-                                </div>
-                            </div>
-                        }
-                    }).collect_view()
-                }}
-                // Guild trash button — loads + opens the deleted-guilds panel.
-                <button class="rail-trash" title="Trashed servers"
-                    class:active=move || guild_trash_open.get()
-                    on:click=move |_| {
-                        let now_open = !guild_trash_open.get_untracked();
-                        guild_trash_open.set(now_open);
-                        if now_open {
-                            act::load_deleted_guilds(s);
-                        }
-                        s.sync.nav_open.set(false);
-                    }>"🗑"</button>
-                <div class="rail-add">
-                    <input prop:value=move || new_server.get()
-                        on:input=move |ev| new_server.set(event_target_value(&ev))
-                        placeholder="new server"/>
-                    <button on:click=move |_| {
-                        let name = new_server.get_untracked();
-                        new_server.set(String::new());
-                        act::create_server(s, name);
-                    }>"+"</button>
-                </div>
-            </nav>
+        <div class="app fx-max"
+            class:dialogue-style=move || s.prefs.dialogue_style.get()
+            class:sk-orbit=move || s.prefs.skeleton.get().as_deref() == Some("orbit")
+            style:--glow-accent=move || crate::ui::accent::accent_glow_css(&accent_name())
+            style:--accent=move || crate::ui::accent::accent_var_css(&accent_name())
+        >
+            // Orbit is the sole + default shell for v27 (M5/P2; owner
+            // ruling 2026-06-17 — orbit is the default with NO fallback, and the
+            // legacy M3 rail/sidebar/bottom-tabs chrome was retired here).
+            // `account_open` / `server_open` are the shared, skeleton-independent
+            // windows the station opens (mounted below this branch).
+            <SkOrbitShell account_open=account_open server_open=server_open/>
 
-            // Guild trash panel — shown in the sidebar slot when the rail trash button is active.
-            {move || guild_trash_open.get().then(|| {
-                let guilds = s.trash.deleted_guilds.get();
-                view! {
-                    <aside class="sidebar sidebar-trash">
-                        <div class="server-header">
-                            <span class="server-title">"🗑 Trashed Servers"</span>
-                            <button class="row-edit" title="close"
-                                on:click=move |_| guild_trash_open.set(false)>"✕"</button>
-                        </div>
-                        {if guilds.is_empty() {
-                            view! { <p class="muted pad">"No trashed servers."</p> }.into_any()
-                        } else {
-                            view! {
-                                <ul class="trash-list">
-                                    {guilds.into_iter().map(|g| {
-                                        let gid = g.id.clone();
-                                        let name = g.name.clone();
-                                        view! {
-                                            <li class="trash-item">
-                                                <span class="trash-name">{name}</span>
-                                                <button class="trash-restore"
-                                                    on:click=move |_| {
-                                                        act::restore_deleted_guild(s, gid.clone());
-                                                    }>"Restore"</button>
-                                            </li>
-                                        }
-                                    }).collect_view()}
-                                </ul>
-                            }.into_any()
-                        }}
-                    </aside>
-                }
-            })}
-
-            <aside class="sidebar">
-                <Show when=move || s.sel.sel_server.get().is_some()
-                    fallback=|| view! {
-                        <p class="muted pad">"Pick or create a server, or visit Friends (@)."</p>
-                    }>
-                    <div class="server-header">
-                        {move || if editing_server.get() {
-                            view! {
-                                <InlineRename
-                                    value=server_name()
-                                    on_save=move |v| {
-                                        if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                            act::rename_server(s, gid, v);
-                                        }
-                                        editing_server.set(false);
-                                    }
-                                    on_cancel=move || editing_server.set(false)
-                                />
-                            }.into_any()
-                        } else {
-                            view! {
-                                <span class="server-title">{server_name()}</span>
-                                <Show when=is_owner fallback=|| ()>
-                                    // L-5: open the unified channel-management
-                                    // window (create/rename/delete/reorder).
-                                    <button class="row-edit" title="Manage channels"
-                                        on:click=move |_| channel_manager_open.set(true)>"⚙"</button>
-                                    <button class="row-edit" title="rename server"
-                                        on:click=move |_| editing_server.set(true)>"✎"</button>
-                                    <button class="row-edit danger" title="delete server"
-                                        on:click=move |_| {
-                                            if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                                act::ask_delete(
-                                                    s,
-                                                    format!(
-                                                        "Delete the server “{}” and all its \
-                                                         channels and messages? This cannot be undone.",
-                                                        server_name()
-                                                    ),
-                                                    PendingDelete::Server { gid },
-                                                );
-                                            }
-                                        }>"🗑"</button>
-                                </Show>
-                            }.into_any()
-                        }}
-                    </div>
-                    <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_wardrobe(s); s.sync.nav_open.set(false); }>
-                        "🎭 Wardrobe"
-                    </button>
-                    <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_emoji_manager(s); s.sync.nav_open.set(false); }>
-                        "😀 Emoji"
-                    </button>
-                    <button class="wardrobe-btn"
-                        on:click=move |_| { act::show_members(s); s.sync.nav_open.set(false); }>
-                        "👥 Members"
-                    </button>
-                    <ul class="channels">
-                        {move || {
-                            let chans = s.sel.channels.get();
-                            let len = chans.len();
-                            chans.into_iter().enumerate().map(|(idx, c)| {
-                                view! { <ChannelRow s=s ch=c idx=idx len=len editing=editing_channel drag_from=chan_drag_from/> }
-                            }).collect_view()
-                        }}
-                    </ul>
-                    <Show when=is_owner fallback=|| ()>
-                        <div class="channel-add">
-                            <button class="channel-add-btn" title="New channel"
-                                on:click=move |_| {
-                                    new_channel.set(String::new());
-                                    new_channel_kind.set("text".to_string());
-                                    channel_creator_open.set(true);
-                                }>"＋ Channel"</button>
-                        </div>
-                    </Show>
-                    // Channel-creator dialog (opened only via the owner-gated
-                    // button above): choose the channel type + name. The lorebook
-                    // kind is fully wired (LorebookPane); this dialog is also where
-                    // a Gallery kind will be added later (R2).
-                    {move || channel_creator_open.get().then(|| view! {
-                        <Modal class="channel-creator"
-                            close=move || channel_creator_open.set(false)>
-                            <h3>"New channel"</h3>
-                            <div class="creator-kind">
-                                <label class="pref-row">
-                                    <input type="radio" name="ch-kind" value="text"
-                                        prop:checked=move || new_channel_kind.get() == "text"
-                                        on:change=move |_| new_channel_kind.set("text".to_string())/>
-                                    <span>"# Text"</span>
-                                </label>
-                                <label class="pref-row">
-                                    <input type="radio" name="ch-kind" value="lorebook"
-                                        prop:checked=move || new_channel_kind.get() == "lorebook"
-                                        on:change=move |_| new_channel_kind.set("lorebook".to_string())/>
-                                    <span>"📖 Lorebook"</span>
-                                </label>
-                            </div>
-                            <input class="creator-name" prop:value=move || new_channel.get()
-                                on:input=move |ev| new_channel.set(event_target_value(&ev))
-                                placeholder="channel name"/>
-                            <div class="creator-actions">
-                                <button on:click=move |_| channel_creator_open.set(false)>
-                                    "Cancel"
-                                </button>
-                                <button class="account-save" on:click=move |_| {
-                                    let name = new_channel.get_untracked();
-                                    if name.trim().is_empty() {
-                                        return;
-                                    }
-                                    let kind = new_channel_kind.get_untracked();
-                                    new_channel.set(String::new());
-                                    channel_creator_open.set(false);
-                                    act::create_channel(s, name, kind);
-                                }>"Create"</button>
-                            </div>
-                        </Modal>
-                    })}
-                    // L-5: the unified channel-management window. Owner-gated
-                    // open (the server re-checks require_manager on every
-                    // mutate, so the gate is defence-in-depth, not the boundary).
-                    {move || (channel_manager_open.get() && is_owner()).then(|| view! {
-                        <ChannelManagerModal s=s open=channel_manager_open/>
-                    })}
-                    // Deleted-channels panel (owner only).
-                    <Show when=is_owner fallback=|| ()>
-                        <div class="trash-section">
-                            <button class="trash-toggle"
-                                class:active=move || chan_trash_open.get()
-                                on:click=move |_| {
-                                    let now_open = !chan_trash_open.get_untracked();
-                                    chan_trash_open.set(now_open);
-                                    if now_open {
-                                        if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                            act::load_deleted_channels(s, gid);
-                                        }
-                                    }
-                                }>
-                                "🗑 Trashed channels"
-                            </button>
-                            {move || chan_trash_open.get().then(|| {
-                                let chans = s.trash.deleted_channels.get();
-                                if chans.is_empty() {
-                                    view! {
-                                        <p class="muted trash-empty">"No trashed channels."</p>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <ul class="trash-list">
-                                            {chans.into_iter().map(|c| {
-                                                let cid = c.id.clone();
-                                                let name = c.name.clone();
-                                                view! {
-                                                    <li class="trash-item">
-                                                        <span class="trash-name">"# "{name}</span>
-                                                        <button class="trash-restore"
-                                                            on:click=move |_| {
-                                                                if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                                                    act::restore_channel(s, gid, cid.clone());
-                                                                }
-                                                            }>"Restore"</button>
-                                                    </li>
-                                                }
-                                            }).collect_view()}
-                                        </ul>
-                                    }.into_any()
-                                }
-                            })}
-                        </div>
-                    </Show>
-                    <Show when=is_owner fallback=|| ()>
-                        <div class="invite-row">
-                            <input prop:value=move || new_invite.get()
-                                on:input=move |ev| new_invite.set(event_target_value(&ev))
-                                placeholder="invite by username"/>
-                            <button on:click=move |_| {
-                                let gid = s.sel.sel_server.get_untracked();
-                                let u = new_invite.get_untracked();
-                                new_invite.set(String::new());
-                                if let Some(gid) = gid {
-                                    act::invite_member(s, gid, u);
-                                }
-                            }>"Invite"</button>
-                        </div>
-                    </Show>
-                </Show>
-            </aside>
-
-            <section class="content">
-                <header class="topbar">
-                    <button class="nav-toggle" title="Menu"
-                        on:click=move |_| s.sync.nav_open.update(|o| *o = !*o)>"☰"</button>
-                    <span class="muted">"Signed in as " <strong>{username}</strong></span>
-                    // Mute toggle for the open channel (suppresses its
-                    // new-message notifications); 🔔 = active, 🔕 = muted.
-                    {move || s.sel.sel_channel.get()
-                        .filter(|_| s.sync.pane.get() == Pane::Channel)
-                        .map(|c| {
-                            let cid = c.id.clone();
-                            let cid_t = c.id.clone();
-                            let cid_b = c.id.clone();
-                            let cid_trash = c.id.clone();
-                            view! {
-                                <button class="row-edit"
-                                    title=move || if s.notify.muted.get().contains(&cid_t) { "Unmute channel" } else { "Mute channel" }
-                                    on:click=move |_| act::toggle_mute(s, cid.clone())>
-                                    {move || if s.notify.muted.get().contains(&cid_b) { "🔕" } else { "🔔" }}
-                                </button>
-                                // Trash toggle: load and show deleted messages in this channel.
-                                <button class="row-edit"
-                                    title=move || if s.trash.show_msg_trash.get() { "Hide deleted" } else { "Show deleted" }
-                                    on:click=move |_| {
-                                        let now_open = !s.trash.show_msg_trash.get_untracked();
-                                        s.trash.show_msg_trash.set(now_open);
-                                        if now_open {
-                                            act::load_deleted_messages(s, cid_trash.clone());
-                                        } else {
-                                            s.trash.deleted_messages.set(Vec::new());
-                                        }
-                                    }>
-                                    {move || if s.trash.show_msg_trash.get() { "🗑✓" } else { "🗑" }}
-                                </button>
-                            }
-                        })
-                    }
-                    <span class="spacer"></span>
-                    <button title="Account"
-                        on:click=move |_| { s.composer.status.set(String::new()); account_open.set(true); }>
-                        "⚙"
-                    </button>
-                    <button on:click=move |_| act::logout(auth)>"Log out"</button>
-                </header>
-                {move || match s.sync.pane.get() {
-                    Pane::Friends => view! { <FriendsPane/> }.into_any(),
-                    Pane::Channel => view! { <ChannelPane/> }.into_any(),
-                    Pane::Lorebook => view! { <LorebookPane/> }.into_any(),
-                    Pane::Emoji => view! { <EmojiManagerPane/> }.into_any(),
-                    Pane::Members => view! { <MembersPane/> }.into_any(),
-                }}
-                <p class="error">{move || s.composer.status.get()}</p>
-            </section>
-
-            // Mobile drawer backdrop: tap to close (hidden off mobile via CSS).
-            <div class="scrim" on:click=move |_| s.sync.nav_open.set(false)></div>
 
             {move || if account_open.get() {
                 view! { <AccountModal s=s open=account_open/> }.into_any()
             } else {
                 ().into_any()
             }}
+
+            // Server-management window (owner-gated): the guild-owner sibling of
+            // the AccountModal, opened from the orbit station's "Server
+            // settings" button. The is_owner gate is a UX affordance; each
+            // server route the modal calls re-validates require_manager.
+            {move || (server_open.get() && is_owner()).then(|| view! {
+                <ServerModal s=s open=server_open/>
+            })}
 
             // Wardrobe popup (F-2): a dismissible Modal — backdrop click, Esc, or
             // the X close it. Auto-closes when a channel is opened (act::open_channel
@@ -826,9 +405,10 @@ fn AppShell() -> impl IntoView {
             // dismiss the inner modal, not this one.
             {move || s.sync.wardrobe_open.get().then(|| {
                 view! {
-                    <Modal class="wardrobe-modal" close=move || s.sync.wardrobe_open.set(false)>
-                        <button class="modal-x" title="close" aria-label="Close wardrobe"
-                            on:click=move |_| s.sync.wardrobe_open.set(false)>"✕"</button>
+                    <Modal class="wardrobe-modal" swipe_close=true
+                        close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }>
+                        <ModalHead title="Wardrobe"
+                            on_close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }/>
                         <WardrobePane/>
                     </Modal>
                 }
@@ -851,156 +431,14 @@ fn AppShell() -> impl IntoView {
                     </Modal>
                 }
             })}
-        </div>
-    }
-}
 
-/// One channel row in the sidebar: the open-channel button, plus an owner-only
-/// inline rename (✎ → input + ✓/✕). Edit state is shared across rows via the
-/// `editing` (which cid, if any) signal owned by `AppShell`; the rename
-/// draft buffer lives inside `<InlineRename>` itself (W6/C7).
-#[component]
-fn ChannelRow(
-    s: Shell,
-    ch: ChannelSummary,
-    idx: usize,
-    len: usize,
-    editing: RwSignal<Option<String>>,
-    // L-5: the shared drag-source index for HTML5 drag-to-reorder (owned by
-    // `AppShell`). `None` between drags.
-    drag_from: RwSignal<Option<usize>>,
-) -> impl IntoView {
-    let auth = use_context::<AuthCtx>().expect("AuthCtx provided at root");
-    let is_owner = move || {
-        let me = auth.user.get().map(|u| u.account_id);
-        me.is_some() && me == s.sel.sel_owner.get()
-    };
-    // `idx`/`len`/`drag_from` feed the reorder buttons' `disabled` closures and
-    // the drag handlers, which the `view!` macro strips on ssr — silence the
-    // ssr-side unused warning the same way wardrobe.rs does.
-    let _ = (idx, len, drag_from);
-    let cid = ch.id.clone();
-    let name0 = ch.name.clone();
-    let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
-    view! {
-        // Drag-to-reorder (owner only in practice; the server re-checks).
-        // dragstart records this row, dragover allows the drop, drop moves the
-        // dragged channel to this index (L-5).
-        <li draggable="true"
-            on:dragstart=move |_ev| drag_from.set(Some(idx))
-            on:dragover=move |_ev| {
-                #[cfg(feature = "hydrate")] _ev.prevent_default();
-            }
-            on:drop=move |_ev| {
-                #[cfg(feature = "hydrate")] {
-                    _ev.prevent_default();
-                    if let Some(from) = drag_from.get_untracked() {
-                        act::move_channel(s, from, idx);
-                    }
-                    drag_from.set(None);
-                }
-            }
-            on:dragend=move |_ev| drag_from.set(None)>
-            {move || {
-                let cid = cid.clone();
-                let name0 = name0.clone();
-                let ch = ch.clone();
-                if editing.get().as_deref() == Some(cid.as_str()) {
-                    let save_cid = cid.clone();
-                    view! {
-                        <InlineRename
-                            value=name0.clone()
-                            on_save=move |v| {
-                                if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                    act::rename_channel(s, gid, save_cid.clone(), v);
-                                }
-                                editing.set(None);
-                            }
-                            on_cancel=move || editing.set(None)
-                        />
-                    }.into_any()
-                } else {
-                    let active_cid = cid.clone();
-                    let active = move || s.sel.sel_channel.get().map(|c| c.id) == Some(active_cid.clone());
-                    let unread_cid = cid.clone();
-                    // White glow for plain unread; orange `pinged` glow WINS when
-                    // the channel has a ping for me (L-4). The CSS keys off both
-                    // classes — `.pinged` overrides `.unread` styling.
-                    let unread = move || s.notify.unread.get().contains(&unread_cid);
-                    let pinged_cid = cid.clone();
-                    let pinged = move || s.notify.pinged.get().contains(&pinged_cid);
-                    // Per-channel unread count badge (L-4): a small pill showing
-                    // the number of unread messages, hidden (no badge) at 0. One
-                    // reactive closure owning a single cid clone renders either the
-                    // badge span or an empty view, so it stays `Fn` (a non-`Copy`
-                    // String can't be shared across a separate `when` + children).
-                    let badge_cid = cid.clone();
-                    let badge = move || {
-                        let n = s
-                            .notify
-                            .unread_count
-                            .get()
-                            .get(&badge_cid)
-                            .copied()
-                            .unwrap_or(0);
-                        if n == 0 {
-                            return ().into_any();
-                        }
-                        let label = if n > 99 { "99+".to_string() } else { n.to_string() };
-                        view! { <span class="channel-badge">{label}</span> }.into_any()
-                    };
-                    let start_cid = cid.clone();
-                    let start_name = name0.clone();
-                    view! {
-                        <button class="channel" class:active=active class:unread=unread class:pinged=pinged
-                            on:click=move |_| { act::open_channel(s, ch.clone()); s.sync.nav_open.set(false); }>
-                            {sigil}{name0.clone()}
-                            {badge}
-                        </button>
-                        <Show when=is_owner fallback=|| ()>
-                            // Reorder (L-5): ↑/↓ swap a neighbour, ⤒/⤓ bring to
-                            // top/bottom. ↑/⤒ disabled on the first channel,
-                            // ↓/⤓ on the last.
-                            <button class="channel-reorder" title="Move up"
-                                disabled=move || idx == 0
-                                on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
-                            <button class="channel-reorder" title="Move down"
-                                disabled=move || idx == len.saturating_sub(1)
-                                on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
-                            <button class="channel-reorder" title="Bring to top"
-                                disabled=move || idx == 0
-                                on:click=move |_| act::move_channel_to_bounds(s, idx, true)>"⤒"</button>
-                            <button class="channel-reorder" title="Bring to bottom"
-                                disabled=move || idx == len.saturating_sub(1)
-                                on:click=move |_| act::move_channel_to_bounds(s, idx, false)>"⤓"</button>
-                            <button class="row-edit" title="rename channel" on:click={
-                                let start_cid = start_cid.clone();
-                                move |_| editing.set(Some(start_cid.clone()))
-                            }>"✎"</button>
-                            <button class="row-edit danger" title="delete channel" on:click={
-                                let del_cid = start_cid.clone();
-                                let del_name = start_name.clone();
-                                move |_| {
-                                    if let Some(gid) = s.sel.sel_server.get_untracked() {
-                                        act::ask_delete(
-                                            s,
-                                            format!(
-                                                "Delete the channel “{del_name}” and all its \
-                                                 messages? This cannot be undone."
-                                            ),
-                                            PendingDelete::Channel {
-                                                gid,
-                                                cid: del_cid.clone(),
-                                            },
-                                        );
-                                    }
-                                }
-                            }>"🗑"</button>
-                        </Show>
-                    }.into_any()
-                }
-            }}
-        </li>
+            // The toast layer (UX evolution #11): one transient glass capsule
+            // at a time, fixed above the composer/tab bar. Born for the
+            // undo-able message delete; the host renders empty (and eats no
+            // taps) while no toast is up.
+            {toast_host(s)}
+
+        </div>
     }
 }
 
@@ -1010,4 +448,4 @@ fn ChannelRow(
 // view stays focused on layout and each action cluster lives in its own file.
 // ---------------------------------------------------------------------------
 
-mod act;
+pub mod act;

@@ -6,6 +6,7 @@ use leptos::prelude::*;
 
 use super::LightboxState;
 use crate::protocol::Attachment;
+use crate::ui::icons::IconFile;
 
 /// True for an attachment that opens as a gallery image (everything except
 /// video, which keeps its own inline controls). The lightbox gallery navigates
@@ -116,7 +117,7 @@ pub(super) fn attachment_grid(
                                 view! {
                                     <a class="att-file" href=format!("/media/{id}") download
                                         title="download attachment">
-                                        <span class="att-file-icon">"📄"</span>
+                                        <span class="att-file-icon"><IconFile/></span>
                                         <span class="att-file-label">{label}</span>
                                     </a>
                                 }.into_any()
@@ -200,7 +201,7 @@ pub(super) fn attachment_grid(
                                 view! {
                                     <a class="att-file" href=format!("/media/{id}") download
                                         title="download attachment">
-                                        <span class="att-file-icon">"📄"</span>
+                                        <span class="att-file-icon"><IconFile/></span>
                                         <span class="att-file-label">{label}</span>
                                     </a>
                                 }.into_any()

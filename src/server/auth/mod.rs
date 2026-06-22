@@ -18,12 +18,12 @@
 //!   `is_unique_violation` → 409, same body as the pre-check would give.
 //!
 //! ## Layout
-//! - [`session`] — `AuthAccount` extractor, token issue/resolve/revoke,
+//! - `session` — `AuthAccount` extractor, token issue/resolve/revoke,
 //!   session cookie.
-//! - [`registration`] — register/login/logout/me handlers.
-//! - [`password`] — change-password, security question, public reset flow.
-//! - [`admin`] — admin-only password reset.
-//! - [`crypto`] — argon2id hashing, sha256, random token, input validators.
+//! - `registration` — register/login/logout/me handlers.
+//! - `password` — self-service change-password.
+//! - `admin` — admin-only password reset.
+//! - `crypto` — argon2id hashing, sha256, random token, input validators.
 
 mod admin;
 mod crypto;
@@ -35,10 +35,16 @@ mod session;
 // — re-export so the public path stays stable after the split.
 pub use self::session::AuthAccount;
 
+// Session-validity primitives for the long-lived `GET /events` stream
+// (`server::events`), which re-derives identity for the LIFETIME of its
+// connection (review M-05): the cookie name, the token→stored-hash transform,
+// and the hash-keyed lookup. Hoisted here (wave-2 follow-up of M-05) so
+// events.rs consumes the auth module's own definitions instead of owning
+// drift-prone mirror copies.
+pub(crate) use self::session::{account_for_token_hash, session_token_hash, SESSION_COOKIE};
+
 // Route handlers referenced by `server/mod.rs::small_body_routes` keep
 // their `crate::server::auth::<fn>` paths via these re-exports.
 pub use self::admin::admin_reset_password;
-pub use self::password::{
-    change_password, confirm_password_reset, get_reset_question, set_security_question,
-};
-pub use self::registration::{login, logout, me, register};
+pub use self::password::change_password;
+pub use self::registration::{login, logout, me, patch_account, register};

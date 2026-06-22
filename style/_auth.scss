@@ -8,8 +8,8 @@
 	flex-direction: column;
 	gap: 0.6rem;
 	padding: 1.5rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 
 	h1 {
@@ -20,12 +20,12 @@
 	h2 {
 		margin: 0;
 		font-size: 1rem;
-		font-weight: 500;
-		color: var(--ink-muted);
+		font-weight: 600;
+		color: var(--text-muted);
 	}
 
 	a {
-		color: var(--gold);
+		color: var(--accent);
 		font-size: 0.85rem;
 		text-decoration: none;
 	}

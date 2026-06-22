@@ -1,5 +1,6 @@
 //! `GET /channels/{cid}/messages` + the composite-cursor pagination + the
-//! shared MSG_PROJECTION / MessageRow / mime-batch / typing-name resolution.
+//! shared MSG_PROJECTION / MessageRow / typing-name resolution. Attachment
+//! MIMEs join the page projection itself (T10) — no second round-trip.
 //! Split from `server/messages.rs` in Wave 3; behavior preserved verbatim.
 
 use axum::extract::{Path, Query, State};
@@ -110,23 +111,53 @@ pub async fn list_messages(
 }
 
 /// Resolve typing account ids to display names, preferring each typist's worn
-/// persona name IN THIS CHANNEL (`channel_active_persona` → `persona.name`) so
-/// the indicator matches how their messages are attributed, falling back to the
-/// account's `display_name`/`username`. Order is not significant (the client
-/// formats "A and B are typing").
-///
-/// One round-trip total: a two-statement query batches every typist
-/// (`account` IN-list + `channel_active_persona` IN-list scoped to this
-/// channel), then a HashMap merge in Rust resolves the persona-or-fallback
-/// preference. W5/H2 — was N round-trips (one query per typist); the
-/// previous comment about avoiding a correlated sub-SELECT inside the
-/// projection (3.1.0-beta.3 unevenness) is honored: this batch keeps the
-/// two table reads as independent top-level SELECTs.
+/// persona name IN THIS CHANNEL — a thin wrapper over
+/// [`resolve_display_names`] that drops the account-id half (the indicator
+/// only formats names; Ghost Quill's drafts endpoint needs the pairs).
 async fn resolve_typing_names(
     state: &AppState,
     cid: &str,
     accounts: &[String],
 ) -> surrealdb::Result<Vec<String>> {
+    Ok(resolve_display_names(state, cid, accounts)
+        .await?
+        .into_iter()
+        .map(|(_acct, name)| name)
+        .collect())
+}
+
+/// Resolve account ids to `(account_id, display_name)` pairs, preferring each
+/// account's worn persona name IN THIS CHANNEL (`channel_active_persona` →
+/// `persona.name`) so the name matches how their messages are attributed,
+/// falling back to the account's `display_name`/`username`. Order is not
+/// significant (callers format or sort as needed). Shared by the typing
+/// indicator ([`resolve_typing_names`]) and the Ghost Quill drafts endpoint
+/// (`typing::typing_drafts`, M4/T7) so the persona-aware resolution can never
+/// diverge between the two.
+///
+/// One round-trip total: a two-statement query batches every account, then a
+/// HashMap merge in Rust resolves the persona-or-fallback preference. M5/H2 —
+/// was N round-trips (one query per typist); the previous comment about
+/// avoiding a correlated sub-SELECT inside the projection (3.1.0-beta.3
+/// unevenness) is honored: this batch keeps the two table reads as
+/// independent top-level SELECTs.
+///
+/// Review M-38: both halves used `meta::id(x) IN $accts`, the documented
+/// TableScan anti-pattern this branch already fixed in
+/// `posting.rs::all_media_exist` and the `attachment_mimes` arm — left here
+/// on the per-keystroke Ghost Quill path. The ids now bind as `RecordId`s:
+/// the account half point-reads `FROM $acct_records` (`id IS NOT NONE` drops
+/// since-vanished accounts, preserving the silently-skip behavior), and the
+/// persona half's `account IN $acct_records` is an equality set on the
+/// PREFIX of the `(account, channel)` UNIQUE index — EXPLAIN FULL on the
+/// 3.1.3 dev binary plans one `channel_active_persona_pair` IndexScan branch
+/// per account (vs the prior TableScan), with the channel equality filtered
+/// on those few rows.
+pub(super) async fn resolve_display_names(
+    state: &AppState,
+    cid: &str,
+    accounts: &[String],
+) -> surrealdb::Result<Vec<(String, String)>> {
     if accounts.is_empty() {
         return Ok(Vec::new());
     }
@@ -140,24 +171,28 @@ async fn resolve_typing_names(
         acct_id: String,
         persona_name: Option<String>,
     }
+    let acct_records: Vec<surrealdb::types::RecordId> = accounts
+        .iter()
+        .map(|id| surrealdb::types::RecordId::new("account", id.as_str()))
+        .collect();
     let mut resp = state
         .db
         .query(
             "SELECT
                 meta::id(id) AS acct_id,
                 (IF display_name != '' THEN display_name ELSE username END) AS fallback
-             FROM account
-             WHERE meta::id(id) IN $accts;
+             FROM $acct_records
+             WHERE id IS NOT NONE;
 
              SELECT
                 meta::id(account) AS acct_id,
                 persona.name AS persona_name
              FROM channel_active_persona
-             WHERE channel = type::record('channel', $cid)
-               AND meta::id(account) IN $accts;",
+             WHERE account IN $acct_records
+               AND channel = type::record('channel', $cid);",
         )
         .bind(("cid", cid.to_string()))
-        .bind(("accts", accounts.to_vec()))
+        .bind(("acct_records", acct_records))
         .await?
         .check()?;
     let accounts_rows: Vec<AccountRow> = resp.take(0)?;
@@ -176,10 +211,11 @@ async fn resolve_typing_names(
     Ok(accounts_rows
         .into_iter()
         .map(|r| {
-            persona_by_acct
+            let name = persona_by_acct
                 .get(&r.acct_id)
                 .cloned()
-                .unwrap_or(r.fallback)
+                .unwrap_or(r.fallback);
+            (r.acct_id, name)
         })
         .collect())
 }
@@ -255,12 +291,21 @@ pub(super) struct ReplyPreviewRow {
     pub body_snippet: String,
 }
 
+/// One `{id, mime}` pair from MSG_PROJECTION's `attachment_mimes` subquery —
+/// the per-row `media_blob` join that replaced the post-page mime batch (T10).
+#[derive(SurrealValue)]
+pub(super) struct AttachmentMimeRow {
+    pub id: String,
+    pub mime: String,
+}
+
 #[derive(SurrealValue)]
 pub(super) struct MessageRow {
     pub id_key: String,
     pub author_key: String,
     pub author_name: String,
     pub author_display: String,
+    pub author_avatar_id: Option<String>,
     pub persona_id: Option<String>,
     pub persona_name: Option<String>,
     pub persona_description: Option<String>,
@@ -268,6 +313,9 @@ pub(super) struct MessageRow {
     pub persona_avatar_id: Option<String>,
     pub body: String,
     pub attachments: Vec<String>,
+    /// `{id, mime}` pairs for this row's attachments, joined from `media_blob`
+    /// inside MSG_PROJECTION. May omit since-vanished blobs; merge by id.
+    pub attachment_mimes: Vec<AttachmentMimeRow>,
     pub tier: String,
     pub sent_at: Datetime,
     pub reply_to: Option<ReplyPreviewRow>,
@@ -277,30 +325,45 @@ pub(super) struct MessageRow {
     /// `"user"` or `"system"` (Nova DOT admin broadcast). Coalesced to `"user"`
     /// in the projection so legacy rows are safe.
     pub kind: String,
+    /// Delivery effect (M4/T5): `whisper`/`shout`/`spell`, or `None` for an
+    /// ordinary message and on every legacy row (`option<>` field — NONE is
+    /// valid, no coalesce needed).
+    pub effect: Option<String>,
+    /// M7/P2: true when this row was sent by a guest (a Guest Cameo), snapshotted
+    /// at send time. Coalesced to `false` in the projection so legacy rows are safe.
+    pub guest_cameo: bool,
 }
 
 impl MessageRow {
     pub(super) fn into_envelope(self) -> MessageEnvelope {
+        // Mimes ride the row itself via MSG_PROJECTION's `attachment_mimes`
+        // subquery; merge by id so attachment ORDER follows `attachments`
+        // (send order), not the join. A since-deleted blob keeps the empty
+        // mime (client falls back to image render) — same degradation the
+        // old post-page batch had.
+        let mimes: std::collections::HashMap<String, String> = self
+            .attachment_mimes
+            .into_iter()
+            .map(|r| (r.id, r.mime))
+            .collect();
         MessageEnvelope {
             id: self.id_key,
             author_id: self.author_key,
             author_name: self.author_name,
             author_display: self.author_display,
+            author_avatar_id: self.author_avatar_id,
             persona_id: self.persona_id,
             persona_name: self.persona_name,
             persona_description: self.persona_description,
             persona_color: self.persona_color,
             persona_avatar_id: self.persona_avatar_id,
             body: self.body,
-            // Mimes are resolved in a single batch query after the page is
-            // built (see `resolve_attachment_mimes`); placeholder empty mime
-            // until then (falls back to image render if a row is missing).
             attachments: self
                 .attachments
                 .into_iter()
-                .map(|id| Attachment {
-                    id,
-                    mime: String::new(),
+                .map(|id| {
+                    let mime = mimes.get(&id).cloned().unwrap_or_default();
+                    Attachment { id, mime }
                 })
                 .collect(),
             tier: self.tier,
@@ -312,6 +375,8 @@ impl MessageRow {
             }),
             is_pinged: self.is_pinged,
             kind: self.kind,
+            effect: self.effect,
+            guest_cameo: self.guest_cameo,
         }
     }
 }
@@ -321,11 +386,50 @@ impl MessageRow {
 // null-safe (the IF guard avoids meta::id(NONE)); name/description/color come
 // from the send-time snapshot with a `?? persona.*` fallback for legacy rows
 // whose persona still exists (deleted personas keep their frozen snapshot).
+//
+// M5/H4 plan evidence for the `attachment_mimes` arm: `WHERE meta::id(id) IN
+// $array` plans as a media_blob TableScan, correlated PER MESSAGE ROW —
+// O(page x |media_blob|) on the hot polled path. The record-pointer form
+// (FROM an array of type::record pointers) point-reads instead. `WHERE id IS
+// NOT NONE` drops since-vanished blobs (a dangling pointer yields a NONE row
+// that would crash meta::id). Verified via EXPLAIN FULL on the SurrealDB
+// 3.1.3 server binary (the dev binary): TableScan -> DynamicScan over
+// array::map(...).
+//
+// VERSION-SKEW WARNING (review M-32, unresolved): everything above is
+// verified ONLY on the 3.1.3 dev binary. Prod (fenrir) still runs 3.0.4,
+// which has NEVER executed this closure-as-FROM-source + correlated `$parent`
+// shape — the pre-T10 post-page mime batch was the only form 3.0.4 ever ran —
+// and no test can ever cover the skew (the suite runs against the dev
+// binary; same blind spot that let the widened `message.kind` ASSERT bug
+// reach prod). If 3.0.4 errors on or mis-evaluates this projection, EVERY
+// message-page read 500s on prod immediately after deploy. Runbook gate
+// before the first deploy of this projection: execute one MSG_PROJECTION
+// SELECT against a throwaway namespace on prod's binary over HTTP /sql
+// (seeded message + media_blob + whispered reply parent), or upgrade prod to
+// the verified 3.1.3 first.
+//
+// The same gate now ALSO covers the review M-12-follow-up / M-41-follow-up
+// statement shapes, equally verified only on 3.1.3 (same throwaway-namespace
+// procedure, same deploy):
+//   - the LET boundary probes — `LET $b = array::last((SELECT VALUE sent_at …
+//     ORDER BY sent_at DESC LIMIT $param))` in `load_messages`' cursorless
+//     arm below, and the `array::first(… LIMIT 1)` twin in unread.rs —
+//     i.e. LET binding a parenthesized subquery with a PARAMETERIZED LIMIT,
+//     then range/point statements comparing against the bound `$b`;
+//   - the conditional restore — `UPDATE type::record('message', $mid) SET
+//     deleted_at = NONE WHERE deleted_at != NONE RETURN VALUE meta::id(id)`
+//     in editing.rs `restore_message`.
+// Note the skew split: CORRECTNESS of these shapes is what the gate checks;
+// the Backward-IndexScan early-exit the probe comments cite was observed via
+// EXPLAIN FULL on 3.1.3 ONLY and may simply not exist on 3.0.4 — that would
+// cost the perf win until the prod upgrade, never correctness.
 pub(super) const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
         author.username  AS author_name,
         (author.display_name ?: author.username) AS author_display,
+        (IF author.avatar != NONE THEN meta::id(author.avatar) ELSE NONE END) AS author_avatar_id,
         (IF persona != NONE THEN meta::id(persona) ELSE NONE END) AS persona_id,
         (persona_name ?? persona.name)               AS persona_name,
         (persona_description ?? persona.description)  AS persona_description,
@@ -335,15 +439,25 @@ pub(super) const MSG_PROJECTION: &str = "
             AS persona_avatar_id,
         body,
         (attachments ?? []) AS attachments,
+        /* record-pointer point-reads — see const doc above */
+        (SELECT meta::id(id) AS id, mime
+            FROM array::map(($parent.attachments ?? []), |$a| type::record('media_blob', $a))
+            WHERE id IS NOT NONE) AS attachment_mimes,
         tier,
         sent_at,
         (IF reply_to != NONE AND reply_to.body != NONE AND reply_to.deleted_at = NONE THEN {
             id: meta::id(reply_to),
             author_display: (reply_to.author.display_name ?: reply_to.author.username),
-            body_snippet: string::slice(reply_to.body, 0, 100)
+            /* spoiler-leak guard (M4/T5): a whispered parent's hidden text must
+               not surface through the quote snippet — masked with a fixed
+               placeholder instead. */
+            body_snippet: (IF reply_to.effect = 'whisper' THEN '(whisper)'
+                           ELSE string::slice(reply_to.body, 0, 100) END)
          } ELSE NONE END) AS reply_to,
         (type::record('account', $caller) IN (pinged_users ?? [])) AS is_pinged,
-        (kind ?? 'user') AS kind";
+        (kind ?? 'user') AS kind,
+        effect,
+        (guest_cameo ?? false) AS guest_cameo";
 
 async fn load_messages(
     state: &AppState,
@@ -355,40 +469,97 @@ async fn load_messages(
     // `reverse` is set for the DESC-ordered arms (the newest page and the
     // older-history page): they ORDER BY DESC so LIMIT keeps the rows nearest
     // "now" / nearest the cursor, then we flip the page back to ASC for display.
-    let (sql, bound, reverse) = match cursor {
+    //
+    // The two cursor arms each run as TWO statements (review M-12): an
+    // equality statement covering the cursor's own `sent_at` instant (the tie
+    // group, refined by the strict id tie-break) and an OPEN range over
+    // everything past it. The planner cannot push the equivalent
+    // single-statement OR — `sent_at > $c OR (sent_at = $c AND id > $i)` —
+    // into the (channel, sent_at) index: EXPLAIN FULL on the 3.1.3 dev binary
+    // planned the OR as an unbounded IndexScan over the WHOLE channel per
+    // catch-up call, the split as a `[channel, $c]` point access plus a
+    // `MoreThan`/`LessThan` range. Statement order = page order (tie-boundary
+    // rows sit nearest the cursor on both arms); the halves are disjoint
+    // (`sent_at =` vs `>`/`<`) and each is LIMITed, so concatenating and
+    // truncating to the page limit yields exactly the single-statement page.
+    // tests/messages.rs pins the tie-group boundary and the nearest-the-cursor
+    // truncation in both directions.
+    //
+    // The cursorless newest-page arm gets the same treatment (review M-12
+    // follow-up): ORDER BY the computed alias `id_key` cannot ride the
+    // (channel, sent_at) index, so the single-statement form fed EVERY live
+    // row of the channel through SortTopKByKey per call. A LET boundary
+    // probe (`ORDER BY sent_at DESC LIMIT $page_limit` — raw column, so the
+    // planner early-exits a Backward IndexScan; verified via EXPLAIN FULL on
+    // the 3.1.3 dev binary) finds the page's oldest `sent_at` instant, then
+    // the page reassembles as the open range PAST that instant (`MoreThan`,
+    // ≤ page_limit−1 rows by construction of the boundary) plus the boundary
+    // instant's tie group cut by id (a `[channel, $boundary]` point access)
+    // — exactly the cursor arms' split, so the same concatenate-and-truncate
+    // yields exactly the single-statement page. An EMPTY boundary (virgin or
+    // fully soft-deleted channel) makes both statements match nothing.
+    // Equivalence (boundary-straddling tie group, seam losslessness, empty
+    // arms) is pinned in tests/messages.rs. All EXPLAIN evidence here is
+    // 3.1.3-only — the LET-probe shape is covered by the MSG_PROJECTION
+    // VERSION-SKEW runbook gate above (prod still runs 3.0.4).
+    let (sql, bound, reverse, first_stmt) = match cursor {
         CursorState::None => (
             format!(
-                "SELECT {MSG_PROJECTION} FROM message
+                "LET $boundary = array::last((SELECT VALUE sent_at FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
+                    ORDER BY sent_at DESC LIMIT $page_limit));
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at > $boundary
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at = $boundary
                     ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
             ),
             None,
             true,
+            // Statement 0 is the LET probe; the page starts at statement 1.
+            1,
         ),
         CursorState::Both { since, after_id } => (
             format!(
                 "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
-                      AND (sent_at > type::datetime($since)
-                           OR (sent_at = type::datetime($since) AND meta::id(id) > $after_id))
+                      AND sent_at = type::datetime($since)
+                      AND meta::id(id) > $after_id
+                    ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at > type::datetime($since)
                     ORDER BY sent_at ASC, id_key ASC LIMIT $page_limit;"
             ),
             Some(("since", since, "after_id", after_id)),
             false,
+            0,
         ),
         CursorState::Before { before, before_id } => (
             format!(
                 "SELECT {MSG_PROJECTION} FROM message
                     WHERE channel = type::record('channel', $cid)
                       AND deleted_at = NONE
-                      AND (sent_at < type::datetime($before)
-                           OR (sent_at = type::datetime($before) AND meta::id(id) < $before_id))
+                      AND sent_at = type::datetime($before)
+                      AND meta::id(id) < $before_id
+                    ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;
+                 SELECT {MSG_PROJECTION} FROM message
+                    WHERE channel = type::record('channel', $cid)
+                      AND deleted_at = NONE
+                      AND sent_at < type::datetime($before)
                     ORDER BY sent_at DESC, id_key DESC LIMIT $page_limit;"
             ),
             Some(("before", before, "before_id", before_id)),
             true,
+            0,
         ),
     };
 
@@ -402,65 +573,18 @@ async fn load_messages(
         q = q.bind((k1, v1)).bind((k2, v2));
     }
     let mut resp = q.await?.check()?;
-    let rows: Vec<MessageRow> = resp.take(0)?;
+    // Every arm is a split pair: statement `first_stmt` is the page head
+    // (tie-boundary group on the cursor arms, the strictly-newer open range
+    // on the newest page), `first_stmt + 1` the tail. Truncate BEFORE the
+    // display flip so the kept rows are the ones nearest the cursor / "now"
+    // — exactly what the single-statement LIMIT kept.
+    let mut rows: Vec<MessageRow> = resp.take(first_stmt)?;
+    let tail: Vec<MessageRow> = resp.take(first_stmt + 1)?;
+    rows.extend(tail);
+    rows.truncate(MESSAGES_PAGE_LIMIT as usize);
     let mut out: Vec<MessageEnvelope> = rows.into_iter().map(MessageRow::into_envelope).collect();
     if reverse {
         out.reverse();
     }
-    resolve_attachment_mimes(state, &mut out).await?;
     Ok(out)
-}
-
-/// Fill in each envelope's attachment `mime` from `media_blob` in ONE batch
-/// query across the whole page. The persisted message row only carries the
-/// media ids (`array<string>`); the MIME lives on the blob. Missing ids keep
-/// their placeholder empty mime (client falls back to image render). Order is
-/// preserved per envelope.
-///
-/// W5/H4: binds the deduped ids as `RecordId`s and reads them via
-/// `FROM $records` (Union of PK `RecordIdScan`s, gated by `id IS NOT NONE`)
-/// instead of `WHERE meta::id(id) IN $ids` — which `EXPLAIN` revealed plans
-/// as a full `TableScan` of `media_blob` on 3.1.0-beta.3.
-pub(super) async fn resolve_attachment_mimes(
-    state: &AppState,
-    envelopes: &mut [MessageEnvelope],
-) -> surrealdb::Result<()> {
-    let ids: Vec<String> = {
-        let mut v: Vec<String> = envelopes
-            .iter()
-            .flat_map(|e| e.attachments.iter().map(|a| a.id.clone()))
-            .collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    if ids.is_empty() {
-        return Ok(());
-    }
-    #[derive(SurrealValue)]
-    struct MimeRow {
-        id: String,
-        mime: String,
-    }
-    let records: Vec<surrealdb::types::RecordId> = ids
-        .iter()
-        .map(|id| surrealdb::types::RecordId::new("media_blob", id.as_str()))
-        .collect();
-    let mut resp = state
-        .db
-        .query("SELECT meta::id(id) AS id, mime FROM $records WHERE id IS NOT NONE;")
-        .bind(("records", records))
-        .await?
-        .check()?;
-    let rows: Vec<MimeRow> = resp.take(0)?;
-    let map: std::collections::HashMap<String, String> =
-        rows.into_iter().map(|r| (r.id, r.mime)).collect();
-    for env in envelopes.iter_mut() {
-        for att in env.attachments.iter_mut() {
-            if let Some(mime) = map.get(&att.id) {
-                att.mime = mime.clone();
-            }
-        }
-    }
-    Ok(())
 }

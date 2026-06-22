@@ -1,9 +1,15 @@
-name: Deploy to fenrir
+name: Deploy to novahome
 
 # Autodeploy on every push to main, plus a manual trigger. Runs on the
-# self-hosted runner that lives ON fenrir (the Raspberry Pi 4B), so it builds
-# in the canonical repo dir (warm target/ cache) and calls the existing
-# root-owned deploy bridge — no SSH keys or stored secrets are involved.
+# self-hosted runner that lives ON novahome (the mendicant-bias prod host,
+# x86_64). The runner checks out the pushed commit into its workspace (target/
+# stays warm across runs), builds the release, backs up the prod DB, then calls
+# the root-owned deploy bridge — no SSH keys or stored secrets are involved.
+#
+# Requires a self-hosted runner registered on novahome with the `novahome`
+# label, running as user `damien` (so ~/.cargo is on PATH and the scoped
+# NOPASSWD sudoers entry for /opt/authlyn-prod/deploy.sh applies). See
+# .claude/commands/deploy.md for the one-time runner-registration runbook.
 on:
   push:
     branches: [main]
@@ -14,26 +20,20 @@ on:
 
 # Serialize deploys; never interrupt one that is mid-swap.
 concurrency:
-  group: deploy-fenrir
+  group: deploy-novahome
   cancel-in-progress: false
 
 jobs:
   deploy:
-    runs-on: [self-hosted, fenrir]
-    timeout-minutes: 120        # native Pi builds are slow on a cold target/
+    runs-on: [self-hosted, novahome]
+    timeout-minutes: 30         # x86_64 Ryzen builds are fast; headroom for a cold target/
     steps:
-      - name: Sync repo to the pushed commit
-        run: |
-          set -euo pipefail
-          cd /home/damien/authlyn-interactive
-          git fetch --prune origin
-          git checkout -f -B main "$GITHUB_SHA"   # hard-reset this tree to the pushed commit
-          git log -1 --oneline
+      - name: Checkout the pushed commit
+        uses: actions/checkout@v4
 
       - name: Build release
         run: |
           set -euo pipefail
-          cd /home/damien/authlyn-interactive
           . "$HOME/.cargo/env"
           cargo leptos build --release            # build failure stops here: no backup, no deploy
 
@@ -52,4 +52,4 @@ jobs:
           ls -1t "$dir"/prod_backup_*.surql.gz | tail -n +16 | xargs -r rm -f   # keep newest 15
 
       - name: Deploy (scoped sudo bridge — health-check + auto-rollback)
-        run: sudo -n /opt/authlyn/deploy.sh
+        run: sudo -n /opt/authlyn-prod/deploy.sh "$GITHUB_WORKSPACE"

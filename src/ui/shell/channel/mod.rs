@@ -9,19 +9,25 @@
 //!   `replace_shortcode_token`) + the picker-grid buttons
 //!   (`custom_emoji_btn`, `unicode_emoji_btn`). Its `active_shortcode_token`
 //!   unit test is co-located there.
+//! - [`lightbox`] — `LightboxState`/`LbTransform` + `lightbox_view` (the
+//!   near-fullscreen viewer and its pointer gesture engine). Its transform-
+//!   math unit tests are co-located there.
 //!
 //! This file owns `ChannelPane` itself (the message-list/composer view), the
 //! composer's caret-aware `apply_markup`, the touch-vs-desktop Enter helper,
-//! and the small `deleted_message_row`.
+//! the small `deleted_message_row`, and the re-entry divider rows
+//! (`new_divider_row`/`date_divider_row`, UX evolution #9).
 
 mod attachments;
 mod avatar;
 mod emoji_suggest;
+mod lightbox;
 mod manager;
 mod meta;
+mod radial;
 mod skeleton;
 
-pub(crate) use manager::ChannelManagerModal;
+pub(crate) use manager::ChannelManagerBody;
 
 use attachments::attachment_grid;
 use avatar::{chat_avatar, format_local_time};
@@ -30,10 +36,15 @@ use emoji_suggest::active_shortcode_token;
 use emoji_suggest::{
     custom_emoji_btn, emoji_suggestions, replace_shortcode_token, unicode_emoji_btn,
 };
+use lightbox::{lightbox_view, LbTransform, LightboxState};
 use meta::{message_meta, system_message_meta};
 use skeleton::{should_show_skeletons, skeleton_rows};
 
 use leptos::prelude::*;
+// M5/P0 #54: the three former-fixed overlays (radial, lightbox, mobile emoji
+// sheet) mount to document.body via <Portal> so .content can stay
+// transform-free and never trap them as a containing block.
+use leptos::portal::Portal;
 
 #[cfg(feature = "hydrate")]
 use super::COMPOSER_MAX_ATTACHMENTS;
@@ -41,26 +52,15 @@ use super::{act, Shell};
 #[cfg(feature = "hydrate")]
 use crate::client::api;
 use crate::markup::Color;
-use crate::protocol::{Attachment, MessageEnvelope};
+use crate::protocol::MessageEnvelope;
 use crate::ui::emoji::data::{self, GROUPS};
+use crate::ui::icons::{
+    IconAttach, IconCheck, IconChevronDown, IconCircle, IconClose, IconDie, IconDown, IconEmoji,
+    IconEye, IconQuill, IconRefresh, IconSend, IconShout, IconSpell, IconTrash, IconWhisper,
+};
 use crate::ui::markup_view::render_body;
-use crate::ui::modal::Modal;
+use crate::ui::modal::PersonaInfo;
 use crate::ui::AuthCtx;
-
-/// Lightbox gallery state: the clicked message's IMAGE attachments plus the
-/// index currently on screen. Arrow keys / pointer-swipe step `idx` within
-/// `images`, clamped at the boundaries (no wrap). A one-image message yields a
-/// single-entry list, so nav is a no-op. Cloned cheaply (a handful of small
-/// `Attachment`s per message).
-///
-/// Videos are excluded from the gallery (they keep their own inline controls);
-/// clicking a video opens a single-entry gallery holding just that video, so
-/// the arrow/swipe handlers find nothing to navigate to.
-#[derive(Clone, Debug, PartialEq)]
-struct LightboxState {
-    images: Vec<Attachment>,
-    idx: usize,
-}
 
 /// The display name to render for a message — the worn persona's name when
 /// present, otherwise the message author's display name (Discord-style). Used
@@ -70,6 +70,145 @@ fn display_name(m: &MessageEnvelope) -> String {
     m.persona_name
         .clone()
         .unwrap_or_else(|| m.author_display.clone())
+}
+
+/// The composer effect picker's cycle order (M4/T5): no effect → whisper →
+/// shout → spell → back to none. Values match the server's validated set
+/// (`MESSAGE_EFFECTS` in `server/messages/posting.rs`).
+fn next_effect(cur: Option<&str>) -> Option<&'static str> {
+    match cur {
+        None => Some("whisper"),
+        Some("whisper") => Some("shout"),
+        Some("shout") => Some("spell"),
+        _ => None,
+    }
+}
+
+/// Glyph shown on the effect-picker button per mode (◌ = no effect).
+fn effect_glyph(cur: Option<&str>) -> AnyView {
+    match cur {
+        Some("whisper") => view! { <IconWhisper/> }.into_any(),
+        Some("shout") => view! { <IconShout/> }.into_any(),
+        Some("spell") => view! { <IconSpell/> }.into_any(),
+        _ => view! { <IconCircle/> }.into_any(),
+    }
+}
+
+/// `title`/`aria-label` for the effect-picker button: names the CURRENT mode
+/// (what the next send will do) and the cycling affordance.
+fn effect_label(cur: Option<&str>) -> &'static str {
+    match cur {
+        Some("whisper") => "Message effect: whisper — blurred until tapped. Click to change.",
+        Some("shout") => "Message effect: shout — shake and warm tint. Click to change.",
+        Some("spell") => "Message effect: spell — glow and sparks. Click to change.",
+        _ => "Message effect: none. Click to cycle whisper, shout, spell.",
+    }
+}
+
+/// Per-kind action affordances for one message row — THE single source for
+/// what a message offers, shared by the hover `.msg-actions` row (`meta.rs`)
+/// and the touch radial (`radial.rs`) so the two surfaces can never drift.
+/// Built by [`message_actions`].
+#[derive(Clone, Copy)]
+struct MessageActions {
+    reply: bool,
+    copy: bool,
+    edit: bool,
+    delete: bool,
+}
+
+impl MessageActions {
+    /// Number of offered actions — zero means "never arm the radial"; the
+    /// count also picks the radial's n2/n4 arc spread.
+    fn count(self) -> usize {
+        usize::from(self.reply)
+            + usize::from(self.copy)
+            + usize::from(self.edit)
+            + usize::from(self.delete)
+    }
+}
+
+/// Map a message `kind` (+ viewer ownership) to its action affordances.
+/// Conservative on purpose: ONLY `kind='user'` is mutable (edit/delete,
+/// owner-gated); `system` (Nova DOT) offers nothing — immutable, not
+/// repliable, matching its actionless meta row exactly; `roll` (M4/T6 Fate
+/// Engine) is reply+copy only; any UNKNOWN/future kind gets reply+copy but
+/// NEVER edit/delete.
+fn message_actions(kind: &str, mine: bool) -> MessageActions {
+    match kind {
+        "user" => MessageActions {
+            reply: true,
+            copy: true,
+            edit: mine,
+            delete: mine,
+        },
+        "system" => MessageActions {
+            reply: false,
+            copy: false,
+            edit: false,
+            delete: false,
+        },
+        // Rolls are FULLY immutable even for their author — the server 403s
+        // both edit and delete on kind='roll' (server/messages/editing.rs,
+        // cheating-proof) — so never offer edit/delete here; reply+copy stay.
+        "roll" => MessageActions {
+            reply: true,
+            copy: true,
+            edit: false,
+            delete: false,
+        },
+        _ => MessageActions {
+            reply: true,
+            copy: true,
+            edit: false,
+            delete: false,
+        },
+    }
+}
+
+/// Channel-switch disarm hook for the radial: cancels a pending long-press
+/// and closes an open menu (`act::channel::open_channel_at` calls this so a
+/// press straddling the switch can't open a menu carrying the OLD channel's
+/// envelope). Hydrate-only — its only caller is the hydrate `open_channel_at`.
+#[cfg(feature = "hydrate")]
+pub(super) fn disarm_radial() {
+    radial::disarm();
+}
+
+/// The "NEW" unread-frontier divider (UX evolution #9): a virtual row marking
+/// where unread began when the channel was opened, rendered above the first
+/// row strictly past the captured baseline. Sentinel discipline (the
+/// skeleton-row rule): it is NOT a message — its dom id is deliberately NOT
+/// `msg-`-prefixed, so the delegated radial handlers and the message-anchor
+/// lookups can never resolve it, and it never enters seen/cursor bookkeeping.
+/// The id doubles as the unread jump's anchor target
+/// (`act::reentry::NEW_DIVIDER_ANCHOR`), so landing there shows the frontier
+/// line itself, not an unmarked message among look-alike cards.
+fn new_divider_row() -> impl IntoView {
+    view! {
+        <li class="msg-divider new-divider" id=act::reentry::NEW_DIVIDER_ANCHOR
+            role="separator" aria-label="new messages">
+            <span class="divider-line" aria-hidden="true"></span>
+            <span class="divider-label">"NEW"</span>
+            <span class="divider-line" aria-hidden="true"></span>
+        </li>
+    }
+}
+
+/// A date-separator row (UX evolution #9) between messages from different
+/// days. `label` is the ISO `YYYY-MM-DD` date — locale-stable on every device
+/// (and the native Swedish date shape), computed against the VIEWER's local
+/// midnight on hydrate (`act::reentry::date_label`). Same sentinel discipline
+/// as the NEW divider: no `msg-` id, never in seen/cursor bookkeeping.
+fn date_divider_row(label: String) -> impl IntoView {
+    let aria = format!("messages from {label}");
+    view! {
+        <li class="msg-divider date-divider" role="separator" aria-label=aria>
+            <span class="divider-line" aria-hidden="true"></span>
+            <span class="divider-label">{label}</span>
+            <span class="divider-line" aria-hidden="true"></span>
+        </li>
+    }
 }
 
 /// The clickable reply quote rendered ABOVE a reply's body (L-3): the parent
@@ -108,7 +247,17 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
     let mid_restore = m.id.clone();
     let who = display_name(&m);
     let when = format_local_time(&m.sent_at);
-    let body_preview: String = m.body.chars().take(120).collect();
+    // Whisper mask (review M-03): the trash panel is a body-preview surface,
+    // so a deleted whisper renders the fixed `(whisper)` placeholder — the
+    // same semantics as the reply-quote snippet mask (reading.rs
+    // MSG_PROJECTION) and the push `notification_body` — never the spoiler
+    // text, which a one-tap delete would otherwise EXPOSE flat to every
+    // member for the whole pre-purge window.
+    let body_preview: String = if m.effect.as_deref() == Some("whisper") {
+        "(whisper)".to_string()
+    } else {
+        m.body.chars().take(120).collect()
+    };
     // Only the message's own author can restore it (mirrors server-side require_own_message).
     let is_mine = auth_id.as_deref() == Some(m.author_id.as_str());
     view! {
@@ -132,16 +281,46 @@ fn deleted_message_row(s: Shell, m: MessageEnvelope, auth_id: Option<String>) ->
     .into_any()
 }
 
+/// True on touch-primary (coarse-pointer) devices — phones/tablets. Shared
+/// touch detection for the composer's Enter behaviour and the M4/T4
+/// long-press radial menu (`radial.rs` calls it via `super::is_touch`).
+#[cfg(feature = "hydrate")]
+fn is_touch() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false)
+}
+
+/// True at the `≤768px` breakpoint where `_mobile_emoji.scss` turns the emoji
+/// picker into a `position: fixed` bottom sheet. M5/P0 #54 portals the picker
+/// to `document.body` ONLY in that case: a fixed sheet anchors to the viewport
+/// (so a body mount is correct and frees it from any pane transform), whereas
+/// the desktop popover is `position: absolute` anchored to the composer
+/// (`_content.scss`) and MUST stay in place. The exact CSS breakpoint is the
+/// gate (a one-shot read at open; a resize across it while open is a non-issue
+/// — the picker simply re-evaluates on the next open). On SSR it returns false
+/// (the in-place render), matching `is_touch`'s hydrate-only `match_media`; the
+/// client re-evaluates on hydrate.
+#[cfg(feature = "hydrate")]
+fn is_mobile_viewport() -> bool {
+    leptos::web_sys::window()
+        .and_then(|w| w.match_media("(max-width: 768px)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false)
+}
+#[cfg(not(feature = "hydrate"))]
+fn is_mobile_viewport() -> bool {
+    false
+}
+
 /// True on touch-primary devices (phones/tablets), where the on-screen
 /// keyboard's Enter must insert a newline rather than send — there's no
 /// Shift+Enter, so Enter-to-send would make multi-line messages impossible.
 /// Desktop (fine pointer) keeps Enter-to-send / Shift+Enter-for-newline.
 #[cfg(feature = "hydrate")]
 fn enter_inserts_newline() -> bool {
-    leptos::web_sys::window()
-        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
-        .map(|m| m.matches())
-        .unwrap_or(false)
+    is_touch()
 }
 
 /// Insert markup around the textarea's current selection. With a non-empty
@@ -249,6 +428,89 @@ fn supports_field_sizing_content() -> bool {
     .unwrap_or(false)
 }
 
+/// The composer emoji picker body (backdrop + searchable categorised grid),
+/// extracted (M5/P0 #54) so the open render can either keep it in place
+/// (desktop absolute popover) or wrap it in a body-level `<Portal>` (mobile
+/// fixed sheet) without duplicating the markup. Classes/handlers are unchanged
+/// from the former inline render; the buttons insert at the composer caret and
+/// close the picker. Returns `AnyView` so both mount branches share one type.
+fn emoji_sheet_view(
+    s: Shell,
+    composer_ref: NodeRef<leptos::html::Textarea>,
+    emoji_open: RwSignal<bool>,
+    emoji_query: RwSignal<String>,
+) -> AnyView {
+    view! {
+        <div class="emoji-backdrop" on:click=move |_| emoji_open.set(false)></div>
+        <div class="emoji-picker">
+            <input class="emoji-search" placeholder="search emoji"
+                prop:value=move || emoji_query.get()
+                on:input=move |ev| emoji_query.set(event_target_value(&ev))/>
+            <div class="emoji-grid">
+                {move || {
+                    let q = emoji_query.get().trim().to_lowercase();
+                    let custom = s.sel.guild_emoji.get();
+                    if q.is_empty() {
+                        // Server custom emoji first, then each unicode category.
+                        let server = (!custom.is_empty()).then(|| view! {
+                            <div class="emoji-cat">"Server"</div>
+                            <div class="emoji-cat-items">
+                                {custom.iter().cloned().map(|e| custom_emoji_btn(
+                                    s, composer_ref, emoji_open, e.name, e.media_id,
+                                )).collect_view()}
+                            </div>
+                        });
+                        let cats = GROUPS.iter().map(|label| {
+                            let items = data::by_group(label);
+                            view! {
+                                <div class="emoji-cat">{*label}</div>
+                                <div class="emoji-cat-items">
+                                    {items.into_iter().map(|e| unicode_emoji_btn(
+                                        s, composer_ref, emoji_open,
+                                        e.shortcode, e.glyph,
+                                    )).collect_view()}
+                                </div>
+                            }
+                        }).collect_view();
+                        view! { {server} {cats} }.into_any()
+                    } else {
+                        // Filtered: matching custom emoji, then unicode hits.
+                        let custom_hits = custom.into_iter()
+                            .filter(|e| e.name.to_lowercase().contains(&q))
+                            .map(|e| custom_emoji_btn(
+                                s, composer_ref, emoji_open, e.name, e.media_id,
+                            ))
+                            .collect_view();
+                        let std_hits = data::search(&q, 80).into_iter()
+                            .map(|e| unicode_emoji_btn(
+                                s, composer_ref, emoji_open, e.shortcode, e.glyph,
+                            ))
+                            .collect_view();
+                        view! {
+                            <div class="emoji-cat-items">{custom_hits}{std_hits}</div>
+                        }.into_any()
+                    }
+                }}
+            </div>
+        </div>
+    }
+    .into_any()
+}
+
+/// The `<html>` element, for the measured `--composer-h` custom property
+/// (UX evolution #11 placement contract): set on the document ROOT so both
+/// the fixed toast host (a shell-level child) and the channel floats inside
+/// `.channel-view` inherit the same anchor var.
+#[cfg(feature = "hydrate")]
+fn doc_root() -> Option<leptos::web_sys::HtmlElement> {
+    use wasm_bindgen::JsCast;
+    leptos::web_sys::window()?
+        .document()?
+        .document_element()?
+        .dyn_into::<leptos::web_sys::HtmlElement>()
+        .ok()
+}
+
 #[component]
 pub(crate) fn ChannelPane() -> impl IntoView {
     let s = use_context::<Shell>().expect("Shell provided by AppShell");
@@ -265,6 +527,28 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     let preview_on = RwSignal::new(act::compose_preview_enabled());
     let ac_token = RwSignal::new(None::<(u32, u32, String)>);
     let ac_index = RwSignal::new(0usize);
+    // M4/T5 whisper reveal: ids of whispered messages the viewer has tapped
+    // open. A pane-level set rather than per-row signals (the markup_view
+    // spoiler pattern) because every poll/ingest re-renders the whole row map,
+    // which would reset per-row state mid-conversation. Tapping the blurred
+    // text toggles membership; message ids are globally unique, so entries
+    // from other channels are harmless.
+    let revealed = RwSignal::new(std::collections::HashSet::<String>::new());
+    // M4/T2 charging send button: fraction of a "full" message composed,
+    // driving the Send button's conic-gradient ring via the `--charge`
+    // custom property. ~280 chars FEELS full — it is not a length limit.
+    // Counted in chars (not bytes) so multibyte text/emoji don't over-fill,
+    // and TRIMMED to mirror `send_message`'s guard — whitespace-only compose
+    // must not light a ring on a button whose send path no-ops. (`.charging`
+    // below is `charge > 0`, so it follows the same trimmed predicate.
+    // Attachments-only stays 0: the ring reflects text length.)
+    let charge = Memo::new(move |_| {
+        (s.composer
+            .compose
+            .with(|c| c.trim().chars().count())
+            .min(280) as f64)
+            / 280.0
+    });
     // Typing-ping throttle (#19): epoch-ms of the last `POST /typing` we fired,
     // so on:input pings at most once every ~2s while the user types instead of
     // every keystroke. `StoredValue` (not a signal) — it's plumbing, not UI.
@@ -308,18 +592,84 @@ pub(crate) fn ChannelPane() -> impl IntoView {
         });
     });
 
+    // Measured composer-height var (UX evolution #11 placement contract — the
+    // judges' risk line): a ResizeObserver mirrors the composer band's REAL
+    // height into `--composer-h` on `<html>`, so the toast capsule
+    // (`_toast.scss`) and the channel floats (.unread-pill / .jump-bottom,
+    // `_content.scss`) all anchor to the composer's actual top edge. Wrapped
+    // toolbar rows on narrow phones, the growing textarea, reply/edit banners
+    // and the attachment strip all move the floats with them instead of
+    // being overlapped — fluid measured geometry, no hardcoded band height.
+    // Cleared on unmount (pane switch / logout) so the SCSS fallbacks apply
+    // wherever no composer exists.
+    let composer_box = NodeRef::<leptos::html::Div>::new();
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::JsCast;
+        let Some(el) = composer_box.get() else {
+            return;
+        };
+        let target = el.clone();
+        let set_var = move || {
+            if let Some(root) = doc_root() {
+                // Inherent web_sys `style()` (same deref note as above).
+                let _ = root
+                    .style()
+                    .set_property("--composer-h", &format!("{}px", el.offset_height()));
+            }
+        };
+        set_var();
+        let cb = Closure::<dyn FnMut()>::new(set_var);
+        let observer = leptos::web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref()).ok();
+        if let Some(o) = &observer {
+            o.observe(&target);
+        }
+        // `SendWrapper` carries the non-`Send` wasm types across `on_cleanup`'s
+        // `Send + Sync` bound (the `ui/modal.rs` convention) — WASM is
+        // single-threaded, so the wrapper's same-thread assert always holds.
+        let held = send_wrapper::SendWrapper::new((observer, cb));
+        on_cleanup(move || {
+            let (observer, cb) = held.take();
+            if let Some(o) = observer {
+                o.disconnect();
+            }
+            drop(cb); // the observer is gone; now the JS shim may drop too
+            if let Some(root) = doc_root() {
+                let _ = root.style().remove_property("--composer-h");
+            }
+        });
+    });
+
     // Click-the-name info popup: which message's persona/controller to show.
     let info = RwSignal::new(None::<MessageEnvelope>);
+
+    // M4/T4 radial long-press menu: the message whose touch action menu is
+    // open (None when closed). Channel-pane-local — the delegated `<ul>`
+    // long-press handlers and the menu render live in this component, so it
+    // never needs to ride Shell state. `long_press` is the generation-counter
+    // timer tracker (see `radial::LongPress`); `radial_armed` is the
+    // manufactured-click guard for the menu's backdrop/buttons, created ONCE
+    // here because a per-render StoredValue would leak an arena slot per open.
+    let radial = RwSignal::new(None::<radial::RadialState>);
+    let long_press = radial::LongPress::new();
+    let radial_armed = StoredValue::new(false);
+    // Channel switches must disarm a pending press / close an open menu —
+    // act::channel::open_channel_at reaches the pane-local state through this
+    // registration (see radial::disarm).
+    #[cfg(feature = "hydrate")]
+    radial::register_disarm(long_press, radial);
     // Lightbox: the clicked message's IMAGE attachments + the index currently
     // shown, or None when closed. Arrow/swipe step the index within this list
     // (images only — videos keep their own inline controls and never enter the
     // gallery); see `LightboxState`. The grid click seeds `idx` to the clicked
-    // image; `lb_zoom` is the CSS transform scale (1.0 = fit), reset to 1 on
-    // every open. Both live as component-level signals so stepping `idx` /
-    // changing zoom re-renders only the <img>, never the focusable container
-    // (which would steal focus and break the arrow-key handler).
+    // image; `lb_tf` is the image's CSS transform (scale + pan translate, see
+    // `LbTransform`), reset to identity on every open and gallery step. Both
+    // live as component-level signals so stepping `idx` / zoom-panning
+    // re-renders only the <img>, never the focusable container (which would
+    // steal focus and break the arrow-key handler).
     let lightbox = RwSignal::new(None::<LightboxState>);
-    let lb_zoom = RwSignal::new(1.0_f64);
+    let lb_tf = RwSignal::new(LbTransform::default());
 
     // Auto-scroll. `last_dist` is the px distance from the bottom recorded on
     // the user's last scroll (i.e. pre-append). On a new message: your own →
@@ -411,10 +761,56 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             last_dist.set_value(0.0);
             // Following the bottom on this append also clears any unread state.
             mark_seen();
-            leptos::task::spawn_local(async move {
-                gloo_timers::future::TimeoutFuture::new(0).await;
+            // Robust pin-to-bottom (default-tail case only). The first
+            // TimeoutFuture(0) pin can land ABOVE the true bottom when the
+            // self-hosted JetBrains Mono / Crimson Pro faces (loaded async)
+            // reflow the list TALLER after the scroll fires — orbit then opens
+            // mid-history. Re-pin after layout settles (a double-rAF) AND once
+            // `document.fonts.ready` resolves, so the late font reflow is
+            // caught. Each re-pin re-checks the guard: skip if a jump anchor
+            // took over (deep-link / NEW-divider / scroll-restore set
+            // `anchor_to`, handled by the anchor effect below) or the user has
+            // scrolled meaningfully up since (`last_dist` is kept live by the
+            // on:scroll handler) — so those paths are never overridden.
+            let pin = move || {
+                if s.msg.anchor_to.get_untracked().is_some() {
+                    return;
+                }
+                if last_dist.get_value() > 4.0 {
+                    return;
+                }
                 if let Some(el) = list_ref.get_untracked() {
                     el.set_scroll_top(el.scroll_height());
+                }
+            };
+            leptos::task::spawn_local(async move {
+                use wasm_bindgen::JsCast as _;
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                pin();
+                // Double-rAF: settle past this frame's layout, then pin on the
+                // next painted frame.
+                request_animation_frame(move || {
+                    request_animation_frame(pin);
+                });
+                // …and once the async web fonts finish loading and reflow the
+                // list. `document.fonts.ready` is a Promise<FontFaceSet>;
+                // reach it via Reflect (no web-sys `FontFaceSet` feature
+                // needed) — the same JsFuture pattern as the clipboard path.
+                if let Some(ready) = leptos::web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| {
+                        let fonts =
+                            js_sys::Reflect::get(&d, &wasm_bindgen::JsValue::from_str("fonts"))
+                                .ok()?;
+                        let ready =
+                            js_sys::Reflect::get(&fonts, &wasm_bindgen::JsValue::from_str("ready"))
+                                .ok()?;
+                        ready.dyn_into::<js_sys::Promise>().ok()
+                    })
+                {
+                    if wasm_bindgen_futures::JsFuture::from(ready).await.is_ok() {
+                        pin();
+                    }
                 }
             });
         }
@@ -431,7 +827,18 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             gloo_timers::future::TimeoutFuture::new(0).await;
             if let Some(el) = leptos::web_sys::window()
                 .and_then(|w| w.document())
-                .and_then(|d| d.get_element_by_id(&format!("msg-{id}")))
+                .and_then(|d| {
+                    // Re-entry (UX evolution #9): the unread jump lands AT
+                    // the NEW divider — the sentinel anchor resolves to the
+                    // divider row's own dom id, so the frontier line itself
+                    // is visible above the first unread message. Every other
+                    // anchor is a real `msg-{id}` row, unchanged.
+                    if id == act::reentry::NEW_DIVIDER_ANCHOR {
+                        d.get_element_by_id(act::reentry::NEW_DIVIDER_ANCHOR)
+                    } else {
+                        d.get_element_by_id(&format!("msg-{id}"))
+                    }
+                })
             {
                 el.scroll_into_view();
             }
@@ -440,8 +847,30 @@ pub(crate) fn ChannelPane() -> impl IntoView {
     });
 
     view! {
-        <div class="channel-view">
+        // M5/P0 #54: the warp dip class moved off .content (mod.rs) onto this
+        // inner .channel-view wrapper so .content never gains a transform (and
+        // thus never becomes a containing block for the body-portaled overlays
+        // below). Driven by the same s.sync.switching signal as before.
+        <div class="channel-view" class:fx-switching=move || s.sync.switching.get()>
             <ul class="messages" node_ref=list_ref
+                // M4/T4 radial long-press: DELEGATED listeners — 5 on this
+                // <ul>, not 5 per row (this build has no tachys event
+                // delegation, so per-row `on:` means per-row addEventListener
+                // calls that the non-keyed list re-attaches wholesale on
+                // every message change). The handlers resolve the pressed
+                // row from `ev.target().closest("li[id^='msg-']")` and look
+                // the envelope up by id only when a press actually fires;
+                // pointermove past the slop radius and pointerup/-cancel
+                // (the browser claiming the gesture for scrolling) disarm
+                // the pending press, so scrolls never fire it. System rows
+                // never arm and keep the NATIVE context menu so their text
+                // stays copyable on touch. Desktop is untouched — `down`
+                // no-ops on a fine pointer; right-click stays native.
+                on:pointerdown=move |ev| long_press.down(&ev, s, auth, radial)
+                on:pointermove=move |ev| long_press.moved(&ev)
+                on:pointerup=move |_| long_press.cancel()
+                on:pointercancel=move |_| long_press.cancel()
+                on:contextmenu=move |ev| radial::suppress_touch_context_menu(&ev)
                 on:scroll=move |_ev| {
                     #[cfg(feature = "hydrate")]
                     if let Some(el) = list_ref.get_untracked() {
@@ -474,7 +903,39 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 {move || {
                     let me = auth.user.get().map(|u| u.account_id);
                     let cid = s.sel.sel_channel.get().map(|c| c.id);
-                    s.msg.messages.get().into_iter().map(|m| {
+                    let msgs = s.msg.messages.get();
+                    // Re-entry dividers (UX evolution #9) — pure render-time
+                    // grouping over the composite-ordered list (never
+                    // re-sorted client-side): `new_before` is the id of the
+                    // first row strictly past the unread baseline captured at
+                    // channel open; `prev_date` threads the running local-date
+                    // label so a separator lands wherever consecutive rows
+                    // cross midnight. `prev_date` starting `None` means the
+                    // FIRST loaded row always gets a label — deliberately: it
+                    // names the day the loaded window opens on (the unloaded
+                    // row above may share the date), and a backfill reruns
+                    // this whole grouping so it self-corrects to true
+                    // crossings as history loads (review; standard chat
+                    // behaviour — suppressing it would leave the window's top
+                    // dateless). Neither divider is a message: no `msg-`
+                    // dom id, never in seen/cursor bookkeeping (sentinel
+                    // discipline) — see `new_divider_row`/`date_divider_row`.
+                    let new_before = s
+                        .msg
+                        .new_divider
+                        .get()
+                        .and_then(|baseline| act::reentry::first_past_baseline(&msgs, &baseline));
+                    let mut prev_date: Option<String> = None;
+                    msgs.into_iter().map(|m| {
+                        let date = act::reentry::date_label(&m.sent_at);
+                        let date_row = (prev_date.as_deref() != Some(date.as_str()))
+                            .then(|| date_divider_row(date.clone()));
+                        prev_date = Some(date);
+                        // Date separator ABOVE the NEW divider when both land
+                        // on the same row ("a new day — and here is where you
+                        // left off").
+                        let new_row =
+                            (new_before.as_deref() == Some(m.id.as_str())).then(new_divider_row);
                         let atts = m.attachments.clone();
                         let mine = me.is_some() && me.as_deref() == Some(m.author_id.as_str());
                         let body = m.body.clone();
@@ -483,23 +944,303 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         let reply_quote = m.reply_to.clone().map(reply_quote);
                         // System (Nova DOT) messages get a distinct row + a stripped
                         // meta line (no edit/reply/persona-popup); everything else is
-                        // a normal authored message.
+                        // a normal authored message. The `system` class doubles as
+                        // the marker the delegated long-press handlers (radial.rs)
+                        // check, so system rows never arm the radial and keep the
+                        // native context menu.
                         let is_system = m.kind == "system";
-                        let li_class = if is_system { "msg system" } else { "msg" };
+                        // Roll results (M4/T6): an authored action (normal meta
+                        // row — persona/author name and reply/copy stay) whose
+                        // body renders as an animated glass chip below.
+                        let is_roll = m.kind == "roll";
+                        // M4/T5 delivery effect: a known effect adds an
+                        // `effect-{name}` class to the row. Re-whitelisted here
+                        // (the server already validates) so an unexpected wire
+                        // value can never inject an arbitrary class.
+                        let effect = m
+                            .effect
+                            .as_deref()
+                            .filter(|e| matches!(*e, "whisper" | "shout" | "spell"));
+                        let is_whisper = effect == Some("whisper");
+                        // Directional bubbles: the viewer's own messages carry
+                        // `.own` (right-aligned in CSS). System rows are authored
+                        // by the Nova DOT account, never the viewer — but branch
+                        // order makes them never-"own" regardless. Effects don't
+                        // change the base composition (or the full-width
+                        // exemptions) — they only append.
+                        let base_class = if is_system {
+                            "msg system"
+                        } else if is_roll {
+                            // Full-width banner like the system row (exempt
+                            // from the directional-bubble squeeze, never
+                            // `.own`) — a roll is table-facing, not a bubble.
+                            "msg roll"
+                        } else if mine {
+                            "msg own"
+                        } else {
+                            "msg"
+                        };
+                        let li_class = match effect {
+                            Some(e) => format!("{base_class} effect-{e}"),
+                            None => base_class.to_string(),
+                        };
                         let meta = if is_system {
-                            system_message_meta(&m).into_any()
+                            system_message_meta(s, &m).into_any()
                         } else {
                             message_meta(s, &m, &cid, mine, info).into_any()
                         };
+                        // Whisper reveal: the blur sits on `.text` only (the
+                        // meta row stays readable); tapping the text toggles
+                        // this message's id in the pane-level `revealed` set,
+                        // which flips the row's `.revealed` class. A plain
+                        // class flip — state, not motion — so it works under
+                        // reduced-motion too.
+                        let mid = m.id.clone();
+                        let text_view = if is_roll {
+                            // Glass result chip: die glyph + the
+                            // server-generated result text, rendered VERBATIM
+                            // (never markup-parsed — the body is the server's
+                            // formatted outcome, not user markup). A static
+                            // mono caption under the chip names the source and
+                            // its immutability (the server 403s edit/delete on
+                            // kind='roll', message_actions offers neither) so a
+                            // sealed roll reads as sealed on-screen, not only in
+                            // semantics — pure static text, no animation, so
+                            // there is nothing for reduced-motion to strip. It
+                            // is a SIBLING of the `.text` span (a <div> may not
+                            // nest in the inline span), flattened into the row
+                            // by the multi-root view.
+                            view! {
+                                <span class="text roll-chip">
+                                    <span class="roll-die" aria-hidden="true"><IconDie/></span>
+                                    <span class="roll-text">{body.clone()}</span>
+                                </span>
+                                <div class="roll-tag">"fate engine · sealed 🔒"</div>
+                            }
+                            .into_any()
+                        } else if is_whisper {
+                            // A11y disclosure (review M-22): the veil is a real
+                            // toggle — focusable, Enter/Space operated,
+                            // `aria-expanded` announcing the collapsed state —
+                            // and while
+                            // hidden the body sits OUTSIDE the a11y tree and
+                            // tab order (`aria-hidden` + `inert`: CSS blur is
+                            // invisible to screen readers, and render_body can
+                            // emit focusable links), so AT users get the same
+                            // choose-when-to-see contract as sighted ones.
+                            // Keydown only toggles when the veil ITSELF is the
+                            // target: once revealed, Enter on an inner link
+                            // must navigate, not re-hide the whisper. The
+                            // click path mirrors that (review): a click that
+                            // originated inside an anchor must navigate, not
+                            // re-veil mid-navigation — but a bare
+                            // target==current_target guard would kill
+                            // click-to-re-hide (revealed prose clicks land on
+                            // inner spans), so we suppress on `closest("a")`
+                            // only. Once revealed, the wrapper also SHEDS its
+                            // button semantics (role/aria-expanded/title go
+                            // None): ARIA button is children-presentational
+                            // and forbids interactive descendants, so keeping
+                            // it would let conforming AT flatten the revealed
+                            // body and its links. tabindex stays so keyboard
+                            // focus is never dumped; re-hide remains an
+                            // unannounced convenience (click / Enter on the
+                            // wrapper itself).
+                            let mid = m.id.clone();
+                            let toggle = move || {
+                                revealed.update(|r| {
+                                    if !r.insert(mid.clone()) {
+                                        r.remove(&mid);
+                                    }
+                                })
+                            };
+                            let toggle_kbd = toggle.clone();
+                            let toggle_click = toggle.clone();
+                            // The visible hint caption (below) reveals on tap
+                            // too, so the on-screen cue is also the affordance,
+                            // not just a label pointing at the veil.
+                            let toggle_hint = toggle.clone();
+                            let open = {
+                                let mid = m.id.clone();
+                                move || revealed.with(|r| r.contains(&mid))
+                            };
+                            let open_label = open.clone();
+                            let open_hidden = open.clone();
+                            let open_inert = open.clone();
+                            let open_role = open.clone();
+                            let open_title = open.clone();
+                            // Visible reveal cue for SIGHTED touch users: the
+                            // tap-to-reveal affordance otherwise lives ONLY in
+                            // title/aria (the AT path), so a coarse-pointer
+                            // viewer sees a blurred blob with no on-screen hint.
+                            // A static mono caption beside the veil supplies it
+                            // — shown only while veiled (it vanishes the moment
+                            // the body is revealed, mirroring the title/aria
+                            // which also drop on reveal). Pure text, no
+                            // animation. Sibling of `.text` so it sits beside
+                            // the blurred body, flattened into the row by the
+                            // multi-root view.
+                            let open_hint = open.clone();
+                            view! {
+                                <span class="text"
+                                    role=move || (!open_role()).then_some("button")
+                                    tabindex="0"
+                                    title=move || (!open_title())
+                                        .then_some("whispered — tap to reveal")
+                                    aria-expanded=move || (!open()).then_some("false")
+                                    aria-label=move || (!open_label())
+                                        .then_some("whispered message — activate to reveal")
+                                    on:click=move |ev| {
+                                        #[cfg(feature = "hydrate")]
+                                        {
+                                            use leptos::wasm_bindgen::JsCast;
+                                            if let Some(el) = ev.target().and_then(|t| {
+                                                t.dyn_into::<leptos::web_sys::Element>().ok()
+                                            }) {
+                                                if el.closest("a").ok().flatten().is_some() {
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = &ev;
+                                        toggle_click()
+                                    }
+                                    on:keydown=move |ev| {
+                                        #[cfg(feature = "hydrate")]
+                                        if matches!(ev.key().as_str(), "Enter" | " " | "Spacebar")
+                                            && ev.target() == ev.current_target()
+                                        {
+                                            ev.prevent_default();
+                                            toggle_kbd();
+                                        }
+                                        #[cfg(not(feature = "hydrate"))]
+                                        let _ = (&ev, &toggle_kbd);
+                                    }>
+                                    <span
+                                        aria-hidden=move || (!open_hidden()).then_some("true")
+                                        inert=move || (!open_inert()).then_some("")>
+                                        {render_body(&body)}
+                                    </span>
+                                </span>
+                                <span class="whisper-hint" aria-hidden="true"
+                                    class:revealed=move || open_hint()
+                                    on:click=move |_| toggle_hint()>
+                                    "whisper · tap to listen"
+                                </span>
+                            }
+                            .into_any()
+                        } else {
+                            view! { <span class="text">{render_body(&body)}</span> }.into_any()
+                        };
+                        // Whisper veil for media (review): the attachment grid
+                        // is a SIBLING of `.text`, so while hidden the CSS
+                        // (_content.scss) blurs it and drops its
+                        // pointer-events — a tap on the media area then lands
+                        // on this wrapper, which REVEALS instead of opening
+                        // the lightbox. Insert-only (never a toggle): once
+                        // revealed, a lightbox click bubbling back up here
+                        // must not re-hide the row mid-open. Non-whisper rows
+                        // render the bare grid, no wrapper.
+                        let atts_view = (!atts.is_empty()).then(|| {
+                            let grid = attachment_grid(atts.clone(), lightbox);
+                            if is_whisper {
+                                // Same disclosure treatment as the text veil
+                                // (review M-22), minus the toggle — reveal is
+                                // insert-only by design (comment above). While
+                                // hidden the grid is additionally `inert`: CSS
+                                // `pointer-events:none` never removed a
+                                // `<video controls>` from the TAB order, so a
+                                // keyboard user could focus and play a still-
+                                // veiled whisper video they could never
+                                // reveal. After reveal the wrapper SHEDS its
+                                // button semantics (role/aria-expanded/title
+                                // go None — review): a permanent button whose
+                                // activation does nothing forever, wrapping
+                                // interactive media controls, is worse than no
+                                // role (ARIA button is children-presentational
+                                // and forbids interactive descendants).
+                                // tabindex stays so keyboard activation never
+                                // dumps focus; its keydown no-ops once
+                                // revealed so Enter/Space on inner media
+                                // controls keep their native behavior.
+                                let mid = m.id.clone();
+                                let reveal = move || {
+                                    revealed.update(|r| {
+                                        r.insert(mid.clone());
+                                    })
+                                };
+                                let reveal_kbd = reveal.clone();
+                                let open = {
+                                    let mid = m.id.clone();
+                                    move || revealed.with(|r| r.contains(&mid))
+                                };
+                                let open_label = open.clone();
+                                let open_hidden = open.clone();
+                                let open_inert = open.clone();
+                                let open_kbd = open.clone();
+                                let open_role = open.clone();
+                                let open_title = open.clone();
+                                view! {
+                                    <div class="atts-veil"
+                                        role=move || (!open_role()).then_some("button")
+                                        tabindex="0"
+                                        title=move || (!open_title())
+                                            .then_some("whispered — tap to reveal")
+                                        aria-expanded=move || (!open()).then_some("false")
+                                        aria-label=move || (!open_label())
+                                            .then_some("whispered media — activate to reveal")
+                                        on:click=move |_| reveal()
+                                        on:keydown=move |ev| {
+                                            #[cfg(feature = "hydrate")]
+                                            if !open_kbd()
+                                                && matches!(
+                                                    ev.key().as_str(),
+                                                    "Enter" | " " | "Spacebar"
+                                                )
+                                            {
+                                                ev.prevent_default();
+                                                reveal_kbd();
+                                            }
+                                            #[cfg(not(feature = "hydrate"))]
+                                            let _ = (&ev, &reveal_kbd, &open_kbd);
+                                        }>
+                                        <div
+                                            aria-hidden=move || (!open_hidden()).then_some("true")
+                                            inert=move || (!open_inert()).then_some("")>
+                                            {grid}
+                                        </div>
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                grid.into_any()
+                            }
+                        });
                         view! {
-                            <li class=li_class id=dom_id>
+                            // Virtual divider rows render as SIBLINGS above the
+                            // real row (a multi-root view flattens into the
+                            // <ul>) — exactly where the date flips or the
+                            // unread frontier begins.
+                            {date_row}
+                            {new_row}
+                            // Long-press handling is delegated to the <ul> above —
+                            // no per-row listeners (and no per-row envelope clone);
+                            // the row only needs its `msg-{id}` dom id (+ the
+                            // `system` class) for the handlers to resolve it at
+                            // fire time.
+                            <li class=li_class id=dom_id
+                                class:revealed=move || {
+                                    is_whisper && revealed.with(|r| r.contains(&mid))
+                                }>
                                 {meta}
                                 {reply_quote}
                                 // Editing happens in the main composer (✎ →
                                 // act::start_edit), not inline, so the body is
-                                // always just rendered markup.
-                                <span class="text">{render_body(&body)}</span>
-                                {(!atts.is_empty()).then(|| attachment_grid(atts.clone(), lightbox))}
+                                // always just rendered markup (whisper rows add
+                                // the tap-to-reveal handler above).
+                                {text_view}
+                                {atts_view}
                             </li>
                         }
                     }).collect_view()
@@ -541,6 +1282,40 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </li>
                     }
                 })}
+                // Ghost Quill rows (M4/T7): OTHER members' live drafts, below
+                // the real messages. Their own `ghost_drafts` signal (never
+                // the message list), fetched from the permission-checked
+                // /typing-drafts endpoint on SSE nudges, rendered ONLY while
+                // the receiver's pref is on (toggling off hides them at
+                // once). Draft text renders as plain text — clearly-not-real
+                // styling (dashed, italic) over fidelity. Static rows, no
+                // animation, so nothing to kill for reduced motion.
+                {move || s.prefs.ghost_quill.get().then(|| {
+                    s.msg.ghost_drafts.get().into_iter().map(|g| {
+                        // Whisper-armed drafts arrive as the fixed `(whisper)`
+                        // placeholder — masked SERVER-side at store time
+                        // (review M-01, typing.rs WHISPER_DRAFT_MASK) — so a
+                        // row carrying exactly that placeholder gets the same
+                        // veiled presentation as a whispered message
+                        // (`effect-whisper` blur) instead of bare text. No
+                        // reveal handler on purpose: there is no hidden text
+                        // behind it, the placeholder IS the payload.
+                        let veiled = g.draft == "(whisper)";
+                        let li_class = if veiled {
+                            "msg msg-ghost effect-whisper"
+                        } else {
+                            "msg msg-ghost"
+                        };
+                        view! {
+                            <li class=li_class>
+                                <div class="meta">
+                                    <span class="who">{g.display_name}" "<IconQuill/></span>
+                                </div>
+                                <span class="text">{g.draft}</span>
+                            </li>
+                        }
+                    }).collect_view()
+                })}
             </ul>
 
             // Unread pill — shown only when messages arrived while the user was
@@ -550,9 +1325,9 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 (unread.get() > 0).then(|| {
                     let n = unread.get();
                     let label = if n == 1 {
-                        "1 new message ↓".to_string()
+                        "1 new message".to_string()
                     } else {
-                        format!("{n} new messages ↓")
+                        format!("{n} new messages")
                     };
                     view! {
                         <button class="unread-pill"
@@ -569,7 +1344,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     mark_seen();
                                 }
                             }>
-                            {label}
+                            {label}" "<IconDown/>
                         </button>
                     }
                 })
@@ -591,7 +1366,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                     mark_seen();
                                 }
                             }>
-                            "↓"
+                            <IconDown/>
                         </button>
                     }
                 })
@@ -604,7 +1379,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 view! {
                     <div class="trash-msg-panel">
                         <div class="trash-panel-header">
-                            <span>"🗑 Deleted messages"</span>
+                            <span><IconTrash/>" Deleted messages"</span>
                         </div>
                         {if msgs.is_empty() {
                             view! { <p class="muted pad">"No deleted messages."</p> }.into_any()
@@ -622,7 +1397,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             })}
 
             // "%name% is typing…" line (#19), fed by the message poll. Renders
-            // nothing when nobody else is typing.
+            // nothing when nobody else is typing. A constellation of orbiting
+            // stars (one per typist, capped at 3; M4/T1) decorates the line —
+            // purely decorative (aria-hidden) ALONGSIDE the names text, which
+            // stays for accessibility. Per-star stagger/color is nth-child
+            // CSS; the typing payload carries no per-persona color, so stars
+            // alternate the shared accent/mint hues.
             {move || {
                 let names = s.msg.typing.get();
                 let line = match names.len() {
@@ -631,10 +1411,40 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     2 => format!("{} and {} are typing…", names[0], names[1]),
                     _ => "Several people are typing…".to_string(),
                 };
-                view! { <div class="typing-indicator">{line}</div> }.into_any()
+                // Constellation (a-orbit.html): a central mint anchor dot
+                // (`.star-core`, twinkle in place) plus one orbiting dot per
+                // typist (capped at 3), each with its OWN radius + duration and
+                // ONE reversed — the prototype's `--r`/`--d`/`--rev` set per
+                // dot. Purely decorative (aria-hidden); the names line stays for
+                // accessibility.
+                const ORBITS: [(&str, &str, &str); 3] = [
+                    ("10px", "2.4s", "normal"),
+                    ("14px", "3.4s", "reverse"),
+                    ("7px", "1.9s", "normal"),
+                ];
+                let stars = (0..names.len().min(3))
+                    .map(|i| {
+                        let (r, d, rev) = ORBITS[i];
+                        let style =
+                            format!("--orbit-r:{r};--orbit-d:{d};--orbit-rev:{rev}");
+                        view! { <span class="star" style=style></span> }
+                    })
+                    .collect_view();
+                view! {
+                    <div class="typing-indicator">
+                        <span class="constellation" aria-hidden="true">
+                            <span class="star-core"></span>
+                            {stars}
+                        </span>
+                        {line}
+                    </div>
+                }
+                .into_any()
             }}
 
-            <div class="composer">
+            // node_ref: the ResizeObserver above mirrors this band's measured
+            // height into the `--composer-h` anchor var (UX evolution #11).
+            <div class="composer" node_ref=composer_box>
                 // "Replying to X" banner (L-3): shown while a reply target is
                 // staged; the ✕ clears it back to a normal send.
                 {move || s.composer.replying_to.get().map(|r| {
@@ -646,7 +1456,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                 <span class="reply-banner-snippet">{snippet}</span>
                             </span>
                             <button class="reply-banner-cancel" type="button" title="cancel reply"
-                                on:click=move |_| act::cancel_reply(s)>"✕"</button>
+                                on:click=move |_| act::cancel_reply(s)><IconClose/></button>
                         </div>
                     }
                 })}
@@ -658,7 +1468,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         <div class="edit-banner">
                             <span class="edit-banner-text">"Editing message"</span>
                             <button class="edit-banner-cancel" type="button" title="cancel edit"
-                                on:click=move |_| act::cancel_edit(s)>"✕"</button>
+                                on:click=move |_| act::cancel_edit(s)><IconClose/></button>
                         </div>
                     }
                 })}
@@ -666,7 +1476,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     // Attach images: a hidden multi-file input behind a 📎 label.
                     // Each pick uploads immediately and stages the media id.
                     <label class="fmt attach" title="attach a file">
-                        "📎"
+                        <IconAttach/>
                         // NO `accept`: on Android a media `accept` hint makes Chrome
                         // launch the system photo picker (Google Photos on this
                         // device), which the user doesn't want; omitting it gives the
@@ -684,7 +1494,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         t.dyn_into::<leptos::web_sys::HtmlInputElement>().ok()
                                     }) {
                                         if let Some(files) = input.files() {
-                                            // Soft cap (W7/B1-client): refuse to queue uploads
+                                            // Soft cap (M7/B1-client): refuse to queue uploads
                                             // beyond COMPOSER_MAX_ATTACHMENTS so the user gets a
                                             // toast instead of an upload-then-server-reject
                                             // roundtrip. The server enforces the same ceiling
@@ -772,14 +1582,14 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                     }}
                     <button class="fmt color-more" title="more colors"
                         on:click=move |_| color_open.update(|o| *o = !*o)>
-                        "▼"
+                        <IconChevronDown/>
                     </button>
                     // Emoji picker toggle + live-preview toggle. The preview
                     // toggle persists per-user (localStorage) like the other
                     // composer prefs.
                     <button class="fmt" title="emoji"
                         on:click=move |_| emoji_open.update(|o| *o = !*o)>
-                        "😀"
+                        <IconEmoji/>
                     </button>
                     <button class="fmt" title="preview"
                         on:click=move |_| {
@@ -787,7 +1597,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             preview_on.set(v);
                             act::set_compose_preview(v);
                         }>
-                        "👁"
+                        <IconEye/>
                     </button>
                 </div>
                 // Color palette popover: all 8 swatches in a small grid; a
@@ -812,59 +1622,25 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 // Emoji picker popover: a search box over a categorised grid of
                 // the open guild's custom emoji plus the standard-unicode set.
                 // A full-viewport backdrop closes it on an outside click.
-                {move || emoji_open.get().then(|| view! {
-                    <div class="emoji-backdrop" on:click=move |_| emoji_open.set(false)></div>
-                    <div class="emoji-picker">
-                        <input class="emoji-search" placeholder="search emoji"
-                            prop:value=move || emoji_query.get()
-                            on:input=move |ev| emoji_query.set(event_target_value(&ev))/>
-                        <div class="emoji-grid">
-                            {move || {
-                                let q = emoji_query.get().trim().to_lowercase();
-                                let custom = s.sel.guild_emoji.get();
-                                if q.is_empty() {
-                                    // Server custom emoji first, then each unicode category.
-                                    let server = (!custom.is_empty()).then(|| view! {
-                                        <div class="emoji-cat">"Server"</div>
-                                        <div class="emoji-cat-items">
-                                            {custom.iter().cloned().map(|e| custom_emoji_btn(
-                                                s, composer_ref, emoji_open, e.name, e.media_id,
-                                            )).collect_view()}
-                                        </div>
-                                    });
-                                    let cats = GROUPS.iter().map(|label| {
-                                        let items = data::by_group(label);
-                                        view! {
-                                            <div class="emoji-cat">{*label}</div>
-                                            <div class="emoji-cat-items">
-                                                {items.into_iter().map(|e| unicode_emoji_btn(
-                                                    s, composer_ref, emoji_open,
-                                                    e.shortcode, e.glyph,
-                                                )).collect_view()}
-                                            </div>
-                                        }
-                                    }).collect_view();
-                                    view! { {server} {cats} }.into_any()
-                                } else {
-                                    // Filtered: matching custom emoji, then unicode hits.
-                                    let custom_hits = custom.into_iter()
-                                        .filter(|e| e.name.to_lowercase().contains(&q))
-                                        .map(|e| custom_emoji_btn(
-                                            s, composer_ref, emoji_open, e.name, e.media_id,
-                                        ))
-                                        .collect_view();
-                                    let std_hits = data::search(&q, 80).into_iter()
-                                        .map(|e| unicode_emoji_btn(
-                                            s, composer_ref, emoji_open, e.shortcode, e.glyph,
-                                        ))
-                                        .collect_view();
-                                    view! {
-                                        <div class="emoji-cat-items">{custom_hits}{std_hits}</div>
-                                    }.into_any()
-                                }
-                            }}
-                        </div>
-                    </div>
+                // M5/P0 #54: at the mobile breakpoint the picker is a fixed
+                // bottom sheet (_mobile_emoji.scss) — body-portal it so it
+                // anchors to the viewport and never rides a pane transform. The
+                // desktop popover is absolute-anchored to the composer, so it
+                // stays in place (see is_mobile_viewport). The classes/handlers
+                // are identical in both branches; only the mount point differs.
+                {move || emoji_open.get().then(|| {
+                    if is_mobile_viewport() {
+                        // Portal's children must be a re-callable Fn (it remounts
+                        // on its own effect), so rebuild the sheet in the closure
+                        // rather than capturing a moved-once AnyView.
+                        view! {
+                            <Portal>
+                                {move || emoji_sheet_view(s, composer_ref, emoji_open, emoji_query)}
+                            </Portal>
+                        }.into_any()
+                    } else {
+                        emoji_sheet_view(s, composer_ref, emoji_open, emoji_query)
+                    }
                 })}
                 // Pending attachments: thumbnails of staged uploads, each with
                 // a per-item upload-progress overlay (F-8) + a remove button,
@@ -921,7 +1697,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                             <div class="att-failed" title=msg>
                                                 <button class="att-retry" type="button" title="retry"
                                                     on:click=move |_| act::retry_compose_attachment(s, key)>
-                                                    "↻"
+                                                    <IconRefresh/>
                                                 </button>
                                             </div>
                                         }.into_any()
@@ -936,7 +1712,7 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                                         {overlay}
                                         <button class="att-remove" type="button" title="remove"
                                             on:click=move |_| act::remove_compose_attachment(s, key)>
-                                            "✕"
+                                            <IconClose/>
                                         </button>
                                     </div>
                                 }
@@ -973,12 +1749,30 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                             }
                             // Throttled "is typing" ping (#19): fire at most once
                             // per ~2s while typing. Fire-and-forget; ignore errors.
+                            // Ghost Quill (M4/T7): with the SENDER's pref on, the
+                            // ping carries the compose text as `draft` (empty text
+                            // included — the server clears the entry on it); with
+                            // the pref off it stays the classic bare ping. While
+                            // EDITING (review M-02) the compose box holds an
+                            // already-persisted message body, not a draft — never
+                            // attach it (mirrors save_draft's guard in
+                            // act/channel.rs); the bare ping also clears any
+                            // draft the server still holds for this caller. The
+                            // armed delivery effect rides along (review M-01) so
+                            // the server pre-masks a whisper-armed draft to the
+                            // fixed `(whisper)` placeholder at store time.
                             let now = js_sys::Date::now();
                             if now - last_typing_ping.get_value() >= 2000.0 {
                                 if let Some(cid) = s.sel.sel_channel.get_untracked().map(|c| c.id) {
                                     last_typing_ping.set_value(now);
+                                    let editing =
+                                        s.composer.editing.get_untracked().is_some();
+                                    let draft = (!editing
+                                        && s.prefs.ghost_quill.get_untracked())
+                                    .then(|| value.clone());
+                                    let effect = s.composer.effect_mode.get_untracked();
                                     leptos::task::spawn_local(async move {
-                                        let _ = api::post_typing(&cid).await;
+                                        let _ = api::post_typing(&cid, draft, effect).await;
                                     });
                                 }
                             }
@@ -988,12 +1782,12 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         // Paste-to-upload images (#27): stage any image items on
                         // the clipboard and suppress their default text paste.
                         // Same `image/*` filter as the gallery (B4). The helper
-                        // lives in [`crate::ui::clipboard`] (W7/B2 extraction).
+                        // lives in [`crate::ui::clipboard`] (M7/B2 extraction).
                         #[cfg(feature = "hydrate")]
                         {
                             let files = crate::ui::clipboard::read_pasted_images(&_ev);
                             let handled = !files.is_empty();
-                            // Soft cap (W7/B1-client) — same ceiling as the file
+                            // Soft cap (M7/B1-client) — same ceiling as the file
                             // picker. Drop overflow files and toast once.
                             let current =
                                 s.composer.compose_attachments.get_untracked().len();
@@ -1096,7 +1890,24 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         #[cfg(not(feature = "hydrate"))]
                         let _ = &ev;
                     }
-                    placeholder="type a message — **bold**, *italic*, [red]color[/red]"
+                    // Short enough to FIT one line on a narrow phone (mobile
+                    // finding #50b — the old string's `[red]color[/red]` tail
+                    // wrapped it into an ugly two-line block); the
+                    // `::placeholder` nowrap/ellipsis guard in _content.scss
+                    // degrades anything narrower gracefully.
+                    // Orbit (the sole release shell) speaks the prototype's quiet
+                    // channel cue ("Message #channel…") instead of advertising
+                    // markdown. The deck/hud markdown-hint variant lives behind the
+                    // test-pinned skeleton API in `act/prefs.rs`; restore the pref
+                    // branch if a deck/hud skeleton is re-enabled. Reactive on the
+                    // worn channel.
+                    placeholder=move || {
+                        s.sel
+                            .sel_channel
+                            .get()
+                            .map(|c| format!("Message #{}…", c.name))
+                            .unwrap_or_else(|| "Message…".to_string())
+                    }
                 ></textarea>
                 // `:`-autocomplete popover: matches for the trailing `:query`
                 // under the caret. Arrow/Enter/Tab navigate (handled in
@@ -1130,19 +1941,56 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         </ul>
                     }
                 })}
-                <button class="send" on:click=move |_| {
+                // M4/T5: effect picker — cycles the NEXT message's delivery
+                // effect none → whisper → shout → spell (then back). The mode
+                // rides the send as `SendMessageRequest::effect` and RESETS to
+                // none after each send (act::send_message). Distinct glyph per
+                // mode; title/aria-label name the current mode.
+                <button class="effect-pick" type="button"
+                    class:active=move || s.composer.effect_mode.get().is_some()
+                    title=move || effect_label(s.composer.effect_mode.get().as_deref())
+                    aria-label=move || effect_label(s.composer.effect_mode.get().as_deref())
+                    on:click=move |_| s.composer.effect_mode.update(|e| {
+                        *e = next_effect(e.as_deref()).map(str::to_string);
+                    })>
+                    {move || effect_glyph(s.composer.effect_mode.get().as_deref())}
+                </button>
+                // The charge ring (M4/T2): `--charge` (0..1) fills the conic
+                // ::before ring as the compose grows; `.charging` shows it
+                // only while something is typed; `.sent` plays the one-shot
+                // post-send pulse (flipped by act::send_message).
+                <button class="send"
+                    // Braced: a bare `>` would close the <button> tag in rstml.
+                    class:charging={move || charge.get() > 0.0}
+                    class:sent=move || s.composer.sent.get()
+                    style=("--charge", move || format!("{:.3}", charge.get()))
+                    on:click=move |_| {
                     act::send_message(s);
                     // Close any lingering `:`-autocomplete popover — on touch the
                     // Send button is the only send path (Enter inserts a newline),
                     // so this is where a `:3`-style send must dismiss it.
                     ac_token.set(None);
                 }>
-                    // "Save" while editing a message, "Send" for a normal compose.
-                    {move || if s.composer.editing.get().is_some() { "Save" } else { "Send" }}
+                    // Orbit (the sole release shell) uses the prototype's compact
+                    // glyph send (a-orbit.html #sendBtn ➤): a check while editing,
+                    // a send arrow otherwise. The deck/hud word variant ("Save" /
+                    // "Send") lives behind the test-pinned skeleton API in
+                    // `act/prefs.rs`; restore the pref branch if it's re-enabled.
+                    {move || {
+                        if s.composer.editing.get().is_some() {
+                            view! { <IconCheck/> }.into_any()
+                        } else {
+                            view! { <IconSend/> }.into_any()
+                        }
+                    }}
                 </button>
             </div>
 
             // Persona info popup — opened by clicking a message's author name.
+            // The shared `PersonaInfo` (crate::ui::modal) owns the markup; this
+            // site builds the persona's send-time avatar snapshot (#26, monogram
+            // fallback) and passes author=Some so the "Controlled by …" trailer
+            // surfaces the controlling account. #14 dedup.
             {move || info.get().map(|m| {
                 // For a personaless message the "default" identity is the
                 // controlling account's nickname.
@@ -1151,235 +1999,92 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                 let desc = m.persona_description.clone().filter(|d| !d.trim().is_empty());
                 let author = m.author_name.clone();
                 view! {
-                    <Modal class="persona-info" close=move || info.set(None)>
-                        <div class="detail-head">
-                            <h4>{persona}</h4>
-                            <button class="row-edit" title="close"
-                                on:click=move |_| info.set(None)>"✕"</button>
-                        </div>
-                        // Persona's send-time avatar snapshot (#26), monogram fallback.
-                        <div class="info-portrait">{portrait}</div>
-                        {match desc {
-                            // Description supports the same markup as chat (#18).
-                            Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
-                            None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
-                        }}
-                        <p class="muted">"Controlled by "<strong>{author}</strong></p>
-                    </Modal>
+                    <PersonaInfo
+                        name=persona
+                        avatar=portrait.into_any()
+                        description=desc
+                        author=Some(author)
+                        on_close=move || info.set(None)/>
                 }
             })}
 
-            // Attachment lightbox — the clicked image near-fullscreen; click
-            // the backdrop (or the ✕) to close. Loads the full original, not the
-            // grid thumbnail. Within a multi-image message: ◀/▶ buttons, Left/
-            // Right arrow keys, and pointer-swipe step the gallery (clamped, no
-            // wrap); +/-/0 (and the on-screen buttons) zoom via CSS transform.
-            {lightbox_view(lightbox, lb_zoom)}
+            // Attachment lightbox — the clicked image near-fullscreen; tap the
+            // backdrop (or the ✕, or Esc, or drag down) to close. Loads the
+            // full original, not the grid thumbnail. Within a multi-image
+            // message: ◀/▶ buttons, Left/Right arrow keys, and pointer-swipe
+            // step the gallery (clamped, no wrap); pinch/double-tap/wheel and
+            // +/-/0 zoom-and-pan via a single CSS transform (see lightbox.rs).
+            // M5/P0 #54: body-level <Portal> (was inside .content) so the dip's
+            // transform never traps this fixed overlay. The <Show> keeps the
+            // body mount alive only while open; lightbox_view's own
+            // focus-restore Effect + on_cleanup (M-49) survive the teardown.
+            <Show when=move || lightbox.get().is_some()>
+                <Portal>{lightbox_view(lightbox, lb_tf)}</Portal>
+            </Show>
+
+            // M4/T4 radial long-press action menu (touch) — the glass arc of
+            // reply/copy(/edit/delete) buttons blossoming at the press point,
+            // opened by the delegated <ul> pointer handlers above.
+            // M5/P0 #54: body-level <Portal> (same containing-block rationale).
+            <Show when=move || radial.get().is_some()>
+                <Portal>{radial::radial_menu(s, radial, radial_armed)}</Portal>
+            </Show>
         </div>
     }
 }
 
-/// Render the lightbox overlay when open. Split out of `ChannelPane` so the
-/// hydrate-only navigation/zoom/swipe handlers stay one tidy block; the ssr
-/// build gets a minimal no-interaction version (the page hydrates into the
-/// hydrate variant on the client).
-///
-/// `zoom` is the CSS `scale()` factor (1.0 = fit-to-screen); it is reset to 1
-/// whenever the gallery opens. The outer view reacts only to open/closed via an
-/// `is_open` memo, so stepping the index or zooming re-renders the inner media
-/// only — the focusable container keeps focus, which is what scopes the arrow
-/// keys to the lightbox.
-#[cfg(feature = "hydrate")]
-fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, zoom: RwSignal<f64>) -> impl IntoView {
-    use leptos::ev::{KeyboardEvent, PointerEvent};
+#[cfg(test)]
+mod tests {
+    use super::message_actions;
 
-    // Largest allowed zoom; 1.0 is fit-to-screen. No drag-to-pan in v1, so this
-    // just magnifies about the image centre.
-    const ZOOM_MAX: f64 = 4.0;
-    const ZOOM_MIN: f64 = 1.0;
-    const ZOOM_STEP: f64 = 0.5;
-    // Horizontal travel (px) past which a pointer release counts as a swipe.
-    const SWIPE_PX: f64 = 50.0;
-
-    // Pointer-swipe bookkeeping: the X where the press started, or None while no
-    // press is active. StoredValue (plumbing, not UI) so it never re-renders.
-    let swipe_start = StoredValue::new(None::<f64>);
-
-    // Clamp helper: step the gallery index, stopping at the boundaries (no
-    // wrap), and reset zoom for the freshly-shown image.
-    let step = move |delta: i32| {
-        lightbox.update(|opt| {
-            if let Some(state) = opt {
-                let last = state.images.len().saturating_sub(1);
-                let next = (state.idx as i32 + delta).clamp(0, last as i32) as usize;
-                state.idx = next;
-            }
-        });
-        zoom.set(1.0);
-    };
-
-    let on_keydown = move |ev: KeyboardEvent| match ev.key().as_str() {
-        "ArrowLeft" => {
-            ev.prevent_default();
-            step(-1);
+    /// `message_actions` is THE shared kind predicate (CLAUDE.md M4
+    /// invariant: "never re-branch kind checks per surface"), consumed by
+    /// both the hover row (meta.rs) and the touch radial (radial.rs) — so
+    /// its cells are pinned table-driven over kind × mine (review M-44).
+    /// The load-bearing ones: roll+mine must NEVER offer edit/delete (the
+    /// server 403s both — a drift here yields dead-end buttons, the exact
+    /// bug 778cfdd fixed in the native client), system offers nothing at
+    /// all, and unknown/future kinds get reply+copy but never edit/delete.
+    #[test]
+    fn message_actions_offers_nothing_mutable_outside_kind_user() {
+        // (kind, mine) -> (reply, copy, edit, delete)
+        let table: &[(&str, bool, [bool; 4])] = &[
+            // user: the ONLY mutable kind, and only for its owner.
+            ("user", true, [true, true, true, true]),
+            ("user", false, [true, true, false, false]),
+            // system (Nova DOT): nothing — immutable, not repliable,
+            // matching its actionless meta row exactly.
+            ("system", true, [false, false, false, false]),
+            ("system", false, [false, false, false, false]),
+            // roll (Fate Engine): immutable even for its author — the
+            // server 403s both edit and delete (editing.rs, cheating-proof).
+            ("roll", true, [true, true, false, false]),
+            ("roll", false, [true, true, false, false]),
+            // unknown/future kinds: forward-compat reply+copy, NEVER
+            // edit/delete — not even for the owner.
+            ("poll", true, [true, true, false, false]),
+            ("poll", false, [true, true, false, false]),
+            ("", true, [true, true, false, false]),
+        ];
+        for &(kind, mine, [reply, copy, edit, delete]) in table {
+            let a = message_actions(kind, mine);
+            assert_eq!(a.reply, reply, "reply for kind={kind:?} mine={mine}");
+            assert_eq!(a.copy, copy, "copy for kind={kind:?} mine={mine}");
+            assert_eq!(a.edit, edit, "edit for kind={kind:?} mine={mine}");
+            assert_eq!(a.delete, delete, "delete for kind={kind:?} mine={mine}");
         }
-        "ArrowRight" => {
-            ev.prevent_default();
-            step(1);
-        }
-        "Escape" => {
-            ev.prevent_default();
-            lightbox.set(None);
-        }
-        "+" | "=" => {
-            ev.prevent_default();
-            zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX));
-        }
-        "-" | "_" => {
-            ev.prevent_default();
-            zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN));
-        }
-        "0" => {
-            ev.prevent_default();
-            zoom.set(1.0);
-        }
-        _ => {}
-    };
-
-    // Container ref so we can autofocus the overlay on open (the arrow keys ride
-    // the container's on:keydown, which only receives events while it has focus
-    // — that is what keeps the handler off the global/textarea key path).
-    let lb_ref = NodeRef::<leptos::html::Div>::new();
-    Effect::new(move |_| {
-        if lightbox.with(|o| o.is_some()) {
-            if let Some(el) = lb_ref.get() {
-                let _ = (*el).focus();
-            }
-        }
-    });
-
-    // Re-render the overlay only on open/close, not on idx/zoom changes.
-    let is_open = Memo::new(move |_| lightbox.with(|o| o.is_some()));
-
-    move || {
-        {
-        is_open.get().then(|| {
-            // Current gallery entry (reactive over idx). Falls back to a no-op
-            // when the list is somehow empty (never expected).
-            let current = move || {
-                lightbox.with(|o| {
-                    o.as_ref()
-                        .and_then(|s| s.images.get(s.idx).cloned())
-                })
-            };
-            // Whether to show the nav arrows / whether each edge is reachable.
-            let multi = move || lightbox.with(|o| o.as_ref().is_some_and(|s| s.images.len() > 1));
-            let at_start = move || lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx == 0));
-            let at_end = move || {
-                lightbox.with(|o| o.as_ref().is_none_or(|s| s.idx + 1 >= s.images.len()))
-            };
-
-            // Pointer-swipe: record press X, and on release decide left/right.
-            // preventDefault keeps the browser's back-swipe / scroll from firing
-            // (paired with `touch-action: none` on the container in SCSS).
-            let on_pointerdown = move |ev: PointerEvent| {
-                ev.prevent_default();
-                swipe_start.set_value(Some(ev.client_x() as f64));
-            };
-            let on_pointerup = move |ev: PointerEvent| {
-                ev.prevent_default();
-                if let Some(start) = swipe_start.get_value() {
-                    let dx = ev.client_x() as f64 - start;
-                    if dx <= -SWIPE_PX {
-                        step(1);
-                    } else if dx >= SWIPE_PX {
-                        step(-1);
-                    }
-                }
-                swipe_start.set_value(None);
-            };
-
-            let media = move || {
-                current().map(|att| {
-                    let id = att.id.clone();
-                    if att.mime.starts_with("video/") {
-                        // Video keeps its own controls; no zoom transform.
-                        view! {
-                            <video class="lightbox-img" controls autoplay
-                                src=format!("/media/{id}")></video>
-                        }.into_any()
-                    } else {
-                        view! {
-                            <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"
-                                style=move || format!("transform: scale({})", zoom.get())/>
-                        }.into_any()
-                    }
-                })
-            };
-
-            view! {
-                <div class="lightbox" node_ref=lb_ref tabindex="-1"
-                    on:click=move |_| lightbox.set(None)
-                    on:keydown=on_keydown
-                    on:pointerdown=on_pointerdown
-                    on:pointerup=on_pointerup>
-                    <button class="lightbox-close" title="close"
-                        on:click=move |ev| { ev.stop_propagation(); lightbox.set(None); }>"✕"</button>
-                    {move || multi().then(|| view! {
-                        <button class="lightbox-nav lightbox-prev" title="previous"
-                            prop:disabled=at_start
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(-1); }>"‹"</button>
-                        <button class="lightbox-nav lightbox-next" title="next"
-                            prop:disabled=at_end
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); step(1); }>"›"</button>
-                    })}
-                    <div class="lightbox-zoom" on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()>
-                        <button title="zoom out"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z - ZOOM_STEP).max(ZOOM_MIN)); }>"−"</button>
-                        <button title="reset zoom"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.set(1.0); }>"⤢"</button>
-                        <button title="zoom in"
-                            on:click=move |ev: leptos::ev::MouseEvent| { ev.stop_propagation(); zoom.update(|z| *z = (*z + ZOOM_STEP).min(ZOOM_MAX)); }>"+"</button>
-                    </div>
-                    {media}
-                </div>
-            }
-        })
     }
-    .into_any()
-    }
-}
 
-/// SSR build: minimal non-interactive lightbox (no nav/zoom/swipe wiring). The
-/// client hydrates into the hydrate variant above. `zoom` is accepted for a
-/// matching signature but unused.
-#[cfg(not(feature = "hydrate"))]
-fn lightbox_view(lightbox: RwSignal<Option<LightboxState>>, _zoom: RwSignal<f64>) -> impl IntoView {
-    move || {
-        lightbox.get().map(|state| {
-            let att = state.images.get(state.idx).cloned();
-            att.map(|att| {
-                let id = att.id.clone();
-                let is_video = att.mime.starts_with("video/");
-                let media = if is_video {
-                    view! {
-                        <video class="lightbox-img" controls
-                            src=format!("/media/{id}")></video>
-                    }
-                    .into_any()
-                } else {
-                    view! {
-                        <img class="lightbox-img" src=format!("/media/{id}") alt="attachment"/>
-                    }
-                    .into_any()
-                };
-                view! {
-                    <div class="lightbox">
-                        <button class="lightbox-close" title="close">"✕"</button>
-                        {media}
-                    </div>
-                }
-            })
-        })
+    /// `count()` picks the radial's arc spread (n2/n4) and zero means
+    /// "never arm the radial" (radial.rs) — pin the per-kind counts.
+    #[test]
+    fn message_actions_count_drives_the_radial_arms() {
+        assert_eq!(message_actions("user", true).count(), 4);
+        assert_eq!(message_actions("user", false).count(), 2);
+        assert_eq!(message_actions("roll", true).count(), 2);
+        assert_eq!(message_actions("roll", false).count(), 2);
+        assert_eq!(message_actions("system", true).count(), 0);
+        assert_eq!(message_actions("system", false).count(), 0);
+        assert_eq!(message_actions("future-kind", true).count(), 2);
     }
 }

@@ -1,7 +1,7 @@
-//! Guild-rail actions: refresh + reorder + open + create/rename/delete +
-//! restore. Cross-calls: `open_server` → [`super::emoji::refresh_guild_emoji`]
-//! and [`super::channel::open_channel`]; `create_server`/`delete_server`/
-//! `restore_deleted_guild` → `refresh_guilds`.
+//! Guild-rail actions: refresh + reorder + open + create/rename/delete.
+//! Cross-calls: `open_server` → [`super::emoji::refresh_guild_emoji`]
+//! and [`super::channel::open_channel`]; `create_server`/`delete_server` →
+//! `refresh_guilds`.
 
 use super::super::Shell;
 
@@ -102,8 +102,29 @@ fn persist_rail_order(s: Shell, list: Vec<crate::protocol::GuildSummary>) {
     });
 }
 
+/// Open a guild from the desktop rail: load it AND auto-open its first text
+/// channel (correct there — the channel pane is visible immediately).
 #[cfg(feature = "hydrate")]
 pub fn open_server(s: Shell, gid: String) {
+    load_server(s, gid, true);
+}
+
+/// Select a guild from the mobile channel sheet (M3 whole-wave review):
+/// load its owner + channel list so the sheet's channel column populates,
+/// WITHOUT auto-opening any channel — auto-open would clear unread and fire
+/// the cross-device `mark_read` for a channel the user never saw. The
+/// read-state only moves when a channel row is actually tapped (the existing
+/// `ChannelRow` → `open_channel` path).
+#[cfg(feature = "hydrate")]
+pub fn select_server_for_sheet(s: Shell, gid: String) {
+    load_server(s, gid, false);
+}
+
+/// Shared guild-load tail of [`open_server`] / [`select_server_for_sheet`]:
+/// persist + select the guild, reset the per-guild state, fetch owner +
+/// channels, and (only when `auto_open_first`) open the first text channel.
+#[cfg(feature = "hydrate")]
+fn load_server(s: Shell, gid: String, auto_open_first: bool) {
     let _ = LocalStorage::set(KEY_SERVER, &gid);
     s.sel.sel_server.set(Some(gid.clone()));
     s.sel.sel_owner.set(None);
@@ -114,6 +135,9 @@ pub fn open_server(s: Shell, gid: String) {
         if let Ok(d) = api::get_guild(&gid).await {
             s.sel.sel_owner.set(Some(d.owner_id.clone()));
             s.sel.channels.set(d.channels.clone());
+            if !auto_open_first {
+                return;
+            }
             if let Some(first) = d
                 .channels
                 .iter()
@@ -135,7 +159,10 @@ pub fn create_server(s: Shell, name: String) {
         match api::create_guild(&name).await {
             Ok(g) => {
                 refresh_guilds(s);
-                open_server(s, g.id);
+                // Land in the orbit map on the new world — select + load its
+                // channels WITHOUT auto-diving into #general (owner ruling:
+                // "create → orbit view"). The open map shows them orbiting.
+                load_server(s, g.id, false);
             }
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
@@ -156,6 +183,45 @@ pub fn rename_server(s: Shell, gid: String, name: String) {
                     g.name = name.clone();
                 }
             }),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+/// Set the open guild's per-server accent (owner/admin). On success, patch the
+/// rail entry in place so the accent var rebinds without a refetch.
+#[cfg(feature = "hydrate")]
+pub fn set_guild_accent(s: Shell, gid: String, accent: String) {
+    spawn_local(async move {
+        match api::set_guild_accent(&gid, &accent).await {
+            Ok(()) => s.sel.guilds.update(|gs| {
+                if let Some(g) = gs.iter_mut().find(|g| g.id == gid) {
+                    g.accent_color = accent.clone();
+                }
+            }),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+/// Upload a picture and set it as the guild's icon (owner/admin): POST the file
+/// to `/media`, PUT the returned id, then refresh the rail so BOTH the new icon
+/// and the server-derived accent re-render (the accent var binds off
+/// `s.sel.guilds`). Errors surface via `s.composer.status`. Mirrors
+/// [`super::persona::set_persona_avatar`].
+#[cfg(feature = "hydrate")]
+pub fn set_guild_icon(s: Shell, gid: String, file: web_sys::File) {
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        let media_id = match api::upload_media(&file).await {
+            Ok(id) => id,
+            Err(e) => {
+                s.composer.status.set(api::humanize(&e));
+                return;
+            }
+        };
+        match api::set_guild_icon(&gid, &media_id).await {
+            Ok(()) => refresh_guilds(s),
             Err(e) => s.composer.status.set(api::humanize(&e)),
         }
     });
@@ -186,32 +252,6 @@ pub fn delete_server(s: Shell, gid: String) {
     });
 }
 
-/// Load the caller's own soft-deleted guilds into `s.trash.deleted_guilds`.
-#[cfg(feature = "hydrate")]
-pub fn load_deleted_guilds(s: Shell) {
-    spawn_local(async move {
-        match api::list_deleted_guilds().await {
-            Ok(r) => s.trash.deleted_guilds.set(r.guilds),
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
-    });
-}
-
-/// Restore a soft-deleted guild (owner). On success, refresh the rail and
-/// the deleted-guilds list so the restored server reappears and leaves trash.
-#[cfg(feature = "hydrate")]
-pub fn restore_deleted_guild(s: Shell, gid: String) {
-    spawn_local(async move {
-        match api::restore_guild(&gid).await {
-            Ok(()) => {
-                refresh_guilds(s);
-                load_deleted_guilds(s);
-            }
-            Err(e) => s.composer.status.set(api::humanize(&e)),
-        }
-    });
-}
-
 // ---- ssr stubs ----
 
 #[cfg(not(feature = "hydrate"))]
@@ -226,12 +266,14 @@ pub fn move_guild_to_bounds(_s: Shell, _idx: usize, _top: bool) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn open_server(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]
+pub fn select_server_for_sheet(_s: Shell, _gid: String) {}
+#[cfg(not(feature = "hydrate"))]
 pub fn create_server(_s: Shell, _name: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn rename_server(_s: Shell, _gid: String, _name: String) {}
 #[cfg(not(feature = "hydrate"))]
+pub fn set_guild_accent(_s: Shell, _gid: String, _accent: String) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn set_guild_icon(_s: Shell, _gid: String) {}
+#[cfg(not(feature = "hydrate"))]
 pub fn delete_server(_s: Shell, _gid: String) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn load_deleted_guilds(_s: Shell) {}
-#[cfg(not(feature = "hydrate"))]
-pub fn restore_deleted_guild(_s: Shell, _gid: String) {}

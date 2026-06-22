@@ -1,59 +1,64 @@
-// ---- mobile: rail + channel sidebar collapse into an off-canvas drawer ----
+// ---- mobile (≤768px): composer / wardrobe / persona tap-target overrides ----
+// The orbit shell (sk-orbit) is the sole shell and is single-column by its own
+// layout — there is no rail/sidebar/bottom-tabs grid here to collapse. The dead
+// M3 `.app { grid-template-columns }` + `.rail, .sidebar { display:none }` rules
+// were removed; what remains are the genuine phone-width overrides below.
 @media (max-width: 768px) {
-	.app {
-		grid-template-columns: 1fr; // content fills the screen
-	}
-
-	.rail,
-	.sidebar {
-		position: fixed;
-		top: 0;
-		bottom: 0;
-		z-index: 30; // above the scrim (20) and the content
-		transition: transform var(--dur-base) var(--ease-page);
-	}
-
-	.rail {
-		// Off the left edge by the side-notch inset in landscape (fixed elements
-		// ignore the .app padding). env() is 0 in portrait / non-notched.
-		left: env(safe-area-inset-left, 0px);
-		width: 72px;
-		transform: translateX(-100%);
-	}
-
-	.sidebar {
-		left: calc(72px + env(safe-area-inset-left, 0px));
-		width: min(240px, calc(85vw - 72px));
-		// Tuck fully off the left edge (own width + the rail's 72px).
-		transform: translateX(calc(-100% - 72px));
-	}
-
-	.app.nav-open .rail,
-	.app.nav-open .sidebar {
-		transform: translateX(0);
-	}
-
-	.app.nav-open .scrim {
-		display: block;
-		position: fixed;
-		inset: 0;
-		z-index: 20;
-		background: rgba(0, 0, 0, 0.5);
-		// Full-screen fixed overlay: swallow touch gestures so a pinch over the
-		// nav scrim can't trigger zoom/ghosting in the standalone PWA.
-		touch-action: none;
-	}
-
-	.content .topbar .nav-toggle {
-		display: inline-flex;
-	}
-
 	// Roomier compose box on phones: multi-line typing is common and the soft
 	// keyboard already covers the lower screen, so give the text more room and
 	// let it grow taller before scrolling.
 	.content .composer textarea {
 		min-height: 6rem;
 		max-height: 50vh;
+	}
+
+	// Composer toolbar (mobile finding #50c): on phone widths the ~12 desktop-
+	// dense controls either crowded one row or wrapped into a second, and the
+	// row count JUMPED as the colour-MRU swatches came and went. One stable
+	// finger-scrollable row instead — never wraps, never crowds, and the
+	// vertical space above the soft keyboard stays constant. Fluid: overflow
+	// is whatever doesn't fit, at any width.
+	.content .composer .toolbar {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		align-items: center;
+		scrollbar-width: none; // Firefox; WebKit/Blink below
+	}
+
+	.content .composer .toolbar::-webkit-scrollbar {
+		display: none;
+	}
+
+	// Thumb-sized format buttons (the desktop 1.9rem squares are mouse
+	// targets): ≥44px per the owner's tap-target floor, flex: none so the
+	// nowrap row overflows into scroll instead of crushing them.
+	.content .composer .toolbar .fmt {
+		flex: none;
+		width: auto;
+		min-width: 2.75rem; // 44px
+		min-height: 2.75rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	// Quick-swatch circles: same mobile size as the persona-editor swatches
+	// (.swatch-pick below) so colour dots feel consistent app-wide.
+	.content .composer .toolbar .swatch {
+		flex: none;
+		width: 2.2rem;
+		height: 2.2rem;
+	}
+
+	// …and the ▼ full-palette popover (the toolbar's expansion surface) gets
+	// the same swatch size; its grid columns track the swatch width.
+	.content .composer .color-picker {
+		grid-template-columns: repeat(4, 2.2rem);
+	}
+
+	.content .composer .color-picker .swatch {
+		width: 2.2rem;
+		height: 2.2rem;
 	}
 
 	// ---- wardrobe / persona mobile overrides ----
@@ -96,21 +101,21 @@
 
 	// Reorder ↑/↓/⤒/⤓ controls (channel list, persona cards, lorebook): grow the
 	// tappable HEIGHT for thumbs on touch. Width is left alone so the dense
-	// channel row (4 arrows in the ~240px drawer) doesn't overflow. Drag is the
+	// channel row (4 arrows in a narrow column) doesn't overflow. Drag is the
 	// primary reorder method; these are the accessible fallback (17px was too
 	// small to hit reliably — WCAG 2.5.8).
 	.channel-reorder,
 	.persona-reorder,
 	.lore-reorder {
-		min-height: 32px;
+		min-height: 2.75rem; // raised to the touch floor; base owns it too (owner ruling 2026-06-17)
 		padding-top: 0.3rem;
 		padding-bottom: 0.3rem;
 	}
 
 	// Color swatches: bigger tap targets on mobile.
 	.persona-detail .color-row .swatch-pick {
-		width: 2.2rem;
-		height: 2.2rem;
+		width: 2.75rem;
+		height: 2.75rem;
 	}
 
 	// Share-row labels: at least 44px tall so the checkbox + name hit target is

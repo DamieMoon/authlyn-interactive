@@ -9,7 +9,7 @@ use axum::Json;
 use surrealdb::types::SurrealValue;
 
 use crate::protocol::{
-    ChannelListResponse, ChannelSummary, CreateChannelRequest, PatchChannelRequest,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, PatchChannelRequest, SyncEvent,
 };
 use crate::server::auth::AuthAccount;
 use crate::server::db_helpers::IdRow;
@@ -24,6 +24,14 @@ const CHANNEL_KINDS: [&str; 2] = ["text", "lorebook"];
 // POST /guilds/{id}/channels
 // ---------------------------------------------------------------------------
 
+/// POST /guilds/{id}/channels — create a channel (manager only). `kind` must be
+/// one of `CHANNEL_KINDS` (`text` | `lorebook`) and the name passes
+/// `validate_name`; the new channel is appended at `max(position)+1`.
+/// `require_manager` gates it — non-member → 404, plain member → 403, and a
+/// soft-deleted guild → 404 via `ensure_guild_live`. Owner-/manager-gating
+/// pinned by `tests/guilds.rs::channel_create_is_owner_gated`; the
+/// soft-deleted-guild rejection by
+/// `tests/guilds.rs::create_channel_in_soft_deleted_guild_is_rejected`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn create_channel(
     State(state): State<AppState>,
@@ -50,7 +58,10 @@ pub async fn create_channel(
     }
 
     match insert_channel(&state, &gid, &name, &req.kind).await {
-        Ok(summary) => (StatusCode::CREATED, Json(summary)).into_response(),
+        Ok(summary) => {
+            state.emit(SyncEvent::ListsChanged);
+            (StatusCode::CREATED, Json(summary)).into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "insert_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -108,6 +119,12 @@ async fn insert_channel(
 // PATCH /guilds/{id}/channels/{cid}
 // ---------------------------------------------------------------------------
 
+/// PATCH /guilds/{id}/channels/{cid} — rename and/or reorder a channel (manager
+/// only). The PATCH-shaped body is all-`Option`; an empty patch mutates nothing
+/// (204). Both the gate (`require_manager`) and `channel_in_guild` scope the
+/// edit to the path guild, so a manager can't reach a channel id in another
+/// guild (that's a `404 "channel not found"`). Reordering pinned by
+/// `tests/guilds.rs::channel_reorder_persists`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, channel = %cid))]
 pub async fn patch_channel(
     State(state): State<AppState>,
@@ -160,7 +177,10 @@ pub async fn patch_channel(
         q = q.bind(("position", position));
     }
     match q.await.and_then(|r| r.check()) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "patch_channel update failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -172,6 +192,12 @@ pub async fn patch_channel(
 // DELETE /guilds/{id}/channels/{cid}
 // ---------------------------------------------------------------------------
 
+/// DELETE /guilds/{id}/channels/{cid} — soft-delete a channel (manager only,
+/// guild-scoped via `channel_in_guild`). It stamps `deleted_at` and leaves the
+/// messages intact, so it vanishes from every read (all filter
+/// `deleted_at = NONE`) but `restore_channel` brings it back; the purge sweep
+/// hard-deletes it + its messages after the 1d window. Round-trip pinned by
+/// `tests/soft_delete.rs::channel_soft_delete_then_restore`.
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid, channel = %cid))]
 pub async fn delete_channel(
     State(state): State<AppState>,
@@ -198,7 +224,10 @@ pub async fn delete_channel(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -284,7 +313,10 @@ pub async fn restore_channel(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            state.emit(SyncEvent::ListsChanged);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "restore_channel failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

@@ -119,7 +119,18 @@ pub async fn mark_read(
     .await;
 
     match outcome {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // M1.5: nudge the caller's OTHER devices to refresh unread —
+            // account-targeted, never broadcast (another account's read cursor
+            // is none of your business and can't change your unread state).
+            state.emit_for(
+                vec![account.0.clone()],
+                crate::protocol::SyncEvent::ReadStateChanged {
+                    channel_id: cid.clone(),
+                },
+            );
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "mark_read failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

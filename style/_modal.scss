@@ -1,4 +1,5 @@
 @use "tokens" as *;
+@use "foundation" as *; // glass-holo mixin for the orbit slide-over chrome (#soClose disc)
 
 // ---- modal overlay (persona-info popup, etc.) ----
 @keyframes modal-backdrop-enter {
@@ -25,16 +26,24 @@
 	align-items: center;
 	justify-content: center;
 	padding: 1rem;
-	background: rgba(0, 0, 0, 0.55);
+	background: var(--scrim);
 	animation: modal-backdrop-enter var(--dur-base) var(--ease-page);
 	// Full-screen fixed overlay: swallow touch gestures so a pinch over the
 	// backdrop can't trigger zoom/ghosting in the standalone PWA.
 	touch-action: none;
+
+	// Soften the app behind the scrim (M3 glass chrome). Same @supports
+	// guard as foundation's glass mixin; the plain scrim is the fallback.
+	// The .modal CARD below stays opaque var(--surface) for legibility.
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		-webkit-backdrop-filter: blur(4px);
+		backdrop-filter: blur(4px);
+	}
 }
 
 .modal {
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 	padding: 1rem 1.2rem;
 	width: 100%;
@@ -46,14 +55,26 @@
 	// close control off-screen (the backdrop also closes on click).
 	max-height: 85vh;
 	overflow-y: auto;
+	// A long body (e.g. a 600-char persona description) overflows the 85vh cap,
+	// and on iOS WebKit the modal — `max-width: 28rem` > phone width, so it is
+	// near-full-width — paints a prominent overlay scroll indicator hard against
+	// the right edge (owner-reported on the physical iPhone, M6: "long
+	// description triggers it"). Grounded on the iOS 26.5 engine: it is an
+	// OVERLAY (0 layout width), not a phantom-overflow scroll. Keep the scroll,
+	// hide the track — the app's scrollbar-hiding convention (composer toolbar,
+	// _mobile.scss). Both properties verified applied on the iOS engine.
+	scrollbar-width: none; // Firefox + modern Safari
+	&::-webkit-scrollbar {
+		display: none; // WebKit/Blink — the iOS overlay scroll indicator
+	}
 	animation: modal-enter var(--dur-page) var(--ease-page);
 
-	// Keyboard focus inside the modal (W6/C10): a warm gold ring on focusable
-	// children, but only when keyboard-focused (`:focus-visible`) so mouse
-	// clicks don't paint rings everywhere. The dialog itself is `tabindex=-1`
-	// so the initial-focus fallback doesn't bring up its own ring.
+	// Keyboard focus inside the modal (M6/C10): a blue --accent-bright ring on
+	// focusable children, but only when keyboard-focused (`:focus-visible`) so
+	// mouse clicks don't paint rings everywhere. The dialog itself is
+	// `tabindex=-1` so the initial-focus fallback doesn't bring up its own ring.
 	:focus-visible {
-		outline: 2px solid var(--gold-warm);
+		outline: 2px solid var(--accent-bright);
 		outline-offset: 1px;
 		border-radius: 0.25rem;
 	}
@@ -75,28 +96,11 @@
 	position: relative;
 }
 
-// Floating X close button anchored to the wardrobe popup's top-right corner.
-.modal.wardrobe-modal .modal-x {
-	position: absolute;
-	top: 0.5rem;
-	right: 0.6rem;
-	z-index: 1;
-	padding: 0.1rem 0.4rem;
-	background: none;
-	border: none;
-	color: var(--ink-muted);
-	cursor: pointer;
-	font-size: 1.1rem;
-	line-height: 1;
-
-	&:hover {
-		color: var(--ink);
-	}
-}
-
 // In the read-only info popup the description shows in full (no card clamp).
+// Persona descriptions are prose — serif per the Duo typography (spec §1).
 .modal .card-desc {
 	display: block;
+	font-family: var(--font-prose);
 	-webkit-line-clamp: unset;
 	line-clamp: unset;
 	overflow: visible;
@@ -121,14 +125,14 @@
 	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 0.5rem;
-	background: var(--vellum-2);
-	border: 1px solid var(--rule-line);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	font-size: 2.4rem; // larger monogram fallback to suit the bigger box
-	font-weight: 700;
-	color: var(--gold);
+	font-weight: 600;
+	color: var(--accent);
 }
 
 // ---- confirm dialog (reuses .modal / .modal-backdrop) ----
@@ -140,7 +144,7 @@
 
 	p {
 		margin: 0;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 	}
 
 	.confirm-actions {
@@ -148,43 +152,10 @@
 		justify-content: flex-end;
 		gap: 0.5rem;
 		margin-top: 0.25rem;
-	}
-}
 
-// ---- channel-creator dialog (reuses .modal / .modal-backdrop) ----
-.channel-creator {
-	gap: 0.6rem;
-
-	h3 {
-		margin: 0;
-		font-size: 1rem;
-	}
-
-	.creator-kind {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-
-		.pref-row {
-			display: flex;
-			align-items: center;
-			gap: 0.5rem;
-
-			input {
-				width: auto;
-			}
+		button {
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 		}
-	}
-
-	.creator-name {
-		width: 100%;
-	}
-
-	.creator-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.5rem;
-		margin-top: 0.25rem;
 	}
 }
 
@@ -192,17 +163,6 @@
 .channel-manager {
 	gap: 0.6rem;
 	min-width: min(28rem, 90vw);
-
-	.manager-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-
-		h3 {
-			margin: 0;
-			font-size: 1rem;
-		}
-	}
 
 	.manager-list {
 		list-style: none;
@@ -220,14 +180,28 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.3rem 0.4rem;
-		border: 1px solid var(--rule-line);
+		border: 1px solid var(--line);
 		border-radius: 6px;
 		background: var(--surface-2, transparent);
+		// Reorder is finger-drag on the grip (no ↑/↓ buttons): smooth the
+		// lift/drop-target accent as the drag moves between rows.
+		transition: opacity 0.15s ease, border-color 0.15s ease;
 
 		.manager-grip {
 			cursor: grab;
 			opacity: 0.6;
 			user-select: none;
+			// The grip owns the touch for the reorder drag — without this the
+			// browser scrolls the list instead of dragging the row.
+			touch-action: none;
+			// A finger-friendly 44px hit area around the ⠿ glyph (Mendicant
+			// Bias touch floor — finger-drag needs a real target, not a glyph).
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 2.75rem;
+			min-height: 2.75rem;
+			font-size: 1.1rem;
 		}
 
 		.manager-name {
@@ -249,6 +223,23 @@
 		&:active .manager-grip {
 			cursor: grabbing;
 		}
+
+		// The row currently being dragged: lifted (translucent) + grabbing cursor.
+		&.dragging {
+			opacity: 0.5;
+			cursor: grabbing;
+
+			.manager-grip {
+				cursor: grabbing;
+			}
+		}
+
+		// The drop target the finger is over: an accent rule marks where the
+		// dragged row will land.
+		&.drag-over {
+			border-color: var(--accent);
+			box-shadow: inset 0 2px 0 0 var(--accent);
+		}
 	}
 
 	.manager-create {
@@ -257,7 +248,7 @@
 		gap: 0.4rem;
 		padding-top: 0.5rem;
 		margin-top: 0.25rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 
 		.manager-create-row {
 			display: flex;
@@ -270,8 +261,10 @@
 	}
 }
 
-// ---- account-management modal (reuses .modal / .modal-backdrop) ----
-.account-modal {
+// ---- account- + server-management modals (reuse .modal / .modal-backdrop) ----
+// The server modal (accent / invitations / channels) is the guild-owner sibling
+// of the account modal; it reuses the same section chrome and orbit slide-over.
+:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
 	.account-head {
 		display: flex;
 		align-items: center;
@@ -289,16 +282,17 @@
 		gap: 0.4rem;
 		padding-top: 0.5rem;
 		margin-top: 0.5rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 
 		h3 {
 			margin: 0;
 			font-size: 0.9rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 		}
 
 		.account-save {
 			align-self: flex-start;
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 		}
 
 		// A checkbox + label preference (e.g. the message-delete confirm toggle).
@@ -313,10 +307,76 @@
 		}
 	}
 
+	// ---- M6 guild icon (ServerModal): preview + upload control ----
+	.server-icon-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.server-icon-preview {
+		flex: 0 0 auto;
+		width: 3.5rem;
+		height: 3.5rem;
+		border-radius: 50%;
+		overflow: hidden;
+		display: grid;
+		place-items: center;
+		background: var(--surface-2);
+		border: 1px solid var(--line);
+
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			display: block;
+		}
+
+		.server-icon-mono {
+			font-size: 1.3rem;
+			font-weight: 700;
+			color: var(--text-soft);
+		}
+	}
+	// The styled <label> IS the button; the wrapping label keeps the (hidden)
+	// native file input operable. 44px touch floor at the control's BASE
+	// definition (Mendicant Bias touch-first), NOT an `.app.sk-orbit` override.
+	.server-icon-upload {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem; // 44px
+		padding: 0 0.9rem;
+		border-radius: 0.5rem;
+		// Shared chrome material (glass + --glow-accent glow), the B2 doctrine —
+		// the round-4 deck finding was this control reading flat (no glow). The
+		// mixin owns the background/border; do NOT restate a top-level background
+		// after it (dead on WebKit's @supports layer).
+		@include glass-holo;
+		color: var(--text);
+		cursor: pointer;
+
+		input[type="file"] {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			opacity: 0;
+			pointer-events: none;
+		}
+	}
+
+	// Session sign-out (mobile finding #50a): relocated here from the topbar.
+	// Full-width so there is nothing adjacent to fat-finger, and ≥44px tall
+	// (the owner's tap-target floor). The red comes from the global
+	// `button.danger` rule (_base.scss) — losing a session is destructive
+	// enough to read as such.
+	.account-logout {
+		width: 100%;
+		min-height: 2.75rem; // 44px
+	}
+
 	.account-status {
 		min-height: 1em;
 		margin: 0.25rem 0 0;
-		color: var(--ink-soft);
+		color: var(--text-soft);
 	}
 }
 
@@ -336,8 +396,8 @@
 		width: 100%;
 		resize: vertical;
 		min-height: 6rem;
-		background: var(--vellum-2);
-		border: 1px solid var(--rule-line);
+		background: var(--surface-2);
+		border: 1px solid var(--line);
 		border-radius: 0.35rem;
 		color: inherit;
 		font: inherit;
@@ -347,7 +407,7 @@
 
 		&:focus {
 			outline: none;
-			border-color: var(--gold);
+			border-color: var(--accent);
 		}
 	}
 
@@ -372,8 +432,8 @@
 
 	.fb-item {
 		padding: 0.5rem 0.6rem;
-		background: var(--vellum-2);
-		border: 1px solid var(--rule-line);
+		background: var(--surface-2);
+		border: 1px solid var(--line);
 		border-radius: 0.5rem;
 	}
 
@@ -386,21 +446,21 @@
 
 	.fb-kind {
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		text-transform: uppercase;
 		padding: 0.05rem 0.4rem;
 		border-radius: 0.3rem;
-		background: var(--vellum);
-		border: 1px solid var(--rule-line);
+		background: var(--surface);
+		border: 1px solid var(--line);
 
 		&.fb-bug {
-			color: var(--ink-danger);
-			border-color: var(--ink-danger);
+			color: var(--danger);
+			border-color: var(--danger);
 		}
 
 		&.fb-idea {
-			color: var(--gold);
-			border-color: var(--gold);
+			color: var(--accent);
+			border-color: var(--accent);
 		}
 	}
 
@@ -410,7 +470,7 @@
 
 	.fb-when {
 		font-size: 0.7rem;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		margin-left: auto;
 	}
 
@@ -431,14 +491,476 @@
 		padding: 0 0.3rem;
 		background: none;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		cursor: pointer;
 		font-size: 0.85rem;
 		line-height: 1;
 
 		&:hover {
-			color: var(--ink-danger);
+			color: var(--danger);
 		}
+	}
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Orbit (`.app.sk-orbit`) — modals become FULL-SCREEN SLIDE-OVERS.
+// ════════════════════════════════════════════════════════════════════════
+// "fullscreen, no modals" (a-orbit.html:488). Under the orbit skeleton the
+// centered vellum `.modal` is rebuilt into the prototype's `#slideOver`
+// (a-orbit.html:293-306): a full-viewport panel that glides in from the right
+// edge (translateX(102%) → 0), with an integrated sticky head (back-arrow disc
+// + "swipe → close" grip) and ONE scroll container. EVERY rule is
+// `.app.sk-orbit`-scoped so the desktop / deck / hud modal is untouched, and it
+// loads after `mobile`/`nav`+`sk_orbit_*` siblings in `main.scss` so the orbit
+// look wins the cascade over the base `.modal` + the `_mobile.scss`
+// `.modal { max-width: 92vw }` narrow-screen rule (specificity 0,2,1 > 0,1,0).
+//
+// REUSE doctrine: the Rust `Modal` a11y machinery (focus-trap / Esc / focus-
+// restore / backdrop) and the `AccountModal` form logic are UNCHANGED — this is
+// a pure-presentation rebuild. The swipe-right-to-close drag (a-orbit.html
+// :968-1010) is an opt-in additive gesture in `src/ui/modal.rs`, driven by the
+// `.modal--swipe-close` class + an inline `--drag-x` the JS writes.
+
+// The backdrop: in orbit the slide-over panel covers the full viewport when
+// open, so the centering flex is dropped — the backdrop is just the click-to-
+// close catcher + a faint scrim that the panel slides over. `touch-action:none`
+// (swallow pinch over the standalone PWA) is inherited from the base rule.
+.app.sk-orbit .modal-backdrop {
+	display: block; // not a centering flexbox anymore — the panel is fixed inset:0
+	padding: 0;
+	background: var(--scrim);
+	// Soften the chrome behind the scrim during the slide-in — same @supports
+	// guard + blur as `.sheet-backdrop` (_nav.scss); the plain scrim is the
+	// fallback for devices/Reduce-Transparency without backdrop-filter.
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		-webkit-backdrop-filter: blur(4px);
+		backdrop-filter: blur(4px);
+	}
+	@media (prefers-reduced-transparency: reduce) {
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+// Slide-in: transform + opacity ONLY (motion doctrine, tests/style_lint.rs —
+// no paint/layout prop ever rides a keyframe). Mirrors the existing `.modal`
+// mount-animation pattern (the Modal mounts/unmounts on open, so the entrance
+// is a mount `animation`, not a `.open`-class transition like the static
+// prototype). The prototype's resting transform is translateX(102%); the panel
+// animates FROM there TO 0.
+@keyframes sk-orbit-slideover-in {
+	from {
+		opacity: 0.4;
+		transform: translateX(102%);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+// The full-screen slide-over panel (a-orbit.html #slideOver, :293-298). Scoped
+// to the account modal — the big management surface that earns "a place, not a
+// modal". Confirm sub-dialogs stay compact (restyled below). The panel itself
+// is the SINGLE scroll container: a sticky head as its first child, then the
+// sections scroll under it. No overflow!=visible / transform / filter /
+// backdrop-filter ancestor sits BETWEEN this scroll box and the sticky head
+// (the panel IS the scroller, the head is its direct child) so iOS WebKit
+// position:sticky never silently breaks.
+.app.sk-orbit .modal:is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail) {
+	position: fixed;
+	inset: 0;
+	z-index: 51; // the modal-card slot (one above the backdrop at 50)
+	width: 100%;
+	max-width: none;
+	height: 100vh; // fallback first
+	height: 100dvh; // dvh wins where supported (mobile chrome + standalone PWA)
+	margin: 0;
+	padding: 0; // the scroll container owns padding (safe-area below)
+	border: 0;
+	border-left: 1px solid var(--line);
+	border-radius: 0;
+	gap: 0;
+	background: linear-gradient(165deg, var(--surface) 0%, var(--void) 90%);
+	box-shadow: -18px 0 50px rgba(0, 0, 0, 0.6);
+	color: var(--text);
+	// THE one scroll container.
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	max-height: none; // override the base .modal 85vh cap
+	// Sticky head reserves its own height when anchor-scrolling to a control.
+	scroll-padding-top: 64px;
+	animation: sk-orbit-slideover-in 0.38s var(--ease-page);
+	// Post-drag spring-back: the only thing that ever changes `transform` after
+	// the mount animation is the swipe-to-close release (JS clears `--drag-x`);
+	// this eases it home. During the drag the `.dragging` class kills it so the
+	// panel tracks the finger 1:1 (a-orbit.html #slideOver.dragging).
+	transition: transform 0.28s var(--ease-page);
+
+	// Swipe-to-close drag (a-orbit.html :979-997): the JS in `src/ui/modal.rs`
+	// writes an INLINE `transform: translateX(<px>)` (composite-only — never
+	// height/left) during the finger-drag and clears it on release, exactly like
+	// the prototype's `so.style.transform`. `.dragging` kills the spring-back
+	// transition so the panel tracks the finger 1:1; on release the class is
+	// removed and the (still-inline, now 0px) transform eases home, then the JS
+	// clears the inline transform on transitionend so the at-rest panel is
+	// transform-free again. Keeping the rest state transform-free matters: a
+	// transform here would become the containing block for a nested confirm
+	// sub-dialog's `position:fixed` backdrop and re-anchor it off the viewport.
+	&.dragging {
+		transition: none;
+		animation: none; // don't fight the live finger transform mid-mount
+	}
+
+	// Keyboard focus ring retuned to the void accent (the base rule's warm gold
+	// belongs to the vellum theme). :focus-visible only, so taps don't paint it.
+	:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+}
+
+// Integrated sticky head (a-orbit.html .soHead, :302-306). The account modal's
+// `<header class="account-head">` IS this — restyled, not re-marked-up. Sticky
+// at the top of the scroll container; `transform: translateZ(0)` isolates its
+// repaint from the momentum-scroll judder of the glass it carries (the WebKit
+// guidance), and because the head is the scroller's DIRECT child no
+// intervening containing block can break the sticky.
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager, .persona-detail, .sk-orbit-panes) .account-head {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	transform: translateZ(0); // isolate the glass repaint from scroll judder
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: calc(var(--safe-top, env(safe-area-inset-top, 0px)) + 12px) 18px 14px;
+	// The head reads as integrated chrome — real Liquid Glass over the panel
+	// gradient (glass-holo carries its own -webkit- sibling + reduce/forced-
+	// colors fallbacks + static rim; no $border so it draws only the edge below).
+	@include glass-holo($border: false);
+	border-bottom: 1px solid var(--glass-line);
+
+	h2 {
+		margin: 0;
+		font-size: 17px;
+		font-weight: 700;
+		letter-spacing: 2.5px;
+		text-transform: uppercase;
+		color: var(--text);
+		font-family: var(--font-ui);
+	}
+
+	// The shared Modal close button (`.row-edit`, an X `<IconClose>` SVG on
+	// desktop) becomes the prototype's 44px round glass back-arrow disc
+	// (#soClose, a-orbit.html:303). The markup is REUSED untouched — under orbit
+	// the inner SVG is hidden and a "←" glyph is drawn via ::before, so desktop
+	// keeps its X and only the orbit presentation reads as a back-arrow (no edit
+	// to the shared icon module).
+	.row-edit {
+		order: -1; // back-arrow leads the head, before the title
+		flex: 0 0 44px;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		border-radius: 50%;
+		display: grid;
+		place-items: center;
+		color: var(--text-soft);
+		@include glass-holo;
+
+		// Hide the X SVG; draw the prototype's back-arrow instead.
+		svg {
+			display: none;
+		}
+		&::before {
+			content: "←";
+			font-size: 19px;
+			line-height: 1;
+		}
+		&:hover {
+			color: var(--text);
+		}
+	}
+
+	// "swipe → close" grip (a-orbit.html .soHead .grip, :306) — mono, faint,
+	// pushed to the trailing edge. Added via ::after so the reused markup stays
+	// minimal; aria-hidden is implicit (generated content isn't in the a11y
+	// tree). Hidden when reduced-motion is on (the swipe still works, but the
+	// hint that implies motion is dropped — parity with the gesture-hint kill).
+	&::after {
+		content: "swipe → close";
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: 9px;
+		letter-spacing: 1px;
+		color: var(--text-faint);
+		white-space: nowrap;
+		align-self: center;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		&::after {
+			content: "close";
+		}
+	}
+}
+
+// Persona-editor (`.persona-detail`) slide-over body inset. Unlike the
+// account/server panels (whose `.account-section` children supply their own
+// 18px padding), the persona editor's body is a flat list of `.field` /
+// `.detail-*` rows with no section wrapper — so under the `padding: 0`
+// slide-over panel they'd otherwise sit edge-to-edge. Inset the direct flow
+// children here (the sticky `.account-head` owns its own padding; the nested
+// gallery-remove confirm `.modal` is `position: fixed` and must not be inset
+// as body content). Bottom padding clears the home-indicator safe area.
+.app.sk-orbit .modal.persona-detail > *:not(.account-head):not(.modal) {
+	padding-left: 18px;
+	padding-right: 18px;
+
+	&:last-child {
+		padding-bottom: calc(var(--safe-bottom, env(safe-area-inset-bottom, 0px)) + 16px);
+	}
+}
+
+// The scrolling body region: every `.account-section` after the sticky head.
+// Section padding/rules retuned to the void palette + the prototype's mono
+// section-label look (a-orbit.html .soSec h3, :308). The first section drops
+// its top rule (the sticky head already draws the divider).
+.app.sk-orbit :is(.account-modal, .server-modal, .wardrobe-modal, .channel-manager) {
+	.account-section {
+		gap: 0.5rem;
+		padding: 18px 18px 8px;
+		margin: 0;
+		border-top: 1px solid var(--line);
+
+		// Mono uppercase eyebrow — the prototype's section heading.
+		h3 {
+			font-family: var(--font-mono);
+			font-size: 9.5px;
+			letter-spacing: 3px;
+			text-transform: uppercase;
+			color: var(--text-faint);
+		}
+
+		// Inputs/textareas on the void: dark input-bg, hairline, accent focus.
+		// `.rename-input` is the InlineRename field — it carries no `type`
+		// attribute, so it must be named explicitly (the M3 `.sidebar
+		// .rename-input` rule doesn't reach the modal).
+		input[type="text"],
+		input[type="password"],
+		textarea,
+		.rename-input {
+			background: var(--input-bg);
+			border: 1px solid var(--line-strong);
+			border-radius: 0.5rem;
+			color: var(--text);
+			padding: 0.55rem 0.7rem;
+			font: inherit;
+
+			&::placeholder {
+				color: var(--text-faint);
+			}
+			&:focus {
+				outline: none;
+				border-color: var(--accent);
+			}
+		}
+
+		// T3 owner controls — TOUCH-FIRST sizing. The M3 sidebar defaults
+		// (_sidebar.scss, _trash.scss) are compact desktop ghost controls; the
+		// orbit shell is built on generous tap targets, so every control here is
+		// raised to the owner's tap-target floor (2.75rem / 44px — cf.
+		// .account-logout). Compact buttons are exactly the regression Mendicant
+		// Bias exists to retire.
+		.identity-row {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+			flex-wrap: wrap;
+
+			.identity-name {
+				flex: 1;
+				min-width: 0;
+				color: var(--text);
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			// Vertically centre the row's buttons (the section-level
+			// .account-save sets align-self: flex-start for the column layout).
+			.account-save {
+				align-self: center;
+			}
+		}
+
+		.rename-input {
+			flex: 1;
+			min-width: 0;
+			min-height: 2.75rem; // 44px tap floor
+		}
+
+		// InlineRename ✓/✕ — ghost (transparent), but a full 44px square hit
+		// area, not a cramped glyph.
+		.row-edit {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 2.75rem; // 44px
+			min-height: 2.75rem;
+			background: transparent;
+			border: none;
+			color: var(--text-muted);
+			font-size: 1.1rem;
+
+			&:hover {
+				color: var(--text);
+			}
+		}
+
+		// Trashed-channels disclosure + rows: retune the sidebar-compact
+		// _trash.scss defaults to the tap floor for touch.
+		.trash-section .trash-toggle {
+			min-height: 2.75rem; // 44px
+			padding: 0.55rem 0.7rem;
+			font-size: 0.95rem;
+			border-radius: 0.6rem;
+		}
+
+		.trash-item {
+			padding: 0.4rem 0.5rem;
+
+			.trash-name {
+				font-size: 0.95rem;
+			}
+
+			.trash-restore {
+				min-height: 2.75rem; // 44px
+				padding: 0.4rem 0.9rem;
+				font-size: 0.9rem;
+				border-radius: 0.6rem;
+			}
+		}
+
+		// The muted helper lines (version string, section blurbs).
+		.muted,
+		p.muted {
+			color: var(--text-muted);
+			font-family: var(--font-prose);
+		}
+
+		// Primary action: an accent-tinted glass button (matches the orbit
+		// chrome's button language). The .danger override stays for destructive
+		// confirms nested below.
+		.account-save {
+			align-self: flex-start;
+			min-height: 2.75rem; // 44px tap floor (Mendicant Bias touch-first)
+			padding: 0.5rem 1rem;
+			border-radius: 0.6rem;
+			color: var(--accent-bright);
+			font-weight: 600;
+			@include glass-holo;
+
+			&:hover {
+				color: var(--text);
+			}
+		}
+
+		.pref-row {
+			color: var(--text);
+		}
+	}
+
+	// Feedback form + admin broadcast textarea on the void palette.
+	.feedback-body {
+		background: var(--input-bg);
+		border-color: var(--line-strong);
+		color: var(--text);
+
+		&::placeholder {
+			color: var(--text-faint);
+		}
+		&:focus {
+			border-color: var(--accent);
+		}
+	}
+
+	// Feedback inbox cards.
+	.feedback-inbox {
+		.fb-item {
+			background: var(--card);
+			border-color: var(--line);
+			border-radius: 0.75rem;
+		}
+		.fb-kind {
+			background: var(--input-bg);
+			border-color: var(--line-strong);
+		}
+		.fb-when {
+			font-family: var(--font-mono);
+			color: var(--text-faint);
+		}
+	}
+
+	.account-status {
+		padding: 0 18px;
+		color: var(--text-soft);
+	}
+}
+
+// COMPACT orbit dialogs — the small surfaces that are a peek, not a "place":
+// `.confirm-modal` (transient yes/no), `.accent-modal` (the 8-swatch picker), and
+// `.persona-info` (the tap-a-name read-only profile peek). Without an orbit rule
+// these fell through to the base centered `.modal` while the shared backdrop rule
+// above had ALREADY dropped its centering flex (for the slide-over) — so under
+// orbit they rendered as an orphaned top-left card: the "STILL the OLD modal" the
+// owner hit on his iPhone (state · OUTSTANDING BUGS #2; "no modals" → the
+// orbit-void look). They are re-centered here and re-skinned to the void glass so
+// they belong in the cosmos instead of flashing the vellum surface. The big
+// management surface (`.wardrobe-modal` + its nested persona editor) wants the
+// FULL-SCREEN slide-over, not this compact card, and is carried in the broader
+// M1–M4 fidelity rebuild (it needs the `.account-head` sticky-head chrome it
+// lacks — a rebuild-not-restore job, not a one-line graft).
+.app.sk-orbit .modal-backdrop:has(:is(.confirm-modal, .accent-modal, .persona-info)) {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+}
+.app.sk-orbit .modal:is(.confirm-modal, .accent-modal, .persona-info) {
+	position: static;
+	inset: auto;
+	width: 100%;
+	max-width: 22rem;
+	height: auto;
+	max-height: 85vh;
+	margin: 0;
+	border-radius: 1rem;
+	border: 1px solid var(--glass-line);
+	background: linear-gradient(165deg, var(--surface) 0%, var(--void) 90%);
+	color: var(--text);
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+	animation: modal-enter var(--dur-page) var(--ease-page); // keep the gentle pop
+
+	h3 {
+		color: var(--text);
+	}
+	p,
+	.muted {
+		color: var(--text-muted);
+	}
+	.confirm-actions button {
+		border-radius: 0.5rem;
+		padding: 0.4rem 0.9rem;
+		color: var(--text-soft);
+		@include glass-holo;
+	}
+	.confirm-actions button.danger {
+		color: var(--danger);
 	}
 }
 
@@ -455,12 +977,12 @@
 	gap: 0.6rem;
 	max-width: calc(100vw - 2rem);
 	padding: 0.55rem 0.55rem 0.55rem 0.9rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 	font-size: 0.9rem;
-	color: var(--ink);
+	color: var(--text);
 
 	.sw-update-refresh {
 		padding: 0.3rem 0.8rem;
@@ -472,13 +994,13 @@
 		padding: 0 0.4rem;
 		background: none;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		cursor: pointer;
 		font-size: 1.1rem;
 		line-height: 1;
 
 		&:hover {
-			color: var(--ink);
+			color: var(--text);
 		}
 	}
 }

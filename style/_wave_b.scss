@@ -1,4 +1,5 @@
 @use "tokens" as *;
+@use "foundation" as *;
 
 // ---------------------------------------------------------------------------
 // Wave B — markup cluster: dialogue / emoji / image / spoiler, plus the
@@ -28,14 +29,14 @@
 // per-user toggle puts `.dialogue-style` on the app root, quoted speech takes a
 // calm accent colour so it stands apart from narration (italic = actions).
 .dialogue-style .mk-dialogue {
-	color: var(--gold);
+	color: var(--accent);
 }
 
 // Spoiler ||…||: a solid bar hides the content until clicked; `.revealed`
 // (set on click) shows it on a faint panel. Nested content (emoji, bold) is
 // hidden via visibility so images don't peek through the bar.
 .mk-spoiler {
-	background: var(--rule-line);
+	background: var(--line);
 	color: transparent;
 	border-radius: 4px;
 	padding: 0 0.2rem;
@@ -49,7 +50,7 @@
 	}
 
 	&.revealed {
-		background: rgba(110, 168, 230, 0.14);
+		background: var(--spoiler-bg);
 		color: inherit;
 		cursor: default;
 
@@ -74,8 +75,8 @@
 	max-height: min(360px, 60vh, calc(100vh - 10rem));
 	display: flex;
 	flex-direction: column;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 8px;
 	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 	// Shell clips; the inner .emoji-grid scrolls so the search box stays pinned.
@@ -85,10 +86,10 @@
 		flex: 0 0 auto; // stays pinned at the top; only the grid scrolls
 		margin: 0.5rem;
 		padding: 0.35rem 0.5rem;
-		background: var(--parchment);
-		border: 1px solid var(--rule-line);
+		background: var(--void);
+		border: 1px solid var(--line);
 		border-radius: 0.3rem;
-		color: var(--ink);
+		color: var(--text);
 		font: inherit;
 	}
 }
@@ -107,7 +108,7 @@
 	padding: 0 0.5rem 0.5rem;
 
 	.emoji-cat {
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		font-size: 0.72rem;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
@@ -116,7 +117,7 @@
 
 	.emoji-cat-items {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(2rem, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(2.75rem, 1fr));
 		gap: 0.1rem;
 	}
 
@@ -127,13 +128,16 @@
 		font-size: 1.3rem;
 		line-height: 1;
 		padding: 0.2rem;
+		// Touch floor (owner ruling 2026-06-17): emoji cells ≥ 44px.
+		min-width: 2.75rem;
+		min-height: 2.75rem;
 		border-radius: 0.3rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 
 		&:hover {
-			background: var(--rule-line);
+			background: var(--line);
 		}
 
 		img {
@@ -156,8 +160,8 @@
 	margin: 0;
 	padding: 0.25rem;
 	list-style: none;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 8px;
 	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 
@@ -172,7 +176,7 @@
 
 		&.active,
 		&:hover {
-			background: var(--rule-line);
+			background: var(--line);
 		}
 
 		.sg-emoji {
@@ -189,7 +193,7 @@
 		}
 
 		.sg-code {
-			color: var(--ink-muted);
+			color: var(--text-muted);
 		}
 	}
 }
@@ -201,10 +205,10 @@
 	overflow-y: auto;
 	padding: 0.4rem 0.6rem;
 	margin-bottom: 0.3rem;
-	background: var(--parchment);
-	border: 1px dashed var(--rule-line);
+	background: var(--void);
+	border: 1px dashed var(--line);
 	border-radius: 0.4rem;
-	color: var(--ink);
+	color: var(--text);
 	font-size: 0.9rem;
 	white-space: pre-wrap;
 	word-break: break-word;
@@ -223,8 +227,8 @@
 	align-items: center;
 	gap: 0.6rem;
 	padding: 0.35rem 0.5rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.4rem;
 
 	img {
@@ -235,21 +239,22 @@
 
 	.emoji-mgr-name {
 		flex: 1;
-		color: var(--ink);
-		font-family: monospace;
+		color: var(--text);
+		font-family: var(--font-mono);
 		font-size: 0.9rem;
 	}
 
 	.emoji-mgr-delete {
-		border: 1px solid var(--ink-danger-border);
-		background: var(--vellum);
-		color: var(--ink-danger-soft);
+		border: 1px solid var(--danger-border);
+		background: var(--surface);
+		color: var(--danger-soft);
 		border-radius: 0.3rem;
-		padding: 0.2rem 0.5rem;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+		padding: 0.2rem 0.6rem;
 		cursor: pointer;
 
 		&:hover {
-			background: rgba(180, 86, 106, 0.15);
+			background: color-mix(in srgb, var(--danger) 12%, transparent);
 		}
 	}
 }
@@ -261,27 +266,58 @@
 
 	input {
 		padding: 0.35rem 0.5rem;
-		background: var(--vellum);
-		border: 1px solid var(--rule-line);
+		background: var(--surface);
+		border: 1px solid var(--line);
 		border-radius: 0.3rem;
-		color: var(--ink);
+		color: var(--text);
 		font: inherit;
 	}
 
 	.emoji-mgr-err {
-		color: var(--ink-danger-soft);
+		color: var(--danger-soft);
 		font-size: 0.85rem;
 	}
 
 	button {
 		align-self: flex-start;
+		min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 		padding: 0.3rem 0.8rem;
-		border: 1px solid var(--gold);
+		border: 1px solid var(--accent);
 		border-radius: 0.3rem;
-		background: var(--vellum);
-		color: var(--gold);
+		background: var(--surface);
+		color: var(--accent);
 		cursor: pointer;
 	}
+}
+
+// Friend-request accept / remove (friends pane). The list is otherwise
+// unstyled (falls to the base button); all it needs is the tap floor.
+.flist button {
+	@include glass-holo;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+}
+
+// M7/P1 review H3: Friends/DM .add-row action buttons (Direct messages →,
+// ← Friends, Start DM, Add friend) inherit no min-height from the base `button`
+// (there is no blanket button floor by design) — raise them here, at the shared
+// .add-row definition, to the 44px tap target (owner ruling 2026-06-17, product-
+// wide; NOT an .sk-orbit override). Safe scope: .add-row is the form-row pattern,
+// not the bespoke composer-orb / map-node chrome the blanket floor would distort.
+.add-row button {
+	@include glass-holo;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
+}
+
+// M7/P1 review H4: a friend-picker row is a checkbox + name inside a bare
+// <label> (not a button), so `.flist button` above never reaches it. Floor the
+// label itself — the same "checkbox + name hit target" shape share-rows already
+// floor (_mobile.scss) — and center the checkbox + text in the 44px row.
+.flist label {
+	@include glass-holo;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
 // Member-management pane (#16/FB5): a roster of the open guild's members.
@@ -296,9 +332,12 @@
 	align-items: center;
 	gap: 0.6rem;
 	padding: 0.35rem 0.5rem;
-	background: var(--vellum);
-	border: 1px solid var(--rule-line);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: 0.4rem;
+	// A list row, not a control — a subtle electric-blue glow for chrome parity
+	// with the glass-holo'd controls, without the full glass material.
+	box-shadow: 0 0 14px rgba(77, 159, 255, 0.12);
 }
 
 .member-avatar {
@@ -313,15 +352,15 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	background: var(--rule-line);
-	color: var(--ink);
+	background: var(--line);
+	color: var(--text);
 	font-size: 0.85rem;
 	font-weight: 600;
 }
 
 .member-name {
 	flex: 1;
-	color: var(--ink);
+	color: var(--text);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -333,18 +372,34 @@
 	letter-spacing: 0.03em;
 	padding: 0.1rem 0.45rem;
 	border-radius: 0.7rem;
-	border: 1px solid var(--rule-line);
-	color: var(--ink);
+	border: 1px solid var(--line);
+	color: var(--text);
 }
 
 .member-role-owner {
-	border-color: var(--gold);
-	color: var(--gold);
+	border-color: var(--accent);
+	color: var(--accent);
 }
 
 .member-role-admin {
 	border-color: var(--role-admin);
 	color: var(--role-admin);
+}
+
+// M7/P2: a guest's role chip in the host-side cameo list — muted, so it reads as
+// "not a full member".
+.member-role-guest {
+	border-color: var(--line);
+	color: var(--text-soft);
+}
+
+// M7/P2: the host-side guest-cameo section appended to the members pane, set off
+// from the roster with a hairline + spacing. Demo-grade; placement is a deck-pass
+// decision.
+.guest-section {
+	margin-top: 1rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--line);
 }
 
 .member-actions {
@@ -354,25 +409,27 @@
 }
 
 .member-role-btn {
+	@include glass-holo;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.2rem 0.55rem;
-	border: 1px solid var(--gold);
+	border: 1px solid var(--accent);
 	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--gold);
+	color: var(--accent);
 	cursor: pointer;
 	font-size: 0.8rem;
 }
 
 .member-kick {
-	border: 1px solid var(--ink-danger-border);
-	background: var(--vellum);
-	color: var(--ink-danger-soft);
+	@include glass-holo;
+	border: 1px solid var(--danger-border);
+	color: var(--danger-soft);
 	border-radius: 0.3rem;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.2rem 0.5rem;
 	cursor: pointer;
 
 	&:hover {
-		background: rgba(180, 86, 106, 0.15);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
 	}
 }
 

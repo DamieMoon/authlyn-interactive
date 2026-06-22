@@ -22,6 +22,9 @@ use crate::server::state::AppState;
 // GET /personas/{id}/editors
 // ---------------------------------------------------------------------------
 
+/// GET /personas/{id}/editors — the persona's editor roster. Owner-only; a
+/// non-owner (incl. an editor) gets the privacy-404, so an editor can never
+/// enumerate who else shares the persona.
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn list_editors(
     State(state): State<AppState>,
@@ -52,6 +55,13 @@ pub async fn list_editors(
 // DELETE /personas/{id}/editors/{aid}
 // ---------------------------------------------------------------------------
 
+/// DELETE /personas/{id}/editors/{aid} — owner revokes one editor's access. A
+/// non-owner gets the privacy-404. The transaction also clears the removed
+/// editor's worn references (`guild_member.active_persona`,
+/// `channel_active_persona`) so a revoked editor immediately stops stamping the
+/// persona — the stored wear is never trusted again at send time either.
+/// (`tests/personas.rs::revoking_editor_clears_their_channel_active_persona_row`,
+/// `revoked_editor_per_channel_wear_stops_stamping_bare_messages`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid, editor = %aid))]
 pub async fn remove_editor(
     State(state): State<AppState>,
@@ -101,6 +111,12 @@ pub async fn remove_editor(
 // PUT /personas/{id}/editors/{aid}  — owner shares the persona with a friend
 // ---------------------------------------------------------------------------
 
+/// PUT /personas/{id}/editors/{aid} — owner shares editor access directly with an
+/// accepted friend (the share-key flow's friend-targeted twin). Owner-only
+/// (privacy-404 otherwise); the target must be an accepted friend (400 if not).
+/// Idempotent: the `CREATE` is retry-wrapped and a UNIQUE collision (already an
+/// editor) is success (204), since the share toggle is just confirming state.
+/// (`tests/personas.rs::owner_shares_with_friend_then_friend_leaves`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid, editor = %aid))]
 pub async fn add_editor(
     State(state): State<AppState>,

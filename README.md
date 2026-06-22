@@ -10,11 +10,21 @@ Work in progress. Private / internal use.
 - **Frontend:** Leptos 0.8 (`hydrate`, WASM)
 - **Database:** SurrealDB (external server)
 - **Auth:** session cookies (argon2 password hashing); no browser-side cryptography
+- **MCP bridge:** standalone `nova-mcp` bin behind the optional `nova` feature — talks to the running HTTP API as the "Nova" account and exposes it over MCP
+
+## Documentation
+
+Deep architecture + reference docs live in [`docs/`](docs/README.md): the three
+feature graphs, request lifecycle, data model, realtime/SSE, auth/privacy, the
+markup engine, the UI shell, styling, testing, the Nova MCP bridge,
+build/deploy/PWA, and a full REST API reference. Every invariant cites its
+pinning test, so the docs track the code instead of rotting.
 
 ## Versioning
 
-CalVer: `YYYY.M.D`. Each release also gets a random two-word codename — pick one
-manually and set it in `Cargo.toml` under `[package.metadata.release].codename`.
+SemVer (from **v27** — retired CalVer `YYYY.M.D` at the v27 release). Current
+release: `27.0.0`, codename `mendicant-bias`. Each release gets a manual two-word
+codename — set it in `Cargo.toml` under `[package.metadata.release].codename`.
 
 ## Dev
 
@@ -39,16 +49,17 @@ Optional pre-commit gate (fmt + clippy), off by default — enable per-clone wit
 
 ```
 src/
-  app.rs           Leptos root (shared ssr & hydrate)
-  lib.rs           module wiring + hydrate entrypoint
-  main.rs          axum server entrypoint (ssr only)
-  db.rs            SurrealDB connection helper (ssr only)
-  protocol.rs      shared REST JSON DTOs
-  markup.rs        chat markup rendering
-  client/          hydrate-only REST client (gloo-net)
-  server/          axum routes (ssr only): auth, guilds, personas,
-                   messages, lorebook, emoji, friends, media, push, feedback
-  storage/         SurrealDB schema (schema.surql)
-  ui/              Leptos UI: auth + shell/ (Discord-style app shell)
-  bin/nova-mcp.rs  standalone MCP bridge (optional `nova` feature)
+  app.rs                 Leptos root (shared ssr & hydrate)
+  lib.rs                 module wiring + hydrate entrypoint
+  main.rs                axum server entrypoint (ssr only)
+  db.rs                  SurrealDB connection helper (ssr only)
+  protocol.rs            shared REST JSON DTOs
+  markup/                shared chat markup parser (tokenize/tree/blocks)
+  client/                hydrate-only REST client (gloo-net)
+  server/                axum routes (ssr only): auth, guilds, messages,
+                         personas, lorebook, friends, emoji, accent, media,
+                         push, events (SSE), feedback, system messages
+  storage/               SurrealDB schema (schema.surql)
+  ui/                    Leptos UI: auth + shell/ (Discord-style app shell)
+  bin/nova-mcp.rs        standalone MCP bridge (optional `nova` feature)
 ```

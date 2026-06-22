@@ -30,10 +30,29 @@
 //! and re-focused on cleanup. This matches WCAG 2.4.3 (Focus Order) when the
 //! modal is dismissed via Esc, backdrop click, or its own close button — the
 //! keyboard user lands back on the trigger they pressed to open it.
+//!
+//! Swipe-to-close (opt-in, `swipe_close`): under the Orbit (`.app.sk-orbit`)
+//! skeleton the dialog is presented as a full-screen slide-over (SCSS in
+//! `_modal.scss`), and the prototype closes it with a rightward drag inside the
+//! panel (a-orbit.html:979-997). When `swipe_close` is set, the dialog binds
+//! pointer handlers that translate the panel with the finger (inline
+//! `transform` + a `.dragging` class that kills the spring-back transition) and
+//! invoke `close` once the drag crosses ~28% of the viewport width — reusing
+//! the SAME `close` the backdrop/Esc fire, so focus-restore is unchanged. This
+//! is purely ADDITIVE presentation behaviour; the a11y machinery above is
+//! untouched. The default (no `swipe_close`) leaves desktop/deck/hud modals
+//! exactly as before. Drag bookkeeping lives in a hydrate-real / ssr-stub
+//! engine (mirroring `holopanel::PanelDrag`), so the always-on `view!` binds
+//! the handlers and only the browser build touches `web_sys`.
 
 use leptos::ev::KeyboardEvent;
+#[cfg(feature = "hydrate")]
+use leptos::ev::PointerEvent;
 use leptos::html::Div;
 use leptos::prelude::*;
+
+use crate::ui::icons::IconClose;
+use crate::ui::markup_view::render_body;
 
 #[cfg(feature = "hydrate")]
 use send_wrapper::SendWrapper;
@@ -41,6 +60,220 @@ use send_wrapper::SendWrapper;
 use wasm_bindgen::JsCast;
 #[cfg(feature = "hydrate")]
 use web_sys::HtmlElement;
+
+// The swipe-close geometry consts + the two pure decision fns are exercised by
+// the hydrate pointer handlers and by the unit tests (which run under the ssr
+// harness). Gating them to `hydrate` OR `test` keeps the ssr-NON-test build
+// (`cargo clippy --features ssr`, `-D warnings`) free of a dead-code warning
+// without sprinkling per-item `#[allow]`s.
+/// Tap-vs-drag slop in CSS px before a gesture locks to an axis — matches the
+/// prototype's `12` (a-orbit.html:983) and the HoloPanel slop family.
+#[cfg(any(feature = "hydrate", test))]
+const SWIPE_LOCK_SLOP_PX: f64 = 12.0;
+/// Fraction of the viewport width a rightward drag must cross to commit to
+/// close (a-orbit.html:994 `innerWidth*.28`).
+#[cfg(any(feature = "hydrate", test))]
+const SWIPE_CLOSE_FRACTION: f64 = 0.28;
+
+/// Lock decision for the swipe-close drag, given the signed deltas from the
+/// pointerdown. Returns `Some('h')` once a horizontal intent is clear,
+/// `Some('v')` for a vertical scroll (so the drag bows out and lets the panel
+/// scroll), or `None` while still inside the slop. Horizontal needs `|dx|`
+/// past the slop AND dominant over `|dy|` by the prototype's 1.2 ratio
+/// (a-orbit.html:982-985). Pure (no DOM) so it is unit-testable.
+#[cfg(any(feature = "hydrate", test))]
+pub(crate) fn swipe_close_lock(dx: f64, dy: f64) -> Option<char> {
+    if dx.abs() > SWIPE_LOCK_SLOP_PX && dx.abs() > dy.abs() * 1.2 {
+        Some('h')
+    } else if dy.abs() > SWIPE_LOCK_SLOP_PX {
+        Some('v')
+    } else {
+        None
+    }
+}
+
+/// Whether a released drag commits to CLOSE: a RIGHTWARD travel (`dx > 0`)
+/// past `SWIPE_CLOSE_FRACTION` of the viewport width (a-orbit.html:994). A
+/// leftward drag never closes (the panel sits at the right edge). Pure so it
+/// is unit-testable without a DOM.
+#[cfg(any(feature = "hydrate", test))]
+pub(crate) fn swipe_commits_close(dx: f64, viewport_w: f64) -> bool {
+    dx > 0.0 && dx > viewport_w * SWIPE_CLOSE_FRACTION
+}
+
+/// The swipe-right-to-close drag engine for a slide-over Modal. Owns the
+/// drag-start bookkeeping and exposes `down`/`moved`/`up` handlers bound
+/// ungated in the view (a hydrate-real impl pairs with an ssr no-op stub,
+/// mirroring `holopanel::PanelDrag`). Only fires when the dialog carries
+/// `swipe_close`. WASM is single-threaded, so the state lives in plain signals.
+#[cfg(feature = "hydrate")]
+#[derive(Clone)]
+struct SwipeClose {
+    /// Opt-in flag (the `swipe_close` prop): when `false` every handler is an
+    /// immediate no-op, so a desktop/deck/hud centered modal — bound with the
+    /// same always-on handlers — never drags. Always-on field (cheap bool).
+    enabled: bool,
+    /// The dialog node — pointer-capture target + the element we translate.
+    #[cfg(feature = "hydrate")]
+    dialog_ref: NodeRef<Div>,
+    /// `(x0, y0)` at pointerdown, plus the locked axis once decided.
+    #[cfg(feature = "hydrate")]
+    start: RwSignal<Option<(f64, f64)>>,
+    #[cfg(feature = "hydrate")]
+    locked: RwSignal<Option<char>>,
+    /// Live horizontal travel (px), mirrored into the inline transform.
+    #[cfg(feature = "hydrate")]
+    dx: RwSignal<f64>,
+}
+
+#[cfg(feature = "hydrate")]
+impl SwipeClose {
+    /// `pointerdown`: capture the pointer (so moves outside the panel keep
+    /// feeding the gesture — proven in `holopanel.rs`/`lightbox.rs`) and record
+    /// the start coordinate. Controls inside the head/body don't stop
+    /// propagation, so a tap on a button bubbles a full down→up pair here and
+    /// `up` sees a sub-slop travel (no close).
+    fn down(&self, ev: &PointerEvent) {
+        if !self.enabled {
+            return;
+        }
+        // Don't capture when the press starts on an interactive control — on
+        // DESKTOP a captured pointer redirects the trailing `click` to the capture
+        // target, so a tapped button/input inside a swipe-close modal never fires
+        // its on:click (the M6 desktop regression; mirrors the holopanel.rs /
+        // sk_orbit drag fix; touch was unaffected). A tap never drags, so it costs
+        // nothing; a real swipe from blank dialog area still captures.
+        let on_control = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|e| {
+                e.closest("button, a[href], input, textarea, select, label, [role=\"button\"]")
+                    .ok()
+                    .flatten()
+            })
+            .is_some();
+        if !on_control {
+            if let Some(el) = self.dialog_ref.get_untracked() {
+                let el: &web_sys::Element = el.as_ref();
+                let _ = el.set_pointer_capture(ev.pointer_id());
+            }
+        }
+        self.start
+            .set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+        self.locked.set(None);
+        self.dx.set(0.0);
+    }
+
+    /// `pointermove`: lock to an axis past the slop; while locked horizontal and
+    /// dragging RIGHT, add `.dragging` (kills the transition) and translate the
+    /// panel with the finger via an inline `transform`. A leftward drag or a
+    /// vertical lock leaves the transform untouched so the panel scrolls.
+    fn moved(&self, ev: &PointerEvent) {
+        let Some((x0, y0)) = self.start.get_untracked() else {
+            return;
+        };
+        let dx = ev.client_x() as f64 - x0;
+        let dy = ev.client_y() as f64 - y0;
+        if self.locked.get_untracked().is_none() {
+            self.locked.set(swipe_close_lock(dx, dy));
+        }
+        if self.locked.get_untracked() == Some('h') && dx > 0.0 {
+            if let Some(el) = self.dialog_ref.get_untracked() {
+                let el: &web_sys::Element = el.as_ref();
+                let _ = el.class_list().add_1("dragging");
+                if let Some(html) = el.dyn_ref::<HtmlElement>() {
+                    let _ = html
+                        .style()
+                        .set_property("transform", &format!("translateX({dx}px)"));
+                }
+            }
+            self.dx.set(dx);
+        }
+    }
+
+    /// `pointerup` / `pointercancel`: drop `.dragging` (re-enabling the
+    /// spring-back transition). RETURNS `true` when the rightward travel crossed
+    /// the close threshold — the VIEW then fires the caller's `close` (so the
+    /// engine stays free of the non-`Send` caller closure; the dismiss path is
+    /// the SAME backdrop/Esc one → un-mount → on_cleanup → focus restore).
+    /// Otherwise eases the inline transform to `translateX(0)` and clears it on
+    /// the next `transitionend` so the at-rest panel is transform-free again (a
+    /// transform at rest would re-anchor a nested confirm's fixed backdrop), and
+    /// returns `false`.
+    fn up(&self, ev: &PointerEvent) -> bool {
+        let Some((x0, _)) = self.start.get_untracked() else {
+            return false;
+        };
+        self.start.set(None);
+        let dx = ev.client_x() as f64 - x0;
+        let viewport_w = web_sys::window()
+            .and_then(|w| w.inner_width().ok())
+            .and_then(|v| v.as_f64())
+            .unwrap_or(360.0);
+        let was_dragging = self.dx.get_untracked() > 0.0;
+        self.dx.set(0.0);
+        let dialog = self.dialog_ref.get_untracked();
+        if let Some(el) = dialog.as_ref() {
+            let el: &web_sys::Element = el.as_ref();
+            let _ = el.class_list().remove_1("dragging");
+        }
+        if self.locked.get_untracked() == Some('h') && swipe_commits_close(dx, viewport_w) {
+            // Commit: tell the view to dismiss (un-mount + focus restore).
+            return true;
+        }
+        // Spring back home, then clear the inline transform once it lands — but
+        // ONLY if we actually pushed the panel (an inline `translateX(>0)` is
+        // live). A pure tap / vertical scroll left no transform, so there is
+        // nothing to spring and we must NOT add a `translateX(0)` (a transform
+        // at rest would become the containing block for a nested confirm's fixed
+        // backdrop). The `Npx → 0px` change is real, so `transitionend` fires
+        // and the once-listener clears the inline transform back to none.
+        if was_dragging {
+            if let Some(html) = dialog.and_then(|el| el.dyn_ref::<HtmlElement>().cloned()) {
+                let _ = html.style().set_property("transform", "translateX(0px)");
+                let html_for_cb = html.clone();
+                let cleanup =
+                    leptos::wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+                        let _ = html_for_cb.style().remove_property("transform");
+                    });
+                // web-sys 0.3.85: `AddEventListenerOptions::new()` (value) +
+                // `set_once(true)` (returns ()) + pass `&opts` — the proven
+                // binding (act/haptics.rs:66-72).
+                let opts = web_sys::AddEventListenerOptions::new();
+                opts.set_once(true);
+                let _ = html.add_event_listener_with_callback_and_add_event_listener_options(
+                    "transitionend",
+                    cleanup.as_ref().unchecked_ref(),
+                    &opts,
+                );
+                cleanup.forget(); // one-shot listener owns itself; fires once then GCs
+            }
+        }
+        false
+    }
+}
+
+/// ssr stubs: pointer events only exist in the browser, but the dialog's
+/// handler bindings are always-on and must typecheck on the server. The
+/// `enabled` field is carried so the construction site is feature-agnostic
+/// (the value is dead on the server — the methods are no-ops regardless).
+#[cfg(not(feature = "hydrate"))]
+#[derive(Clone)]
+struct SwipeClose {
+    // Dead on the server (the methods are no-ops) — carried only so the
+    // construction site stays feature-agnostic.
+    #[allow(dead_code)]
+    enabled: bool,
+}
+
+#[cfg(not(feature = "hydrate"))]
+impl SwipeClose {
+    fn down(&self, _ev: &leptos::ev::PointerEvent) {}
+    fn moved(&self, _ev: &leptos::ev::PointerEvent) {}
+    fn up(&self, _ev: &leptos::ev::PointerEvent) -> bool {
+        false
+    }
+}
 
 /// Render a centered modal dialog backed by a click-to-dismiss backdrop.
 ///
@@ -61,13 +294,47 @@ pub fn Modal<F>(
     class: String,
     /// Caller-owned close handler; fired on backdrop click and Esc.
     close: F,
+    /// Opt IN to swipe-right-to-close (the Orbit full-screen slide-over
+    /// gesture, a-orbit.html:979-997). Default `false` keeps desktop/deck/hud
+    /// centered modals — and the nested confirm sub-dialogs — untouched. When
+    /// set, the dialog gains the `.modal--swipe-close` class (SCSS hook) and
+    /// pointer handlers that drag the panel with the finger and fire `close`
+    /// past the threshold; the existing Esc/backdrop/focus-restore a11y is
+    /// unchanged (the gesture reuses the SAME `close`).
+    #[prop(optional)]
+    swipe_close: bool,
     children: Children,
 ) -> impl IntoView
 where
     F: Fn() + Copy + 'static,
 {
-    let dialog_class = format!("modal {class}");
+    let dialog_class = format!(
+        "modal {class}{}",
+        if swipe_close {
+            " modal--swipe-close"
+        } else {
+            ""
+        }
+    );
     let dialog_ref = NodeRef::<Div>::new();
+
+    // Swipe-to-close drag engine (opt-in via `swipe_close`). Hydrate-real /
+    // ssr-stub; the handlers are bound ungated on the dialog below. `up` RETURNS
+    // whether the gesture committed to close — the view fires the caller's
+    // `close` (the SAME dismiss the backdrop/Esc do → un-mount → on_cleanup →
+    // focus restore), keeping the engine free of the non-`Send` caller closure.
+    let swipe = SwipeClose {
+        enabled: swipe_close,
+        #[cfg(feature = "hydrate")]
+        dialog_ref,
+        #[cfg(feature = "hydrate")]
+        start: RwSignal::new(None),
+        #[cfg(feature = "hydrate")]
+        locked: RwSignal::new(None),
+        #[cfg(feature = "hydrate")]
+        dx: RwSignal::new(0.0),
+    };
+    let (sw_down, sw_move, sw_up, sw_cancel) = (swipe.clone(), swipe.clone(), swipe.clone(), swipe);
 
     // Trigger element to restore focus to on unmount — the thing that had focus
     // at mount, typically the button the user pressed to open the modal.
@@ -165,10 +432,103 @@ where
                     #[cfg(feature = "hydrate")]
                     _ev.stop_propagation();
                 }
-                on:keydown=on_keydown>
+                on:keydown=on_keydown
+                // Swipe-right-to-close (no-op unless `swipe_close`; the engine's
+                // `enabled` flag gates it). Bound ungated — the ssr stub is a
+                // no-op so the always-on view typechecks on the server. `up`
+                // returns whether to dismiss; the view fires the caller's `close`
+                // (same path as backdrop/Esc → on_cleanup focus restore).
+                on:pointerdown=move |ev| sw_down.down(&ev)
+                on:pointermove=move |ev| sw_move.moved(&ev)
+                on:pointerup=move |ev| { if sw_up.up(&ev) { close() } }
+                on:pointercancel=move |ev| { if sw_cancel.up(&ev) { close() } }>
                 {children()}
             </div>
         </div>
+    }
+}
+
+/// The read-only persona-info profile-peek popup, shared by the wardrobe
+/// persona-grid card tap and the chat author-name tap (the two were near-
+/// identical `<Modal class="persona-info">` markup — Finding 14 dedup). One
+/// markup source so the `.persona-info` head / `.info-portrait` / `.card-desc`
+/// structure (and the style_lint anchoring on those classes) can't drift.
+///
+/// The portrait is passed in **already built** as an `AnyView`: the two sites'
+/// fallback builders differ (the wardrobe `portrait()` renders the persona
+/// crest; the chat `chat_avatar()` renders a monogram disc), so the node is
+/// constructed by each caller and mounted here verbatim — not collapsed.
+///
+/// `author` drives the "Controlled by …" trailer: `Some` renders it (the chat
+/// site, surfacing the controlling account), `None` omits it (the wardrobe
+/// site, where the card already names the persona).
+#[component]
+pub fn PersonaInfo<F>(
+    /// The persona/display name shown in the head's `<h4>`.
+    name: String,
+    /// The portrait node, built by the caller (crest vs monogram differ) and
+    /// mounted verbatim in the `.info-portrait` slot.
+    avatar: AnyView,
+    /// The persona description; `Some` renders the chat markup body, `None`
+    /// renders the muted "No description." fallback.
+    description: Option<String>,
+    /// `Some(account)` renders the "Controlled by `<account>`" trailer; `None`
+    /// omits it.
+    author: Option<String>,
+    /// Caller-owned close handler — the SAME one the backdrop/Esc fire.
+    on_close: F,
+) -> impl IntoView
+where
+    // `Send` because the body wraps `Modal`, whose `Children` closure is
+    // `Send`-bound (`Box<dyn FnOnce() -> AnyView + Send>`); `on_close` is
+    // captured into it. (`ModalHead` below needs no `Send` — it builds a plain
+    // `<header>`, not a `Modal`.) The call sites close over a `Copy + Send`
+    // `RwSignal`, so the bound is satisfied.
+    F: Fn() + Copy + 'static + Send,
+{
+    view! {
+        <Modal class="persona-info" close=on_close>
+            <div class="detail-head">
+                <h4>{name}</h4>
+                <button class="row-edit" title="close"
+                    on:click=move |_| on_close()><IconClose/></button>
+            </div>
+            <div class="info-portrait" title="persona portrait">{avatar}</div>
+            {match description {
+                // Description supports the same markup as chat (#18).
+                Some(d) => view! { <p class="card-desc">{render_body(&d)}</p> }.into_any(),
+                None => view! { <p class="card-desc muted">"No description."</p> }.into_any(),
+            }}
+            {author.map(|a| view! {
+                <p class="muted">"Controlled by "<strong>{a}</strong></p>
+            })}
+        </Modal>
+    }
+}
+
+/// Shared modal header: the sticky glass-holo head + a 44px `.row-edit` close
+/// disc (rendered as a back-arrow under the Orbit slide-over via `_modal.scss`).
+/// One markup source so the head can't drift across modals — the parity-fix
+/// lesson (account/server were the de-facto reference; wardrobe/channel-manager
+/// carried divergent heads). Pure markup → always-on (compiles ssr + hydrate).
+#[component]
+pub fn ModalHead<F>(
+    /// The dialog title rendered in the head's `<h2>`.
+    #[prop(into)]
+    title: String,
+    /// Fired by the close disc — the SAME dismiss the Modal's `close`/swipe/Esc
+    /// fire, so focus-restore is unchanged.
+    on_close: F,
+) -> impl IntoView
+where
+    F: Fn() + Copy + 'static,
+{
+    view! {
+        <header class="account-head">
+            <h2>{title}</h2>
+            <button class="row-edit" title="Close"
+                on:click=move |_| on_close()><IconClose/></button>
+        </header>
     }
 }
 
@@ -197,4 +557,41 @@ fn collect_focusables(dialog: &web_sys::Element) -> Vec<HtmlElement> {
 #[cfg(feature = "hydrate")]
 fn first_focusable(dialog: &web_sys::Element) -> Option<HtmlElement> {
     collect_focusables(dialog).into_iter().next()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The pointer-handler bodies are WASM-only (web_sys), but the swipe-close
+    // DECISION logic is extracted into pure fns so the axis-lock + commit
+    // threshold are unit-testable without a DOM (mirrors holopanel's pattern).
+
+    #[test]
+    fn swipe_lock_needs_dominant_horizontal_past_slop() {
+        // Inside the slop in both axes → undecided.
+        assert_eq!(swipe_close_lock(5.0, 4.0), None);
+        // Horizontal past slop AND dominant over vertical by 1.2x → locks 'h'.
+        assert_eq!(swipe_close_lock(20.0, 5.0), Some('h'));
+        // Leftward also locks horizontal (sign is handled at commit time).
+        assert_eq!(swipe_close_lock(-20.0, 5.0), Some('h'));
+        // Mostly-vertical past slop → locks 'v' so the panel scrolls instead.
+        assert_eq!(swipe_close_lock(8.0, 30.0), Some('v'));
+        // Horizontal past slop but NOT dominant (dy too large) → vertical wins.
+        assert_eq!(swipe_close_lock(14.0, 30.0), Some('v'));
+    }
+
+    #[test]
+    fn swipe_commits_only_rightward_past_threshold() {
+        let vw = 360.0;
+        let thresh = vw * SWIPE_CLOSE_FRACTION; // 100.8px
+                                                // Rightward past 28% of the viewport → close.
+        assert!(swipe_commits_close(thresh + 1.0, vw));
+        // Rightward but short of the threshold → no close (springs back).
+        assert!(!swipe_commits_close(thresh - 1.0, vw));
+        // Leftward never closes (the panel sits at the right edge).
+        assert!(!swipe_commits_close(-200.0, vw));
+        // Zero travel never closes.
+        assert!(!swipe_commits_close(0.0, vw));
+    }
 }

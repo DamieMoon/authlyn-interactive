@@ -1,5 +1,6 @@
 ---
-description: Run the project quality gate — rustfmt + clippy on both feature graphs
+name: check
+description: Run the project quality gate — rustfmt + clippy on the ssr + hydrate graphs (the nova bridge is a separate manual check)
 ---
 Run the project's quality gate and report results concisely. Source `~/.cargo/env` first if `cargo` isn't on PATH.
 

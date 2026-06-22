@@ -1,4 +1,5 @@
 @use "tokens" as *;
+@use "foundation" as *;
 
 // ---- wardrobe: persona character cards + detail editor ----
 .pane {
@@ -46,9 +47,23 @@
 	}
 }
 
-// Client-side filter box above the grid (#18/FB4).
+// Touch-target floor (Mendicant Bias ≥44px) for EVERY pane's create/add row —
+// applied at the BASE `.add-row` (NOT `.wardrobe .add-row`) so the Friends /
+// Members / Custom-emoji panes, which are `.pane` and NOT `.wardrobe`, inherit
+// it too (they previously got no `.add-row` sizing at all).
+.add-row {
+	input,
+	textarea,
+	button {
+		min-height: 2.75rem;
+	}
+}
+
+// Client-side filter box above the grid (#18/FB4). An input — touch floor only,
+// kept opaque (no glass/glow; glass is chrome-only, B2 doctrine).
 .persona-search {
 	width: 100%;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	margin-bottom: 0.75rem;
 }
 
@@ -62,17 +77,17 @@
 // as the persona/lorebook reorder controls but sized for the channel row.
 .channel-reorder {
 	padding: 0 0.3rem;
-	border: 1px solid var(--rule-line);
+	border: 1px solid var(--line);
 	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--ink);
+	background: var(--surface);
+	color: var(--text);
 	cursor: pointer;
 	font-size: 0.7rem;
 	line-height: 1.4;
 
 	&:hover:not(:disabled) {
-		border-color: var(--gold);
-		color: var(--gold);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	&:disabled {
@@ -81,25 +96,30 @@
 	}
 }
 
-// Reorder ↑/↓ controls on each card — reuses the lorebook `.lore-reorder` look.
-.persona-reorder {
-	padding: 0.1rem 0.45rem;
-	border: 1px solid var(--rule-line);
-	border-radius: 0.3rem;
-	background: var(--vellum);
-	color: var(--ink);
-	cursor: pointer;
-	font-size: 0.8rem;
-	line-height: 1.5;
+// Finger-drag reorder grip on each card — replaces the M3 ↑/↓/⤒/⤓ buttons AND
+// the HTML5 drag (iOS WebKit ignores HTML5 DnD), matching the channel-manager
+// grip (owner directive 2026-06-17, mirrors `.manager-grip` in _modal.scss).
+.persona-grip {
+	align-self: flex-start;
+	cursor: grab;
+	opacity: 0.6;
+	user-select: none;
+	// The grip owns the touch for the reorder drag — without this the browser
+	// scrolls the grid instead of dragging the card.
+	touch-action: none;
+	// Finger-friendly 44px hit area around the ⠿ glyph (Mendicant Bias touch
+	// floor — a finger-drag needs a real target, not a bare glyph).
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 2.75rem;
+	min-height: 2.75rem;
+	font-size: 1.1rem;
+	line-height: 1;
 
-	&:hover:not(:disabled) {
-		border-color: var(--gold);
-		color: var(--gold);
-	}
-
-	&:disabled {
-		opacity: 0.4;
-		cursor: default;
+	&:hover {
+		opacity: 1;
+		color: var(--accent);
 	}
 }
 
@@ -108,22 +128,32 @@
 	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.75rem;
-	background: var(--vellum-2);
-	border: 1px solid var(--rule-line);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
 	border-radius: 0.6rem;
 
+	// Finger-drag reorder feedback (the channel-manager pattern): smooth the
+	// lift + drop-target accent as the drag moves between cards.
+	transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+
 	&.worn {
-		border-color: var(--gold);
-		box-shadow: 0 0 0 1px var(--gold) inset;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent) inset;
 	}
 
-	// L-5: cards are draggable to reorder (only when not filtering); hint grab.
-	&[draggable="true"] {
-		cursor: grab;
+	// The card being dragged: lifted (translucent); its grip shows grabbing.
+	&.dragging {
+		opacity: 0.5;
+
+		.persona-grip {
+			cursor: grabbing;
+		}
 	}
 
-	&[draggable="true"]:active {
-		cursor: grabbing;
+	// The drop target the finger is over: an accent ring marks where it lands.
+	&.drag-over {
+		border-color: var(--accent);
+		box-shadow: inset 0 0 0 2px var(--accent);
 	}
 
 	// Reserved portrait slot (image upload deferred): a tinted monogram tile.
@@ -133,11 +163,11 @@
 		justify-content: center;
 		height: 5rem;
 		border-radius: 0.5rem;
-		background: var(--vellum);
-		border: 1px dashed var(--rule-line);
-		color: var(--gold);
+		background: var(--surface);
+		border: 1px dashed var(--line);
+		color: var(--accent);
 		font-size: 2rem;
-		font-weight: 700;
+		font-weight: 600;
 		user-select: none;
 	}
 
@@ -152,19 +182,21 @@
 		padding: 0;
 
 		&:hover .card-name {
-			color: var(--gold);
+			color: var(--accent);
 		}
 	}
 
 	.card-name {
 		font-size: 1.05rem;
-		font-weight: 700;
-		color: var(--ink);
+		font-weight: 600;
+		color: var(--text);
 	}
 
 	.card-desc {
+		// Persona descriptions are prose — serif per the Duo typography (spec §1).
+		font-family: var(--font-prose);
 		font-size: 0.85rem;
-		color: var(--ink);
+		color: var(--text);
 		// Preserve author newlines (Shift+Enter) in the blurb.
 		white-space: pre-wrap;
 		// Clamp the blurb to a few lines so cards stay uniform.
@@ -180,9 +212,17 @@
 		flex-wrap: wrap;
 		gap: 0.4rem;
 
+		// All card-action buttons (.worn / .danger / Edit) carry the shared
+		// glass+glow chrome material and the 44px tap floor (owner ruling
+		// 2026-06-17, product-wide; at the base, not an .sk-orbit override).
+		button {
+			min-height: 2.75rem;
+			@include glass-holo;
+		}
+
 		.worn {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 }
@@ -191,7 +231,7 @@
 // its inner layout. The accent border distinguishes it from other modals.
 .persona-detail {
 	gap: 0.6rem;
-	border-color: var(--gold);
+	border-color: var(--accent);
 
 	.detail-head {
 		display: flex;
@@ -209,8 +249,8 @@
 		justify-content: center;
 		height: 6rem;
 		border-radius: 0.5rem;
-		background: var(--vellum-2);
-		border: 1px dashed var(--rule-line);
+		background: var(--surface-2);
+		border: 1px dashed var(--line);
 		font-size: 0.85rem;
 	}
 
@@ -219,11 +259,12 @@
 		flex-direction: column;
 		gap: 0.25rem;
 		font-size: 0.85rem;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 
 		input,
 		textarea {
-			color: var(--ink);
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias); inputs stay opaque (B2)
+			color: var(--text);
 		}
 
 		textarea {
@@ -236,9 +277,16 @@
 		display: flex;
 		gap: 0.4rem;
 
+		// Save / Cancel carry the shared glass+glow material and the 44px tap
+		// floor (owner ruling 2026-06-17, product-wide; base, not an override).
+		button {
+			min-height: 2.75rem;
+			@include glass-holo;
+		}
+
 		.save {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 
@@ -248,7 +296,7 @@
 		flex-direction: column;
 		gap: 0.3rem;
 		padding-top: 0.4rem;
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 		font-size: 0.85rem;
 
 		.share-row {
@@ -256,8 +304,8 @@
 			align-items: center;
 			gap: 0.5rem;
 			padding: 0.25rem 0.4rem;
-			background: var(--vellum-2);
-			border: 1px solid var(--rule-line);
+			background: var(--surface-2);
+			border: 1px solid var(--line);
 			border-radius: 0.4rem;
 			cursor: pointer;
 
@@ -273,13 +321,13 @@
 // Gallery container sits inside .persona-detail > .field.gallery-field.
 // Thumbnails are square, auto-fill the available width; the pick button fills
 // each cell and the remove button overlaps the top-right corner.
-// Gallery region accepts paste (W7/B4): focusable so the user can click in
+// Gallery region accepts paste (M7/B4): focusable so the user can click in
 // and Ctrl+V. Subtle focus outline so the affordance is visible without
 // shouting; falls back gracefully on browsers that don't honor :focus-visible.
 .gallery-field {
 	&:focus,
 	&:focus-visible {
-		outline: 2px solid var(--gold);
+		outline: 2px solid var(--accent);
 		outline-offset: 4px;
 		border-radius: 0.35rem;
 	}
@@ -301,7 +349,7 @@
 
 	// Active-avatar indicator: accent ring around the current portrait choice.
 	&.is-avatar {
-		border-color: var(--gold);
+		border-color: var(--accent);
 	}
 }
 
@@ -309,7 +357,7 @@
 // occupying the same cell shape as a loaded thumb. Cleared on batch success;
 // retained on batch failure so the user sees the commit didn't take.
 .gallery-thumb-pending {
-	background: var(--vellum-2);
+	background: var(--surface-2);
 	border-radius: 0.35rem;
 	overflow: hidden;
 }
@@ -319,9 +367,9 @@
 	height: 100%;
 	background: linear-gradient(
 		90deg,
-		var(--vellum-2) 0%,
+		var(--surface-2) 0%,
 		var(--backdrop-deep) 50%,
-		var(--vellum-2) 100%
+		var(--surface-2) 100%
 	);
 	background-size: 200% 100%;
 	animation: gallery-skeleton-shimmer 1.4s ease-in-out infinite;
@@ -345,7 +393,7 @@
 	width: 100%;
 	aspect-ratio: 1 / 1;
 	padding: 0;
-	background: var(--vellum-2);
+	background: var(--surface-2);
 	border: none;
 	border-radius: 0.35rem;
 	cursor: pointer;
@@ -360,7 +408,7 @@
 	left: 50%;
 	transform: translateX(-50%);
 	font-size: 0.75rem;
-	color: var(--gold);
+	color: var(--accent);
 	pointer-events: none;
 	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
@@ -370,15 +418,23 @@
 	position: absolute;
 	top: -0.4rem;
 	right: -0.4rem;
+	// Touch floor (owner ruling 2026-06-17): keep the ✕ disc at 1.4rem but expand
+	// the tap target to ≥ 44px via a transparent ::before (WCAG 2.5.8).
 	width: 1.4rem;
 	height: 1.4rem;
 	padding: 0;
 	border-radius: 50%;
 	border: none;
 	background: var(--backdrop-deep);
-	color: var(--ink);
+	color: var(--text);
 	cursor: pointer;
 	line-height: 1;
 	font-size: 0.75rem;
 	z-index: 1;
+
+	&::before {
+		content: "";
+		position: absolute;
+		inset: calc((2.75rem - 1.4rem) / -2);
+	}
 }

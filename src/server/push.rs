@@ -80,7 +80,7 @@ impl PushSender {
         let subject = std::env::var("VAPID_SUBJECT")
             .ok()
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "mailto:admin@authlyn.tplinkdns.com".to_string());
+            .unwrap_or_else(|| "mailto:admin@damienmoon.sh".to_string());
         let client = match IsahcWebPushClient::new() {
             Ok(c) => c,
             Err(e) => {
@@ -267,57 +267,95 @@ pub fn notify_new_message(state: AppState, message_id: String, author: String) {
     });
 }
 
-async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::Result<()> {
-    let Some(sender) = state.push.clone() else {
-        return Ok(());
-    };
+/// Everything a new-message notification needs from the fresh message row:
+/// its channel (id + name), guild, sender display (persona snapshot, else the
+/// author's nickname), body, delivery effect, avatar, and ping targets.
+/// `pub` so the integration suite can pin the effect-column plumbing from a
+/// REAL DB row through to the masked body (tests/push.rs, review M-42) —
+/// `notify_inner` itself is fire-and-forget behind a live push service and
+/// has no end-to-end test.
+#[derive(SurrealValue)]
+pub struct NotificationInfo {
+    pub channel_key: String,
+    pub channel_name: String,
+    /// M7/P1: NONE for a DM thread (no guild).
+    pub guild_key: Option<String>,
+    pub sender_name: String,
+    pub body: String,
+    /// The message author's persona avatar media id (snapshot ?? live
+    /// fallback, same null-safe pattern as `reading.rs` MSG_PROJECTION); the
+    /// SW maps it to `/media/{id}` as the notification's large image. `None`
+    /// when the persona has no avatar — the SW then omits the image.
+    pub sender_avatar_id: Option<String>,
+    /// Delivery effect (M4/T5): `whisper`/`shout`/`spell`, or `None`. Read
+    /// so a whispered body can be masked before it rides the push payload
+    /// (see [`Self::notification_body`]) — the same spoiler-leak guard as the
+    /// reply-quote mask in `reading.rs` MSG_PROJECTION.
+    pub effect: Option<String>,
+    /// Account-id keys this message `@`-mentions (L-4) — used to set a
+    /// per-recipient `pinged` flag on the push payload so a future SW can
+    /// style a ping differently. Empty when the message pings nobody.
+    pub pinged_keys: Vec<String>,
+}
 
-    // One query resolves everything the notification needs from the fresh row:
-    // its channel (id + name), guild, sender display (persona snapshot, else the
-    // author's nickname), and body.
-    #[derive(SurrealValue)]
-    struct MsgInfo {
-        channel_key: String,
-        channel_name: String,
-        guild_key: String,
-        sender_name: String,
-        body: String,
-        // The message author's persona avatar media id (snapshot ?? live
-        // fallback, same null-safe pattern as `reading.rs` MSG_PROJECTION); the
-        // SW maps it to `/media/{id}` as the notification's large image. `None`
-        // when the persona has no avatar — the SW then omits the image.
-        sender_avatar_id: Option<String>,
-        /// Account-id keys this message `@`-mentions (L-4) — used to set a
-        /// per-recipient `pinged` flag on the push payload so a future SW can
-        /// style a ping differently. Empty when the message pings nobody.
-        pinged_keys: Vec<String>,
+impl NotificationInfo {
+    /// The payload body for THIS row: the whisper mask keyed on the row's own
+    /// `effect` column, then the snippet rules — the exact composition
+    /// `notify_inner` sends, exposed as a method so the integration pin
+    /// (review M-42) exercises the same effect→body thread-through.
+    pub fn notification_body(&self) -> String {
+        notification_body(&self.body, self.effect.as_deref())
     }
+}
+
+/// Resolve the notification payload fields for one message row, or `None`
+/// when the message vanished (e.g. deleted between persist and notify). One
+/// parameterized query; this is `notify_inner`'s row read, split out so the
+/// `effect` projection → decode → mask seam is integration-testable without a
+/// live push service (review M-42).
+pub async fn load_notification_info(
+    state: &AppState,
+    mid: &str,
+) -> surrealdb::Result<Option<NotificationInfo>> {
     let mut resp = state
         .db
         .query(
             "SELECT
                 meta::id(channel)        AS channel_key,
                 channel.name             AS channel_name,
-                meta::id(channel.guild)  AS guild_key,
+                (IF channel.guild != NONE THEN meta::id(channel.guild) ELSE NONE END) AS guild_key,
                 (persona_name ?? (author.display_name ?: author.username)) AS sender_name,
                 (IF persona_avatar != NONE THEN meta::id(persona_avatar)
                  ELSE (IF persona.avatar != NONE THEN meta::id(persona.avatar) ELSE NONE END) END)
                     AS sender_avatar_id,
                 body,
+                effect,
                 (pinged_users ?? []).map(|$u| meta::id($u)) AS pinged_keys
              FROM type::record('message', $mid);",
         )
         .bind(("mid", mid.to_string()))
         .await?
         .check()?;
-    let Some(info) = resp.take::<Option<MsgInfo>>(0)? else {
+    resp.take::<Option<NotificationInfo>>(0)
+}
+
+async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::Result<()> {
+    let Some(sender) = state.push.clone() else {
+        return Ok(());
+    };
+
+    let Some(info) = load_notification_info(state, mid).await? else {
         // Message vanished (e.g. deleted between persist and here) — nothing to do.
         return Ok(());
     };
 
-    // Recipients: every push_subscription owned by a guild member who isn't the
-    // author. (Mutes are client-side only, so the server can't honour them; the
-    // payload carries the channel id so the client/SW could filter later.)
+    // Recipients: every push_subscription owned by a member of the channel who
+    // isn't the author. M7/P1: the membership table is guild_member for a guild
+    // channel, dm_member for a DM thread — picked by `guild_key` presence so each
+    // query stays single-table. M7/P2: a guild channel ALSO notifies its active
+    // (unexpired) guests (channel_guest), unioned in. (Mutes are client-side only,
+    // so the server can't honour them; the payload carries the channel id so the
+    // client/SW could filter later.)
     #[derive(SurrealValue)]
     struct Sub {
         endpoint: String,
@@ -327,17 +365,34 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
         /// message's `pinged_keys` to set the per-recipient `pinged` flag (L-4).
         account_key: String,
     }
+    let recipients_sql = if info.guild_key.is_some() {
+        "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
+            FROM push_subscription
+            WHERE account != type::record('account', $author)
+              AND ( account IN (SELECT VALUE account FROM guild_member
+                        WHERE guild = type::record('guild', $scope))
+                    OR account IN (SELECT VALUE account FROM channel_guest
+                        WHERE channel = type::record('channel', $chan)
+                          AND (expires_at = NONE OR expires_at > time::now())) );"
+    } else {
+        "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
+            FROM push_subscription
+            WHERE account != type::record('account', $author)
+              AND account IN (SELECT VALUE account FROM dm_member
+                  WHERE channel = type::record('channel', $scope));"
+    };
+    // Guild channel → scope is the guild id; DM thread → the channel id. `$chan` is
+    // always the channel id (used by the M7/P2 guest union on a guild channel).
+    let scope = info
+        .guild_key
+        .clone()
+        .unwrap_or_else(|| info.channel_key.clone());
     let mut resp = state
         .db
-        .query(
-            "SELECT endpoint, p256dh, `auth`, meta::id(account) AS account_key
-                FROM push_subscription
-                WHERE account != type::record('account', $author)
-                  AND account IN (SELECT VALUE account FROM guild_member
-                      WHERE guild = type::record('guild', $gid));",
-        )
+        .query(recipients_sql)
         .bind(("author", author.to_string()))
-        .bind(("gid", info.guild_key.clone()))
+        .bind(("scope", scope))
+        .bind(("chan", info.channel_key.clone()))
         .await?
         .check()?;
     let subs: Vec<Sub> = resp.take(0)?;
@@ -354,8 +409,14 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
     // can style a ping differently — hence the payload is built per recipient.
     // The persona avatar `image` (when present) is the same for everyone but is
     // added to each per-recipient payload below.
-    let title = format!("{} in #{}", info.sender_name, info.channel_name);
-    let body = notification_body(&info.body);
+    // M7/P1: a guild channel reads "<who> in #<channel>"; a 1:1 DM (no title) is
+    // just the sender; a titled group DM is "<who> in <title>".
+    let title = match (&info.guild_key, info.channel_name.is_empty()) {
+        (Some(_), _) => format!("{} in #{}", info.sender_name, info.channel_name),
+        (None, true) => info.sender_name.clone(),
+        (None, false) => format!("{} in {}", info.sender_name, info.channel_name),
+    };
+    let body = info.notification_body();
 
     let mut dead: Vec<String> = Vec::new();
     for sub in &subs {
@@ -364,7 +425,10 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
             "title": title,
             "body": body,
             "channel": info.channel_key,
-            "guild": info.guild_key,
+            "guild": match &info.guild_key {
+                Some(g) => serde_json::Value::String(g.clone()),
+                None => serde_json::Value::Null,
+            },
             "message": mid,
             "tag": info.channel_key,
             "pinged": pinged,
@@ -401,8 +465,15 @@ async fn notify_inner(state: &AppState, mid: &str, author: &str) -> surrealdb::R
 }
 
 /// Notification body: a trimmed snippet of the message, or a stand-in when the
-/// message is image-only (empty body).
-fn notification_body(body: &str) -> String {
+/// message is image-only (empty body). A whispered message (M4/T5
+/// hidden-until-tapped spoiler) is masked FIRST — its secret must never appear
+/// in plaintext on a lock screen — using the same fixed `(whisper)`
+/// placeholder as the reply-quote guard in `reading.rs` MSG_PROJECTION, so
+/// every leak vector shows one consistent stand-in.
+fn notification_body(body: &str, effect: Option<&str>) -> String {
+    if effect == Some("whisper") {
+        return "(whisper)".to_string();
+    }
     let t = body.trim();
     if t.is_empty() {
         return "\u{1F4F7} sent an image".to_string();
@@ -412,5 +483,46 @@ fn notification_body(body: &str) -> String {
         format!("{snippet}\u{2026}")
     } else {
         t.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{notification_body, MAX_BODY_CHARS};
+
+    /// Spoiler-leak guard (M4/T5 review): a whispered message's hidden text
+    /// must never ride the push payload onto the OS lock screen — the body is
+    /// masked with the SAME fixed `(whisper)` placeholder as the reply-quote
+    /// guard (`reading.rs` MSG_PROJECTION, pinned by
+    /// `reply_preview_masks_whispered_parent_snippet` in tests/messages.rs).
+    #[test]
+    fn whisper_effect_masks_push_notification_body_with_fixed_placeholder() {
+        let masked = notification_body("the hidden secret", Some("whisper"));
+        assert!(
+            !masked.contains("hidden secret"),
+            "whispered text must not leak into the push payload, got {masked:?}"
+        );
+        assert_eq!(masked, "(whisper)", "masked with the fixed placeholder");
+        // An image-only whisper (empty body) is masked too — the placeholder,
+        // not the "sent an image" stand-in.
+        assert_eq!(notification_body("  ", Some("whisper")), "(whisper)");
+    }
+
+    /// Non-whisper effects keep the normal snippet behavior: pass-through,
+    /// image-only stand-in, and the [`MAX_BODY_CHARS`] truncation.
+    #[test]
+    fn non_whisper_effects_keep_the_normal_snippet_behavior() {
+        for effect in [None, Some("shout"), Some("spell")] {
+            assert_eq!(notification_body("hello there", effect), "hello there");
+        }
+        assert_eq!(notification_body("", None), "\u{1F4F7} sent an image");
+        let long = "x".repeat(MAX_BODY_CHARS + 80);
+        let out = notification_body(&long, Some("shout"));
+        assert_eq!(
+            out.chars().count(),
+            MAX_BODY_CHARS + 1,
+            "truncated snippet plus the ellipsis"
+        );
+        assert!(out.ends_with('\u{2026}'));
     }
 }

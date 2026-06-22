@@ -1,10 +1,19 @@
 @use "tokens" as *;
+// Glass chrome material for .topbar. dart-sass @use is idempotent per
+// compilation, so foundation's top-level rules (.glass, the aurora
+// .app::before) still emit exactly once via main.scss's earlier @use.
+@use "foundation" as *;
 
 .content {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
+	position: relative; // still anchors the streak ::after (now opacity-only)
+	// M5/P0 #54: .content is NO LONGER transformed — the dip moved to the
+	// inner .channel-view wrapper, so .content never becomes a containing
+	// block for fixed descendants. The three former-fixed overlays are now
+	// body-level <Portal>s; this comment supersedes the old CONSTRAINT note.
 
 	// The pane wrapper must fill .content and constrain its own children,
 	// or .messages' flex:1/overflow-y below never engages and the page grows.
@@ -16,43 +25,35 @@
 		// Anchors the floating jump-to-bottom arrow / unread pill, which are
 		// positioned absolutely against this pane.
 		position: relative;
-	}
-
-	.topbar {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.6rem 1rem;
-		// Reserve the status bar / notch / Dynamic Island height in the installed
-		// PWA (viewport-fit=cover). env() is 0 on non-notched devices/browsers.
-		padding-top: calc(0.6rem + env(safe-area-inset-top, 0px));
-		border-bottom: 1px solid var(--rule-line);
-		min-width: 0;
-
-		// Controls keep their size and never wrap their label (e.g. "Log out"
-		// breaking onto two lines on a ~390px phone); the username .muted span
-		// absorbs the squeeze via its ellipsis instead.
-		> button {
-			flex: 0 0 auto;
-			white-space: nowrap;
+		// Warp channel-switch return leg (M4/T3, rebased here M5/P0 #54): when
+		// act::open_channel_at's ~180ms timer drops .fx-switching, the pane
+		// eases back from the dip.
+		transition:
+			opacity 180ms ease,
+			transform 180ms ease;
+		// M5/P0 #54 (d) directional warp: incoming pane slides from the
+		// channel-list-index direction. The direction sign is read from a
+		// `--warp-dir` custom property. FOUNDATION ships --warp-dir: 0
+		// (neutral, non-directional dip). The directional sign (+1 / -1 from
+		// the channel-list index) is DEFERRED to Phase 2 (Orbit's swipe
+		// strip), where the act layer sets it.
+		// The dip itself: a quick blink-and-scale (STD tier) that covers the
+		// message-list swap — the flash of an empty list underneath is intended.
+		// Going IN is faster than coming back (70ms vs 180ms) for a snappy warp
+		// feel. .fx-max layers a light streak on top (_foundation.scss).
+		&.fx-switching {
+			opacity: 0.6;
+			transform: translateX(calc(var(--warp-dir, 0) * 6%)) scale(0.985);
+			transition-duration: 70ms;
 		}
-
-		.nav-toggle {
-			display: none; // revealed at the mobile breakpoint
-			padding: 0.2rem 0.55rem;
-			font-size: 1.1rem;
-			line-height: 1;
-		}
-
-		.muted {
-			min-width: 0;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.spacer {
-			flex: 1;
+		// Reduced-motion: _base.scss already freezes transition-duration to
+		// 0.01ms, but the dimmed/scaled STATE would still flash for the timer
+		// window — neutralize the properties so the swap is plainly instant.
+		@media (prefers-reduced-motion: reduce) {
+			&.fx-switching {
+				opacity: 1;
+				transform: none;
+			}
 		}
 	}
 
@@ -64,15 +65,48 @@
 		min-height: 0;
 		overflow-y: auto;
 
+		// M5/P0 #36: off-screen messages stop laying out/painting. Long
+		// channels open faster and cost less memory on the POCO C3; browsers
+		// auto-pause animations in skipped subtrees (off-screen spell-spark
+		// loops stop costing frames). contain-intrinsic-size keeps the
+		// scrollbar stable. Prerequisite for affordable per-message ceremony
+		// (materialization, scene light) at STD.
+		//
+		// M5/P0 #36 PHASE-7 GATE (real-device, booked): content-visibility:
+		// auto skips off-screen rows, so verify on the live app that (1)
+		// reply-quote scrollIntoView still forces a skipped target row to
+		// render and lands on it, (2) near-top history backfill keeps its
+		// scroll anchor (no jump), and (3) jump-to-unread-on-open scrolls to
+		// the right row. These three are part of the Phase-7 "M4 a11y backlog
+		// / geometry sweep" gate items.
+		& > .msg {
+			content-visibility: auto;
+			contain-intrinsic-size: auto 4.5rem;
+		}
+
+		// Loading-skeleton rows (`channel/skeleton.rs`) carry the `.msg`
+		// class, so the rule above would skip them too — but the whole
+		// skeleton run is in-viewport during the initial load (that's its
+		// only job). Keep it rendering, or the placeholder pane flashes
+		// blank. The real rows that replace it inherit content-visibility
+		// again on swap-in.
+		& > .msg-skeleton {
+			content-visibility: visible;
+		}
+
 		// Per-message card: a subtle frame separates each message from the
-		// next and stacks the author/timestamp meta line above the body.
+		// next and stacks the author/timestamp meta line above the body. The
+		// hairline is the prototype's `--line` (a-orbit.html `.bubble`); the
+		// --card value bump in _tokens.scss is what keeps other-author bubbles
+		// from melting into the void on crushed-black panels (POCO C3 floor,
+		// finding #53). Cheap CSS only: no blur, no shadow.
 		.msg {
 			display: flex;
 			flex-direction: column;
 			gap: 0.15rem;
 			padding: 0.4rem 0.6rem;
-			background: var(--vellum-2);
-			border: 1px solid var(--rule-line);
+			background: var(--card);
+			border: 1px solid var(--line);
 			border-radius: 0.5rem;
 
 			& + .msg {
@@ -100,32 +134,98 @@
 				opacity: 1;
 			}
 
+			// Touch (M4/T4): the long-press radial menu replaces the hover
+			// action row entirely (there is no hover to reveal it), and the
+			// row's tiny targets would only invite mis-taps. Also disarm the
+			// browser's own long-press behaviours on the row — text-selection
+			// loupe / iOS callout — so the 450ms radial timer owns the
+			// gesture (the copy action lives in the radial instead). Scoped
+			// to coarse pointers: desktop keeps the hover row AND native
+			// text selection untouched. `.msg.system` is exempted below —
+			// system rows have no radial, so native selection/callout is
+			// their only copy path.
+			@media (pointer: coarse) {
+				user-select: none;
+				-webkit-user-select: none;
+				-webkit-touch-callout: none;
+
+				// iOS quirk: WebKit can resolve long-press selection from the
+				// text-carrying DESCENDANT, not the ancestor — with only the
+				// parent disarmed, long-press still summoned the native
+				// callout (Copy / Look Up / Translate) with selection handles
+				// over our radial menu. Repeat all three properties on every
+				// descendant explicitly so the 450ms radial timer owns the
+				// gesture. (`.msg.system` re-enables below, same shape.)
+				* {
+					user-select: none;
+					-webkit-user-select: none;
+					-webkit-touch-callout: none;
+				}
+
+				// A11y (review M-23): `display: none` here made every message
+				// action (reply/copy/edit/delete) pointer-gesture-only on
+				// touch devices — the buttons fell out of the tab order AND
+				// the accessibility tree, locking out iPad + hardware
+				// keyboard, switch access, and other AT (UX-equality law:
+				// same actions on every input class). Instead, collapse the
+				// row to a clipped 1px box: the buttons stay focusable, and
+				// tabbing into one restores the real row — the same
+				// :focus-within reveal desktop uses (the opacity rule above
+				// already matches, no media gate). Finger users never see
+				// it: clip-path removes the clipped box from hit-testing,
+				// so the long-press radial stays the only pointer surface.
+				.msg-actions:not(:focus-within) {
+					position: absolute;
+					width: 1px;
+					height: 1px;
+					margin: 0;
+					padding: 0;
+					overflow: hidden;
+					clip-path: inset(50%);
+					white-space: nowrap;
+				}
+			}
+
 			// Ghost icon-button for the message edit/delete/save/cancel controls.
 			// `.row-edit` is scoped under `.sidebar` for the channel rename, so
 			// the message pane (under `.content`) needs its own copy.
 			.row-edit {
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				padding: 0.2rem 0.35rem;
 				font-size: 0.85rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 
+			// Persona name: uppercase + letter-spaced (Duo polish, spec §1).
+			// text-transform is purely visual — the snapshotted name is
+			// untouched, and it's a no-op on non-cased (CJK/emoji) glyphs.
 			.who {
 				font-weight: 600;
-				color: var(--ink-soft);
+				font-size: 0.82rem;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--text-soft);
 			}
 
+			// Timestamp rides the mono stack (Duo polish, spec §1).
 			.when {
-				font-size: 0.75rem;
-				color: var(--ink-muted);
+				font-family: var(--font-mono);
+				font-size: 0.72rem;
+				letter-spacing: 0.02em;
+				color: var(--text-muted);
 			}
 
 			.text {
+				// The story itself stays serif (Duo typography, spec §1).
+				font-family: var(--font-prose);
+				// Prose body leading (a-orbit.html `.bubble line-height:1.45`):
+				// roomier than the UI default so multi-line roleplay breathes.
+				line-height: 1.45;
 				// pre-wrap renders message newlines/blank lines and still
 				// wraps at spaces; break-word stops long URLs overflowing.
 				white-space: pre-wrap;
@@ -143,21 +243,26 @@
 				text-align: left;
 				background: transparent;
 				border: none;
-				border-left: 2px solid var(--gold);
+				border-left: 2px solid var(--accent);
 				padding: 0 0 0 0.5rem;
 				margin-bottom: 0.1rem;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				font-size: 0.8rem;
 				cursor: pointer;
 				overflow: hidden;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 
+				// Matches the `.who` uppercase treatment for consistency, a
+				// notch smaller so the snippet stays the dominant line.
 				.reply-quote-who {
 					font-weight: 600;
-					color: var(--ink-soft);
+					font-size: 0.72rem;
+					letter-spacing: 0.06em;
+					text-transform: uppercase;
+					color: var(--text-soft);
 					flex: none;
 				}
 
@@ -171,83 +276,556 @@
 			}
 		}
 
+		// Directional bubbles (spec §1): the viewer's own messages lean right
+		// with a mirrored corner + blue-tinted card; everyone else stays left.
+		// Bubbles hug their content (fit-content) and cap at 88% so long
+		// prose still breathes (T1 review: a fixed 88% made short messages
+		// wide cards). Pure presentation — the `.own` class is set
+		// per-message from the `mine` flag at render.
+		.msg {
+			width: fit-content;
+			max-width: 88%;
+			margin-right: auto; // others: hug the left
+		}
+		.msg.own {
+			margin-left: auto;
+			margin-right: 0;
+			// a-orbit.html `.msg.mine .bubble`: the blue-tinted mention wash +
+			// the soft accent border (was a hand-mixed 9% accent / --line-strong).
+			background: var(--mention-bg);
+			border-color: var(--accent-soft);
+			border-radius: 0.5rem 0.15rem 0.5rem 0.5rem; // mirrored top-right
+		}
+		.msg.own .meta {
+			flex-direction: row-reverse;
+		}
+		.msg.own .msg-actions {
+			margin-left: 0;
+			margin-right: auto;
+		}
+
 		// Ghost draft row: lays out exactly like a real .msg (inherits the base
 		// rule above) but reads as un-sent — dimmed, italic body, a dashed accent
 		// rail on the left. Selector pinned to the exact class the composer emits.
 		.msg.msg-draft {
 			opacity: 0.55;
 			border-style: dashed;
-			border-left: 2px solid var(--gold);
+			border-left: 2px solid var(--accent);
+			// Exempt from the directional-bubble squeeze: the ghost row stays
+			// a full-width banner like the system row below.
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
 
 			.text {
 				font-style: italic;
 			}
 		}
 
-		// System (Nova DOT) broadcast: an app-admin message. A solid gold rail +
-		// faint gold wash sets it apart from ordinary chat without shouting, and a
-		// small uppercase SYSTEM pill tags the sender. No actions / persona popup.
-		.msg.system {
-			border-left: 3px solid var(--gold);
-			background: color-mix(in srgb, var(--gold) 8%, var(--vellum-2));
+		// Ghost Quill row (M4/T7): ANOTHER member's live draft, fetched from
+		// the permission-checked /typing-drafts endpoint (opt-in both ways).
+		// Same clearly-not-real language as the own-draft preview above —
+		// dimmer still, dashed all around in the muted border tone (no accent
+		// rail: that reads "yours"), italic body. The row shimmers its opacity
+		// (a-orbit.html `ghostShimmer`, .5 → .95 alternate) so a live draft
+		// reads as in-flight, not committed. Opacity-only motion; the
+		// `fx-ghost-shimmer` name lands on the _motion.scss `fx-` kill list, so
+		// reduced-motion freezes it at the static base opacity below (state).
+		.msg.msg-ghost {
+			// Base opacity = the shimmer's dim floor, so the killed
+			// (reduced-motion) state still reads as a dimmed ghost; the
+			// animation overrides it while running.
+			opacity: 0.5;
+			border: 1.5px dashed var(--line-strong);
+			background: transparent;
+			animation: fx-ghost-shimmer 2.8s ease-in-out infinite alternate;
+			// Same full-width banner exemption as the draft/system rows.
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
 
+			.who {
+				color: var(--text-muted);
+			}
+
+			.text {
+				font-style: italic;
+				color: var(--text-muted);
+			}
+		}
+
+		// Loading-skeleton rows (_skeleton.scss): the shimmer bars are empty
+		// percentage-width placeholders, so the fit-content squeeze above
+		// collapses them to ~avatar width and the shimmer renders at ~0.
+		// Same full-width exemption as the draft/system rows — the complete
+		// exemption list is system / roll / msg-draft / msg-ghost /
+		// msg-skeleton, kept together.
+		.msg.msg-skeleton {
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+		}
+
+		// Re-entry dividers (UX evolution #9): virtual rows, never message
+		// cards — no .msg class, so none of the card-frame / bubble rules
+		// above apply. A faint mono label between two hairlines (Void
+		// Station console register). Static state, not motion: nothing for
+		// reduced-motion to kill, nothing the floor device pays for. The
+		// NEW divider marks the unread frontier captured at channel open
+		// (accent-tinted; its dom id is the unread jump's anchor target);
+		// date separators mark local-midnight crossings in ISO YYYY-MM-DD —
+		// locale-stable on every device. Non-interactive chrome, so
+		// selection is disarmed on every pointer class (not just coarse)
+		// and the 44px tap-target rule doesn't apply.
+		.msg-divider {
+			display: flex;
+			align-items: center;
+			gap: 0.6rem;
+			// Own vertical rhythm: dividers break the `.msg + .msg`
+			// adjacency, so they carry the inter-row spacing themselves.
+			margin: 0.6rem 0 0.4rem;
+			user-select: none;
+			-webkit-user-select: none;
+
+			.divider-line {
+				flex: 1;
+				height: 1px;
+				background: var(--glass-line);
+			}
+
+			.divider-label {
+				flex: none;
+				font-family: var(--font-mono);
+				font-size: 0.68rem;
+				letter-spacing: 0.14em;
+				color: var(--text-muted);
+			}
+		}
+
+		// The unread frontier: same skeleton as a date line, tinted accent
+		// so "where I left off" reads at a glance among the date separators.
+		.msg-divider.new-divider {
+			.divider-line {
+				background: color-mix(in srgb, var(--accent) 45%, transparent);
+			}
+
+			.divider-label {
+				color: var(--accent-bright);
+			}
+		}
+
+		// System (Nova DOT) broadcast: an app-admin message. A solid blue accent
+		// rail + faint accent wash sets it apart from ordinary chat without
+		// shouting, and a small uppercase SYSTEM pill tags the sender. No
+		// actions / persona popup.
+		.msg.system {
+			border-left: 3px solid var(--accent);
+			// Wash over the same --card base the plain .msg uses.
+			background: color-mix(in srgb, var(--accent) 8%, var(--card));
+			// System broadcasts stay full-width banners, exempt from the
+			// directional-bubble max-width/left-hug above.
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+
+			// The span carries BOTH classes (`who system-author`), so the
+			// `.who` uppercase/letter-spacing/size above already applies;
+			// this rule only swaps the color to the accent.
 			.system-author {
-				color: var(--gold);
-				font-weight: 700;
+				color: var(--accent);
+				font-weight: 600;
 			}
 
 			.system-badge {
 				font-size: 0.6rem;
-				font-weight: 700;
+				font-weight: 600;
 				letter-spacing: 0.06em;
 				text-transform: uppercase;
-				color: var(--gold);
-				border: 1px solid var(--gold-soft);
+				color: var(--accent);
+				border: 1px solid var(--accent-soft);
 				border-radius: 0.25rem;
 				padding: 0 0.3rem;
+			}
+
+			// System rows never arm the radial — they offer no actions (see
+			// message_actions in shell/channel/mod.rs) — so the coarse-pointer
+			// selection/callout disarm on `.msg` above would only make a Nova
+			// DOT broadcast's text UNCOPYABLE on touch. Re-enable native
+			// selection and the iOS callout (its Copy) here; the delegated
+			// contextmenu suppression (shell/channel/radial.rs) is likewise
+			// gated off system rows.
+			@media (pointer: coarse) {
+				user-select: text;
+				-webkit-user-select: text;
+				-webkit-touch-callout: default;
+
+				// Mirror the `.msg *` descendant disarm above: iOS reads
+				// these off the text-carrying descendants, so re-enabling
+				// only the parent would leave system-row text uncopyable.
+				// `.msg.system *` out-specifies `.msg *`, so this wins.
+				* {
+					user-select: text;
+					-webkit-user-select: text;
+					-webkit-touch-callout: default;
+				}
+			}
+		}
+
+		// Roll result (M4/T6 Fate Engine): a `kind='roll'` message — a
+		// server-rolled dice outcome. An AUTHORED action (normal meta row:
+		// persona/author name, reply+copy — see message_actions), but the
+		// body renders as a glass result chip and the row is a full-width
+		// banner like the system row, exempt from the directional-bubble
+		// squeeze. Entrance rides fx-roll-in; `.app.fx-max` adds a die
+		// tumble on the 🎲 glyph. Both are one-shot fx- keyframes killed
+		// under reduced-motion in _motion.scss (the classes carry no "fx-"
+		// token, so they sit on the explicit kill list there); everything
+		// that remains — the glass, the glow — is state.
+		.msg.roll {
+			width: auto;
+			max-width: 100%;
+			margin-right: 0;
+			border-color: var(--accent-soft);
+			animation: fx-roll-in 0.35s var(--ease-quick) 1;
+
+			.roll-chip {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				margin-top: 0.15rem;
+				padding: 0.3rem 0.65rem;
+				border: 1px solid var(--accent-soft);
+				border-radius: 0.6rem;
+				// Translucent wash only at the standard tier: this chip lives
+				// INSIDE the scrolling list, so a backdrop-filter here moves
+				// against its backdrop and re-blurs every scroll frame —
+				// glass is for CHROME (_foundation.scss battery rule; review
+				// M-39). The wash over the opaque .msg card still reads as a
+				// chip on its own — the mixin's own fallback philosophy.
+				background: color-mix(in srgb, var(--card) 55%, transparent);
+				box-shadow: 0 0 10px var(--glow-accent);
+
+				// Eye-candy tier opts back into the true frosted glass —
+				// except under Reduce Transparency, which outranks the
+				// eyecandy pref (same parity rule as the glass mixin,
+				// review M-51): the standard-tier wash already reads as a
+				// chip without the blur.
+				.app.fx-max & {
+					backdrop-filter: blur(8px);
+					-webkit-backdrop-filter: blur(8px);
+
+					@media (prefers-reduced-transparency: reduce) {
+						backdrop-filter: none;
+						-webkit-backdrop-filter: none;
+					}
+				}
+			}
+
+			.roll-die {
+				// The standalone rotate/scale in fx-die-tumble don't apply
+				// to plain inlines.
+				display: inline-block;
+				font-size: 1.1rem;
+			}
+
+			.roll-text {
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+			}
+
+			// Sealed-roll caption: a static mono sub-label under the chip
+			// (channel/mod.rs is_roll branch) restating that a Fate Engine
+			// roll is immutable — the lock the server enforces (403 on
+			// edit/delete), surfaced on-screen. Small + muted like the
+			// divider/sync mono labels; no animation, no shadow/filter — pure
+			// state, style_lint-safe at every tier.
+			.roll-tag {
+				margin-top: 0.3rem;
+				font-family: var(--font-mono);
+				font-size: 0.62rem;
+				letter-spacing: 0.04em;
+				color: var(--text-muted);
+			}
+
+			// Eye-candy tier: the die tumbles in a full turn as the chip
+			// lands.
+			.app.fx-max & .roll-die {
+				animation: fx-die-tumble 0.6s var(--ease-quick) 1;
+			}
+		}
+
+		// Message effects (M4/T5): an `effect-{name}` class set per-row from
+		// the (server-validated, client-re-whitelisted) envelope field. Pure
+		// presentation on top of the base/.own/.system composition above —
+		// the full-width exemptions and action affordances are untouched.
+
+		// whisper — a storyteller spoiler: the body is blurred until tapped
+		// (shell/channel/mod.rs toggles `.revealed` per message). The blur is
+		// STATE, not motion, so it survives reduced-motion on purpose; the
+		// reveal is a plain class flip that needs no animation (the filter
+		// transition is collapsed to 0.01ms by the _base.scss freeze there).
+		// Selection is disarmed while hidden so the "secret" can't be copied
+		// out from under the blur.
+		.msg.effect-whisper .text {
+			// a-orbit.html `.wbody`: a heavier 7px veil with a slow .4s ease
+			// reveal (the prototype's `transition:filter .4s ease`).
+			filter: blur(7px);
+			cursor: pointer;
+			transition: filter 0.4s ease;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+
+		// Visible reveal cue for sighted touch users (channel/mod.rs whisper
+		// branch): the tap-to-reveal affordance otherwise lives only in the
+		// veil's title/aria (the AT path), invisible on a coarse pointer. A
+		// small muted mono caption beside the blurred body advertises it. NOT
+		// blurred itself — it must stay legible to do its job. The component
+		// flips `.revealed` on it once the body is shown, so it disappears the
+		// moment it's no longer needed (mirroring the title/aria, which also
+		// drop on reveal). Pure static text — no animation/shadow/filter.
+		.msg.effect-whisper .whisper-hint {
+			display: block;
+			margin-top: 0.2rem;
+			font-family: var(--font-mono);
+			font-size: 0.62rem;
+			letter-spacing: 0.04em;
+			color: var(--text-muted);
+			cursor: pointer;
+			user-select: none;
+			-webkit-user-select: none;
+
+			&.revealed {
+				display: none;
+			}
+		}
+
+		// A11y disclosure (review M-22): the veil spans are real keyboard
+		// stops (role=button, tabindex=0 — channel/mod.rs), so give them the
+		// project's keyboard-focus ring (the _modal.scss convention):
+		// :focus-visible only, so taps/clicks don't paint rings.
+		.msg.effect-whisper .text:focus-visible,
+		.msg.effect-whisper .atts-veil:focus-visible {
+			outline: 2px solid var(--accent-bright);
+			outline-offset: 2px;
+			border-radius: 0.25rem;
+		}
+
+		// Ghost Quill rows carrying the server-masked `(whisper)` placeholder
+		// (review M-01) reuse the veil's blur via `effect-whisper`, but offer
+		// no reveal — there is nothing behind the placeholder — so don't
+		// advertise tappability.
+		.msg.msg-ghost.effect-whisper .text {
+			cursor: default;
+		}
+
+		.msg.effect-whisper.revealed .text {
+			filter: none;
+			user-select: text;
+			-webkit-user-select: text;
+
+			// Coarse pointers: revealed whisper text stays UNSELECTABLE like
+			// every other message body (the radial's Copy is the touch copy
+			// path) — this rule out-specifies the `.msg *` disarm, so without
+			// the override a long-press on revealed whisper text would
+			// resurrect the iOS callout. Reveal-tap itself (the filter flip
+			// above) is untouched.
+			@media (pointer: coarse) {
+				user-select: none;
+				-webkit-user-select: none;
+			}
+		}
+
+		// The attachment grid is a SIBLING of `.text` (channel/mod.rs), so
+		// the spoiler veil must cover it separately: a touch more blur than
+		// the text (media silhouettes read through 4px), and pointer-events
+		// off while hidden so a tap on the media area falls through to the
+		// row's `.atts-veil` wrapper — which reveals — instead of opening the
+		// lightbox. Both restored on `.revealed`.
+		.msg.effect-whisper .attachments {
+			filter: blur(6px);
+			pointer-events: none;
+			transition: filter var(--dur-quick) var(--ease-quick);
+		}
+
+		.msg.effect-whisper .atts-veil {
+			cursor: pointer;
+		}
+
+		.msg.effect-whisper.revealed .attachments {
+			filter: none;
+			pointer-events: auto;
+		}
+
+		// shout — a one-shot shake (fx-shout, killed under reduced-motion in
+		// _motion.scss) plus a warm tint that stays: the tint is state, so a
+		// shout still reads as a shout with the motion removed. The `1`-count
+		// animation replays whenever the row re-enters the DOM (older-history
+		// prepend, deletion compaction, channel re-entry) — accepted: replay
+		// on entry reads fine, and strict once-per-message would need
+		// ingest-tracking state.
+		.msg.effect-shout {
+			animation: fx-shout 0.55s var(--ease-quick) 1;
+			border-color: color-mix(in srgb, var(--tint-orange) 45%, var(--line));
+
+			.text {
+				color: color-mix(in srgb, var(--tint-orange) 45%, var(--text));
+			}
+		}
+
+		// spell — a soft accent glow base (state — stays under
+		// reduced-motion) plus THREE rising sparks at the STANDARD tier
+		// (a-orbit.html `.s1/.s2/.s3`): glowing pseudo-element dots riding
+		// fx-spark, the middle one accent-BLUE, staggered .7s / 1.3s. Spark
+		// opacity is keyframed from a 0 BASE (the fx-warp pattern) so the
+		// reduced-motion kill in _motion.scss leaves no static dot behind.
+		// `.app.fx-max` layers density + glow on top: a stronger halo, a slow
+		// breathing pulse, and a brighter third spark.
+		// Three rising sparks at the STANDARD tier (a-orbit.html `.s1/.s2/.s3`):
+		// two on the row's own `::before`/`::after`, the third on `.text::after`
+		// (the row only has two free pseudo-elements). The middle one takes the
+		// accent-BLUE hue (`--accent-bright`) and they stagger .7s / 1.3s like
+		// the prototype. fx-spark keyframes opacity from a 0 base, so the
+		// reduced-motion kill leaves no static dot.
+		.msg.effect-spell {
+			position: relative;
+			border-color: var(--accent-soft);
+			box-shadow: 0 0 10px var(--glow-accent);
+
+			// s2 + s1 share the spark base (s3 carries its own below). s1 moves
+			// from the row's ::before to `.text::before` so the row's ::before is
+			// FREE for the fx-max breathing halo — that halo must be a
+			// BUBBLE-anchored pseudo so `border-radius: inherit` resolves to the
+			// bubble radius; on `.text` it inherits 0 and paints a sharp inner
+			// rectangle that reads as a dark inset codeblock box.
+			&::after,
+			.text::before {
+				content: "";
+				position: absolute;
+				width: 5px;
+				height: 5px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 8px var(--glow-accent);
+				opacity: 0;
+				pointer-events: none;
+				animation: fx-spark 2.2s ease-in-out infinite;
+			}
+
+			// s1: top-right, no delay (relocated to `.text::before`).
+			.text::before {
+				top: -0.35rem;
+				right: 0.7rem;
+			}
+
+			// s2: lower-left, accent-BLUE, .7s delay (a-orbit.html `.s2`).
+			&::after {
+				top: 30%;
+				left: 0.4rem;
+				background: var(--accent-bright);
+				box-shadow: 0 0 8px var(--accent-bright);
+				animation-delay: 0.7s;
+			}
+
+			// The text span anchors the third spark on its `::after`.
+			.text {
+				position: relative;
+			}
+
+			// s3: bottom-ish, 1.3s delay — STANDARD tier (a-orbit.html `.s3`).
+			.text::after {
+				content: "";
+				position: absolute;
+				bottom: -0.3rem;
+				right: 1.6rem;
+				width: 5px;
+				height: 5px;
+				border-radius: 50%;
+				background: var(--accent);
+				box-shadow: 0 0 8px var(--glow-accent);
+				opacity: 0;
+				pointer-events: none;
+				animation: fx-spark 2.2s ease-in-out infinite 1.3s;
+			}
+
+			// M5/P0 #43: the fx-max spell glow breathes via an opacity-keyframed
+			// pseudo (was animating box-shadow — a paint property). The row keeps
+			// a stronger STATIC halo (state, stays under reduced-motion); the
+			// breathe rides the keyframe's opacity. The halo lives on the row's
+			// OWN `::before` (freed above by moving s1 to `.text::before`) so
+			// `border-radius: inherit` picks up the bubble radius and the glow
+			// wraps the rounded bubble. A `.text`-anchored pseudo inherited 0 →
+			// a sharp rectangle glow inside the bubble = the dark codeblock box,
+			// worst at the pulse peak. Reduced-motion kills it (_motion.scss,
+			// `.msg.effect-spell::before`), leaving the static halo at full glow.
+			.app.fx-max & {
+				box-shadow: 0 0 18px var(--glow-accent); // MAX glow, STATIC
+			}
+
+			.app.fx-max &::before {
+				content: "";
+				position: absolute;
+				inset: 0;
+				border-radius: inherit;
+				background: none;
+				pointer-events: none;
+				box-shadow: 0 0 18px var(--glow-accent); // MAX glow
+				animation: fx-glow-pulse 2.4s ease-in-out infinite;
+			}
+
+			// The third spark (`.text::after`) now renders at the standard tier
+			// (above), so fx-max only strengthens its glow — the dot itself is
+			// no longer fx-max-gated.
+			.app.fx-max & .text::after {
+				box-shadow: 0 0 11px var(--accent);
 			}
 		}
 	}
 
 	// Floating round button that jumps the message list to the latest message.
 	// Shown only while the user has scrolled up past the threshold; anchored to
-	// the bottom-right of .channel-view, sitting just above the composer.
+	// the bottom-right of .channel-view, just above the composer band via the
+	// MEASURED --composer-h var (set on <html> by the channel pane's
+	// ResizeObserver, shell/channel/mod.rs — the UX evolution #11 placement
+	// contract shared with .unread-pill and the toast capsule, _toast.scss).
+	// The 4.6rem fallback reproduces the old fixed 5.5rem geometry.
 	.jump-bottom {
 		position: absolute;
 		right: 1rem;
-		bottom: 5.5rem;
+		bottom: calc(var(--composer-h, 4.6rem) + 0.9rem);
 		z-index: 5;
 		width: 2.4rem;
 		height: 2.4rem;
 		padding: 0;
 		border-radius: 50%;
-		border: 1px solid var(--rule-line);
-		background: var(--vellum-2);
-		color: var(--ink);
+		border: 1px solid var(--line);
+		background: var(--surface-2);
+		color: var(--text);
 		font-size: 1.2rem;
 		line-height: 1;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 		cursor: pointer;
 
 		&:hover {
-			border-color: var(--gold);
-			color: var(--gold);
+			border-color: var(--accent);
+			color: var(--accent);
 		}
 	}
 
 	// Unread notifier pill: appears centered above the composer when messages
 	// arrive while the user is scrolled up. Click jumps to the earliest unread.
+	// Same measured --composer-h anchor as .jump-bottom above.
 	.unread-pill {
 		position: absolute;
 		left: 50%;
 		transform: translateX(-50%);
-		bottom: 5.5rem;
+		bottom: calc(var(--composer-h, 4.6rem) + 0.9rem);
 		z-index: 5;
 		padding: 0.35rem 0.9rem;
 		border-radius: 1rem;
-		border: 1px solid var(--gold);
-		background: var(--gold);
-		color: var(--parchment);
+		border: 1px solid var(--accent);
+		background: var(--accent);
+		color: var(--void);
 		font-size: 0.85rem;
 		font-weight: 600;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -260,18 +838,85 @@
 
 	// "%name% is typing…" line (#19): a thin muted strip just above the
 	// composer. Sits in normal flow so it nudges the composer down only while
-	// someone is typing; renders nothing (no element) otherwise.
+	// someone is typing; renders nothing (no element) otherwise. M4/T1 adds
+	// the constellation — tiny orbiting stars, one per typist (max 3) — as a
+	// decoration BESIDE the names text, kept subtle since it sits right above
+	// the composer.
 	.typing-indicator {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 		padding: 0.1rem clamp(0.5rem, 2vw, 1rem) 0;
 		font-size: 0.78rem;
 		font-style: italic;
-		color: var(--ink-muted);
+		color: var(--text-muted);
 		line-height: 1.3;
 		user-select: none;
+
+		// The orbit box: a 30px stage (a-orbit.html `.constellation`) the
+		// orbiting dots circle the center of, around a central mint anchor.
+		.constellation {
+			position: relative;
+			flex: none;
+			width: 30px;
+			height: 30px;
+		}
+
+		// The central mint anchor (a-orbit.html `.constellation i.c`): a
+		// slightly larger live-hued dot that twinkles in place at the stage
+		// centre while the others orbit it. Static position (no orbit), so the
+		// reduced-motion kill leaves it sitting put — pure presence.
+		.star-core {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 6px;
+			height: 6px;
+			margin: -3px 0 0 -3px;
+			border-radius: 50%;
+			background: var(--live);
+			box-shadow: 0 0 8px color-mix(in srgb, var(--live) 70%, transparent);
+			// twinkA-equivalent: a slow in-place breathe (the prototype's 2s
+			// twinkA on i.c). fx-twinkle scales+fades; that reads as the same
+			// centre-pulse and is killed under reduced-motion.
+			animation: fx-twinkle 2s ease-in-out infinite;
+		}
+
+		// An orbiting dot (a-orbit.html `.constellation i`): each carries its
+		// OWN radius + duration via the inline `--orbit-r` / `--orbit-d` vars
+		// (set per-dot in channel/mod.rs), and one runs `--orbit-rev: reverse`
+		// so the constellation counter-spins. The orbit radius lives INSIDE
+		// fx-orbit (`translateX(var(--orbit-r))`), so the reduced-motion kill
+		// collapses all dots onto the centre — accepted, the core stays as the
+		// single resting mark (matching the prototype, whose dots also stack
+		// when `orbitDot` is killed).
+		.star {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 4px;
+			height: 4px;
+			margin: -2px 0 0 -2px; // self-center the dot; fx-orbit adds the radius
+			border-radius: 50%;
+			background: var(--accent-bright);
+			box-shadow: 0 0 7px var(--glow-accent);
+			animation: fx-orbit var(--orbit-d, 2.6s) linear infinite var(--orbit-rev, normal);
+		}
+
+		// Eye-candy tier: a stronger glow on the orbiting dots + the core.
+		.app.fx-max & {
+			.star {
+				box-shadow: 0 0 11px var(--glow-accent);
+			}
+
+			.star-core {
+				box-shadow: 0 0 12px color-mix(in srgb, var(--live) 80%, transparent);
+			}
+		}
 	}
 
 	.composer {
-		border-top: 1px solid var(--rule-line);
+		border-top: 1px solid var(--line);
 		// Positioned ancestor for the absolute emoji popovers (.emoji-picker /
 		// .emoji-suggest are direct children using bottom:100%). Without this they
 		// anchor to .channel-view (full height) and open entirely above the
@@ -298,11 +943,11 @@
 			gap: 0.5rem;
 			width: 100%;
 			padding: 0.25rem 0.5rem;
-			border-left: 2px solid var(--gold);
-			background: var(--vellum-2);
+			border-left: 2px solid var(--accent);
+			background: var(--surface-2);
 			border-radius: 0.3rem;
 			font-size: 0.8rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 
 			.reply-banner-text {
 				min-width: 0;
@@ -311,12 +956,12 @@
 				white-space: nowrap;
 
 				strong {
-					color: var(--ink-soft);
+					color: var(--text-soft);
 				}
 
 				.reply-banner-snippet {
 					margin-left: 0.4rem;
-					color: var(--ink-muted);
+					color: var(--text-muted);
 				}
 			}
 
@@ -325,12 +970,12 @@
 				flex: none;
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				cursor: pointer;
 				padding: 0 0.2rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 		}
@@ -344,11 +989,11 @@
 			gap: 0.5rem;
 			width: 100%;
 			padding: 0.25rem 0.5rem;
-			border-left: 2px solid var(--ink-soft);
-			background: var(--vellum-2);
+			border-left: 2px solid var(--text-soft);
+			background: var(--surface-2);
 			border-radius: 0.3rem;
 			font-size: 0.8rem;
-			color: var(--ink-muted);
+			color: var(--text-muted);
 
 			.edit-banner-text {
 				min-width: 0;
@@ -362,12 +1007,12 @@
 				flex: none;
 				background: transparent;
 				border: none;
-				color: var(--ink-muted);
+				color: var(--text-muted);
 				cursor: pointer;
 				padding: 0 0.2rem;
 
 				&:hover {
-					color: var(--ink);
+					color: var(--text);
 				}
 			}
 		}
@@ -403,8 +1048,8 @@
 			grid-template-columns: repeat(4, 1.2rem);
 			gap: 0.4rem;
 			padding: 0.5rem;
-			background: var(--vellum);
-			border: 1px solid var(--rule-line);
+			background: var(--surface);
+			border: 1px solid var(--line);
 			border-radius: 8px;
 			box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 
@@ -417,6 +1062,8 @@
 		}
 
 		textarea {
+			// What you type is prose — match the message body's serif.
+			font-family: var(--font-prose);
 			flex: 1;
 			min-width: 0;
 			resize: none;
@@ -432,6 +1079,108 @@
 			// lacks `field-sizing` support — Chrome 123+ / Safari 17.4+ /
 			// Firefox 124+ all support it.
 			field-sizing: content;
+
+			// Mobile finding #50b: the placeholder must never wrap into a
+			// multi-line block on a narrow screen — keep it one line and let
+			// it ellipsize when the textarea is narrower than the hint. The
+			// string itself (shell/channel/mod.rs) is short enough to fit
+			// typical phones; this is the fluid guard for anything narrower.
+			// Firefox restricts ::placeholder to ::first-line properties and
+			// simply ignores these three — harmless there, the short string
+			// still fits.
+			&::placeholder {
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+		}
+
+		// M4/T5: the effect-mode picker beside Send. Quiet while no effect is
+		// armed (muted glyph); `.active` (any mode picked) lights the accent
+		// ring + glow so an armed flourish is unmissable before sending. The
+		// glow is state, not motion — nothing to kill under reduced-motion.
+		.effect-pick {
+			min-width: 2.4rem;
+			color: var(--text-muted);
+
+			&.active {
+				color: var(--text);
+				border-color: var(--accent);
+				box-shadow: 0 0 6px var(--glow-accent);
+			}
+		}
+
+		// M4/T2: charging send button. A thin conic-gradient ring around
+		// Send fills clockwise as the composed message grows — `--charge`
+		// (0..1) is bound from the compose signal in shell/channel/mod.rs
+		// ("full" at ~280 chars; not a length limit). The ring lives on a
+		// ::before sitting 4px OUTSIDE the button box with
+		// pointer-events: none, so the label and click target are untouched.
+		// The fill itself is static (state, not motion) so it stays under
+		// reduced-motion; the post-send `.sent` pulse IS motion and is
+		// killed explicitly in _motion.scss (its class carries no "fx-").
+		.send {
+			position: relative;
+
+			&::before {
+				content: "";
+				position: absolute;
+				inset: -4px;
+				// Match the button's rounded-rect (0.375rem, the global
+				// `button` radius in _base.scss) grown by the 4px inset so
+				// the rim stays concentric with the button's corners.
+				border-radius: calc(0.375rem + 4px);
+				background: conic-gradient(
+					var(--accent) calc(var(--charge, 0) * 360deg),
+					transparent 0
+				);
+				// Keep only a thin rounded-rect rim: the classic
+				// gradient-border mask — paint the whole box, then punch
+				// out the content-box (everything inside the 3px padding)
+				// with mask-composite. A radial-gradient mask was wrong
+				// here: its last stop extends past 100%, leaving the
+				// rectangle's corner spandrels opaque (solid-block bug),
+				// and closest-side is elliptical, not rounded-rect.
+				padding: 3px;
+				-webkit-mask:
+					linear-gradient(#000 0 0) content-box,
+					linear-gradient(#000 0 0);
+				-webkit-mask-composite: xor;
+				mask:
+					linear-gradient(#000 0 0) content-box,
+					linear-gradient(#000 0 0);
+				mask-composite: exclude;
+				opacity: 0;
+				pointer-events: none;
+			}
+
+			// Only visible while something is composed.
+			&.charging::before {
+				opacity: 1;
+			}
+
+			// One glow pulse on a successful send — act::send_message flips
+			// `.sent` for ~400ms (matching the duration here).
+			// M5/P0 #43 pre-rendered-glow pattern: the send-confirm pulse no
+			// longer animates box-shadow. A `::after` carries the MAX glow
+			// statically; the keyframe only breathes its opacity. Identical
+			// look, composite-only cost. (`.send` already owns `::before` for
+			// the charge ring and is `position: relative`, so the glow takes
+			// `::after`; reduced-motion kills it in _motion.scss.)
+			&.sent::after {
+				content: "";
+				position: absolute;
+				inset: 0;
+				border-radius: inherit;
+				pointer-events: none;
+				box-shadow: 0 0 16px var(--glow-accent); // MAX glow, STATIC
+				animation: fx-glow-pulse 0.4s ease-out 1;
+			}
+
+			// Eye-candy tier: the ring itself glows.
+			.app.fx-max &::before {
+				filter: drop-shadow(0 0 6px var(--glow-accent));
+			}
 		}
 	}
 }
@@ -460,7 +1209,7 @@
 	border-radius: 50%;
 	flex: 0 0 auto;
 	background: var(--avatar-tile);
-	color: var(--ink-soft);
+	color: var(--text-soft);
 	font-weight: 600;
 	font-size: 1.05rem;
 	vertical-align: middle;
@@ -472,4 +1221,162 @@
 	height: 100%;
 	border-radius: inherit;
 	display: flex;
+}
+
+// ---- M6/P3 Nova DOT orb ----
+// The system-message avatar (system_message_meta). Sized to the chat-avatar
+// slot so system rows align with ordinary ones, but it is a DISTINCT class:
+// `.chat-avatar { display:none }` under .app.sk-orbit must never reach it (the
+// orb is orbit's deliberate name-only exception — confirmed in
+// _sk_orbit_chat.scss). The hue is inherited via `color` → the SVG's
+// `currentColor`; the dashed ring spins (fx-nova-ring, _motion.scss). Glow is a
+// STATIC box-shadow on `::before` per the pre-rendered-glow doctrine (never
+// animated). Decorative/non-interactive → no 44px touch floor.
+.nova-orb {
+	position: relative; // anchors the glow ::before
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	flex: 0 0 auto;
+	margin-right: 0.5rem;
+	vertical-align: middle;
+	color: var(--accent); // drives the SVG currentColor
+
+	svg {
+		width: 100%;
+		height: 100%;
+		display: block;
+		overflow: visible; // the ring stroke + glow may exceed the viewBox
+	}
+
+	// Static pre-rendered glow (doctrine: never animate box-shadow).
+	&::before {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		pointer-events: none;
+		box-shadow: 0 0 10px var(--glow-accent);
+		opacity: 0.5;
+	}
+
+	.nova-orb-ring {
+		transform-box: fill-box; // rotate about the ring's own centre, not the
+		transform-origin: center; // SVG user-space origin (0,0)
+		animation: fx-nova-ring 9s linear infinite;
+	}
+}
+
+// ---- M4/T4 radial long-press action menu (touch) ----
+// Opened by a ~450ms press on a .msg (shell/channel/radial.rs). The menu
+// element itself is a ZERO-SIZE anchor fixed at the (viewport-clamped) press
+// point; the buttons fan out on an upward arc via per-slot `--ang`
+// rotate/translate transforms, and fx-blossom (_motion.scss) scales the
+// whole arc out of the anchor on open. position: fixed on both layers, so
+// nothing perturbs the message list / directional-bubble layout.
+
+// Dismiss layer: a genuinely-new tap closes the menu (the shared
+// pointerdown-armed guard in radial.rs — covering this backdrop AND the
+// chips — ignores the stray compat click manufactured by the opening press
+// itself). touch-action: none so a pan can't start on it, mirroring
+// .modal-backdrop.
+//
+// TRANSPARENT, never `var(--scrim)`: this is a NON-modal popover catcher
+// (the radial action menu is role="menu", not a role="dialog" aria-modal),
+// so it must not dim. fx-max is unconditional, so an opaque scrim here would
+// black out the whole chat behind a 2–4 chip arc on every long-press — the
+// B4 blossom-scrim blackout, in its unfixed twin. Pinned by
+// `scrim_only_on_modal_backdrops` in tests/style_lint.rs.
+.radial-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	background: transparent;
+	touch-action: none;
+}
+
+.radial-menu {
+	position: fixed;
+	width: 0;
+	height: 0;
+	z-index: 61;
+	animation: fx-blossom 240ms var(--ease-spring) both;
+
+	// One action button on the arc: a circular glass chip. The material is
+	// foundation's glass mixin (borderless variant — a circle wants its own
+	// hairline ring, drawn below). The positioning transform is the classic
+	// orbit trick: rotate to the slot angle, push out along the rotated
+	// x-axis, counter-rotate so the icon stays upright. -90deg points
+	// straight UP, so all slots sit on the upper arc, clear of the finger.
+	.radial-btn {
+		@include glass($border: false);
+		position: absolute;
+		// Self-center the 44px chip on the anchor before the arc transform.
+		left: -22px;
+		top: -22px;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid var(--glass-line);
+		border-radius: 50%;
+		color: var(--text);
+		box-shadow:
+			0 6px 20px rgba(0, 0, 0, 0.45),
+			inset 0 1px 0 var(--glass-highlight);
+		transform: rotate(var(--ang, -90deg)) translateX(64px)
+			rotate(calc(-1 * var(--ang, -90deg)));
+
+		.icon {
+			width: 1.15rem;
+			height: 1.15rem;
+		}
+
+		// .danger (delete) inherits its red from the global button.danger
+		// rule (_base.scss); active feedback only here — there is no hover
+		// on touch.
+		&:active {
+			border-color: var(--accent);
+			color: var(--accent-bright);
+		}
+
+		&.danger:active {
+			border-color: var(--danger);
+			color: var(--danger);
+		}
+	}
+
+	// Slot angles. n2 = reply/copy (someone else's message), n4 adds
+	// edit/delete (own message). Both spreads stay on the upper arc so the
+	// menu never opens under the pressing finger.
+	&.n2 .radial-btn:nth-child(1) {
+		--ang: -125deg;
+	}
+	&.n2 .radial-btn:nth-child(2) {
+		--ang: -55deg;
+	}
+	&.n4 .radial-btn:nth-child(1) {
+		--ang: -160deg;
+	}
+	&.n4 .radial-btn:nth-child(2) {
+		--ang: -113deg;
+	}
+	&.n4 .radial-btn:nth-child(3) {
+		--ang: -67deg;
+	}
+	&.n4 .radial-btn:nth-child(4) {
+		--ang: -20deg;
+	}
+
+	// Eye-candy tier: the chips glow like the rest of the fx-max chrome.
+	.app.fx-max & .radial-btn {
+		box-shadow:
+			0 6px 20px rgba(0, 0, 0, 0.45),
+			0 0 12px var(--glow-accent),
+			inset 0 1px 0 var(--glass-highlight);
+	}
 }

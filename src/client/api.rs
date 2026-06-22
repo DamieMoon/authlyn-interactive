@@ -15,18 +15,19 @@ use serde::Serialize;
 use crate::protocol::{
     AddGalleryImageRequest, AddGalleryImageResponse, AddGalleryImagesBatchRequest,
     AddGalleryImagesBatchResponse, AdminResetPasswordRequest, AuthResponse, ChangePasswordRequest,
-    ChannelListResponse, ChannelSummary, ConfirmResetRequest, CreateChannelRequest,
-    CreateEmojiRequest, CreateGuildRequest, CreateLorebookEntryRequest,
-    CreateLorebookEntryResponse, CreatePersonaRequest, EditMessageRequest, ErrorBody,
-    FriendRequest, GuildDetail, GuildSummary, InviteMemberRequest, ListEmojiResponse,
-    ListFeedbackResponse, ListFriendsResponse, ListGuildsResponse, ListLorebookResponse,
+    ChannelListResponse, ChannelSummary, CreateChannelRequest, CreateDmRequest, CreateEmojiRequest,
+    CreateGuildRequest, CreateLorebookEntryRequest, CreateLorebookEntryResponse,
+    CreatePersonaRequest, DmSummary, EditMessageRequest, ErrorBody, FriendRequest, GuestSummary,
+    GuildDetail, GuildSummary, InviteGuestRequest, InviteMemberRequest, InviteToDmRequest,
+    ListCameosResponse, ListDmsResponse, ListEmojiResponse, ListFeedbackResponse,
+    ListFriendsResponse, ListGuestsResponse, ListGuildsResponse, ListLorebookResponse,
     ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
     LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
-    PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest,
-    ResetQuestionResponse, SendMessageRequest, SendMessageResponse, SendSystemMessageRequest,
-    SetActivePersonaRequest, SetMemberRoleRequest, SetSecurityQuestionRequest,
-    SubmitFeedbackRequest, SystemBroadcastResult, VapidKeyResponse,
+    PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest, RollRequest,
+    SendMessageRequest, SendMessageResponse, SendSystemMessageRequest, SetActivePersonaRequest,
+    SetMemberRoleRequest, SubmitFeedbackRequest, SystemBroadcastResult, TypingDraftEntry,
+    TypingPingRequest, UnreadResponse, VapidKeyResponse,
 };
 
 /// A failed API call.
@@ -97,6 +98,22 @@ pub async fn change_password(current: &str, new: &str) -> Result<(), ApiError> {
     .await
 }
 
+/// PATCH /account — update the signed-in account's profile (M6). Either field may
+/// be `None` (left untouched); `avatar` is a media id from a prior `POST /media`.
+pub async fn patch_account(
+    display_name: Option<&str>,
+    avatar: Option<&str>,
+) -> Result<(), ApiError> {
+    patch_json(
+        "/account",
+        &crate::protocol::PatchAccountRequest {
+            display_name: display_name.map(str::to_string),
+            avatar: avatar.map(str::to_string),
+        },
+    )
+    .await
+}
+
 /// POST /auth/admin/reset-password — set another user's password by username.
 /// Admin-only.
 pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<(), ApiError> {
@@ -104,47 +121,6 @@ pub async fn admin_reset_password(username: &str, new_password: &str) -> Result<
         "/auth/admin/reset-password",
         &AdminResetPasswordRequest {
             username: username.to_string(),
-            new_password: new_password.to_string(),
-        },
-    )
-    .await
-}
-
-/// POST /auth/security-question — set/replace the signed-in account's
-/// self-service recovery question + answer.
-pub async fn set_security_question(question: &str, answer: &str) -> Result<(), ApiError> {
-    post_json_empty(
-        "/auth/security-question",
-        &SetSecurityQuestionRequest {
-            question: question.to_string(),
-            answer: answer.to_string(),
-        },
-    )
-    .await
-}
-
-/// GET /auth/reset/question?username={…} — public: fetch a user's recovery
-/// question for the reset form. `question` is `None` for unknown users and
-/// users with no question set (no enumeration).
-pub async fn reset_question(username: &str) -> Result<ResetQuestionResponse, ApiError> {
-    let q = js_sys::encode_uri_component(username)
-        .as_string()
-        .unwrap_or_default();
-    get(&format!("/auth/reset/question?username={q}")).await
-}
-
-/// POST /auth/reset/confirm — public: complete a self-service reset by
-/// answering the security question.
-pub async fn confirm_reset(
-    username: &str,
-    answer: &str,
-    new_password: &str,
-) -> Result<(), ApiError> {
-    post_json_empty(
-        "/auth/reset/confirm",
-        &ConfirmResetRequest {
-            username: username.to_string(),
-            answer: answer.to_string(),
             new_password: new_password.to_string(),
         },
     )
@@ -226,6 +202,20 @@ pub async fn patch_guild(gid: &str, name: &str) -> Result<(), ApiError> {
         &format!("/guilds/{gid}"),
         &PatchGuildRequest {
             name: Some(name.to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+/// PATCH /guilds/{gid} — set the per-server accent (owner/admin only). An
+/// empty string clears it back to the default. Sends ONLY accent_color.
+pub async fn set_guild_accent(gid: &str, accent: &str) -> Result<(), ApiError> {
+    patch_json(
+        &format!("/guilds/{gid}"),
+        &PatchGuildRequest {
+            accent_color: Some(accent.to_string()),
+            ..Default::default()
         },
     )
     .await
@@ -315,13 +305,15 @@ pub async fn list_messages_before(
 }
 
 /// POST /channels/{cid}/messages — send a message with optional attachments,
-/// a worn persona, and an optional reply-to parent (L-3).
+/// a worn persona, an optional reply-to parent (L-3), and an optional delivery
+/// effect (M4/T5: whisper/shout/spell; server-validated).
 pub async fn post_message(
     cid: &str,
     body: &str,
     attachment_ids: Vec<String>,
     persona_id: Option<String>,
     reply_to_id: Option<String>,
+    effect: Option<String>,
 ) -> Result<SendMessageResponse, ApiError> {
     post_json(
         &format!("/channels/{cid}/messages"),
@@ -330,6 +322,27 @@ pub async fn post_message(
             attachment_ids,
             persona_id,
             reply_to_id,
+            effect,
+        },
+    )
+    .await
+}
+
+/// POST /channels/{cid}/roll — the Fate Engine (M4/T6): send a roll
+/// EXPRESSION (`NdM(+|-K)?`, `coin`, `oracle`) and let the SERVER roll it —
+/// the client never computes an outcome. The result lands as an immutable
+/// `kind='roll'` message; a bad expression is a 400 whose message the
+/// composer status line surfaces.
+pub async fn roll(
+    cid: &str,
+    expr: &str,
+    persona: Option<String>,
+) -> Result<SendMessageResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/roll"),
+        &RollRequest {
+            expr: expr.to_string(),
+            persona,
         },
     )
     .await
@@ -337,9 +350,42 @@ pub async fn post_message(
 
 /// POST /channels/{cid}/typing — ping "I am typing" in a channel (#19).
 /// Fire-and-forget: the composer calls this at most every ~2s while typing;
-/// errors are ignored by the caller.
-pub async fn post_typing(cid: &str) -> Result<(), ApiError> {
-    post_empty(&format!("/channels/{cid}/typing")).await
+/// errors are ignored by the caller. `draft` is the Ghost Quill opt-in
+/// (M4/T7): `Some(compose text)` only when the SENDER's own pref is on
+/// (the server stores it ephemerally for other members to fetch);
+/// `None` sends the classic body-less ping, which also clears any draft
+/// the server still holds for this caller. `effect` is the composer's
+/// currently ARMED delivery effect (review M-01) — the server pre-masks a
+/// whisper-armed draft to the fixed `(whisper)` placeholder BEFORE storing
+/// it, so spoiler text never streams live to the audience it will land
+/// veiled from. Only meaningful alongside a `draft`; the bare ping has no
+/// body to mask.
+pub async fn post_typing(
+    cid: &str,
+    draft: Option<String>,
+    effect: Option<String>,
+) -> Result<(), ApiError> {
+    match draft {
+        Some(draft) => {
+            post_json_empty(
+                &format!("/channels/{cid}/typing"),
+                &TypingPingRequest {
+                    draft: Some(draft),
+                    effect,
+                },
+            )
+            .await
+        }
+        None => post_empty(&format!("/channels/{cid}/typing")).await,
+    }
+}
+
+/// GET /channels/{cid}/typing-drafts — other members' live Ghost Quill drafts
+/// (M4/T7). Called on `Typing`/`MessageCreated` SSE events for the OPEN
+/// channel, and only when the RECEIVER's pref is on — draft text rides this
+/// permission-checked fetch, never the id-only SSE bus.
+pub async fn get_typing_drafts(cid: &str) -> Result<Vec<TypingDraftEntry>, ApiError> {
+    get(&format!("/channels/{cid}/typing-drafts")).await
 }
 
 /// PATCH /channels/{cid}/messages/{mid} — edit one of your own messages.
@@ -384,14 +430,14 @@ pub async fn read_state() -> Result<ReadStateResponse, ApiError> {
     get("/channels/read-state").await
 }
 
+/// GET /unread — batched unread/ping summary for every visible text channel (M1).
+pub async fn get_unread() -> Result<UnreadResponse, ApiError> {
+    get("/unread").await
+}
+
 // ---------------------------------------------------------------------------
 // Trash + restore (#22 soft-delete)
 // ---------------------------------------------------------------------------
-
-/// GET /guilds/trash — list the caller's own soft-deleted guilds.
-pub async fn list_deleted_guilds() -> Result<ListGuildsResponse, ApiError> {
-    get("/guilds/trash").await
-}
 
 /// POST /guilds/{gid}/restore — restore a soft-deleted guild (owner only).
 pub async fn restore_guild(gid: &str) -> Result<(), ApiError> {
@@ -585,6 +631,18 @@ pub async fn set_persona_avatar(pid: &str, media_id: &str) -> Result<(), ApiErro
     put_json(
         &format!("/personas/{pid}/avatar"),
         &crate::protocol::SetAvatarRequest {
+            media_id: media_id.to_string(),
+        },
+    )
+    .await
+}
+
+/// PUT /guilds/{gid}/icon — set a guild's icon to an already-uploaded media id.
+/// The server re-derives the per-server accent from the image (M6, effect G).
+pub async fn set_guild_icon(gid: &str, media_id: &str) -> Result<(), ApiError> {
+    put_json(
+        &format!("/guilds/{gid}/icon"),
+        &crate::protocol::SetGuildIconRequest {
             media_id: media_id.to_string(),
         },
     )
@@ -788,6 +846,77 @@ pub async fn accept_friend(aid: &str) -> Result<(), ApiError> {
 /// DELETE /friends/{aid} — unfriend, or reject a pending request.
 pub async fn remove_friend(aid: &str) -> Result<(), ApiError> {
     delete_empty(&format!("/friends/{aid}")).await
+}
+
+// ---------------------------------------------------------------------------
+// Direct messages (M7/P1)
+// ---------------------------------------------------------------------------
+
+/// GET /dms — the caller's DM threads (1:1 + groups).
+pub async fn list_dms() -> Result<ListDmsResponse, ApiError> {
+    get("/dms").await
+}
+
+/// POST /dms — start a DM with friends (one member = 1:1, deduped; 2+ = group).
+pub async fn create_dm(members: Vec<String>, title: Option<String>) -> Result<DmSummary, ApiError> {
+    post_json("/dms", &CreateDmRequest { members, title }).await
+}
+
+/// POST /dms/{tid}/members — invite an accepted friend into a thread.
+pub async fn invite_to_dm(tid: &str, account_id: &str) -> Result<DmSummary, ApiError> {
+    post_json(
+        &format!("/dms/{tid}/members"),
+        &InviteToDmRequest {
+            account_id: account_id.to_string(),
+        },
+    )
+    .await
+}
+
+/// DELETE /dms/{tid}/members/me — leave a thread.
+pub async fn leave_dm(tid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/dms/{tid}/members/me")).await
+}
+
+// ---------------------------------------------------------------------------
+// Guest cameos (M7/P2)
+// ---------------------------------------------------------------------------
+
+/// GET /cameos — the caller's active cameos (guest-side standalone list).
+pub async fn list_cameos() -> Result<ListCameosResponse, ApiError> {
+    get("/cameos").await
+}
+
+/// POST /channels/{cid}/guests — invite an accepted friend as a guest in this
+/// guild text channel, with an optional RFC3339 expiry.
+pub async fn invite_guest(
+    cid: &str,
+    account_id: &str,
+    expires_at: Option<String>,
+) -> Result<GuestSummary, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/guests"),
+        &InviteGuestRequest {
+            account_id: account_id.to_string(),
+            expires_at,
+        },
+    )
+    .await
+}
+
+/// GET /channels/{cid}/guests — the channel's active guests (host view).
+pub async fn list_guests(cid: &str) -> Result<ListGuestsResponse, ApiError> {
+    get(&format!("/channels/{cid}/guests")).await
+}
+
+/// DELETE /channels/{cid}/guests/{aid} — revoke a guest (inviter or manager).
+pub async fn revoke_guest(cid: &str, aid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/guests/{aid}")).await
+}
+
+/// DELETE /channels/{cid}/guests/me — leave a cameo (the guest ends it).
+pub async fn leave_cameo(cid: &str) -> Result<(), ApiError> {
+    delete_empty(&format!("/channels/{cid}/guests/me")).await
 }
 
 // ---------------------------------------------------------------------------

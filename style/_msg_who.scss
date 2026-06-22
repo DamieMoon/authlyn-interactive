@@ -7,9 +7,34 @@
 	cursor: pointer;
 	font: inherit;
 	font-weight: 600;
-	color: var(--ink-soft);
+	color: var(--text-soft);
 
 	&:hover {
 		text-decoration: underline;
 	}
+}
+
+// M6: the controlling account shown subtly beside a worn persona's name
+// ("· Damien") — muted + lighter + smaller so the persona stays dominant.
+// Non-interactive span, so the 44px tap floor does not apply.
+.msg .who-account {
+	color: var(--text-soft);
+	opacity: 0.75;
+	font-weight: 400;
+	font-size: 0.85em;
+}
+
+// M7/P2: a guest cameo's "GUEST" chip in the message meta row. Non-interactive
+// span, so the 44px tap floor does not apply. Mirrors the .system-badge recipe
+// (a small uppercase outlined chip), in a muted tone so it marks the speaker as
+// a guest without competing with the persona name.
+.msg .badge-guest {
+	font-size: 0.6rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-soft);
+	border: 1px solid var(--line);
+	border-radius: 0.25rem;
+	padding: 0 0.3rem;
 }

@@ -5,9 +5,13 @@
 mod common;
 
 #[cfg(feature = "ssr")]
-use axum::http::{Method, StatusCode};
+use axum::body::{to_bytes, Body};
+#[cfg(feature = "ssr")]
+use axum::http::{header, Method, Request, StatusCode};
 #[cfg(feature = "ssr")]
 use serde_json::json;
+#[cfg(feature = "ssr")]
+use tower::ServiceExt;
 
 #[cfg(feature = "ssr")]
 async fn create_guild(router: &axum::Router, cookie: &str, name: &str) -> String {
@@ -21,6 +25,196 @@ async fn create_guild(router: &axum::Router, cookie: &str, name: &str) -> String
     .await;
     assert_eq!(status, StatusCode::CREATED, "create guild: {body:?}");
     body["id"].as_str().expect("guild id").to_string()
+}
+
+/// A valid 2x1 RGB PNG (correct chunk CRCs) so the media store accepts it as an
+/// inline image — same fixture as `tests/media.rs`.
+#[cfg(feature = "ssr")]
+const TINY_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR length + type
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, // 2x1
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x7B, 0x40, 0xE8, // 8-bit RGB + CRC
+    0xDD, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, // IDAT length + type
+    0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // zlib stream
+    0x44, 0x00, 0x08, 0xFE, 0x01, 0xFF, 0x19, 0xC0, // ...
+    0x6B, 0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, // IEND
+    0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+/// Upload a blob via multipart `POST /media`, returning the new media id.
+/// Mirrors `tests/media.rs::upload_image`.
+#[cfg(feature = "ssr")]
+async fn upload_image(router: &axum::Router, cookie: &str, mime: &str, data: &[u8]) -> String {
+    let boundary = "Xbnd";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"img\"\r\n\
+         Content-Type: {mime}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/media")
+        .header(header::COOKIE, cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .unwrap();
+    let res = router.clone().oneshot(req).await.expect("oneshot");
+    assert_eq!(res.status(), StatusCode::CREATED, "media upload should 201");
+    let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    v["id"].as_str().unwrap().to_string()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn guild_icon_set_round_trips_and_is_manager_gated() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Iconic").await;
+    let mid = upload_image(&a.router, &owner, "image/png", TINY_PNG).await;
+
+    // Owner sets the icon → 204; summary + detail then carry icon_id == mid.
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/icon"),
+        Some(&owner),
+        Some(&json!({ "media_id": mid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "owner sets icon");
+
+    let (_, _, detail) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        detail["icon_id"].as_str(),
+        Some(mid.as_str()),
+        "detail icon_id"
+    );
+
+    let (_, _, list) = common::send(&a.router, Method::GET, "/guilds", Some(&owner), None).await;
+    assert_eq!(
+        list["guilds"][0]["icon_id"].as_str(),
+        Some(mid.as_str()),
+        "summary icon_id"
+    );
+
+    // Unknown media id → 404 (media-not-found; owner passes the manager gate).
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/icon"),
+        Some(&owner),
+        Some(&json!({ "media_id": "deadbeefdeadbeefdeadbeefdeadbeef" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "unknown media id 404s");
+
+    // A plain member cannot set the icon (403, before the media check).
+    let member = common::register_account(&a.router, "Member", "password123").await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/guilds/{gid}/members"),
+        Some(&owner),
+        Some(&json!({ "username": "Member" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let m_mid = upload_image(&a.router, &member, "image/png", TINY_PNG).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/icon"),
+        Some(&member),
+        Some(&json!({ "media_id": m_mid })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "plain member cannot set icon"
+    );
+
+    // A non-member gets the privacy 404.
+    let outsider = common::register_account(&a.router, "Outsider", "password123").await;
+    let o_mid = upload_image(&a.router, &outsider, "image/png", TINY_PNG).await;
+    let (status, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/guilds/{gid}/icon"),
+        Some(&outsider),
+        Some(&json!({ "media_id": o_mid })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "non-member gets privacy 404");
+}
+
+/// Encode an 8x8 solid-color PNG in-memory (via the `image` dev-dep) so the
+/// guild-icon accent derivation has an unambiguous dominant color to classify.
+#[cfg(feature = "ssr")]
+fn solid_png(r: u8, g: u8, b: u8) -> Vec<u8> {
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+    let buf: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_pixel(8, 8, Rgb([r, g, b]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(buf)
+        .write_to(&mut out, ImageFormat::Png)
+        .unwrap();
+    out.into_inner()
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn guild_icon_upload_derives_per_server_accent() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Tinted").await;
+
+    // A strong-red icon derives accent "red", green → "green", flat gray → "gray"
+    // (the grayscale saturation gate). Each PUT re-derives and overwrites.
+    for ((r, g, b), expected) in [
+        ((200u8, 30u8, 40u8), "red"),
+        ((30u8, 180u8, 70u8), "green"),
+        ((128u8, 128u8, 128u8), "gray"),
+    ] {
+        let mid = upload_image(&a.router, &owner, "image/png", &solid_png(r, g, b)).await;
+        let (status, _, _) = common::send(
+            &a.router,
+            Method::PUT,
+            &format!("/guilds/{gid}/icon"),
+            Some(&owner),
+            Some(&json!({ "media_id": mid })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (_, _, detail) = common::send(
+            &a.router,
+            Method::GET,
+            &format!("/guilds/{gid}"),
+            Some(&owner),
+            None,
+        )
+        .await;
+        assert_eq!(
+            detail["accent_color"].as_str(),
+            Some(expected),
+            "rgb ({r},{g},{b}) should derive accent {expected}"
+        );
+    }
 }
 
 #[cfg(feature = "ssr")]
@@ -51,6 +245,40 @@ async fn create_lists_and_details_with_default_channel() {
     assert_eq!(channels.len(), 1, "a fresh guild has one default channel");
     assert_eq!(channels[0]["name"], "general");
     assert_eq!(channels[0]["kind"], "text");
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn fresh_guild_has_null_icon_id_in_summary_and_detail() {
+    let a = common::arena().await;
+    let owner = common::register_account(&a.router, "Owner", "password123").await;
+    let gid = create_guild(&a.router, &owner, "Iconless").await;
+
+    // Summary (GET /guilds): a guild with no icon projects icon_id = null
+    // (the NONE arm of the meta::id(guild.icon) projection).
+    let (status, _, body) =
+        common::send(&a.router, Method::GET, "/guilds", Some(&owner), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let g = &body["guilds"][0];
+    assert!(
+        g["icon_id"].is_null(),
+        "fresh guild summary icon_id is null: {g:?}"
+    );
+
+    // Detail (GET /guilds/{id}): same NONE projection.
+    let (status, _, body) = common::send(
+        &a.router,
+        Method::GET,
+        &format!("/guilds/{gid}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["icon_id"].is_null(),
+        "fresh guild detail icon_id is null: {body:?}"
+    );
 }
 
 #[cfg(feature = "ssr")]

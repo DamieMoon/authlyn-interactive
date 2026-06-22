@@ -1,0 +1,261 @@
+// Orbit chat bubbles + effect retint — extracted from _sk_orbit.scss (M5/P2
+// SCSS split): the chat-card LOOK for `.app.sk-orbit .messages`, owned by the
+// chat-surface rebuild. Orbit chrome (pill/composer/orb/map/station) lives in
+// `_sk_orbit_chrome.scss`. Both are `.app.sk-orbit`-scoped, @use'd after the
+// M3 nav partials in main.scss (cascade unchanged from the pre-split file).
+@use "tokens" as *;
+@use "foundation" as *;
+
+// ---- Orbit message bubbles + effect retint (the prototype's .bubble /
+// .msg.shout / .msg.spell, a-orbit.html:82-115) ----
+// EVERYTHING here is scoped under `.app.sk-orbit .messages` so it can only ever
+// touch THIS skeleton's chat — the deck/hud sessions and the other skeletons
+// keep the M4 base effects from `_content.scss` untouched. These rules LAYER on
+// top of that base, which makes the `.msg` card ITSELF the bubble surface (it
+// carries background/border/radius/padding — `_content.scss` ".msg"; the `.text`
+// span is just the prose inside). So bubble chrome (radius/padding/border/bg/
+// glow) lands on `.msg`, and only the prose-level bits (font-size, colour,
+// weight, action italics) land on `.text`. The same `.msg.effect-shout`/
+// `.effect-spell` rows + the same `fx-shout`/`fx-spark` keyframes are reused
+// exactly as-is (motion doctrine — no keyframe touched). All glow/gradient is
+// STATIC (state, survives reduced-motion); NO backdrop-filter at Standard.
+//
+// Bubble geometry (the prototype's `.bubble`, a-orbit.html:82-83): 18px radius,
+// prose padding 10px 15px, body 17.5px. Skip the full-width system/roll rows
+// (banners, not bubbles) for radius/padding so they keep their own composition.
+// Top reserve (M5/P2 cross-agent fix with A2's chrome rebuild): the channel
+// pill is NO LONGER a `position:fixed` float over this list — A2 rebuilt it into
+// the IN-FLOW sticky header row of the `.sk-orbit-content` flex column
+// (`_sk_orbit_chrome.scss` `.sk-orbit-pill`), which already reserves real layout
+// space AND owns the top safe-area inset itself (`top`/`margin: calc(0.5rem +
+// sat)`). The prototype's 72px `.scroller` top pad (a-orbit.html:73) existed
+// ONLY to clear ITS floating `#pill`; an in-flow header needs none, so a small
+// breathing pad is all that's left — a safe-area term here would DOUBLE-reserve
+// the inset and push the first message far below the pill. The composer is
+// hidden-at-rest + the orb floats bottom-right, so the bottom clearance stays so
+// the last message never hides under the revealed composer / the orb.
+.app.sk-orbit .messages {
+	padding-top: 14px;
+	// Reserve the bottom for whichever floating chrome owns it: the orb at rest
+	// (64px disc + 0.9rem offset ≈ 80px) or the composer pill while composing
+	// (its live-measured `--composer-h` + the 8px offset + a small gap). The old
+	// fixed 122px guess was occluded once a reply/edit banner or multiline draft
+	// grew the pill past it (round-4 deck finding); track the real height so the
+	// last message clears the composer in BOTH states. scroll-padding keeps the
+	// last row above the chrome after an auto-scroll-to-bottom on WebKit.
+	padding-bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+	scroll-padding-bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+}
+// The "X is typing…" line floats just above the composer/orb instead of sitting
+// in normal flow at the very bottom, where the absolute composer (z26) + fixed
+// orb (z30) painted over it (round-4 deck finding: hidden "Opus is typing…").
+// Orbit-only — the deck/hud shells keep the in-flow strip that nudges their
+// static composer (base rule in _content.scss). Decorative → pointer-events:none
+// so it never eats a tap on a message behind it.
+.app.sk-orbit .typing-indicator {
+	position: absolute;
+	left: 10px;
+	right: 10px;
+	bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+	z-index: 27;
+	pointer-events: none;
+}
+.app.sk-orbit .messages .msg:not(.system):not(.roll) {
+	border-radius: 18px;
+	padding: 10px 15px;
+}
+.app.sk-orbit .messages .msg .text {
+	font-size: 17.5px;
+}
+// Action italics (the prototype's `.bubble em.act`, a-orbit.html:86): the
+// roleplay *action* markup (rendered as <em> by markup_view.rs) reads in the
+// soft secondary ink, not full-strength text.
+.app.sk-orbit .messages .msg .text em {
+	color: var(--text-soft);
+}
+// Own messages: a faint accent bloom (the prototype's `.msg.mine .bubble`
+// `box-shadow:0 0 16px rgba(77,159,255,.10)`, a-orbit.html:85). STATIC — state,
+// not motion.
+.app.sk-orbit .messages .msg.own {
+	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
+}
+
+// Other authors (B1, owner deck-finding 2026-06-20): the base `.msg` left them
+// a FLAT opaque `--card` box on the aurora while own messages got the tint +
+// bloom above — "bara sändaren av meddelanden ser snyggt ut, en annan
+// avsändare saknar estetiken". First pass tried a neutral glass lift, but the
+// owner's bar is PARITY: "det ser inte likadant ut som Fables bubblor" — other
+// authors must look the SAME as Fable's (own) bubble, not a lesser variant.
+// So apply the exact own-bubble treatment (the `.msg.own` `--mention-bg` wash +
+// `--accent-soft` rim from `_content.scss` + the orbit blue bloom above): both
+// sides now read identically, differentiated only by alignment (own right,
+// others left) + the meta row direction. STATIC paint (state, survives
+// reduced-motion). Carve out every row that owns its surface: own, system/roll
+// banners, the shout/spell effect bubbles (their warm/purple halo must win),
+// and the draft/ghost rows.
+.app.sk-orbit
+	.messages
+	.msg:not(.own):not(.system):not(.roll):not(.effect-shout):not(.effect-spell):not(.msg-draft):not(.msg-ghost) {
+	background: var(--mention-bg);
+	border-color: var(--accent-soft);
+	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
+}
+
+// Nova DOT system message (B6, owner deck-finding 2026-06-20): it rendered as a
+// full-width banner (small radius, 3px accent rail, accent wash, meta sunk to
+// the orb's baseline) while every other author is a rounded glass bubble. Nova
+// DOT is the COMMENTATOR bot, not an admin banner — give it bubble PARITY: the
+// same 18px geometry + glass wash/rim/bloom as other authors (left-aligned like
+// them), keeping the Nova orb + accent name + SYSTEM/COMMENTATOR badges as its
+// identity. The `border`/`background` shorthands override the base banner rail +
+// wash (`.content .messages .msg.system`, lower specificity).
+.app.sk-orbit .messages .msg.system {
+	border-radius: 18px;
+	padding: 10px 15px;
+	width: fit-content;
+	max-width: 88%;
+	margin-right: auto;
+	border: 1px solid var(--accent-soft);
+	background: var(--mention-bg);
+	box-shadow: 0 0 16px rgba(77, 159, 255, 0.1);
+}
+// Center + wrap the meta so the name + SYSTEM/COMMENTATOR badges sit level with
+// the Nova orb instead of sinking to its baseline ("namnet för långt ner, samma
+// med etiketten SYSTEM" — the base `.meta` is align-items:baseline, which drops
+// them below the taller orb).
+.app.sk-orbit .messages .msg.system .meta {
+	align-items: center;
+	flex-wrap: wrap;
+}
+// COMMENTATOR (the role) reads a notch brighter than SYSTEM (the pipeline tag)
+// so the two badges are distinguishable.
+.app.sk-orbit .messages .msg.system .system-badge.commentator {
+	color: var(--accent-bright);
+	border-color: var(--accent);
+}
+// Deck-finputs (2026-06-20): keep the two role badges together as ONE flex item
+// in the meta so they wrap as a single tidy row below the name+time line on a
+// narrow bubble, instead of the time orphaning under them.
+.app.sk-orbit .messages .msg.system .system-badges {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+// shout — warm gradient bubble + bold warm text (the prototype's `.msg.shout
+// .bubble`, a-orbit.html:98-100). The base `_content.scss` already supplies the
+// `fx-shout` one-shot shake + a warm border/text tint; here we add the
+// prototype's exact warm gradient fill, the 0 0 22px warm halo (bubble chrome →
+// `.msg`), and bump the prose bold + brighter warm ink (→ `.text`). STATIC paint
+// (no keyframe touched). Restated after the base rule so it wins the cascade.
+.app.sk-orbit .messages .msg.effect-shout {
+	// `background-image:`, NOT the `background:` shorthand — the shorthand resets
+	// background-color to its initial `transparent` (MDN/CSS Backgrounds L3),
+	// which stripped the base `.msg` `--card` / `.msg.own` `--mention-bg` fill and
+	// let the dark void show through (the "codeblock box" on iOS-WebKit). This
+	// layers the warm wash OVER the base fill, exactly like the prototype's
+	// `.bubble` wash (a-orbit.html:98-100).
+	background-image: linear-gradient(
+		160deg,
+		rgba(255, 180, 127, 0.16),
+		rgba(255, 180, 127, 0.05)
+	);
+	border-color: rgba(255, 180, 127, 0.45);
+	box-shadow: 0 0 22px rgba(255, 180, 127, 0.18);
+}
+.app.sk-orbit .messages .msg.effect-shout .text {
+	color: #ffd9bd;
+	font-weight: 600;
+}
+
+// spell — full PURPLE retint (the prototype's `.msg.spell`, a-orbit.html
+// :106-115). The base `_content.scss` spell glow is accent-BLUE; under orbit we
+// override it to the prototype's arcane purple on the `.msg` bubble: purple
+// border, the exact purple gradient fill, and the 0 0 24px purple halo.
+.app.sk-orbit .messages .msg.effect-spell {
+	border-color: var(--tint-purple);
+	// `background-image:`, NOT `background:` — same shorthand-reset trap as
+	// `.effect-shout` above: the shorthand wiped the base `.msg` fill to
+	// transparent and the dark void read as a codeblock box. Layer the purple
+	// wash over the base fill (a-orbit.html:106-115).
+	background-image: linear-gradient(
+		150deg,
+		rgba(196, 168, 255, 0.14),
+		rgba(77, 159, 255, 0.06)
+	);
+	box-shadow: 0 0 24px rgba(196, 168, 255, 0.28);
+}
+// Spark hues 1:1 (the prototype's `.spark`/.s1/.s2/.s3, a-orbit.html:109-113):
+// the rising sparks are the base rule's three pseudo-elements (fx-spark,
+// opacity-only keyframe — left as-is); we only swap their STATIC colour to match
+// the prototype's exact per-spark assignment. The base maps `::before`=s1
+// (top-right), `::after`=s2 (left, .7s), `.text::after`=s3 (bottom, 1.3s). The
+// prototype paints s1 + s3 PURPLE (`--tint-purple`) and keeps the MIDDLE s2
+// BLUE (`--accent-bright`) — so retint ONLY `::before` (s1) and `.text::after`
+// (s3); `::after` (s2) inherits the base's `--accent-bright` UNTOUCHED, the lone
+// blue spark exactly as the prototype intends. (The earlier orbit pass purpled
+// s2 too and never reached s3 — two sparks off; this is the 1:1 correction.)
+.app.sk-orbit .messages .msg.effect-spell::before,
+.app.sk-orbit .messages .msg.effect-spell .text::after {
+	background: var(--tint-purple);
+	box-shadow: 0 0 8px var(--tint-purple);
+}
+
+// ---- M5/P2 message meta + roll chip + whisper hint (the prototype's .meta /
+// .roll .chip / .whint, a-orbit.html:79-123) ----
+// Avatars: the prototype's chat is name-only — hide the reused ChannelPane
+// avatar disc under orbit ONLY (deck/hud + the persona-info popup keep it).
+// NOTE (M6/P3): this hides `.chat-avatar` ONLY. The Nova DOT orb is a DISTINCT
+// class (`.nova-orb`, system_message_meta) and is intentionally NOT hidden —
+// it is orbit's one deliberate avatar exception, the system-message brand mark.
+// Keep any future name-only broadening scoped to `.chat-avatar`, never `.nova-orb`.
+.app.sk-orbit .messages .chat-avatar {
+	display: none;
+}
+// Meta row: a small faint mono time beside the colored UPPERCASE author. The
+// `.who` keeps its mk-{color} persona tint + text-transform from the base;
+// only the size/weight/spacing bump here (a-orbit.html:79-81).
+.app.sk-orbit .messages .meta {
+	gap: 8px;
+}
+.app.sk-orbit .messages .who {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 1.6px;
+}
+.app.sk-orbit .messages .when {
+	font-size: 9px;
+	color: var(--text-faint);
+}
+// Roll chip — the prototype's mono Fate-Engine card (a-orbit.html:118-123). The
+// orbit bubble restyle EXEMPTS rolls (`:not(.roll)` above), so style the chip
+// directly: mono face (now self-hosted), faint-blue card, accent-bright ink,
+// STATIC accent glow. Higher specificity than the base `.roll-chip` so it wins.
+.app.sk-orbit .messages .msg.roll .roll-chip {
+	font-family: var(--font-mono);
+	font-size: 13px;
+	background: var(--input-bg);
+	border: 1px solid var(--accent-soft);
+	border-radius: 14px;
+	padding: 10px 14px;
+	color: var(--accent-bright);
+	letter-spacing: 0.3px;
+	box-shadow: 0 0 14px rgba(77, 159, 255, 0.16);
+}
+.app.sk-orbit .messages .msg.roll .roll-text {
+	color: var(--text);
+	font-weight: 700;
+}
+// Whisper hint — the prototype's `.whint` (a-orbit.html:93): a faint mono
+// uppercase caption. The 🌫 glyph is prepended via ::before (orbit-only, no
+// component edit; the English copy stays per the app's language convention).
+.app.sk-orbit .messages .whisper-hint {
+	text-transform: uppercase;
+	font-size: 10px;
+	letter-spacing: 1.5px;
+	color: var(--text-faint);
+}
+.app.sk-orbit .messages .whisper-hint::before {
+	content: "🌫 ";
+}

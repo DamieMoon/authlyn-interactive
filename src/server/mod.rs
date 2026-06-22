@@ -7,8 +7,13 @@
 //! larger inner cap under a smaller outer one still rejects at the smaller
 //! one, so the two caps must live on disjoint route groups.
 
+pub mod accent;
 pub mod auth;
+pub mod cameos;
+pub mod dev_reload;
+pub mod dms;
 pub mod emoji;
+pub mod events;
 pub mod feedback;
 pub mod friends;
 pub mod guilds;
@@ -67,15 +72,19 @@ fn small_body_routes() -> Router<AppState> {
         .route("/auth/logout", post(auth::logout))
         .route("/auth/change-password", post(auth::change_password))
         .route("/auth/me", get(auth::me))
-        // Password recovery: admin reset (admin-only), set the self-service
-        // security question (authed), and the public reset flow.
+        .route("/account", patch(auth::patch_account))
+        // Password recovery is admin-only (/auth/admin/reset-password). The
+        // self-service security-question reset was removed: a session could set
+        // a recovery credential without the password, then reset through it
+        // (account takeover). Admin reset is the sole recovery path now.
         .route(
             "/auth/admin/reset-password",
             post(auth::admin_reset_password),
         )
-        .route("/auth/security-question", post(auth::set_security_question))
-        .route("/auth/reset/question", get(auth::get_reset_question))
-        .route("/auth/reset/confirm", post(auth::confirm_password_reset))
+        // M1 realtime: long-lived SSE stream of id-only sync events, filtered
+        // per-connection to channels the caller may see. The group's no-store
+        // Cache-Control layer is correct for SSE.
+        .route("/events", get(events::events))
         .route(
             "/guilds",
             get(guilds::list_guilds).post(guilds::create_guild),
@@ -92,6 +101,7 @@ fn small_body_routes() -> Router<AppState> {
                 .delete(guilds::delete_guild),
         )
         .route("/guilds/{id}/restore", post(guilds::restore_guild))
+        .route("/guilds/{id}/icon", put(guilds::set_guild_icon))
         .route(
             "/guilds/{id}/trash/channels",
             get(guilds::list_deleted_channels),
@@ -133,6 +143,9 @@ fn small_body_routes() -> Router<AppState> {
         // regardless of order, so there's no shadowing either way.
         .route("/channels/read-state", get(messages::read_state))
         .route("/channels/{cid}/mark-read", post(messages::mark_read))
+        // M1: batched unread/ping summary for every visible text channel —
+        // one request instead of a poll per channel.
+        .route("/unread", get(messages::unread))
         .route(
             "/channels/{cid}/messages",
             get(messages::list_messages).post(messages::post_message),
@@ -150,8 +163,18 @@ fn small_body_routes() -> Router<AppState> {
             "/channels/{cid}/messages/{mid}/restore",
             post(messages::restore_message),
         )
+        // Fate Engine (M4/T6): server-rolled dice persisted as an immutable
+        // kind='roll' message.
+        .route("/channels/{cid}/roll", post(messages::roll_message))
         // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
+        // M4/T7 Ghost Quill: the ping's optional `draft` body + the
+        // permission-checked drafts read (the ONLY way draft text leaves the
+        // server — the SSE bus stays id-only).
         .route("/channels/{cid}/typing", post(messages::typing_ping))
+        .route(
+            "/channels/{cid}/typing-drafts",
+            get(messages::typing_drafts),
+        )
         .route(
             "/channels/{cid}/lorebook",
             get(lorebook::list_entries).post(lorebook::create_entry),
@@ -193,6 +216,23 @@ fn small_body_routes() -> Router<AppState> {
         )
         .route("/friends/{aid}/accept", post(friends::accept_friend))
         .route("/friends/{aid}", delete(friends::remove_friend))
+        // M7/P1 DMs: thread lifecycle only — messages/read-state/active-persona
+        // ride the channel-scoped /channels/{cid}/… routes above (a DM thread IS
+        // a channel). Static /dms ranks over no dynamic sibling here.
+        .route("/dms", get(dms::list_dms).post(dms::create_dm))
+        .route("/dms/{tid}/members", post(dms::invite_to_dm))
+        .route("/dms/{tid}/members/me", delete(dms::leave_dm))
+        // M7/P2 Guest Cameos: channel-scoped guest lifecycle — messages/read-state/
+        // active-persona ride the /channels/{cid}/… routes above (a cameo channel IS
+        // a guild text channel). Static /guests/me ranks over the dynamic /{aid};
+        // /cameos is the account-scoped guest-side list.
+        .route(
+            "/channels/{cid}/guests",
+            get(cameos::list_guests).post(cameos::invite_guest),
+        )
+        .route("/channels/{cid}/guests/me", delete(cameos::leave_cameo))
+        .route("/channels/{cid}/guests/{aid}", delete(cameos::revoke_guest))
+        .route("/cameos", get(cameos::list_cameos))
         // Web Push (#30): public VAPID key fetch + subscribe/unsubscribe.
         .route("/push/vapid-key", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
@@ -209,6 +249,11 @@ fn small_body_routes() -> Router<AppState> {
             "/admin/system-message",
             post(system_messages::send_system_message),
         )
+        // Dev hot-reload: broadcast a global, payload-free reload nudge over
+        // the SSE bus so every connected client refreshes onto a freshly
+        // deployed build (the test deck runs the compiled binary, so it has no
+        // cargo-leptos live-reload). Admin-gated (is_admin → 403).
+        .route("/admin/dev/reload", post(dev_reload::dev_reload))
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT_BYTES))
         // Dynamic JSON API responses must never be cached (by the service
         // worker or the browser HTTP cache); a cached message list flashed
@@ -288,8 +333,9 @@ pub fn api_router() -> Router<AppState> {
 }
 
 /// Hard-delete soft-deleted rows past their rollback window (#22): message 1h,
-/// channel 1d, guild 30d. Cascades a purged channel's messages and a purged
-/// guild's channels/members/messages. Idempotent; safe on an interval.
+/// channel 1d, guild 30d. Cascades a purged channel's messages + dm_member rows
+/// (M7/P1) and a purged guild's channels/members/messages. Idempotent; safe on
+/// an interval.
 pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
     state
         .db
@@ -310,6 +356,35 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
             DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- DM membership (M7/P1): a purged kind='dm' channel takes its
+            -- dm_member rows, symmetric with the 30d guild_member cascade (below).
+            -- The leave_dm path already hard-deletes each leaver's row and
+            -- soft-deletes the thread only at zero members, so it never orphans;
+            -- this arm guards any NON-leave soft-delete of a still-populated DM
+            -- channel (a future admin thread-delete / moderation tool) so its
+            -- dm_member rows can't survive onto the dm_member_account index that
+            -- visible_channels/list_dms scan. INLINE guild-style subquery (channel
+            -- is the leading column of the composite dm_member_pair index), NOT a
+            -- LET var — the same beta.3 mis-plan dodge documented above. Guard:
+            -- tests/soft_delete.rs::purge_should_cascade_dm_member_rows.
+            DELETE dm_member WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- DM 1:1 dedup lock (M7/P1, review H1): leave_dm already drops it at
+            -- last-member soft-delete, so this only fires for a non-leave
+            -- soft-delete of a still-populated 1:1 — same defensive arm as
+            -- dm_member above. Inline subquery (composite-index dodge).
+            DELETE dm_pair WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- Guest cameos (M7/P2): a purged channel takes its channel_guest rows,
+            -- symmetric with dm_member above. channel is the leading column of the
+            -- composite channel_guest_pair index, so use the inline subquery form
+            -- (not a LET var) — the same beta.3 mis-plan dodge.
+            DELETE channel_guest WHERE channel IN (SELECT VALUE id FROM channel
+                WHERE deleted_at != NONE AND deleted_at < time::now() - 1d);
+            -- Expired-cameo hygiene (M7/P2): the lazy-check already excludes an
+            -- expired row from every membership query, so this is cleanup only —
+            -- it keeps the channel_guest_account index free of dead rows.
+            DELETE channel_guest WHERE expires_at != NONE AND expires_at < time::now();
             DELETE channel WHERE deleted_at != NONE AND deleted_at < time::now() - 1d;
             -- Guild 30d purge: cascade channels + their children + guild children.
             LET $g = (SELECT VALUE id FROM guild
@@ -318,6 +393,8 @@ pub async fn purge_soft_deleted(state: &AppState) -> surrealdb::Result<()> {
             DELETE lorebook_entry WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel_active_persona WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel_read_state WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
+            -- Guest cameos (M7/P2): a purged guild takes its channels' cameo rows.
+            DELETE channel_guest WHERE channel IN (SELECT VALUE id FROM channel WHERE guild IN $g);
             DELETE channel WHERE guild IN $g;
             DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
                 WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);

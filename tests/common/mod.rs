@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::{to_bytes, Body};
-use axum::http::{header, Method, Request, StatusCode};
+use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::Router;
 use rand::RngCore;
 use serde_json::Value;
@@ -51,17 +51,60 @@ pub struct Arena {
     pub router: Router,
     pub db: Surreal<Client>,
     pub media_dir: PathBuf,
+    /// The SAME `AppState` the router was built from. Tests that drive an
+    /// ssr core fn directly (e.g. `broadcast_system_message`) must use this
+    /// one when they assert on SSE delivery: a freshly constructed
+    /// `AppState::new(...)` carries its OWN broadcast channel, so emissions
+    /// on it never reach the router's `GET /events` subscribers.
+    pub state: AppState,
 }
 
 pub async fn arena() -> Arena {
     let db = test_db().await;
     let media_dir = test_media_dir();
     let state = AppState::new(db.clone(), media_dir.clone());
-    let router = make_router(state);
+    let router = make_router(state.clone());
     Arena {
         router,
         db,
         media_dir,
+        state,
+    }
+}
+
+/// Like [`arena`] but with the Ghost Quill typing-draft TTL overridden
+/// (M4/T7). The TTL is a plain `Copy` field on `AppState`, so it MUST be set
+/// before `make_router` clones the state — hence a dedicated constructor
+/// rather than mutating `Arena::state` afterwards. Lets the prune tests run
+/// in milliseconds instead of sleeping out the 8s production TTL.
+pub async fn arena_with_draft_ttl(ttl: std::time::Duration) -> Arena {
+    let db = test_db().await;
+    let media_dir = test_media_dir();
+    let state = AppState::new(db.clone(), media_dir.clone()).with_draft_ttl(ttl);
+    let router = make_router(state.clone());
+    Arena {
+        router,
+        db,
+        media_dir,
+        state,
+    }
+}
+
+/// Like [`arena`] but with the SSE quiet-stream session re-check period
+/// overridden (review M-05 follow-up). Same before-`make_router` contract as
+/// [`arena_with_draft_ttl`] (`sse_recheck_period` is `Copy` on `AppState`).
+/// Lets the quiet-revocation test run in milliseconds instead of sleeping
+/// out the 30s production period.
+pub async fn arena_with_sse_recheck_period(period: std::time::Duration) -> Arena {
+    let db = test_db().await;
+    let media_dir = test_media_dir();
+    let state = AppState::new(db.clone(), media_dir.clone()).with_sse_recheck_period(period);
+    let router = make_router(state.clone());
+    Arena {
+        router,
+        db,
+        media_dir,
+        state,
     }
 }
 
@@ -111,8 +154,16 @@ pub async fn raw_db() -> Surreal<Client> {
 
     let pid = std::process::id();
     let seq = NS_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let ns = format!("test_{}_{}", pid, seq);
-    let db_name = format!("test_{}_{}", pid, seq);
+    // pid+seq ALONE is not collision-proof: the dev SurrealDB is a long-lived
+    // in-memory server that accumulates every test namespace across runs, and
+    // the OS recycles PIDs — so a later run reusing an old PID with the same
+    // low seq lands on a PRIOR run's namespace and inherits its rows (observed
+    // as a flaky 409 "username already taken" on fixed-username tests like
+    // lorebook's "Owner"). Mix in random_id() — the SAME 16-byte entropy source
+    // test_media_dir() already uses for exactly this reason — so each arena gets
+    // a globally unique namespace regardless of PID reuse or DB accumulation.
+    let ns = format!("test_{}_{}_{}", pid, seq, random_id());
+    let db_name = ns.clone();
     db.use_ns(&ns).use_db(&db_name).await.expect("use ns/db");
     db
 }
@@ -246,6 +297,84 @@ pub async fn register_account(router: &Router, username: &str, password: &str) -
         "register({username}) should 201, got {status}: {body:?}"
     );
     cookie.expect("register must set a session cookie")
+}
+
+/// Open an SSE response against the in-process router. Returns the status,
+/// the response headers, and the still-streaming body — read frames with
+/// [`next_sse_data`].
+pub async fn open_sse(
+    router: &Router,
+    path: &str,
+    cookie: Option<&str>,
+) -> (StatusCode, HeaderMap, Body) {
+    let mut req = Request::builder()
+        .method(Method::GET)
+        .uri(path)
+        .header(header::ACCEPT, "text/event-stream");
+    if let Some(c) = cookie {
+        req = req.header(header::COOKIE, c);
+    }
+    let resp = router
+        .clone()
+        .oneshot(req.body(Body::empty()).expect("request"))
+        .await
+        .expect("sse oneshot");
+    let (parts, body) = resp.into_parts();
+    (parts.status, parts.headers, body)
+}
+
+/// Outcome of one `next_sse_data` read. Negative (privacy) tests must assert
+/// `Timeout` specifically — `Closed` would mean the server dropped the stream,
+/// which is NOT proof that an event was withheld.
+#[derive(Debug)]
+pub enum SseRead {
+    /// A `data:` line arrived and parsed as JSON.
+    Data(serde_json::Value),
+    /// The window elapsed with the stream still open and silent.
+    Timeout,
+    /// The body stream ended (server closed the connection).
+    Closed,
+}
+
+/// Read frames until one `data: <json>` line arrives (skipping keep-alive
+/// comments), `within` elapses, or the stream ends — see [`SseRead`].
+///
+/// Parser assumptions: this expects axum's SSE serializer output — one
+/// single-line `data: <json>` per event and `: ` keep-alive comment lines.
+/// Frames are decoded with per-frame lossy UTF-8, which is fine while
+/// `SyncEvent` payloads carry only ASCII ids; a multi-byte char split across
+/// frames would be mangled. A `data: ` line whose payload is not valid JSON
+/// panics rather than being silently skipped.
+pub async fn next_sse_data(body: &mut Body, within: std::time::Duration) -> SseRead {
+    use http_body_util::BodyExt;
+    let deadline = tokio::time::Instant::now() + within;
+    let mut buf = String::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return SseRead::Timeout;
+        }
+        let frame = match tokio::time::timeout(remaining, body.frame()).await {
+            Err(_elapsed) => return SseRead::Timeout,
+            Ok(None) => return SseRead::Closed,
+            Ok(Some(Err(e))) => panic!("SSE body frame error: {e}"),
+            Ok(Some(Ok(frame))) => frame,
+        };
+        if let Some(bytes) = frame.data_ref() {
+            buf.push_str(&String::from_utf8_lossy(bytes));
+            // SSE frames are newline-delimited; scan completed lines.
+            while let Some(pos) = buf.find('\n') {
+                let line: String = buf.drain(..=pos).collect();
+                let line = line.trim();
+                if let Some(json) = line.strip_prefix("data: ") {
+                    match serde_json::from_str(json) {
+                        Ok(v) => return SseRead::Data(v),
+                        Err(_) => panic!("unparseable SSE data line: {line}"),
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Hit the router with a GET. Returns (status, parsed body).

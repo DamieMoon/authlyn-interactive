@@ -1,158 +1,207 @@
-//! L-5: the unified channel-management window — a single [`Modal`] that lets a
-//! guild owner/admin create, rename, delete, and **reorder** channels in one
-//! place (opened from the sidebar's "⚙ Manage" button).
+//! L-5: the unified channel-management surface — [`ChannelManagerBody`], the
+//! chrome-less list that lets a guild owner/admin create, rename, delete, and
+//! **reorder** channels in one place. It carries no modal chrome of its own;
+//! the orbit Server window mounts it inline as its "Channels" section (the
+//! caller supplies the scrim/scope).
 //!
-//! Reorder offers two cooperating paths so it works everywhere:
-//! - **Drag-and-drop** (HTML5) on a coarse-free desktop pointer: each row is
-//!   `draggable`; `dragstart` records the row index in a signal, `dragover`
-//!   `prevent_default`s to mark a valid drop target, and `drop` calls
-//!   [`act::move_channel`] with the (from, to) indices. We carry the index in a
-//!   local signal rather than the `DataTransfer` payload so no extra web-sys
-//!   feature / clipboard plumbing is needed.
-//! - **Buttons** for touch / keyboard: ↑ / ↓ (swap a neighbour) plus
-//!   ⤒ bring-to-top / ⤓ bring-to-bottom ([`act::move_channel_to_bounds`]).
+//! Reorder is **finger-drag on the grip** (`⠿`), no ↑/↓/⤒/⤓ buttons (owner
+//! directive 2026-06-17): press the grip and drag the row to its new slot. It is
+//! built on Pointer Events so the one gesture covers touch, mouse, and pen:
+//! - `pointerdown` on the grip records this row's index and `set_pointer_capture`s
+//!   the pointer (so moves that drift off the grip keep feeding the gesture —
+//!   the same capture trick `lightbox.rs` / the orbit `StripDrag` use), and
+//!   `prevent_default`s so the touch reorders instead of scrolling the list (the
+//!   grip also carries `touch-action: none`).
+//! - `pointermove` hit-tests the row under the finger via
+//!   `document.elementFromPoint` → the `.manager-row[data-idx]` it lands in →
+//!   marks it the live drop target (`drag_over`).
+//! - `pointerup`/`pointercancel` commits the move via [`act::move_channel`] when
+//!   the target differs, then clears the drag state.
 //!
 //! Every reorder/rename/delete drives the existing owner-gated server routes
 //! (`PATCH`/`DELETE /guilds/{id}/channels/{cid}`); the server re-validates
 //! `require_manager` (which also rejects a soft-deleted guild) on each call, so
 //! this view never trusts its own gating.
 //!
-//! The rename row reuses [`InlineRename`]; the modal reuses the shared
-//! [`Modal`] (Esc / backdrop / ✕ close).
+//! The rename row reuses [`InlineRename`].
 
 use leptos::prelude::*;
 
 use super::super::{act, PendingDelete, Shell};
 use crate::protocol::ChannelSummary;
+use crate::ui::icons::{IconBook, IconEdit, IconGrip, IconTrash};
 use crate::ui::inline_rename::InlineRename;
-use crate::ui::modal::Modal;
 
 #[cfg(feature = "hydrate")]
-use leptos::ev::DragEvent;
+use leptos::ev::PointerEvent;
 
-/// The channel-management modal. `open` is the caller-owned visibility signal;
-/// the modal clears it on backdrop/Esc/✕. Channels are read live from
+/// The channel-management body — list + finger-drag reorder + new-channel
+/// creator — with NO modal chrome, so it mounts inline as the orbit Server
+/// window's "Channels" section. The caller supplies the `.channel-manager`
+/// ancestor that scopes the styling. Channels are read live from
 /// `s.sel.channels` (already position-sorted by the server).
 #[component]
-pub fn ChannelManagerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
+pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
     // Inline-rename target (which channel id, if any) and the new-channel
-    // creator buffers — scoped to this modal so they reset when it closes.
+    // creator buffers — scoped here so they reset when the host unmounts.
     let editing = RwSignal::new(None::<String>);
     let new_name = RwSignal::new(String::new());
     let new_kind = RwSignal::new("text".to_string());
-    // The index of the row currently being dragged (HTML5 DnD). `None` between
-    // drags. Set on `dragstart`, read on `drop`, cleared on `dragend`/`drop`.
+    // Drag-to-reorder state, shared across rows: `drag_from` is the index of the
+    // row being dragged (set on the grip's `pointerdown`); `drag_over` is the
+    // index the finger is currently over (the live drop target). `None` between
+    // drags. The commit reads both on `pointerup`.
     let drag_from = RwSignal::new(None::<usize>);
+    let drag_over = RwSignal::new(None::<usize>);
 
     view! {
-        <Modal class="channel-manager" close=move || open.set(false)>
-            <div class="manager-head">
-                <h3>"Manage channels"</h3>
-                <button class="row-edit" title="close"
-                    on:click=move |_| open.set(false)>"✕"</button>
-            </div>
+        <ul class="manager-list">
+            {move || {
+                let chans = s.sel.channels.get();
+                chans.into_iter().enumerate().map(|(idx, c)| {
+                    view! {
+                        <ManagerRow s=s ch=c idx=idx
+                            editing=editing drag_from=drag_from drag_over=drag_over/>
+                    }
+                }).collect_view()
+            }}
+        </ul>
 
-            <ul class="manager-list">
-                {move || {
-                    let chans = s.sel.channels.get();
-                    let len = chans.len();
-                    chans.into_iter().enumerate().map(|(idx, c)| {
-                        view! {
-                            <ManagerRow s=s ch=c idx=idx len=len
-                                editing=editing drag_from=drag_from/>
-                        }
-                    }).collect_view()
-                }}
-            </ul>
-
-            // New-channel creator: kind picker + name + Create (mirrors the
-            // standalone creator dialog, kept here so management is one window).
-            <div class="manager-create">
-                <div class="creator-kind">
-                    <label class="pref-row">
-                        <input type="radio" name="mgr-ch-kind" value="text"
-                            prop:checked=move || new_kind.get() == "text"
-                            on:change=move |_| new_kind.set("text".to_string())/>
-                        <span>"# Text"</span>
-                    </label>
-                    <label class="pref-row">
-                        <input type="radio" name="mgr-ch-kind" value="lorebook"
-                            prop:checked=move || new_kind.get() == "lorebook"
-                            on:change=move |_| new_kind.set("lorebook".to_string())/>
-                        <span>"📖 Lorebook"</span>
-                    </label>
-                </div>
-                <div class="manager-create-row">
-                    <input class="creator-name" prop:value=move || new_name.get()
-                        on:input=move |ev| new_name.set(event_target_value(&ev))
-                        placeholder="new channel name"/>
-                    <button class="account-save" on:click=move |_| {
-                        let name = new_name.get_untracked();
-                        if name.trim().is_empty() {
-                            return;
-                        }
-                        let kind = new_kind.get_untracked();
-                        new_name.set(String::new());
-                        new_kind.set("text".to_string());
-                        act::create_channel(s, name, kind);
-                    }>"Create"</button>
-                </div>
+        // New-channel creator: kind picker + name + Create (mirrors the
+        // standalone creator dialog, kept here so management is one place).
+        <div class="manager-create">
+            <div class="creator-kind">
+                <label class="pref-row">
+                    <input type="radio" name="mgr-ch-kind" value="text"
+                        prop:checked=move || new_kind.get() == "text"
+                        on:change=move |_| new_kind.set("text".to_string())/>
+                    <span>"# Text"</span>
+                </label>
+                <label class="pref-row">
+                    <input type="radio" name="mgr-ch-kind" value="lorebook"
+                        prop:checked=move || new_kind.get() == "lorebook"
+                        on:change=move |_| new_kind.set("lorebook".to_string())/>
+                    <span><IconBook/>" Lorebook"</span>
+                </label>
             </div>
-        </Modal>
+            <div class="manager-create-row">
+                <input class="creator-name" prop:value=move || new_name.get()
+                    on:input=move |ev| new_name.set(event_target_value(&ev))
+                    placeholder="new channel name"/>
+                <button class="account-save" on:click=move |_| {
+                    let name = new_name.get_untracked();
+                    if name.trim().is_empty() {
+                        return;
+                    }
+                    let kind = new_kind.get_untracked();
+                    new_name.set(String::new());
+                    new_kind.set("text".to_string());
+                    act::create_channel(s, name, kind);
+                }>"Create"</button>
+            </div>
+        </div>
     }
 }
 
-/// One row in the manager list: a drag handle + name (or inline-rename input),
-/// the reorder buttons (↑ ↓ ⤒ ⤓), rename (✎) and delete (🗑). The whole row is
-/// `draggable`; the drop target is the row the pointer is over.
+/// One row in the manager list: a finger-drag grip (`⠿`) + name (or inline-rename
+/// input), then rename (✎) and delete (🗑). Reorder is a press-drag on the grip
+/// (see the module header); the drag hit-tests the row under the finger by
+/// bounding box, so a row needs no positional marker of its own.
 #[component]
 fn ManagerRow(
     s: Shell,
     ch: ChannelSummary,
     idx: usize,
-    len: usize,
     editing: RwSignal<Option<String>>,
     drag_from: RwSignal<Option<usize>>,
+    drag_over: RwSignal<Option<usize>>,
 ) -> impl IntoView {
-    // `idx`/`len`/`drag_from` feed handlers/`disabled` closures the view! macro
-    // strips on ssr — silence the unused warnings (mirrors ChannelRow).
-    let _ = (idx, len, drag_from);
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
-    let sigil = if ch.kind == "lorebook" { "📖 " } else { "# " };
+    let is_lore = ch.kind == "lorebook";
 
-    // Drag handlers (hydrate-only — DnD is a no-op on ssr). `dragstart` records
-    // this row's index; `dragover` allows the drop; `drop` performs the move.
+    // Pointer-drag reorder (hydrate-only — the drag is a no-op on ssr). The grip
+    // captures the pointer on `down`, hit-tests the row under the finger on
+    // `move`, and commits the reorder on `up`. See the module header.
     #[cfg(feature = "hydrate")]
-    let on_dragstart = move |_ev: DragEvent| drag_from.set(Some(idx));
-    #[cfg(feature = "hydrate")]
-    let on_dragover = move |ev: DragEvent| ev.prevent_default();
-    #[cfg(feature = "hydrate")]
-    let on_drop = move |ev: DragEvent| {
-        ev.prevent_default();
-        if let Some(from) = drag_from.get_untracked() {
-            act::move_channel(s, from, idx);
+    let on_grip_down = move |ev: PointerEvent| {
+        use leptos::wasm_bindgen::JsCast as _;
+        // Stop the press bubbling to an enclosing swipe-to-close modal (the orbit
+        // Server window is `swipe_close`): otherwise its pointer engine ALSO
+        // set_pointer_capture's this pointer on bubble and steals the move
+        // stream, so the row never follows the finger.
+        ev.stop_propagation();
+        if let Some(el) = ev
+            .current_target()
+            .and_then(|t| t.dyn_into::<leptos::web_sys::Element>().ok())
+        {
+            let _ = el.set_pointer_capture(ev.pointer_id());
         }
-        drag_from.set(None);
+        drag_from.set(Some(idx));
+        drag_over.set(Some(idx));
+        ev.prevent_default();
     };
     #[cfg(feature = "hydrate")]
-    let on_dragend = move |_ev: DragEvent| drag_from.set(None);
+    let on_grip_move = move |ev: PointerEvent| {
+        use leptos::wasm_bindgen::JsCast as _;
+        if drag_from.get_untracked().is_none() {
+            return;
+        }
+        // Keep the touch on the reorder gesture instead of scrolling the list.
+        ev.prevent_default();
+        // Hit-test the row under the finger by its bounding box (the NodeList
+        // order is the channel order, so the row's position IS the target index
+        // — no DOM attribute round-trip).
+        let y = ev.client_y() as f64;
+        let Some(rows) = leptos::web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.query_selector_all(".channel-manager .manager-row").ok())
+        else {
+            return;
+        };
+        for i in 0..rows.length() {
+            let Some(el) = rows
+                .item(i)
+                .and_then(|n| n.dyn_into::<leptos::web_sys::Element>().ok())
+            else {
+                continue;
+            };
+            let r = el.get_bounding_client_rect();
+            if y >= r.top() && y <= r.bottom() {
+                drag_over.set(Some(i as usize));
+                break;
+            }
+        }
+    };
+    #[cfg(feature = "hydrate")]
+    let on_grip_up = move |_ev: PointerEvent| {
+        if let (Some(from), Some(to)) = (drag_from.get_untracked(), drag_over.get_untracked()) {
+            if from != to {
+                act::move_channel(s, from, to);
+            }
+        }
+        drag_from.set(None);
+        drag_over.set(None);
+    };
 
     view! {
-        <li class="manager-row" draggable="true"
-            on:dragstart=move |_ev| {
-                #[cfg(feature = "hydrate")] on_dragstart(_ev);
-            }
-            on:dragover=move |_ev| {
-                #[cfg(feature = "hydrate")] on_dragover(_ev);
-            }
-            on:drop=move |_ev| {
-                #[cfg(feature = "hydrate")] on_drop(_ev);
-            }
-            on:dragend=move |_ev| {
-                #[cfg(feature = "hydrate")] on_dragend(_ev);
-            }>
-            <span class="manager-grip" title="Drag to reorder" aria-hidden="true">"⠿"</span>
+        <li class="manager-row"
+            attr:data-idx=move || idx.to_string()
+            class:dragging=move || drag_from.get() == Some(idx)
+            class:drag-over=move || drag_over.get() == Some(idx) && drag_from.get() != Some(idx)>
+            <span class="manager-grip" title="Drag to reorder"
+                on:pointerdown=move |_ev| {
+                    #[cfg(feature = "hydrate")] on_grip_down(_ev);
+                }
+                on:pointermove=move |_ev| {
+                    #[cfg(feature = "hydrate")] on_grip_move(_ev);
+                }
+                on:pointerup=move |_ev| {
+                    #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                }
+                on:pointercancel=move |_ev| {
+                    #[cfg(feature = "hydrate")] on_grip_up(_ev);
+                }><IconGrip/></span>
             {
                 let cid = cid.clone();
                 let name0 = name0.clone();
@@ -175,28 +224,23 @@ fn ManagerRow(
                         }.into_any()
                     } else {
                         view! {
-                            <span class="manager-name">{sigil}{name0.clone()}</span>
+                            <span class="manager-name">
+                                {if is_lore {
+                                    view! { <IconBook/>" " }.into_any()
+                                } else {
+                                    view! { "# " }.into_any()
+                                }}
+                                {name0.clone()}
+                            </span>
                         }.into_any()
                     }
                 }
             }
             <div class="manager-row-actions">
-                <button class="channel-reorder" title="Move up"
-                    disabled=move || idx == 0
-                    on:click=move |_| act::swap_channel(s, idx, true)>"↑"</button>
-                <button class="channel-reorder" title="Move down"
-                    disabled=move || idx == len.saturating_sub(1)
-                    on:click=move |_| act::swap_channel(s, idx, false)>"↓"</button>
-                <button class="channel-reorder" title="Bring to top"
-                    disabled=move || idx == 0
-                    on:click=move |_| act::move_channel_to_bounds(s, idx, true)>"⤒"</button>
-                <button class="channel-reorder" title="Bring to bottom"
-                    disabled=move || idx == len.saturating_sub(1)
-                    on:click=move |_| act::move_channel_to_bounds(s, idx, false)>"⤓"</button>
                 <button class="row-edit" title="rename channel" on:click={
                     let cid = cid.clone();
                     move |_| editing.set(Some(cid.clone()))
-                }>"✎"</button>
+                }><IconEdit/></button>
                 <button class="row-edit danger" title="delete channel" on:click={
                     let del_cid = cid.clone();
                     let del_name = name0.clone();
@@ -212,7 +256,7 @@ fn ManagerRow(
                             );
                         }
                     }
-                }>"🗑"</button>
+                }><IconTrash/></button>
             </div>
         </li>
     }

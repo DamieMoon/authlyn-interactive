@@ -1,0 +1,422 @@
+// Motion library (M2; M5/P0 #43 doctrine). Shared keyframes + the
+// reduced-motion kill switch. DOCTRINE: @keyframes may animate ONLY
+// transform/translate/rotate/scale/opacity — never box-shadow,
+// background-position, filter, width/height, top/left (all force layout or
+// paint per frame; lethal on the POCO C3 floor). HOUSE TECHNIQUE
+// "pre-rendered glow": carry the MAX box-shadow STATICALLY on a `::before`/
+// `::after`, pulse only its opacity (see fx-glow-pulse + .composer
+// .send.sent::after + .msg.effect-spell .text::before). Enforced by
+// tests/style_lint.rs (authoritative, brace-aware) + .githooks/pre-commit
+// (fast gate). .fx-max layers more in M5/M11 — every new keyframe is born
+// composite-cheap by this rule.
+
+@keyframes aurora-drift {
+	from {
+		transform: translate3d(0, 0, 0) scale(1);
+		opacity: 0.85;
+	}
+	to {
+		transform: translate3d(12px, -10px, 0) scale(1.06);
+		opacity: 1;
+	}
+}
+
+@keyframes fx-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+// M5/P0 #43: a glow PULSE must animate opacity, never box-shadow (a paint
+// property → per-frame repaint on the floor device). Each consumer carries
+// the MAX glow STATICALLY on a `::before`; this keyframe just breathes its
+// opacity 0.3 → 1 → 0.3. House technique: "pre-rendered glow" — see header.
+@keyframes fx-glow-pulse {
+	0%,
+	100% {
+		opacity: 0.3;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+// Ghost-Quill shimmer (a-orbit.html `ghostShimmer`): the un-sent draft row
+// breathes its opacity .5 → .95 so a live draft reads as "in motion, not yet
+// committed". Opacity-only (composite-cheap, doctrine-clean). Applied with
+// `infinite alternate`; killed under reduced-motion via the `fx-` attribute
+// selector below (the name carries the `fx-` token), leaving the row at its
+// static base opacity (state).
+@keyframes fx-ghost-shimmer {
+	from {
+		opacity: 0.5;
+	}
+	to {
+		opacity: 0.95;
+	}
+}
+
+@keyframes fx-sweep {
+	from {
+		transform: translateX(-130%) skewX(-16deg);
+	}
+	to {
+		transform: translateX(330%) skewX(-16deg);
+	}
+}
+
+// A tiny star circling a center point (M4: the typing-indicator
+// constellation; a-orbit.html `orbitDot`). The counter-rotate keeps the star
+// itself unrotated while it orbits at a per-dot radius read from `--orbit-r`
+// (prototype `--r`: 7 / 10 / 14px). One dot runs `animation-direction:
+// reverse` so the constellation counter-spins (prototype `--rev`).
+@keyframes fx-orbit {
+	from {
+		transform: rotate(0deg) translateX(var(--orbit-r, 10px)) rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg) translateX(var(--orbit-r, 10px)) rotate(-360deg);
+	}
+}
+
+// Star shimmer. Animates the standalone `scale` property (NOT `transform`)
+// so it composes with fx-orbit's transform on the same element — a second
+// transform-based animation would overwrite the orbit entirely.
+@keyframes fx-twinkle {
+	0%,
+	100% {
+		opacity: 0.5;
+		scale: 0.8;
+	}
+	50% {
+		opacity: 1;
+		scale: 1.2;
+	}
+}
+
+// Radial long-press menu open (M4/T4). Animates the standalone
+// `scale`/`rotate` properties on `.radial-menu` — the 0×0 anchor div fixed
+// at the press point — so the keyframe never collides with the buttons'
+// positioning `transform` (the per-slot rotate/translate arc in
+// _content.scss): scaling the anchor scales the whole rendered arc about
+// the press point (a 0×0 box's 50%/50% transform-origin IS the anchor), so
+// the buttons bloom outward from under the finger and settle with a slight
+// counter-swing.
+@keyframes fx-blossom {
+	from {
+		opacity: 0;
+		scale: 0.2;
+		rotate: -14deg;
+	}
+	70% {
+		opacity: 1;
+		scale: 1.05;
+		rotate: 2deg;
+	}
+	to {
+		opacity: 1;
+		scale: 1;
+		rotate: 0deg;
+	}
+}
+
+// M5/P0 #54(c): warp streak sweeps a 20%-wide strip across the pane via
+// transform (composite-only), replacing the old background-position sweep.
+@keyframes fx-warp {
+	from {
+		transform: translateX(-100%);
+		opacity: 0;
+	}
+	20% {
+		opacity: 1;
+	}
+	to {
+		transform: translateX(500%);
+		opacity: 0;
+	}
+}
+
+// One-shot shout shake (M4/T5: `.msg.effect-shout`). A horizontal jolt that
+// decays to rest — translateX only, so it composes with the row's flex
+// layout and never fights a positioning transform. The row carries no
+// transform at rest, so a killed/finished animation leaves it exactly put.
+@keyframes fx-shout {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+	12% {
+		transform: translateX(-5px) rotate(-0.6deg);
+	}
+	28% {
+		transform: translateX(4px) rotate(0.4deg);
+	}
+	44% {
+		transform: translateX(-3px);
+	}
+	62% {
+		transform: translateX(2px);
+	}
+	80% {
+		transform: translateX(-1px);
+	}
+}
+
+// Spell spark (M4/T5: the glowing dots on `.msg.effect-spell`). A tiny dot
+// drifts upward, brightening then fading out. Opacity is keyframed from a 0
+// BASE (the fx-warp pattern) so a killed or finished animation leaves NO
+// static dot behind — the reduced-motion kill below makes the sparks simply
+// vanish while the row's glow (state) stays.
+@keyframes fx-spark {
+	0% {
+		transform: translateY(0) scale(0.4);
+		opacity: 0;
+	}
+	25% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(-16px) scale(1);
+		opacity: 0;
+	}
+}
+
+// Roll-chip entrance (M4/T6: `.msg.roll`). A short pop-in with a slight
+// overshoot — translateY/scale only, and the row carries no transform at
+// rest (the fx-shout rule), so a killed/finished animation leaves it
+// exactly put. One-shot; replays on DOM re-entry like fx-shout (accepted
+// for the same reason).
+@keyframes fx-roll-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.92);
+	}
+	60% {
+		opacity: 1;
+		transform: translateY(-2px) scale(1.03);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+// Die tumble (M4/T6, .fx-max only: the 🎲 glyph on a roll chip). A full
+// spin with overshoot, riding the standalone `rotate`/`scale` properties
+// (the fx-blossom pattern) whose resting values are the defaults — so the
+// reduced-motion kill leaves the glyph upright and full-size.
+@keyframes fx-die-tumble {
+	from {
+		rotate: 0deg;
+		scale: 0.4;
+	}
+	70% {
+		rotate: 380deg;
+		scale: 1.15;
+	}
+	to {
+		rotate: 360deg;
+		scale: 1;
+	}
+}
+
+// M6/P3 Nova DOT orb ring (spec §3:98 "CSS-animated ring"). A slow, steady
+// rotation of the dashed `.nova-orb-ring` element inside public/nova-dot.svg —
+// transform/rotate ONLY (composite-cheap, doctrine-clean). Resting transform is
+// identity, so the reduced-motion kill below leaves the ring a static dashed
+// halo (state). Any orb glow is a STATIC box-shadow on `.nova-orb::before`
+// (_content.scss), never animated here (house "pre-rendered glow" technique).
+@keyframes fx-nova-ring {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+// M5/P0 #19 Visual Haptics — the app's sound-free, vibration-free feedback
+// VOCABULARY. The visual form is PRIMARY (iOS PWAs have no navigator.vibrate);
+// Android mirrors each to a designed vibration behind a user toggle, never
+// exclusive content. UX-equality: identical feedback MEANING on POCO, iPhone,
+// desktop. Every future feature (Initiative turns, Relay Baton, GM tension
+// beats) speaks THIS instead of inventing ad hoc. All transform/opacity only.
+//
+//   vh-tick   — light acknowledge: 450ms radial threshold, effect-chip arm, copy
+//   vh-thud   — weighty land: roll result landing, send commit
+//   vh-shimmer— received glint: reaction / resonance received
+@keyframes vh-tick {
+	0% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	40% {
+		transform: scale(1.02);
+		opacity: 0.7;
+	}
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+}
+@keyframes vh-thud {
+	0% {
+		transform: translateY(0);
+	}
+	45% {
+		transform: translateY(2px);
+	}
+	100% {
+		transform: translateY(0);
+	}
+}
+@keyframes vh-shimmer {
+	from {
+		opacity: 0;
+		transform: translateX(-60%);
+	}
+	50% {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(160%);
+	}
+}
+
+// M5/P0 #19 + #43: vh-tick's glow blip is a STATIC box-shadow on a `::before`
+// whose OPACITY pulses (never animate box-shadow). The `.vh-tick` element must
+// be position:relative for the `::before` to anchor (set in the class below).
+.vh-tick::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	box-shadow: 0 0 10px var(--glow-accent); // STATIC glow
+	opacity: 0;
+	animation: vh-tick-glow 140ms var(--ease-quick) 1;
+}
+@keyframes vh-tick-glow {
+	0%,
+	100% {
+		opacity: 0;
+	}
+	40% {
+		opacity: 1;
+	}
+}
+
+// ---- M5/P0 #19 Visual Haptics trigger classes + reduced-motion kill ----
+.vh-tick {
+	position: relative; // anchors the glow ::before (above)
+	animation: vh-tick 140ms var(--ease-quick) 1;
+}
+.vh-thud {
+	animation: vh-thud 180ms var(--ease-quick) 1;
+}
+.vh-shimmer {
+	position: relative;
+}
+.vh-shimmer::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(105deg, transparent 40%, var(--glass-highlight) 50%, transparent 60%);
+	animation: vh-shimmer 400ms ease-out 1;
+}
+
+// MARKED SECTION — reduced-motion kill for the vh-* family. Kept beside the
+// classes (a SEPARATE @media block from the wholesale kill below; CSS merges
+// multiple prefers-reduced-motion blocks) so a future reader sees the whole
+// vh- contract at once. The element-level kill does not reach pseudo-elements,
+// so ::before/::after are listed explicitly (same reason as the warp ::after
+// note below).
+@media (prefers-reduced-motion: reduce) {
+	.vh-tick,
+	.vh-tick::before,
+	.vh-thud,
+	.vh-shimmer,
+	.vh-shimmer::after {
+		animation: none;
+	}
+}
+
+// Decorative motion dies wholesale under reduced-motion. Scoped to the
+// fx- keyframe consumers + the aurora layer — NOT a global animation kill.
+// This COMPLEMENTS the global freeze in _base.scss (which collapses every
+// animation/transition duration to 0.01ms so JS event listeners still fire,
+// covering e.g. the skeleton shimmer): these higher-specificity selectors
+// remove the decorative animations entirely (`animation: none` wins the
+// shared !important longhands on specificity), and both rules agree in
+// effect — no motion.
+// `.typing-indicator .star`, `.composer .send.sent`, and `.radial-menu`
+// are listed explicitly: they consume fx- keyframes (fx-orbit / fx-twinkle,
+// the radial menu's fx-blossom) but their class names carry no "fx-", so the
+// attribute selector below would miss them. With the blossom killed the
+// radial menu still appears — the keyframe only animates standalone
+// scale/rotate/opacity, whose resting values are the defaults. (The send
+// button's charge RING is exempt on purpose — it's a static fill bound to
+// typed length, state rather than motion.)
+// M5/P0 #43 pre-rendered-glow: the send-confirm pulse and the fx-max spell
+// glow now breathe their OPACITY on pseudo-elements (the MAX box-shadow is
+// static there — fx-glow-pulse no longer animates box-shadow). The
+// element-level kill above can't reach pseudo-elements, so
+// `.composer .send.sent::after` and `.msg.effect-spell .text::before` are
+// listed explicitly. Killed, the glow sits static at full presence (state).
+// The warp-streak ::after is also explicit: the attribute selector matches
+// the .fx-switching ELEMENT, but its `animation: none` doesn't reach the
+// pseudo-element carrying fx-warp. (M5/P0 #54: the streak rebased from
+// .content to .channel-view — the transformed pane — so this is now
+// `.channel-view.fx-switching::after`.)
+// (The STD .fx-switching dip is transition-based — _content.scss carries
+// its own reduced-motion guard.)
+// The M4/T5 message effects are explicit too: `effect-shout`/`effect-spell`
+// carry no "fx-" in the class string, and the spell sparks live on
+// pseudo-elements the element-level attribute kill can't reach. With these
+// killed: shout keeps its warm tint (state), spell keeps its glow (state)
+// while the sparks vanish entirely (their base opacity is 0), and whisper
+// never appears here at all — its blur+reveal is pure state and must keep
+// working under reduced-motion.
+// The M4/T6 roll chip is explicit for the same reason: `.msg.roll` and its
+// `.roll-die` glyph consume fx- keyframes (fx-roll-in / fx-die-tumble) but
+// carry no "fx-" in the class string. Killed, the chip simply sits at its
+// resting state — the glass styling is state, not motion.
+// The Ghost-Quill row (`.msg.msg-ghost`) is explicit too: it consumes
+// fx-ghost-shimmer (opacity breathe) but carries no "fx-" in its class string,
+// and the central typing-anchor dot (`.typing-indicator .star-core`) consumes
+// fx-twinkle the same way. Killed, both sit at their static base (the ghost at
+// its dim floor opacity, the anchor at rest) — presence is state.
+// The Nova DOT orb ring (`.nova-orb-ring`, M6/P3) is explicit too: it consumes
+// fx-nova-ring (rotation) but its class carries no "fx-". Killed, the ring sits
+// at its identity transform — a static dashed halo (state); the orb body never
+// moved.
+@media (prefers-reduced-motion: reduce) {
+	.app::before,
+	.app.fx-max::before,
+	.typing-indicator .star,
+	.typing-indicator .star-core,
+	.msg.msg-ghost,
+	.composer .send.sent,
+	.composer .send.sent::after,
+	.radial-menu,
+	.app.fx-max .channel-view.fx-switching::after,
+	.msg.effect-shout,
+	.msg.effect-spell,
+	.msg.effect-spell::before,
+	.msg.effect-spell::after,
+	.msg.effect-spell .text::after,
+	.msg.effect-spell .text::before,
+	.msg.roll,
+	.msg.roll .roll-die,
+	.nova-orb-ring,
+	[class*="fx-"] {
+		animation: none !important;
+	}
+}

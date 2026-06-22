@@ -7,14 +7,14 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use surrealdb::types::SurrealValue;
+use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::protocol::{
     CreatePersonaRequest, GalleryImage, ListPersonasResponse, PatchPersonaRequest, PersonaDetail,
     PersonaSummary, RedeemPersonaKeyRequest,
 };
 use crate::server::auth::AuthAccount;
-use crate::server::db_helpers::IdRow;
+use crate::server::datetime::to_rfc3339_fixed;
 use crate::server::errors::{error_response, json_rejection_response};
 use crate::server::permissions::{can_edit_persona, is_persona_editor, owns_persona};
 use crate::server::retry::{is_unique_violation, with_write_conflict_retry};
@@ -38,6 +38,12 @@ fn random_share_key() -> String {
 // GET /personas
 // ---------------------------------------------------------------------------
 
+/// GET /personas — the caller's persona library: every persona they own OR can
+/// edit (a redeemed `persona_editor` row), with `owned` flagging which controls
+/// the wardrobe shows. Identity is the session cookie only (`AuthAccount`), so
+/// the set is inherently owner-scoped — there is no client-supplied account id.
+/// Ordered by the persisted `position`, NONE-coalesced to a sentinel so rows
+/// predating the field sort last. (`tests/personas.rs::persona_crud_is_owner_scoped`.)
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn list_personas(State(state): State<AppState>, account: AuthAccount) -> Response {
     match load_personas(&state, &account.0).await {
@@ -67,6 +73,9 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
         // Coalesced sort key: NONE → a sentinel that sorts after every real
         // position so unordered rows fall to the end of the grid.
         sort_pos: i64,
+        // M7/P3 crest debut: the persona-creation instant (every row has it —
+        // schema DEFAULTs it on create), formatted to RFC3339 for the wire.
+        created_at: Datetime,
     }
     // Personas the caller owns OR can edit (a persona_editor row exists). The
     // editor set is resolved from the join table; `owned` flags which controls
@@ -79,7 +88,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             "SELECT meta::id(id) AS id_key, name, description, (color ?? '') AS color,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id,
                 (owner = type::record('account', $account)) AS owned,
-                position,
+                position, created_at,
                 (position ?? 9223372036854775807) AS sort_pos
                 FROM persona
                 WHERE owner = type::record('account', $account)
@@ -101,6 +110,7 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
             color: r.color.unwrap_or_default(),
             owned: r.owned,
             position: r.position,
+            created_at: to_rfc3339_fixed(r.created_at),
         })
         .collect())
 }
@@ -109,6 +119,11 @@ async fn load_personas(state: &AppState, account: &str) -> surrealdb::Result<Vec
 // POST /personas
 // ---------------------------------------------------------------------------
 
+/// POST /personas — create a persona owned by the caller. Validates the name
+/// (`validate_name`), the description length, and the optional color against the
+/// shared markup palette (`valid_color`); mints a fresh `share_key` so the owner
+/// can later share editor access. Returns the new [`PersonaSummary`]
+/// (`owned = true`, no avatar/position yet).
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn create_persona(
     State(state): State<AppState>,
@@ -144,7 +159,7 @@ pub async fn create_persona(
                 description = $description,
                 color = $color,
                 share_key = $share_key
-                RETURN meta::id(id) AS id_key;",
+                RETURN meta::id(id) AS id_key, created_at;",
         )
         .bind(("account", account.0))
         .bind(("name", name.clone()))
@@ -160,7 +175,12 @@ pub async fn create_persona(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     };
-    match resp.take::<Option<IdRow>>(0) {
+    #[derive(SurrealValue)]
+    struct CreatedRow {
+        id_key: String,
+        created_at: Datetime,
+    }
+    match resp.take::<Option<CreatedRow>>(0) {
         Ok(Some(row)) => (
             StatusCode::CREATED,
             Json(PersonaSummary {
@@ -171,6 +191,7 @@ pub async fn create_persona(
                 color: color_echo,
                 owned: true,
                 position: None,
+                created_at: to_rfc3339_fixed(row.created_at),
             }),
         )
             .into_response(),
@@ -186,6 +207,12 @@ pub async fn create_persona(
 // GET /personas/{id}
 // ---------------------------------------------------------------------------
 
+/// GET /personas/{id} — one persona's detail, visible to the owner OR a redeemed
+/// editor; anyone else gets the privacy-404 ("persona not found"), never a 403.
+/// The owner-only fields — the `share_key` (so an editor can't re-share) and the
+/// editor roster — are returned only when the caller owns it; editors get `None`
+/// / empty. (`tests/personas.rs::persona_crud_is_owner_scoped`,
+/// `redeem_grants_edit_and_wear_then_revoke`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn get_persona(
     State(state): State<AppState>,
@@ -232,6 +259,7 @@ async fn load_persona_detail(
         description: String,
         avatar_id: Option<String>,
         share_key: String,
+        created_at: Datetime,
     }
     #[derive(SurrealValue)]
     struct GRow {
@@ -242,7 +270,7 @@ async fn load_persona_detail(
     let mut resp = state
         .db
         .query(
-            "SELECT name, description, share_key,
+            "SELECT name, description, share_key, created_at,
                 (IF avatar != NONE THEN meta::id(avatar) ELSE NONE END) AS avatar_id
                 FROM type::record('persona', $pid);
              SELECT meta::id(id) AS id_key, meta::id(media) AS media_id, position
@@ -268,6 +296,7 @@ async fn load_persona_detail(
         name: p.name,
         description: p.description,
         avatar_id: p.avatar_id,
+        created_at: to_rfc3339_fixed(p.created_at),
         share_key,
         editors,
         gallery: gallery
@@ -285,6 +314,12 @@ async fn load_persona_detail(
 // PATCH /personas/{id}
 // ---------------------------------------------------------------------------
 
+/// PATCH /personas/{id} — edit name / description / color / grid position. Edit
+/// access is re-derived per mutate via `can_edit_persona` (owner OR redeemed
+/// editor); a caller who can't edit gets the privacy-404. All-`Option` PATCH
+/// shape: only the present fields are SET, an empty body is a no-op 204. Color is
+/// re-validated against the markup palette and position must be `>= 0`.
+/// (`tests/personas.rs::persona_color_create_patch_and_snapshot`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn patch_persona(
     State(state): State<AppState>,
@@ -365,6 +400,13 @@ pub async fn patch_persona(
 // DELETE /personas/{id}
 // ---------------------------------------------------------------------------
 
+/// DELETE /personas/{id} — owner-only delete; a non-owner (incl. an editor) gets
+/// the privacy-404. Runs in one transaction that also cascade-clears every
+/// dangling reference — gallery rows, editor links, the legacy
+/// `guild_member.active_persona`, and `channel_active_persona` — so no worn
+/// reference outlives the persona. Past messages keep their snapshotted persona
+/// identity (history is immutable; the message stamp is frozen, not resolved
+/// live). (`tests/personas.rs::deleting_persona_keeps_its_name_on_past_messages`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn delete_persona(
     State(state): State<AppState>,
@@ -409,6 +451,13 @@ pub async fn delete_persona(
 // POST /personas/redeem  — gain editor access via a share key
 // ---------------------------------------------------------------------------
 
+/// POST /personas/redeem — exchange a `share_key` for editor access (a
+/// `persona_editor` row), letting a friend wear + edit the owner's persona. An
+/// unknown key is 404; redeeming your own persona is a 409. The `CREATE` is
+/// wrapped in `with_write_conflict_retry`, and a UNIQUE collision (already an
+/// editor) maps to an idempotent 409 "already an editor" — never a 500.
+/// (`tests/personas.rs::redeem_grants_edit_and_wear_then_revoke`;
+/// `tests/retry_canary.rs` pins the `persona_editor` unique-violation text.)
 #[tracing::instrument(skip_all, fields(account = %account.0))]
 pub async fn redeem_persona_key(
     State(state): State<AppState>,
@@ -486,6 +535,12 @@ pub async fn redeem_persona_key(
 // DELETE /personas/{id}/leave  — an editor drops a shared persona from their list
 // ---------------------------------------------------------------------------
 
+/// DELETE /personas/{id}/leave — a redeemed editor drops a shared persona from
+/// their library (the owner uses DELETE instead). Only an editor may leave; a
+/// non-editor gets the same privacy-404 as an unknown persona. The transaction
+/// also clears the caller's own worn references (`guild_member.active_persona`,
+/// `channel_active_persona`) so they stop stamping it everywhere.
+/// (`tests/personas.rs::owner_shares_with_friend_then_friend_leaves`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, persona = %pid))]
 pub async fn leave_persona(
     State(state): State<AppState>,

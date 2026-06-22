@@ -20,6 +20,14 @@ use crate::server::state::AppState;
 // PUT /guilds/{id}/active-persona
 // ---------------------------------------------------------------------------
 
+/// PUT /guilds/{id}/active-persona — **legacy** per-guild worn persona, stored on
+/// `guild_member.active_persona`. The current path is the per-channel
+/// [`set_channel_active_persona`], which is what `server::messages` actually reads
+/// at send time; this one is retained for back-compat. Caller must be a guild
+/// member (privacy-404 otherwise); a non-null `persona_id` is gated by
+/// `can_edit_persona` (owner OR redeemed editor — you can't wear someone else's),
+/// and that wear is re-checked again at send time, never trusted. A null
+/// `persona_id` clears the worn persona. (`tests/personas.rs::cannot_wear_someone_elses_persona`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, guild = %gid))]
 pub async fn set_active_persona(
     State(state): State<AppState>,
@@ -104,6 +112,16 @@ async fn is_channel_member(state: &AppState, cid: &str, account: &str) -> surrea
     ))
 }
 
+/// PUT /channels/{cid}/active-persona — the **current** per-channel worn persona
+/// (`channel_active_persona`), the value `server::messages` reads to stamp each
+/// post. Caller must be a channel member (privacy-404 otherwise); a non-null
+/// `persona_id` is gated by `can_edit_persona` (owner OR redeemed editor), and a
+/// null clears it. The set is an idempotent DELETE-then-CREATE on the UNIQUE
+/// `(account, channel)` pair inside `with_write_conflict_retry`, so two
+/// concurrent re-wears (double-tap / slow-network retry) converge to one row
+/// instead of 500-ing the MVCC loser.
+/// (`tests/personas.rs::concurrent_channel_wear_converges_to_one_row`,
+/// `cannot_wear_someone_elses_persona`.)
 #[tracing::instrument(skip_all, fields(account = %account.0, channel = %cid))]
 pub async fn set_channel_active_persona(
     State(state): State<AppState>,

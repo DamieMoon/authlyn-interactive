@@ -1,77 +1,106 @@
 // Design tokens — the only file in `style/` that carries hex literals.
 //
-// W6/C5: values are now the **Grimoire palette** (warm ink on parchment-dark,
-// humanist serif body, gold accent). Every consuming rule references these
-// via `var(--token)`, so a redesign / dark-light switch is a value-only edit
-// of THIS FILE.
+// M2 (mendicant-bias): values + NAMES are now the **Void Station palette**
+// (deep-space graphite, electric-blue accent with restrained glow, Duo
+// typography). Token names are semantic (--void/--surface/--accent…) so the
+// next redesign is again a value-only edit of THIS FILE.
 //
-// SCSS `$vars` are kept dual-tracked: they're consumed by the few
-// `rgba($var, alpha)` sites where SCSS-time substitution is still simpler
-// than a `color-mix(in srgb, var(--token) X%, transparent)` rewrite. The
-// `$var` values are updated alongside the `:root` tokens so both are
-// consistent.
-
-$bg: #221c16;
-$panel: #2b231a;
-$panel-2: #352a1f;
-$line: #3d3025;
-$text: #efe6d3;
-$muted: #8a7d63;
-$accent: #c89b3c;
-
 :root {
-	// Core surface + ink (Grimoire: warm ink on parchment-dark)
-	--parchment: #221c16; // page surface
-	--parchment-deep: #1a1612; // darkest base, page edges (was rail bg)
-	--vellum: #2b231a; // raised panels (rail / sidebar / modal)
-	--vellum-2: #352a1f; // hover / active surface
-	--rule-line: #3d3025; // ruled borders
-	--ink: #efe6d3; // primary text
-	--ink-soft: #d6c7a4; // secondary text / chat author name
-	--ink-muted: #8a7d63; // tertiary text
-	--input-bg: #1d1814; // form-input background (just darker than parchment)
+	// Core surfaces (Void Station: layered deep-space graphite)
+	// Elevation (dark→light): --void-deep < --void < --surface < --card < --surface-2 (hover/active)
+	--void-deep: #07090f; // darkest base, page edges / rail bg
+	--void: #0b0e14; // page surface
+	--surface: #0e121a; // raised chrome panels (rail / sidebar / modal)
+	// Lifted a notch 2026-06 (live finding #53: other-author bubbles melted
+	// into the void) — still strictly below --surface-2 per channel, so the
+	// elevation ladder above keeps its order. Every bubble variant (.own /
+	// .system accent washes, roll-chip glass) is a relative mix over this
+	// token and inherits the lift coherently.
+	--card: #121724; // content cards (.msg) — calm, opaque, NOT glass
+	--surface-2: #131927; // hover / active surface
+	--line: #1a2130; // hairline borders
+	--line-strong: #222b3c; // emphasized borders (inputs, frames)
+	--input-bg: #0a0d13; // form-input background (darker than the page)
 
-	// Gold accent family — three steps so hover states can warm/highlight
-	--gold: #c89b3c; // primary accent
-	--gold-warm: #e6b35c; // hover / highlight
-	--gold-soft: #8b6f2f; // subdued gold for borders / disabled
+	// Ink
+	--text: #dde6f2; // primary text
+	--text-soft: #aab8cc; // secondary text / chat author name
+	--text-muted: #8a98ad; // tertiary text
+	--text-faint: #5d6b80; // hints, timestamps, placeholders
 
-	// Danger — terracotta family, ink-friendly on parchment
-	--ink-danger: #d57a6b; // primary danger / error red
-	--ink-danger-soft: #b8665b; // softer red for delete buttons
-	--ink-danger-hover: #c66555; // delete-button hover
-	--ink-danger-border: #8a3f33; // delete-button border
+	// Electric-blue accent family — three steps for hover/disabled
+	--accent: #4d9fff; // primary accent
+	--accent-bright: #7fb6ff; // hover / highlight
+	--accent-soft: #2a4a8a; // subdued accent for borders / disabled
+	--live: #8ee6c8; // online / live / success (mint)
+
+	// Danger — desaturated red tuned for the dark base
+	--danger: #e8707b;
+	--danger-soft: #c45a64;
+	--danger-hover: #d4626d;
+	--danger-border: #7a3038;
 
 	// Role / status colors
-	--role-admin: #6b8ec8; // admin-tag azure (kept cool to contrast against gold)
+	--role-admin: #7fb6ff;
 
 	// Attachment + backdrop surfaces
-	--attachment-bg: #1e1812; // image-thumb placeholder (matches parchment-deep tint)
-	--backdrop-deep: #100c08; // floating-button bg (gallery-remove, lightbox-close)
-	--avatar-tile: #3a2f20; // monogram fallback frame in `chat-avatar`
+	--attachment-bg: #0a0d13;
+	--backdrop-deep: #05070b; // floating-button bg (gallery-remove, lightbox-close)
+	--avatar-tile: #1c2433; // monogram fallback frame in `chat-avatar`
 
-	// Persona-tint palette — hue-rotated to coexist with the parchment surface
-	// and the gold accent. Each is readable on `--vellum-2` (the .msg card bg).
-	--tint-red: #c87a6b;
-	--tint-orange: #c8856b;
-	--tint-yellow: #c8a356;
-	--tint-green: #7ea071;
-	--tint-blue: #6b8ec8;
-	--tint-purple: #a07ec8;
-	--tint-pink: #c876a3;
-	--tint-gray: #a89d83;
+	// Glass material (chrome only — never on prose cards in Standard)
+	--glass-bg: rgba(20, 26, 40, 0.55);
+	--glass-line: rgba(255, 255, 255, 0.08);
+	--glass-highlight: rgba(255, 255, 255, 0.09);
 
-	// Typography stacks
-	--font-body:
+	// M5/P0 #20 etched-glass tints: pre-computed colors approximating what
+	// blur(14px) of the STATIC aurora yields at the top/bottom chrome bands.
+	// (Aurora is deterministic in Standard, so the blur readback is wasted work
+	// on the POCO C3 GE8320 — bake it once instead.) SAMPLE VALUES — Open
+	// Question #2: owner to eyeball that Standard chrome reads ~90% like blur.
+	--frost-top: rgba(18, 24, 38, 0.82); // approximates aurora sample @ top band
+	--frost-bottom: rgba(12, 22, 30, 0.82); // approximates aurora sample @ bottom band
+	// 32x32 tiled monochrome noise for frost grain (465 bytes, compositor-cheap).
+	--frost-noise: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAMFBMVEWUlJSIiIiAgIB4eHhsbGwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACYtSUTAAABXElEQVR42hWOCYEFIQhAQQ0wHgFEDYBiAFT6Z9q/Ad4B1eWYqb1PTSJchtI9HG67uU7n5QJUMnR7Rvy1+KgABpWK/t3wgas0AP8VFJ8eqnXVCBophnTbIKYW2MAp36y4yPlUuXq4qWTrYKNN1/MlOKPMFL9grev+ZoPCbU6xpBTCtiYQp9ThBc2l01gcOK+rdZaWFqt/EU6u3RkG3gm+GT9AS+JS0ugfeCoTokkBXi98CXSdBMOvwK44x/6kjQFiaT48qaEmON/6YKrP+V1Ps3whCPwq+2i7ujc8i4XAJMmyyr+GdIcCgdmGuq6O3H2HoBeVOO7tBcaHp8K8vk+GljyZIRLQXOuUQO4HtIEXLJ7c7hDwKHPdH8Ka5Sd/hVdFRMA9QItWS84V4wkyk9+tk127fXQH1eOPVug1SVSNMLFBmNMLp827PeCJoxr6EZvG3xn0Hl/LJyJ7J3jwD/CMQuaCdINuAAAAAElFTkSuQmCC");
+
+	// Glow + overlay tokens (replace the audited hardcoded rgba escape vectors)
+	--glow-accent: rgba(77, 159, 255, 0.55);
+	--unread-glow: rgba(77, 159, 255, 0.7); // rail/channel unread markers
+	--pinged-glow: rgba(255, 180, 127, 0.8); // @-mention warmth stays warm
+	--mention-bg: rgba(77, 159, 255, 0.14);
+	--spoiler-bg: rgba(127, 182, 255, 0.14);
+	--overlay: rgba(14, 18, 26, 0.9); // lightbox/floating control chips
+	--scrim: rgba(4, 6, 10, 0.6); // modal backdrops
+
+	// Aurora ambience (M2: static tint; .fx-max animates it)
+	--aurora-1: rgba(22, 33, 58, 0.85); // blue nebula tint (top-right)
+	--aurora-2: rgba(13, 37, 48, 0.7); // teal nebula tint (bottom-left)
+
+	// Persona-tint palette — luminous against --card; same 8 roles as before.
+	--tint-red: #ff8a96;
+	--tint-orange: #ffb47f;
+	--tint-yellow: #ffd47f;
+	--tint-green: #8ee6c8;
+	--tint-blue: #7fb6ff;
+	--tint-purple: #c4a8ff;
+	--tint-pink: #ff9ad5;
+	--tint-gray: #9aa7bd;
+
+	// Duo typography (spec §1): tech sans chrome, serif prose, mono meta.
+	--font-ui:
+		"Space Grotesk", -apple-system, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+	--font-prose:
 		"Crimson Pro", Georgia, "Iowan Old Style", Cambria, "Times New Roman", serif;
-	--font-display: "EB Garamond", "Crimson Pro", Georgia, "Times New Roman", serif;
+	--font-display: var(--font-ui);
 	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-	// Motion — durations + easings. Modal open + transitions read these so
-	// the redesign / reduced-motion override is a single-file change.
+	// Motion — quick & precise; spring for entrances. Decorative motion dies
+	// under prefers-reduced-motion (see _motion.scss).
 	--ease-page: cubic-bezier(0.4, 0, 0.2, 1);
 	--ease-quick: cubic-bezier(0.4, 0, 0.6, 1);
+	--ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.15);
 	--dur-quick: 80ms;
-	--dur-base: 180ms;
-	--dur-page: 220ms;
+	--dur-base: 150ms;
+	--dur-page: 200ms;
+	--dur-entrance: 450ms;
 }

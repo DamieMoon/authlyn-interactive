@@ -13,6 +13,8 @@ use axum::response::Response;
 
 use crate::server::errors::error_response;
 
+/// Username length bounds, counted in CHARACTERS (not bytes) — the
+/// inclusive 3..=32 range enforced by [`validate_credentials`].
 pub(super) const MIN_USERNAME_CHARS: usize = 3;
 pub(super) const MAX_USERNAME_CHARS: usize = 32;
 /// Minimum password length, counted in CHARACTERS to match the user-facing
@@ -24,6 +26,8 @@ pub(super) const MIN_PASSWORD_CHARS: usize = 8;
 /// bound, and bytes is the correct unit for capping the work fed to the hasher.
 pub(super) const MAX_PASSWORD_BYTES: usize = 4096;
 
+/// A fresh opaque session token: 32 bytes of CSPRNG entropy, hex-encoded.
+/// Handed to the browser once (in the cookie); only its SHA-256 is stored.
 pub(super) fn random_token() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 32];
@@ -31,6 +35,9 @@ pub(super) fn random_token() -> String {
     hex::encode(bytes)
 }
 
+/// SHA-256 of `input`, hex-encoded. The one-way transform applied to a session
+/// token before it touches the DB, so a leaked `session` row can't be replayed
+/// as a cookie.
 pub(super) fn sha256_hex(input: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -67,6 +74,11 @@ pub(super) async fn hash_on_blocking_pool(password: String) -> Result<String, Re
     }
 }
 
+/// Verify `password` against a stored argon2 PHC string on the blocking pool
+/// (CPU-bound). An **unparseable** PHC verifies as `false`, not an error — so a
+/// non-credential sentinel hash (the `nova_dot` seed's `password_hash = '!'`,
+/// see `storage/schema.surql`) makes that account login-impossible via a clean
+/// verify-fail rather than a 500. Only a task-join failure maps to a 500.
 pub(super) async fn verify_on_blocking_pool(
     password: String,
     phc: String,
@@ -90,6 +102,10 @@ pub(super) async fn verify_on_blocking_pool(
     }
 }
 
+/// Validate a register payload: username length (`MIN_USERNAME_CHARS..=
+/// MAX_USERNAME_CHARS`, char-counted) and whitespace-free, then defers to
+/// [`validate_password`]. Returns the user-facing 400 message on the first
+/// failure.
 pub(super) fn validate_credentials(username: &str, password: &str) -> Result<(), &'static str> {
     let n = username.chars().count();
     if !(MIN_USERNAME_CHARS..=MAX_USERNAME_CHARS).contains(&n) {

@@ -1,0 +1,302 @@
+// Void Station material foundations (M2). Glass is for CHROME (topbar,
+// tabbar, sheets, modals) — prose cards stay opaque (--card) for legibility
+// and battery; see spec §1. Consumers opt in via @include glass / .glass.
+
+// `$border: false` skips the 4-side --glass-line border for consumers that
+// want a single edge or none (bars/sheets draw their own `border-top`/
+// `border-bottom` after the include — see .topbar / .bottom-tabs /
+// .channel-sheet). Default stays the bordered panel.
+// M5/P0 #20: the NEW Standard default for non-orbit chrome. Compositor-only —
+// NO backdrop-filter. A SMOOTH translucent gradient (the --frost-* tints) + a
+// 1px inset specular edge. Rasterizes once, scrolls at composite cost. fx-max /
+// "Materials: live refraction" escalates to glass-live.
+//
+// Owner ruling 2026-06-15: the old `var(--frost-noise) repeat` grain layer was
+// REMOVED — it read as "TV static". Etched is now a clean gradient; orbit chrome
+// (glass-holo, below) goes full Apple Liquid Glass via backdrop-filter.
+@mixin glass-etched($border: true) {
+	background: linear-gradient(180deg, var(--frost-top), var(--frost-bottom));
+	@if $border {
+		border: 1px solid var(--glass-line);
+	}
+	box-shadow: inset 0 1px 0 var(--glass-highlight);
+	// forced-colors still forces Canvas (parity with the old mixin guard).
+	@media (forced-colors: active) {
+		background: Canvas;
+	}
+}
+
+// M5/WS2 holographic glass — the "void station" identity for orbit chrome
+// (sk-orbit pill / orb / station-btn / node / core / chip). This is REAL Apple
+// Liquid Glass and is now the STANDARD DEFAULT (owner ruling 2026-06-15 —
+// "Real Liquid Glass as the default"; REVERSES the earlier no-backdrop-filter-at-
+// Standard doctrine for orbit chrome). Structure mirrors the sibling glass-live
+// (fallback-first → `@supports` upgrades to blur → `reduce` strips back →
+// forced-colors Canvas) but keeps the holographic accent SKIN on top.
+//
+// WHY the reversal: glass-holo used to layer `var(--frost-noise)` grain to fake
+// frost without backdrop-filter — the owner sees that grain as "TV static". The
+// prototype (docs/.../a-orbit.html #pill) does smooth Liquid Glass:
+// `background:var(--glass-bg); backdrop-filter:blur(18px) saturate(150%)`. So
+// the grain is GONE and the disc now refracts the aurora for real on every
+// device that supports it (Safari/WebKit FIRST — see the mandatory `-webkit-`
+// sibling below; WebKit 1:1 is the owner's standing rule).
+//
+// The floor NEVER falls back to the static noise: where backdrop-filter is
+// unsupported (POCO C3 / GE8320) OR the user asked the OS to Reduce
+// Transparency, it degrades to SMOOTH glass — the accent sheen + glow over the
+// opaque --frost gradient (fallback branch / reduce → glass-etched). Reduce
+// strip-back also fixes the old Safari trap: WebKit doesn't support
+// `prefers-reduced-transparency`, so enriching-by-default and stripping only on
+// `reduce` keeps the holo skin alive on iOS (F1).
+//
+// Layers (all STATIC — no paint prop ever rides a keyframe; the glow's opacity
+// may be pulsed by a transform/opacity keyframe elsewhere, the box-shadow
+// itself is NEVER animated; style_lint enforces this):
+//   1. accent-tinted holo sheen gradient, layered OVER the glass background so
+//      the disc reads as TINTED glass (kept in both the fallback and the
+//      `@supports` upgrade);
+//   2. a pre-baked box-shadow stack — faint outer accent halo (static
+//      --glow-accent at low spread) + an accent-soft edge ring (the
+//      "holographic rim") + the inset specular highlight — stated ONCE in the
+//      base so a consumer that re-states `box-shadow` AFTER the @include still
+//      wins the cascade as a single shorthand (the established sk-orbit pattern;
+//      box-shadow is deliberately NOT restated inside @supports — it is static
+//      and orthogonal to blur support).
+// `$accent-sheen` is the shared tinted-glass gradient stop used by both the
+// fallback (over the opaque frost gradient) and the @supports upgrade (over the
+// translucent --glass-bg).
+@mixin glass-holo($border: true) {
+	$accent-sheen: linear-gradient(
+		155deg,
+		color-mix(in srgb, var(--accent) 10%, transparent) 0%,
+		transparent 42%,
+		color-mix(in srgb, var(--accent-bright) 6%, transparent) 100%
+	);
+
+	// Fallback first: SMOOTH glass (no noise, no blur) for devices without
+	// backdrop-filter — the accent sheen over the opaque --frost gradient.
+	background: $accent-sheen, linear-gradient(180deg, var(--frost-top), var(--frost-bottom));
+	@if $border {
+		border: 1px solid var(--glass-line);
+	}
+	box-shadow:
+		0 0 12px color-mix(in srgb, var(--glow-accent) 60%, transparent),
+		inset 0 0 0 1px color-mix(in srgb, var(--accent-soft) 45%, transparent),
+		inset 0 1px 0 var(--glass-highlight);
+
+	// Apple Liquid Glass upgrade: where backdrop-filter is supported, go
+	// translucent (--glass-bg) so the aurora refracts through for real. The
+	// `-webkit-backdrop-filter` sibling is MANDATORY (Safari/WebKit, the primary
+	// target). Keep the accent sheen on top so it still reads as tinted glass.
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		background: $accent-sheen, var(--glass-bg);
+		-webkit-backdrop-filter: blur(16px) saturate(1.4);
+		backdrop-filter: blur(16px) saturate(1.4);
+	}
+
+	// A11y parity with glass-live: a user who asked the OS to Reduce
+	// Transparency gets the plain etched look (no accent sheen / holo rim) and
+	// NO blur — placed AFTER the @supports upgrade so it wins the cascade at
+	// equal specificity. glass-etched re-states the frost background, border,
+	// inset specular, and carries its OWN `forced-colors: active` Canvas guard.
+	@media (prefers-reduced-transparency: reduce) {
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		@include glass-etched($border);
+	}
+
+	// Forced-colors (Windows High Contrast): force Canvas and drop the glow +
+	// blur, independent of the transparency preference (mirrors glass-live's
+	// separate forced-colors block — the two features are orthogonal).
+	@media (forced-colors: active) {
+		background: Canvas;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+// Live refraction — the old behavior, now an escalation (fx-max or the
+// "Materials: live refraction" preference). Keeps every a11y guard intact
+// (matches the original mixin's fallback-first / @supports / reduced-
+// transparency / forced-colors structure at the old _foundation.scss:9-46).
+@mixin glass-live($border: true) {
+	// Fallback first: without backdrop-filter the 55%-alpha --glass-bg would
+	// be illegible over scrolling chat, so default to opaque --surface and
+	// only go translucent where the blur is actually supported.
+	background: var(--surface);
+	@if $border {
+		border: 1px solid var(--glass-line);
+	}
+	box-shadow: inset 0 1px 0 var(--glass-highlight);
+
+	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+		background: var(--glass-bg);
+		-webkit-backdrop-filter: blur(14px) saturate(1.4);
+		backdrop-filter: blur(14px) saturate(1.4);
+	}
+
+	// A11y parity with the reduced-motion kill lists (_motion.scss): a user
+	// who asked the OS for Reduce Transparency gets the same opaque fallback
+	// even where backdrop-filter IS supported. Placed after the @supports
+	// upgrade so these win the cascade at equal specificity (review M-51).
+	@media (prefers-reduced-transparency: reduce) {
+		background: var(--surface);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+
+	// Forced-colors (Windows High Contrast) forces background-color to
+	// Canvas anyway; drop the blur with it so the chrome is plain opaque
+	// system color instead of a frosted pane over forced-color content.
+	@media (forced-colors: active) {
+		background: Canvas;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+}
+
+// Back-compat shim: existing `@include glass` callers get etched by default.
+@mixin glass($border: true) {
+	@include glass-etched($border);
+}
+
+.glass {
+	@include glass;
+}
+
+// M5/P0 #54 body-portal overlay contract. The radial menu, the lightbox, and
+// the mobile emoji picker are no longer mounted inside ChannelPane's .content
+// — they are Leptos <Portal>s rendered to document.body (each inside its own
+// <Show>), so .content can stay transform-free and never traps them as a
+// containing block. Because they leave .content's box they OWN their z-index
+// at the document level and carry their OWN safe-area paddings (they no longer
+// inherit .content's `env(safe-area-inset-*)`). The layering, unchanged from
+// when they were nested (all class-based, all `position: fixed`, so the
+// selectors still match after the mount moved):
+//   - lightbox backdrop        z-index 50  (_lightbox.scss) — content chrome
+//   - radial dismiss backdrop  z-index 60  (_content.scss .radial-backdrop)
+//   - radial menu arc          z-index 61  (_content.scss .radial-menu)
+//   - mobile emoji sheet       above the composer (_content.scss / _nav.scss)
+// No specificity change was needed — only the DOM mount point moved.
+
+// Aurora ambience: two soft nebula tints behind everything. Static in
+// Standard; .fx-max (appearance tier) animates a slow drift. Painted on a
+// fixed pseudo-layer so the grid layout above is untouched.
+//
+// Visibility contract: this layer is z-index -1, so it paints BELOW all
+// in-flow content but ABOVE the canvas. The canvas gets `body`'s
+// `var(--void)` via background propagation (_base.scss — `html` sets no
+// background, and must never gain one: an `html` background would stop the
+// propagation and make body's background paint OVER this layer, burying the
+// aurora). `.app` and `.content` paint no background of their own, and the
+// gradient stack below carries its own opaque `var(--void)` base, so the
+// aurora shows through the content column.
+.app::before {
+	content: "";
+	position: fixed;
+	// Overscan the fixed layer past the viewport so the widened ellipse edges
+	// sit off-canvas and only the bright inner nebula bleeds inward (M5/P2
+	// fidelity — broad inward bleed instead of two tints clinging to corners).
+	inset: -15%;
+	z-index: -1;
+	pointer-events: none;
+	// Two broad nebula ellipses with on-canvas centers (top-right + bottom-
+	// left), over a soft top-anchored vignette: --void at the top fading to
+	// --void-deep toward the bottom so the page edges sink into the void.
+	background:
+		radial-gradient(ellipse 60% 48% at 80% 6%, var(--aurora-1) 0%, transparent 60%),
+		radial-gradient(ellipse 55% 45% at 10% 94%, var(--aurora-2) 0%, transparent 55%),
+		radial-gradient(120% 90% at 50% 0%, var(--void) 0%, var(--void-deep) 70%);
+	// Standard-tier ambience: an opacity-only nebula breath (no transform → no
+	// blur re-eval cost for the chrome's backdrop sampling). fx-max escalates to
+	// the richer aurora-drift below (transform + opacity), which overrides this.
+	// Keyframe is `fx-`-named (decorative doctrine) and `.app::before` is already
+	// in the global reduced-motion kill list (_motion.scss), so motion is auto-
+	// stripped there; killed, it rests at full opacity (state, not motion).
+	animation: fx-aurora-pulse 16s ease-in-out infinite alternate;
+}
+
+// Standard-tier aurora breath: OPACITY ONLY (doctrine — no paint/layout props
+// in a keyframe body). A slow, sub-perceptual swell so the void feels alive
+// without the fx-max drift's translate/scale. The fx- name keeps it under the
+// decorative-motion regime; the global reduced-motion kill covers `.app::before`
+// explicitly (_motion.scss), so this does NOT touch _motion.scss.
+@keyframes fx-aurora-pulse {
+	from {
+		opacity: 0.7;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+// Appearance tier: .fx-max escalates ambience. M2 ships the scaffolding +
+// the first demonstrative effects; M5/M11 add the full Eye-candy set here.
+//
+// steps(36), not ease-in-out: this layer is the literal BACKDROP of the
+// always-blurred glass topbar/tab bar (neither bar ever has content
+// scrolling beneath it — the aurora is all their blur samples), so a
+// smoothly-drifting backdrop forces a blur(14px) re-evaluation every
+// compositor frame, forever, even while the app idles (battery rule,
+// review M-40). Quantized to 36 steps over 9s the value only changes
+// 4x/s (~95% fewer idle re-blurs), and each jump is sub-perceptual:
+// ≤0.34px translate, ≤~1.6px scale drift at a desktop edge, 0.004
+// opacity — invisible on gradients this soft.
+.app.fx-max::before {
+	animation: aurora-drift 9s steps(36) infinite alternate;
+}
+
+// M5/P0 #54(c)+#43: the fx-max warp streak is now a 20%-wide gradient strip
+// swept across the pane via transform: translateX (composite-only), under
+// overflow:hidden, instead of animating background-position. Lives on
+// .channel-view (the transformed pane) now that .content is transform-free.
+// Base opacity 0 + `forwards` keep it invisible before the sweep starts and
+// after it ends — even if the class outlives the animation by a frame.
+// (#A/#G: the streak tints with --glow-accent, which the shell now rebinds per
+// guild from guild.accent_color via an inline style: on .app root — see
+// src/ui/accent.rs. A guild with no accent leaves --glow-accent at its token
+// default.)
+.app.fx-max .channel-view.fx-switching {
+	overflow: hidden;
+}
+.app.fx-max .channel-view.fx-switching::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 20%;
+	// Above the pane chrome: the dip scales the whole pane, so the strip
+	// crosses the whole pane too. .channel-view is its own positioned
+	// containing block (position: relative), keeping this below body overlays.
+	z-index: 6;
+	pointer-events: none;
+	background: linear-gradient(105deg, transparent 0%, var(--glow-accent) 50%, transparent 100%);
+	transform: translateX(-100%);
+	animation: fx-warp 180ms ease-out forwards;
+}
+
+// M5/P2 per-server accent picker swatches (owner-gated modal).
+.accent-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+}
+.accent-swatch {
+	// Touch floor (Mendicant Bias): a 44px tap target, not the old 36px chip.
+	width: 2.75rem;
+	height: 2.75rem;
+	border-radius: 50%;
+	border: 2px solid transparent;
+	cursor: pointer;
+}
+.accent-swatch.active {
+	border-color: var(--text);
+}
+.accent-swatch.accent-default {
+	width: auto;
+	border-radius: 0.5rem;
+	padding: 0 0.6rem;
+}

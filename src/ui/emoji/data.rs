@@ -18,7 +18,7 @@
 //! sites (composer mount + first picker open + first `:trigger` autocomplete
 //! hit) collapse into a single network round-trip.
 //!
-//! Sizes (W7/D1, measured 2026-05-28): pulling the `emojis` crate's static
+//! Sizes (M7/D1, measured 2026-05-28): pulling the `emojis` crate's static
 //! phf table into the wasm cost **~79 KB brotli**; the equivalent JSON asset
 //! is ~22 KB brotli, fetched lazily and cached for the session. The win is
 //! the bundle, not the wire — interactive-load happens off the hot path.
@@ -52,7 +52,7 @@ pub const GROUPS: &[&str] = &[
 
 /// Kick off the lazy JSON fetch if it hasn't started yet. Cheap to call from
 /// multiple sites (composer mount, app shell mount, first `:trigger` hit) —
-/// in-flight fetches coalesce via [`real::PENDING`]. No-op on ssr.
+/// in-flight fetches coalesce via `real::PENDING`. No-op on ssr.
 pub fn warm() {
     #[cfg(feature = "hydrate")]
     real::warm();

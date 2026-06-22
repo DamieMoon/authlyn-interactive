@@ -17,7 +17,10 @@ use crate::server::state::AppState;
 
 use super::crypto::{random_token, sha256_hex};
 
-pub(super) const SESSION_COOKIE: &str = "authlyn_session";
+/// Name of the session cookie. `pub(crate)` because the long-lived
+/// `GET /events` stream (`server::events`) reads the raw token at connect to
+/// re-derive identity for the stream's lifetime (review M-05).
+pub(crate) const SESSION_COOKIE: &str = "authlyn_session";
 const SESSION_TTL_DAYS: i64 = 30;
 
 // ---------------------------------------------------------------------------
@@ -54,6 +57,9 @@ impl FromRequestParts<AppState> for AuthAccount {
     }
 }
 
+/// The 401 rejection the [`AuthAccount`] extractor returns for any
+/// no-valid-session case (absent/expired/garbage cookie). Shared so every miss
+/// path returns one identical body; storage errors are a separate 500.
 pub(super) fn unauthorized() -> (StatusCode, Json<ErrorBody>) {
     (
         StatusCode::UNAUTHORIZED,
@@ -85,15 +91,39 @@ pub(super) async fn issue_session(state: &AppState, account_id: &str) -> surreal
     Ok(token)
 }
 
+/// Resolve a RAW session token to its live account key (`None` = no such
+/// session, or expired). Hashes the token then defers to
+/// [`account_for_token_hash`] — the per-request convenience wrapper used by the
+/// extractor; the SSE stream takes the hash-keyed twin directly so both share
+/// one definition of "valid session".
 pub(super) async fn account_for_token(
     state: &AppState,
     token: &str,
+) -> surrealdb::Result<Option<String>> {
+    account_for_token_hash(state, session_token_hash(token)).await
+}
+
+/// SHA-256 hex of a raw session token — the form `session.token_hash` stores
+/// (the DB never sees the raw token). `pub(crate)` so a long-lived consumer
+/// (the SSE stream, review M-05) hashes once at connect and re-checks via
+/// [`account_for_token_hash`] without owning a mirror of the transform.
+pub(crate) fn session_token_hash(token: &str) -> String {
+    sha256_hex(token.as_bytes())
+}
+
+/// Resolve a STORED token hash to its live account key (`None` = no such
+/// session, or expired). The hash-keyed twin of [`account_for_token`]: the
+/// per-request extractor path and the SSE per-frame re-check (review M-05)
+/// share this exact lookup, so "is this session valid" can never mean two
+/// different things.
+pub(crate) async fn account_for_token_hash(
+    state: &AppState,
+    token_hash: String,
 ) -> surrealdb::Result<Option<String>> {
     #[derive(SurrealValue)]
     struct Row {
         account_key: String,
     }
-    let token_hash = sha256_hex(token.as_bytes());
     let mut resp = state
         .db
         .query(
@@ -122,6 +152,17 @@ pub(super) async fn delete_sessions_for_account(
     Ok(())
 }
 
+/// Build the session cookie carrying the raw token: `HttpOnly` (no JS read),
+/// `Secure`, `SameSite=Lax`, `Path=/`, 30-day `Max-Age`.
+///
+/// WebKit Secure-cookie trap (the subsystem's highest-surprise line): Safari/
+/// WebKit silently **drops** a `Secure` cookie set over `http://localhost`
+/// (Chromium accepts it), so the browser "logs in" 200 but the next `/auth/me`
+/// stays 401. `secure(true)` is correct for prod and must NOT be relaxed — test
+/// WebKit/iOS over HTTPS at the deck domain `https://authlyndev.damienmoon.sh`
+/// (publicly-trusted cert) instead. NOT covered by any integration test (no
+/// `tests/*.rs` asserts the cookie attributes); this is an owner-deck-only
+/// check, guarded by CLAUDE.md doctrine.
 pub(super) fn session_cookie(token: String) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE, token))
         .path("/")
