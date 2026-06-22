@@ -159,7 +159,7 @@ pub async fn restore_message(
     // fanning a full open-channel refetch to every member's connection).
     // This `UPDATE … WHERE … RETURN VALUE` shape is verified on the 3.1.3
     // dev binary only — it falls under the MSG_PROJECTION VERSION-SKEW
-    // runbook gate in reading.rs (prod still runs 3.0.4).
+    // runbook gate in reading.rs (M-32, resolved at v27: prod now 3.1.3).
     let result = with_write_conflict_retry(|| async {
         let mut resp = state
             .db

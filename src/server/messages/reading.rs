@@ -396,18 +396,20 @@ impl MessageRow {
 // 3.1.3 server binary (the dev binary): TableScan -> DynamicScan over
 // array::map(...).
 //
-// VERSION-SKEW WARNING (review M-32, unresolved): everything above is
-// verified ONLY on the 3.1.3 dev binary. Prod (fenrir) still runs 3.0.4,
-// which has NEVER executed this closure-as-FROM-source + correlated `$parent`
-// shape — the pre-T10 post-page mime batch was the only form 3.0.4 ever ran —
-// and no test can ever cover the skew (the suite runs against the dev
-// binary; same blind spot that let the widened `message.kind` ASSERT bug
-// reach prod). If 3.0.4 errors on or mis-evaluates this projection, EVERY
-// message-page read 500s on prod immediately after deploy. Runbook gate
-// before the first deploy of this projection: execute one MSG_PROJECTION
-// SELECT against a throwaway namespace on prod's binary over HTTP /sql
-// (seeded message + media_blob + whispered reply parent), or upgrade prod to
-// the verified 3.1.3 first.
+// VERSION-SKEW WARNING (review M-32, RESOLVED at the v27 cut): everything
+// above is verified on the 3.1.3 dev binary. Prod was the Pi *fenrir* on
+// 3.0.4 — which had NEVER executed this closure-as-FROM-source + correlated
+// `$parent` shape (the pre-T10 post-page mime batch was the only form 3.0.4
+// ever ran) — and no test could cover that skew (the suite runs against the
+// dev binary; the same blind spot that let the widened `message.kind` ASSERT
+// bug reach prod). The novahome migration took M-32's own escape hatch: prod
+// now runs the verified 3.1.3 binary (novahome, `/version` = surrealdb-3.1.3,
+// confirmed 2026-06-22), so prod == the dev binary and THIS skew is closed.
+// The runbook gate below stands as the procedure for any FUTURE prod/dev skew:
+// before the first deploy of a new projection onto a prod whose binary differs
+// from the test binary, execute one MSG_PROJECTION SELECT against a throwaway
+// namespace on prod's binary over HTTP /sql (seeded message + media_blob +
+// whispered reply parent), or upgrade prod to the test-verified version first.
 //
 // The same gate now ALSO covers the review M-12-follow-up / M-41-follow-up
 // statement shapes, equally verified only on 3.1.3 (same throwaway-namespace
@@ -422,8 +424,9 @@ impl MessageRow {
 //     in editing.rs `restore_message`.
 // Note the skew split: CORRECTNESS of these shapes is what the gate checks;
 // the Backward-IndexScan early-exit the probe comments cite was observed via
-// EXPLAIN FULL on 3.1.3 ONLY and may simply not exist on 3.0.4 — that would
-// cost the perf win until the prod upgrade, never correctness.
+// EXPLAIN FULL on 3.1.3 — now that prod is also 3.1.3 the old 3.0.4 perf-skew
+// is moot, but the split (correctness gated, perf best-effort) is the rule for
+// any future skew.
 pub(super) const MSG_PROJECTION: &str = "
         meta::id(id)     AS id_key,
         meta::id(author) AS author_key,
@@ -501,7 +504,7 @@ async fn load_messages(
     // Equivalence (boundary-straddling tie group, seam losslessness, empty
     // arms) is pinned in tests/messages.rs. All EXPLAIN evidence here is
     // 3.1.3-only — the LET-probe shape is covered by the MSG_PROJECTION
-    // VERSION-SKEW runbook gate above (prod still runs 3.0.4).
+    // VERSION-SKEW runbook gate above (M-32, resolved at v27: prod now 3.1.3).
     let (sql, bound, reverse, first_stmt) = match cursor {
         CursorState::None => (
             format!(

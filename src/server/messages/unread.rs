@@ -175,7 +175,7 @@ pub async fn unread(State(state): State<AppState>, account: AuthAccount) -> Resp
                 // row's latest_* fields None as before. This LET-probe
                 // shape (and its 3.1.3-only EXPLAIN evidence) falls under
                 // the MSG_PROJECTION VERSION-SKEW runbook gate in
-                // reading.rs — prod still runs 3.0.4.
+                // reading.rs — M-32, resolved at v27: prod now 3.1.3.
                 sql.push_str(&format!(
                     "LET $lat_{i} = array::first((SELECT VALUE sent_at FROM message
                         WHERE channel = type::record('channel', $cid_{i})
