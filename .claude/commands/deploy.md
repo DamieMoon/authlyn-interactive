@@ -4,7 +4,7 @@ description: Build a release and deploy it to the LIVE systemd service (producti
 ---
 Production = **novahome** (mendicant-bias host), service `authlyn-prod`, `/opt/authlyn-prod`, app `127.0.0.1:8083`, public `https://authlyn.damienmoon.sh` (cloudflared tunnel). DB = `authlyn/prod` on the novahome SurrealDB. The retired **fenrir** path (`/opt/authlyn/deploy.sh`, `authlyn.service`) is gone — do not target it.
 
-**This is production and outward-facing — confirm before the privileged step unless the user clearly just said to deploy.** Note prod is intentionally pinned to the faithful 2026.6.1 build (commit `5cedd5d`); a mendicant-bias / v27 promotion is a **separate owner-gated** decision (merge to `main` is the trigger — see below). Don't promote v27 to prod unless the owner explicitly says so.
+**This is production and outward-facing — confirm before the privileged step unless the user clearly just said to deploy.** Prod now runs **v27.0.0 `mendicant-bias`** (shipped 2026-06-22; merge-to-`main` is the autodeploy trigger). Each prod promotion stays a **separate owner-gated** decision — don't push `main` / promote unless the owner explicitly says so.
 
 ## Routine path — GitHub Actions (preferred)
 `.github/workflows/deploy.yml` auto-deploys **every push to `main`** (docs-only pushes ignored) on the self-hosted runner on novahome: checkout → `cargo leptos build --release` → backup prod DB to `/data/prod_backups` → `sudo -n /opt/authlyn-prod/deploy.sh "$GITHUB_WORKSPACE"` (swap + health-check `:8083` + auto-rollback). Trigger manually with `gh workflow run "Deploy to novahome"`. Because the trigger is merge-to-`main`, gating v27 = gating the merge.
