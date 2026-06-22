@@ -453,12 +453,6 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                 <div class="fx-sk-orbit-stars-a"></div>
                 <div class="fx-sk-orbit-stars-b"></div>
             </div>
-            // Vertical wayfinding side-label (a-orbit.html `.concept-tag`,
-            // left-edge, writing-mode:vertical-rl + rotate(180deg)). Pure
-            // decoration — `pointer-events:none`, `aria-hidden` — so it never
-            // intercepts the strip swipe or the map/orb taps. Hidden while
-            // composing / the map is open (SCSS), matching the prototype's calm.
-            <div class="sk-orbit-concept-tag" aria-hidden="true">"CONCEPT A · ORBIT"</div>
             <button class="sk-orbit-pill" type="button"
                 node_ref=pill_ref
                 aria-haspopup="dialog"

@@ -1,4 +1,5 @@
 @use "tokens" as *;
+@use "foundation" as *;
 
 // ---- wardrobe: persona character cards + detail editor ----
 .pane {
@@ -49,8 +50,7 @@
 // Touch-target floor (Mendicant Bias ≥44px) for EVERY pane's create/add row —
 // applied at the BASE `.add-row` (NOT `.wardrobe .add-row`) so the Friends /
 // Members / Custom-emoji panes, which are `.pane` and NOT `.wardrobe`, inherit
-// it too (they previously got no `.add-row` sizing at all). Pure dimension, no
-// mixin → this file needs no `foundation` @use.
+// it too (they previously got no `.add-row` sizing at all).
 .add-row {
 	input,
 	textarea,
@@ -59,9 +59,11 @@
 	}
 }
 
-// Client-side filter box above the grid (#18/FB4).
+// Client-side filter box above the grid (#18/FB4). An input — touch floor only,
+// kept opaque (no glass/glow; glass is chrome-only, B2 doctrine).
 .persona-search {
 	width: 100%;
+	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	margin-bottom: 0.75rem;
 }
 
@@ -210,6 +212,14 @@
 		flex-wrap: wrap;
 		gap: 0.4rem;
 
+		// All card-action buttons (.worn / .danger / Edit) carry the shared
+		// glass+glow chrome material and the 44px tap floor (owner ruling
+		// 2026-06-17, product-wide; at the base, not an .sk-orbit override).
+		button {
+			min-height: 2.75rem;
+			@include glass-holo;
+		}
+
 		.worn {
 			border-color: var(--accent);
 			color: var(--accent);
@@ -253,6 +263,7 @@
 
 		input,
 		textarea {
+			min-height: 2.75rem; // 44px touch floor (Mendicant Bias); inputs stay opaque (B2)
 			color: var(--text);
 		}
 
@@ -265,6 +276,13 @@
 	.detail-actions {
 		display: flex;
 		gap: 0.4rem;
+
+		// Save / Cancel carry the shared glass+glow material and the 44px tap
+		// floor (owner ruling 2026-06-17, product-wide; base, not an override).
+		button {
+			min-height: 2.75rem;
+			@include glass-holo;
+		}
 
 		.save {
 			border-color: var(--accent);

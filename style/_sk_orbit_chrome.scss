@@ -340,24 +340,6 @@
 	box-shadow: 0 0 6px color-mix(in srgb, var(--live) 65%, transparent);
 }
 
-// Vertical wayfinding side-label (a-orbit.html `.concept-tag`, :59-61): a faint
-// mono caption riding the left safe-area edge, rotated up the side. Pure
-// decoration (pointer-events:none) so it never intercepts the strip swipe.
-.app.sk-orbit .sk-orbit-concept-tag {
-	position: fixed;
-	left: calc(4px + env(safe-area-inset-left, 0px));
-	top: 50%;
-	z-index: 6;
-	pointer-events: none;
-	writing-mode: vertical-rl;
-	transform: translateY(-50%) rotate(180deg);
-	font-family: var(--font-mono);
-	font-size: 9px;
-	letter-spacing: 4px;
-	color: var(--text-faint);
-	opacity: 0.75;
-}
-
 // Help button (a-orbit.html #helpBtn): bottom-left "?" glass disc, balancing the
 // bottom-right orb. Hidden while composing so it never crowds the keyboard.
 .app.sk-orbit .sk-orbit-help {
@@ -403,14 +385,6 @@
 		width: 1.15rem;
 		height: 1.15rem;
 	}
-}
-
-// Pane create/add-row buttons (Friends "Add", DMs/Cameos nav, wardrobe "Create
-// persona") carry the shared chrome material so the panes read like the Station
-// list — parity with the glass-holo'd `.sk-orbit-account-btn` (B2). The base
-// `.add-row` floor (_wardrobe.scss) already gives them the ≥44px tap height.
-.app.sk-orbit .pane .add-row button {
-	@include glass-holo;
 }
 
 // Gesture-hints overlay (a-orbit.html #hints / .hintCard) — a portaled modal

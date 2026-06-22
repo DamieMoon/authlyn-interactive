@@ -1,4 +1,5 @@
 @use "tokens" as *;
+@use "foundation" as *;
 
 // ---------------------------------------------------------------------------
 // Wave B — markup cluster: dialogue / emoji / image / spoiler, plus the
@@ -292,6 +293,7 @@
 // Friend-request accept / remove (friends pane). The list is otherwise
 // unstyled (falls to the base button); all it needs is the tap floor.
 .flist button {
+	@include glass-holo;
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
@@ -302,6 +304,7 @@
 // wide; NOT an .sk-orbit override). Safe scope: .add-row is the form-row pattern,
 // not the bespoke composer-orb / map-node chrome the blanket floor would distort.
 .add-row button {
+	@include glass-holo;
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 }
 
@@ -310,6 +313,7 @@
 // label itself — the same "checkbox + name hit target" shape share-rows already
 // floor (_mobile.scss) — and center the checkbox + text in the 44px row.
 .flist label {
+	@include glass-holo;
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
@@ -331,6 +335,9 @@
 	background: var(--surface);
 	border: 1px solid var(--line);
 	border-radius: 0.4rem;
+	// A list row, not a control — a subtle electric-blue glow for chrome parity
+	// with the glass-holo'd controls, without the full glass material.
+	box-shadow: 0 0 14px rgba(77, 159, 255, 0.12);
 }
 
 .member-avatar {
@@ -402,19 +409,19 @@
 }
 
 .member-role-btn {
+	@include glass-holo;
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)
 	padding: 0.2rem 0.55rem;
 	border: 1px solid var(--accent);
 	border-radius: 0.3rem;
-	background: var(--surface);
 	color: var(--accent);
 	cursor: pointer;
 	font-size: 0.8rem;
 }
 
 .member-kick {
+	@include glass-holo;
 	border: 1px solid var(--danger-border);
-	background: var(--surface);
 	color: var(--danger-soft);
 	border-radius: 0.3rem;
 	min-height: 2.75rem; // 44px touch floor (Mendicant Bias)

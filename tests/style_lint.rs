@@ -669,6 +669,107 @@ fn orbit_chrome_controls_inherit_glass_material() {
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
+/// Dispatch-pane controls (the Friends / Members / wardrobe-card / persona-editor
+/// action buttons that live in `_wave_b.scss` / `_wardrobe.scss`, NOT the orbit
+/// shell chrome) carry the same shared Liquid-Glass material via
+/// `@include glass-holo` (or `glass-live`) at their BASE definition — so every
+/// surface reads with the electric-blue glow, never flat (B2). Each anchor is the
+/// exact selector head as it appears in the file; a nested `@include` counts
+/// because `all_bodies` returns the whole block body.
+#[test]
+fn dispatch_pane_controls_inherit_glass_material() {
+    const PANE_CONTROLS: &[(&str, &str)] = &[
+        ("style/_wave_b.scss", ".add-row button {"),
+        ("style/_wave_b.scss", ".flist button {"),
+        ("style/_wave_b.scss", ".flist label {"),
+        ("style/_wave_b.scss", ".member-role-btn {"),
+        ("style/_wave_b.scss", ".member-kick {"),
+        ("style/_wardrobe.scss", ".card-actions {"),
+        ("style/_wardrobe.scss", ".detail-actions {"),
+    ];
+    let mut violations = Vec::new();
+    for (file, anchor) in PANE_CONTROLS {
+        let src = strip_line_comments(&read_rel(file));
+        let bodies = all_bodies(&src, anchor);
+        if bodies.is_empty() {
+            violations.push(format!(
+                "{file}: `{anchor}` not found (renamed? update the guard)"
+            ));
+        } else if !bodies
+            .iter()
+            .any(|b| b.contains("@include glass-holo") || b.contains("@include glass-live"))
+        {
+            violations.push(format!(
+                "{file}: `{anchor}` — no @include glass-holo/glass-live in its rule body \
+                 (dispatch-pane control silently lacks the glow every peer has, B2)"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// `glass-holo` / `glass-live` OWN the control's background — a consumer must NOT
+/// restate a top-level `background:` after the `@include`. The mixin emits its
+/// `@supports (backdrop-filter…) { background: …glass… }` block AFTER the rule
+/// body, so on backdrop-filter engines (WebKit/iOS — the primary target) a
+/// restated top-level background is a DEAD declaration: the control ships the
+/// blue accent-glass fill, not the authored one, while reading correctly on
+/// Chromium (the UI-fidelity class — invisible to fmt/clippy). The B2 reference
+/// peer `.sk-orbit-account-btn` lets the mixin own the background; the dispatch-
+/// pane consumers must too. RED if `.member-kick` / `.member-role-btn` restate
+/// `background: var(--surface)` after the include (the defect this guards).
+#[test]
+fn glass_holo_consumers_let_the_mixin_own_the_background() {
+    // The same dispatch-pane consumers as `dispatch_pane_controls_inherit_glass_material`.
+    const GLASS_CONSUMERS: &[(&str, &str)] = &[
+        ("style/_wave_b.scss", ".add-row button {"),
+        ("style/_wave_b.scss", ".flist button {"),
+        ("style/_wave_b.scss", ".flist label {"),
+        ("style/_wave_b.scss", ".member-role-btn {"),
+        ("style/_wave_b.scss", ".member-kick {"),
+        ("style/_wardrobe.scss", ".card-actions {"),
+        ("style/_wardrobe.scss", ".detail-actions {"),
+    ];
+    let mut violations = Vec::new();
+    for (file, anchor) in GLASS_CONSUMERS {
+        let src = strip_line_comments(&read_rel(file));
+        for body in all_bodies(&src, anchor) {
+            let includes_glass =
+                body.contains("@include glass-holo") || body.contains("@include glass-live");
+            if includes_glass && has_top_level_background(&body) {
+                violations.push(format!(
+                    "{file}: `{anchor}` restates a top-level `background:` after \
+                     @include glass-holo/glass-live — DEAD on backdrop-filter engines \
+                     (WebKit/iOS); let the mixin own the background (cf. .sk-orbit-account-btn)"
+                ));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// True if `body` (as returned by `brace_body`, i.e. INCLUDING its outer braces,
+/// so the rule's own declarations sit at brace-depth 1) declares a `background`
+/// at depth 1 — a sibling of the `@include`, not one nested in `&:hover` /
+/// `@supports` / `@media` (those are depth >= 2 and legitimate).
+fn has_top_level_background(body: &str) -> bool {
+    let mut depth = 0i32;
+    for line in body.lines() {
+        let l = line.trim();
+        if depth == 1 && (l.starts_with("background:") || l.starts_with("background-color:")) {
+            return true;
+        }
+        for ch in line.chars() {
+            match ch {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 /// Every brace-matched body whose rule head contains `anchor`, in document order.
 fn all_bodies(src: &str, anchor: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -743,6 +844,14 @@ fn registered_interactive_controls_declare_44px_touch_floor() {
         ("style/_trash.scss", "trash-restore"),
         ("style/_wave_b.scss", "member-role-btn"),
         ("style/_wave_b.scss", "member-kick"),
+        ("style/_wave_b.scss", "add-row button"),
+        ("style/_wave_b.scss", "flist button"),
+        ("style/_wave_b.scss", "flist label"),
+        // Card-/detail-action buttons floor via a nested `button {}` rule, so the
+        // registry holds the PARENT block selector — `all_bodies` returns the whole
+        // block body (nested `button` min-height included) for `declares_touch_floor`.
+        ("style/_wardrobe.scss", "card-actions"),
+        ("style/_wardrobe.scss", "detail-actions"),
         ("style/_toast.scss", "toast-action"),
         ("style/_wardrobe.scss", "persona-grip"),
         ("style/_lorebook.scss", "lore-grip"),
