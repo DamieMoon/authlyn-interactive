@@ -26,14 +26,14 @@ New to the crate? Read in this order: **01 → 02 → 03 → 05**, then branch t
 | [`architecture/08-styling-chrome.md`](architecture/08-styling-chrome.md) | You are adding or altering chrome/CSS. Covers the motion doctrine, the Liquid-Glass material, the **≥44px touch-target floor** (product-wide, applied at the control's base definition), and the curated `tests/style_lint.rs` static-scan registries you must keep green and extend by hand. |
 | [`architecture/09-testing.md`](architecture/09-testing.md) | You are writing or running tests. The harness (`tests/common/mod.rs`), the live-SurrealDB + `--features ssr` requirement, per-worker namespace isolation, the `/check` quality gate, and the `style_lint` static scan. |
 | [`architecture/10-nova-mcp.md`](architecture/10-nova-mcp.md) | You are touching the MCP bridge — `src/bin/nova-mcp.rs` behind `--features nova`. It talks to the running HTTP API as the seeded `nova.` account and exposes it over MCP; imports zero ssr/hydrate. **Not in `/check`** — build it by hand when touched. |
-| [`architecture/11-build-deploy-pwa.md`](architecture/11-build-deploy-pwa.md) | You are building, deploying, or working on the PWA surface. `cargo-leptos`, the `/check` and pre-commit gates, the **frozen prod deploy** (still points at retired host *fenrir*), and the test deck (`https://authlyndev.damienmoon.sh` on novahome). |
+| [`architecture/11-build-deploy-pwa.md`](architecture/11-build-deploy-pwa.md) | You are building, deploying, or working on the PWA surface. `cargo-leptos`, the `/check` and pre-commit gates, the **novahome prod deploy** (push-to-`main` auto-deploy, owner-gated), and the test deck (`https://authlyndev.damienmoon.sh` on novahome). |
 
 ### Reference (`reference/`)
 
 | Doc | Read this when… |
 | --- | --- |
 | [`reference/rest-api.md`](reference/rest-api.md) | You need the route/DTO matrix — every REST endpoint, its method/path, request/response DTO (`src/protocol.rs`), and auth requirement. The lookup table, not the narrative. |
-| [`reference/conventions.md`](reference/conventions.md) | You need the in-repo conventions distilled: Conventional-Commits + milestone tag, `verb_noun` handler naming, DTO suffixes, the `//!`/`///` doc rules, and the CalVer→SemVer versioning state. (Sources: [`../CLAUDE.md`](../CLAUDE.md), [`../Cargo.toml`](../Cargo.toml).) |
+| [`reference/conventions.md`](reference/conventions.md) | You need the in-repo conventions distilled: Conventional-Commits + milestone tag, `verb_noun` handler naming, DTO suffixes, the `//!`/`///` doc rules, and the SemVer versioning scheme (CalVer retired at v27). (Sources: [`../CLAUDE.md`](../CLAUDE.md), [`../Cargo.toml`](../Cargo.toml).) |
 
 ## Pinned anchors (the load-bearing invariants and their tests)
 
@@ -55,7 +55,7 @@ The WebKit `Secure`-cookie trap (Safari drops the `Secure` session cookie over `
 
 - [`../README.md`](../README.md) — stack, directory layout, dev/run commands (canonical; not duplicated here).
 - [`../CLAUDE.md`](../CLAUDE.md) — day-to-day operating manual: build/test/check invocations, deploy posture, the load-bearing invariants + footguns.
-- [`../Cargo.toml`](../Cargo.toml) — feature graphs and every dependency's purpose in `#`-comments; CalVer version + codename.
+- [`../Cargo.toml`](../Cargo.toml) — feature graphs and every dependency's purpose in `#`-comments; SemVer version + codename.
 - [`../.claude/settings.json`](../.claude/settings.json) — toolchain probe, Bash allowlist, the `rustfmt`-on-write and `SessionStart` hooks.
 - `tests/*.rs` — 28 integration suites; canonical for every behavioral invariant cited across this tree. Each doc's own "Source map" lists the tests pinning its claims.
 - `tests/common/mod.rs` — shared harness: per-worker isolated namespace + media tempdir; drives the axum router via `tower::ServiceExt::oneshot`.

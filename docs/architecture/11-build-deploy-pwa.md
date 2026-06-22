@@ -5,12 +5,12 @@ service worker rolls a new build onto an installed PWA without losing an in-prog
 
 This doc **references** the canonical sources rather than restating them:
 
-- Exact build/run/test/check invocations, the toolchain prereqs, and the *frozen-deploy
-  specifics*: [`CLAUDE.md`](../../CLAUDE.md).
+- Exact build/run/test/check invocations, the toolchain prereqs, and the deploy
+  specifics: [`CLAUDE.md`](../../CLAUDE.md).
 - Every dependency's purpose, the three feature graphs, and the full
   `[package.metadata.leptos]` config: the `#`-comments in [`Cargo.toml`](../../Cargo.toml).
 - The Bash allowlist and hooks: [`.claude/settings.json`](../../.claude/settings.json).
-- Stack, directory layout, dev quickstart, the CalVer scheme: [`README.md`](../../README.md).
+- Stack, directory layout, dev quickstart, the versioning scheme: [`README.md`](../../README.md).
 
 Siblings: [01-overview](01-overview.md) · [04-realtime-sse](04-realtime-sse.md) (the SSE bus
 the dev-reload nudge rides) · [07-ui-shell](07-ui-shell.md) (the account modal's version line
@@ -382,8 +382,8 @@ see the realtime + push subsystems.)
   runner registration, root-owned `deploy.sh` boundary).
 - `.claude/commands/test-deploy.md` — test-deck runbook (`authlyn-test` :8082, dual-remote push,
   `reset --hard FETCH_HEAD` + SHA verify).
-- `CLAUDE.md` — the frozen-deploy + owner-gate rules (host/cert specifics there are the
-  *historical* warning; the workflow file is the current target).
+- `CLAUDE.md` — the novahome deploy + owner-gate rules (the workflow file stays
+  canonical for host/cert specifics).
 
 **PWA + dev-reload**
 - `public/sw.js` — `CACHE_VERSION`/`ASSET_REV`, no-`skipWaiting` install, fetch strategy matrix,

@@ -105,4 +105,4 @@ Commit-per-task, trailer `(M7/P1)`, gate per task. Server-trusted + **privacy-40
 2. `/check` — `cargo fmt --all --check` → clippy ssr → clippy hydrate-wasm (`-D warnings`).
 3. `cargo build --release --bin nova-mcp --features nova` (protocol.rs touched → all three graphs compile).
 4. Throwaway-namespace prod-SurrealDB shape gate before any deploy (the `channel.guild` widening over the populated prod table is the highest-risk migration — verify boot-apply on prod-shaped data; the boot-log watch is the live net).
-5. **Demo on the deck** (`/test-deploy` → novahome `https://192.168.0.239:3434`, WebKit/iPhone over HTTPS with the dev root CA — **not** Chromium) for the owner's deck-pass on the demo-driven UX decisions above.
+5. **Demo on the deck** (`/test-deploy` → novahome `https://authlyndev.damienmoon.sh`, WebKit/iPhone over HTTPS (publicly-trusted cert, no root CA) — **not** Chromium) for the owner's deck-pass on the demo-driven UX decisions above.

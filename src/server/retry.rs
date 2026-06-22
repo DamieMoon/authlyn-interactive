@@ -87,9 +87,9 @@ where
 /// wording drifts between SurrealDB releases, so we match CASE-INSENSITIVELY on
 /// markers from EVERY text we've observed: the `=3.1.0-beta.3` SDK
 /// emits `"...Transaction conflict: Write conflict, retry the transaction. This
-/// transaction can be retried"`, the `3.0.4` server (prod/fenrir) emits
+/// transaction can be retried"`, the `3.0.4` server (the retired Pi *fenrir* prod) emits
 /// `"...Transaction conflict: Transaction write conflict. This transaction
-/// can be retried"`, and the `3.1.3` server (dev box since 2026-06) emits
+/// can be retried"`, and the `3.1.3` server (the dev box, and prod/novahome since the v27 cut) emits
 /// `"The query was not executed due to a failed transaction"`. The first two
 /// contain `"write conflict"` and `"can be retried"`; the third contains
 /// neither, so the full generic sentence is matched as the third marker (the

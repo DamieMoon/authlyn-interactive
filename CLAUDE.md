@@ -32,7 +32,7 @@ Three graphs, mutually exclusive at the binary level: **ssr** (server runtime, n
 Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must compile to `wasm32-unknown-unknown` (serde-only — no axum/surrealdb/tokio). `nova` carries `required-features` so the default build / cargo-leptos never pulls it.
 
 ## Conventions
-- **Commits — Conventional Commits** + trailing milestone tag: `type(scope): subject (M5/P2)`, imperative subject, `type ∈ {feat, fix, refactor, docs, chore, a11y}`. Body explains the invariant/finding touched; add a `Tests:` line and the `Co-Authored-By` trailer.
+- **Commits — Conventional Commits** + trailing milestone tag: `type(scope): subject (M7/P1)`, imperative subject, `type ∈ {feat, fix, refactor, docs, chore, a11y}`. Body explains the invariant/finding touched; add a `Tests:` line and the `Co-Authored-By` trailer.
 - **Handlers:** `verb_noun` lowercase (`create_guild`, `list_messages`); no `handle_` prefix; static routes rank over dynamic.
 - **DTOs** (`protocol.rs`): suffix `Request/Response/Summary/Detail/Envelope/Item/Entry`; PATCH-shaped DTOs derive `Default` + all-`Option<>`; wire is serde JSON.
 - **Docs:** every module a `//!` header; public REST fns lead with `/// VERB /path — intent`. (Dependency `#`-comments: see `Cargo.toml`.)
@@ -40,7 +40,7 @@ Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must co
 - **Versioning:** **SemVer** (from **v27** — CalVer `YYYY.M.D` retired at the v27 release). Current: **`27.0.0`**, codename **`mendicant-bias`** (`Cargo.toml` `version` + `[package.metadata.release].codename`; README mirrors the scheme). Bump per SemVer on each release; codename is a manual two-word name.
 
 ## Namespace: release waves (M#)
-Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task; bare **`#N`** = a review-finding id. Commit trailer: `(M5/P2)`
+Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task, or a named stream such as **`/docs`**; a bare **`(M#)`** with no sub-token is also valid. Separately, a bare **`#N`** is a review-finding id. Example trailers: `(M7/P1)`, `(M7/docs)`, `(M7)`.
 
 ## Operating invariants & footguns (the tests are canonical — read the test, not memory)
 The full numbered catalogue was in the now-deleted `docs/ARCHITECTURE.md` (commit `68b65bd`). The surviving source of truth is **the integration tests (`tests/*.rs`) and the code**. The few that crash boot / break security / waste hours and aren't caught until too late:

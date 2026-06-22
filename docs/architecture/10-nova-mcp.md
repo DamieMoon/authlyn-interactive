@@ -299,13 +299,11 @@ next call.
 runbooks build and ship the **app** (`authlyn-interactive` bin via
 `cargo leptos build`), never the bridge.
 
-One drift note relevant to anyone reading the operating manual: `CLAUDE.md`'s
-"Prod deploy is FROZEN" section (L24) warns that `deploy.yml` still targets the
-**retired** host *fenrir*. The **workflow file itself has since been repointed to
-novahome** (`name: Deploy to novahome`, `runs-on: [self-hosted, novahome]`,
-`/opt/authlyn-prod/deploy.sh`, app `:8083` — `deploy.yml:1,28,55`). The freeze
-and the owner-gated merge-to-`main` promotion still hold; the *fenrir* wording in
-`CLAUDE.md` is stale relative to the file. Treat the workflow file + the
+Host/port facts changed under the v27 cut: prod is no longer the retired Pi
+*fenrir* but **novahome** (`name: Deploy to novahome`, `runs-on: [self-hosted,
+novahome]`, `/opt/authlyn-prod/deploy.sh`, app `:8083` — `deploy.yml:1,28,55`),
+and the old prod freeze is lifted — a push to `main` auto-deploys to prod, each
+promotion owner-gated. Treat the workflow file + the
 [deploy](../../.claude/commands/deploy.md) /
 [test-deploy](../../.claude/commands/test-deploy.md) runbooks as canonical for
 host/port facts. Full deploy story: [11-build-deploy-pwa.md](./11-build-deploy-pwa.md).
