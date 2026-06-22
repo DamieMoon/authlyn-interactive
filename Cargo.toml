@@ -1,12 +1,12 @@
 [package]
 name = "authlyn-interactive"
-# CalVer: YYYY.M.D. Bump the date on every release; codename in [package.metadata.release].
-version = "2026.6.1"
+# SemVer from v27 (retired CalVer YYYY.M.D at the v27 release; see the design spec). codename in [package.metadata.release].
+version = "27.0.0"
 edition = "2021"
 
 [package.metadata.release]
 # Suggested codename for this build. Pick a fresh two-word name manually and set it here.
-codename = "saffron-tide"
+codename = "mendicant-bias"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

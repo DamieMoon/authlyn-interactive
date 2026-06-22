@@ -37,7 +37,7 @@ Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must co
 - **DTOs** (`protocol.rs`): suffix `Request/Response/Summary/Detail/Envelope/Item/Entry`; PATCH-shaped DTOs derive `Default` + all-`Option<>`; wire is serde JSON.
 - **Docs:** every module a `//!` header; public REST fns lead with `/// VERB /path — intent`. (Dependency `#`-comments: see `Cargo.toml`.)
 - **Tests:** `tests/*.rs`, `#[tokio::test]`, full-sentence `snake_case` names; the shared harness stays `tests/common/mod.rs`.
-- **Versioning:** CalVer `YYYY.M.D` + a manual two-word codename — scheme owned by `README.md` + `Cargo.toml`. **PENDING at v27:** the design spec retires CalVer for **SemVer `27.0.0`**, codename **`mendicant-bias`**; Cargo.toml is still on `2026.6.1` / `saffron-tide` — flip this line + README **at the release, not before.**
+- **Versioning:** **SemVer** (from **v27** — CalVer `YYYY.M.D` retired at the v27 release). Current: **`27.0.0`**, codename **`mendicant-bias`** (`Cargo.toml` `version` + `[package.metadata.release].codename`; README mirrors the scheme). Bump per SemVer on each release; codename is a manual two-word name.
 
 ## Namespace: release waves (M#)
 Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task; bare **`#N`** = a review-finding id. Commit trailer: `(M5/P2)`
