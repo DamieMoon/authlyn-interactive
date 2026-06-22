@@ -1344,12 +1344,24 @@
 	bottom: 60px;
 	display: flex;
 	flex-direction: column-reverse;
+	// Chips hug the orb's right edge and grow LEFTWARD (into the screen) so the
+	// widest label ("WHISPER") can never overflow past the right safe-area — the
+	// round-4 deck clip. A viewport-width clamp backs it up.
+	align-items: flex-end;
+	max-width: calc(100vw - 1.8rem - env(safe-area-inset-right, 0px) - env(safe-area-inset-left, 0px));
 	gap: 0.5rem;
 }
 .app.sk-orbit .sk-orbit-chip {
-	width: 44px;
+	// A pill, not a fixed 44px circle: "WHISPER" (7 uppercase letters) does not
+	// fit a 44px disc and clipped off-screen (round-4 deck finding). min-width
+	// keeps the ≥44px touch floor; width:max-content lets the label set the pill
+	// width (growing left via the blossom's align-items:flex-end). 22px radius =
+	// half the 44px height → a circle for the short labels, a pill for the long.
+	min-width: 44px;
+	width: max-content;
 	height: 44px;
-	border-radius: 50%;
+	padding: 0 0.5rem;
+	border-radius: 22px;
 	@include glass-holo;
 	color: var(--text);
 	display: grid;

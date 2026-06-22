@@ -346,8 +346,11 @@
 		min-height: 2.75rem; // 44px
 		padding: 0 0.9rem;
 		border-radius: 0.5rem;
-		background: var(--surface-2);
-		border: 1px solid var(--line-strong);
+		// Shared chrome material (glass + --glow-accent glow), the B2 doctrine —
+		// the round-4 deck finding was this control reading flat (no glow). The
+		// mixin owns the background/border; do NOT restate a top-level background
+		// after it (dead on WebKit's @supports layer).
+		@include glass-holo;
 		color: var(--text);
 		cursor: pointer;
 

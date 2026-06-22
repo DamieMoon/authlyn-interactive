@@ -679,6 +679,8 @@ fn orbit_chrome_controls_inherit_glass_material() {
 #[test]
 fn dispatch_pane_controls_inherit_glass_material() {
     const PANE_CONTROLS: &[(&str, &str)] = &[
+        // The ServerModal guild-icon upload (round-4: shipped flat, no glow).
+        ("style/_modal.scss", ".server-icon-upload {"),
         ("style/_wave_b.scss", ".add-row button {"),
         ("style/_wave_b.scss", ".flist button {"),
         ("style/_wave_b.scss", ".flist label {"),
@@ -722,6 +724,7 @@ fn dispatch_pane_controls_inherit_glass_material() {
 fn glass_holo_consumers_let_the_mixin_own_the_background() {
     // The same dispatch-pane consumers as `dispatch_pane_controls_inherit_glass_material`.
     const GLASS_CONSUMERS: &[(&str, &str)] = &[
+        ("style/_modal.scss", ".server-icon-upload {"),
         ("style/_wave_b.scss", ".add-row button {"),
         ("style/_wave_b.scss", ".flist button {"),
         ("style/_wave_b.scss", ".flist label {"),

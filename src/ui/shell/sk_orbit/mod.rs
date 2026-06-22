@@ -485,17 +485,19 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         aria-hidden="true"></span>
                 </span>
             </button>
-            // B5 (owner deck-finding 2026-06-20): every non-Channel pane needs a
-            // consistent way back. The Account MODAL had a close; the dispatch
-            // panes (Friends/Members/Emoji/Lorebook/DMs/Cameos) had none — only
-            // DMs/Cameos a "← Friends" sub-link that dead-ended at Friends. One
-            // shared top-left back disc (mirrors the bottom-left help disc) →
-            // `act::show_current_channel` (restores the channel / opens the
-            // channel sheet if none selected). Shown only off the channel, so it
-            // never crowds the chat. ≥44px, glass-holo (same chrome material).
+            // B5 (owner deck-finding 2026-06-20) + round-4 (2026-06-22): the
+            // dispatch panes (Friends/Members/Emoji/Lorebook/DMs/Cameos) need a
+            // consistent way back, and the owner ruling is that leaving a
+            // Station-reached surface returns to the orbit MAP (the home), not the
+            // channel underneath — the same fix Station/Server/Account got in
+            // round 3. This shared top-left back disc still dropped to the last
+            // channel; wire it to `act::show_orbit_map` so the top-level pane EXIT
+            // lands on the map. (The in-pane "← Friends" links in friends.rs are
+            // separate controls and still navigate within the pane stack.) Shown
+            // only off the channel, so it never crowds the chat. ≥44px, glass-holo.
             {move || (s.sync.pane.get() != Pane::Channel).then(|| view! {
-                <button class="sk-orbit-pane-back" type="button" aria-label="Back to channel"
-                    on:click=move |_| act::show_current_channel(s)><IconBack/></button>
+                <button class="sk-orbit-pane-back" type="button" aria-label="Back to orbit map"
+                    on:click=move |_| act::show_orbit_map(s)><IconBack/></button>
             })}
             {move || match s.sync.pane.get() {
                 Pane::Friends => view! { <FriendsPane/> }.into_any(),
@@ -1093,19 +1095,36 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                         style:--chip-i=i.to_string()
                                         title=name
                                         on:click=move |_| {
-                                            // Toggle-arm this effect, then close +
-                                            // restore focus to the orb (so keyboard
-                                            // focus isn't stranded on the unmounting
-                                            // chip; a no-op extra for pointer users).
-                                            s.composer.effect_mode.update(|e| {
-                                                *e = if e.as_deref() == Some(name_owned.as_str()) {
-                                                    None
-                                                } else {
-                                                    Some(name_owned.clone())
-                                                };
-                                            });
+                                            // Arm this effect AND carry straight into
+                                            // compose (spec §1: the effect blossom arms
+                                            // the next message). A deliberate pick SETS
+                                            // the mode (not toggle — a toggle-off would
+                                            // open the composer with no effect, the
+                                            // round-4 "redundant" complaint), closes the
+                                            // blossom, then reveals the composer + focuses
+                                            // the textarea — the SAME open recipe the orb
+                                            // tap uses above — so the user writes with the
+                                            // effect armed in one gesture instead of being
+                                            // dropped back on the resting orb.
+                                            s.composer.effect_mode.set(Some(name_owned.clone()));
                                             blossom_open.set(false);
-                                            focus_orb();
+                                            composing.set(true);
+                                            #[cfg(feature = "hydrate")]
+                                            {
+                                                use leptos::wasm_bindgen::JsCast as _;
+                                                if let Some(el) = leptos::web_sys::window()
+                                                    .and_then(|w| w.document())
+                                                    .and_then(|d| {
+                                                        d.query_selector(".app.sk-orbit .composer textarea")
+                                                            .ok()
+                                                            .flatten()
+                                                    })
+                                                {
+                                                    if let Ok(t) = el.dyn_into::<leptos::web_sys::HtmlElement>() {
+                                                        let _ = t.focus();
+                                                    }
+                                                }
+                                            }
                                         }>
                                         // Split glyph + label (prototype's
                                         // `.fxBtn > .ic + .lb`, a-orbit.html:420)

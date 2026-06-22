@@ -36,7 +36,29 @@
 // the last message never hides under the revealed composer / the orb.
 .app.sk-orbit .messages {
 	padding-top: 14px;
-	padding-bottom: calc(122px + env(safe-area-inset-bottom, 0px)); // a-orbit.html:73 — clears the orb + station stack
+	// Reserve the bottom for whichever floating chrome owns it: the orb at rest
+	// (64px disc + 0.9rem offset ≈ 80px) or the composer pill while composing
+	// (its live-measured `--composer-h` + the 8px offset + a small gap). The old
+	// fixed 122px guess was occluded once a reply/edit banner or multiline draft
+	// grew the pill past it (round-4 deck finding); track the real height so the
+	// last message clears the composer in BOTH states. scroll-padding keeps the
+	// last row above the chrome after an auto-scroll-to-bottom on WebKit.
+	padding-bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+	scroll-padding-bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+}
+// The "X is typing…" line floats just above the composer/orb instead of sitting
+// in normal flow at the very bottom, where the absolute composer (z26) + fixed
+// orb (z30) painted over it (round-4 deck finding: hidden "Opus is typing…").
+// Orbit-only — the deck/hud shells keep the in-flow strip that nudges their
+// static composer (base rule in _content.scss). Decorative → pointer-events:none
+// so it never eats a tap on a message behind it.
+.app.sk-orbit .typing-indicator {
+	position: absolute;
+	left: 10px;
+	right: 10px;
+	bottom: calc(max(80px, var(--composer-h, 56px) + 18px) + env(safe-area-inset-bottom, 0px));
+	z-index: 27;
+	pointer-events: none;
 }
 .app.sk-orbit .messages .msg:not(.system):not(.roll) {
 	border-radius: 18px;
