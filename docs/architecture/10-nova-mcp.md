@@ -286,7 +286,7 @@ next call.
     `2025-03-26` MCP revision that `rmcp` 0.8 speaks).
   - `capabilities`: tools only (`.enable_tools()`).
   - `server_info`: `name = "nova-mcp"`, `version = env!("CARGO_PKG_VERSION")`
-    (the crate's SemVer, currently `27.0.0`), rest from
+    (the crate's SemVer, currently `27.0.1`), rest from
     `Implementation::from_build_env()`.
   - `instructions = NOVA_INSTRUCTIONS` (the lurk-doctrine prompt).
 

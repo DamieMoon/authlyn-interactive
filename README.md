@@ -23,7 +23,7 @@ pinning test, so the docs track the code instead of rotting.
 ## Versioning
 
 SemVer (from **v27** — retired CalVer `YYYY.M.D` at the v27 release). Current
-release: `27.0.0`, codename `mendicant-bias`. Each release gets a manual two-word
+release: `27.0.1`, codename `mendicant-bias`. Each release gets a manual two-word
 codename — set it in `Cargo.toml` under `[package.metadata.release].codename`.
 
 ## Dev

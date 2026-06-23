@@ -129,7 +129,7 @@ local non-served build, which never serves `/sw.js` anyway).
 `BUILD_REV` is the engine of the per-release cache bust in §6. The codename scan is line-based
 and brittle to a multiline/array reformat of that TOML table (`build.rs`, codename block).
 
-> **Versioning: SemVer from v27.** `Cargo.toml` is on `version = "27.0.0"`,
+> **Versioning: SemVer from v27.** `Cargo.toml` is on `version = "27.0.1"`,
 > `codename = "mendicant-bias"` — the CalVer→SemVer flip shipped at the v27 release
 > (2026-06-22), retiring the old `2026.6.1` / `saffron-tide` scheme. The account modal
 > prints `CARGO_PKG_VERSION` + `APP_CODENAME` + `BUILD_REV` ([07-ui-shell](07-ui-shell.md)).
@@ -156,7 +156,9 @@ session cookie with **no** per-device root-CA step — the WebKit cookie trap fi
 > `mendicant-bias` was merged to `main` and promoted to prod as **v27.0.0** (tag `v27.0.0`, merge commit
 > `96bad5a`). The earlier freeze — prod pinned to the CalVer `2026.6.1` build (commit `5cedd5d`) — is
 > **lifted**: a push to `main` now auto-deploys to prod, so every future prod-affecting merge to `main`
-> remains an explicitly owner-gated decision.
+> remains an explicitly owner-gated decision. **v27.0.1** (M7 deck-pass bug fixes — orbit far-server rail,
+> channel open-at-newest, Station one-step-back nav, CDN `/pkg` no-cache + versioned CSS href) was promoted
+> to prod **2026-06-23** (tag `v27.0.1`).
 
 ### 4.1 Production CD — push to `main`
 

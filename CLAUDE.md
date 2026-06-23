@@ -22,7 +22,7 @@ Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guild
 
 ## Branch / deploy / pipelines
 - Work happens on branch **`mendicant-bias`**; merge to **`main` only after explicit owner approval** (design spec).
-- **Prod = novahome** (x86_64): service `authlyn-prod`, `https://authlyn.damienmoon.sh`. `/deploy` + `.github/workflows/deploy.yml` are repointed to novahome and **a push to `main` auto-deploys to prod** (build → prod-DB backup → `/opt/authlyn-prod/deploy.sh`; health-check `:8083` + auto-rollback). **v27.0.0 `mendicant-bias` shipped 2026-06-22** (tag `v27.0.0` on `main`); each future prod promotion stays owner-gated. The retired Pi *fenrir* path is gone — don't target it.
+- **Prod = novahome** (x86_64): service `authlyn-prod`, `https://authlyn.damienmoon.sh`. `/deploy` + `.github/workflows/deploy.yml` are repointed to novahome and **a push to `main` auto-deploys to prod** (build → prod-DB backup → `/opt/authlyn-prod/deploy.sh`; health-check `:8083` + auto-rollback). **v27.0.0 `mendicant-bias` shipped 2026-06-22** (tag `v27.0.0` on `main`); **v27.0.1 promoted 2026-06-23** (tag `v27.0.1`, M7 deck-pass bug fixes); each future prod promotion stays owner-gated. The retired Pi *fenrir* path is gone — don't target it.
 - **Test deck** (`/test-deploy`): the shared review surface on **novahome**, `authlyn-test` service, ns `authlyn` / db `test`. Address: `https://authlyndev.damienmoon.sh` (cloudflared, publicly-trusted cert — **the iOS/WebKit/Android review + probe target**, no root CA needed). The LAN-IP `https://192.168.0.239:3434` (self-signed) and its dev root CA are **retired** — don't probe or review there. Feature branch + committed tree only — **never `main`, never prod**. Pushes to both GitHub (backup) and the novahome bare repo (build source, via the `ssh novahome` alias — the bare-IP remote URL fails publickey; `git remote` is repointed to the alias); verify the deployed SHA.
 - Never re-create the intentionally-deleted `deploy/` `scripts/` `end2end/` trees (commit `c2aba1c`) or the `visual-gate/` tooling (commit `68b65bd`).
 
@@ -37,7 +37,7 @@ Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on; both must co
 - **DTOs** (`protocol.rs`): suffix `Request/Response/Summary/Detail/Envelope/Item/Entry`; PATCH-shaped DTOs derive `Default` + all-`Option<>`; wire is serde JSON.
 - **Docs:** every module a `//!` header; public REST fns lead with `/// VERB /path — intent`. (Dependency `#`-comments: see `Cargo.toml`.)
 - **Tests:** `tests/*.rs`, `#[tokio::test]`, full-sentence `snake_case` names; the shared harness stays `tests/common/mod.rs`.
-- **Versioning:** **SemVer** (from **v27** — CalVer `YYYY.M.D` retired at the v27 release). Current: **`27.0.0`**, codename **`mendicant-bias`** (`Cargo.toml` `version` + `[package.metadata.release].codename`; README mirrors the scheme). Bump per SemVer on each release; codename is a manual two-word name.
+- **Versioning:** **SemVer** (from **v27** — CalVer `YYYY.M.D` retired at the v27 release). Current: **`27.0.1`**, codename **`mendicant-bias`** (`Cargo.toml` `version` + `[package.metadata.release].codename`; README mirrors the scheme). Bump per SemVer on each release; codename is a manual two-word name.
 
 ## Namespace: release waves (M#)
 Project release waves are **`M#`** (Milestone). Sub-tokens: **`/P#`** = phase, **`/T#`** = task, or a named stream such as **`/docs`**; a bare **`(M#)`** with no sub-token is also valid. Separately, a bare **`#N`** is a review-finding id. Example trailers: `(M7/P1)`, `(M7/docs)`, `(M7)`.

@@ -1,7 +1,7 @@
 [package]
 name = "authlyn-interactive"
 # SemVer from v27 (retired CalVer YYYY.M.D at the v27 release; see the design spec). codename in [package.metadata.release].
-version = "27.0.0"
+version = "27.0.1"
 edition = "2021"
 
 [package.metadata.release]
