@@ -960,24 +960,21 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             }
                         }}
                         {move || {
-                            // Other servers docked in the top corners.
-                            let (vw, vh) = viewport_dims();
-                            let g = map_geom(vw, vh);
+                            // Other servers the user can hop to — a horizontal,
+                            // scrollable rail across the top of the map. Was a
+                            // 2-slot left/right corner dock that stacked the 4th+
+                            // guild pixel-identically, leaving only the topmost
+                            // tappable (owner deck-finding 2026-06-23). The rail
+                            // scales to ANY guild count: each disc stays a 64px
+                            // (>=44px) target and the rail scrolls when the discs
+                            // overflow the viewport width.
                             let cur = s.sel.sel_server.get();
-                            s.sel.guilds.get().into_iter()
+                            let others = s.sel.guilds.get().into_iter()
                                 .filter(|gd| Some(&gd.id) != cur.as_ref())
-                                .enumerate()
-                                .map(|(i, gd)| {
+                                .map(|gd| {
                                     let gid = gd.id.clone();
-                                    // Alternate left/right docks so multiple far
-                                    // servers stay on-screen.
-                                    let side = if i % 2 == 0 { 1.0 } else { -1.0 };
                                     view! {
                                         <button class="sk-orbit-far"
-                                            style:transform=format!(
-                                                "translate(calc(50vw + {}px), calc(50vh + {}px)) translate(-50%, -50%)",
-                                                g.far_x * side, g.far_y
-                                            )
                                             title=gd.name.clone()
                                             on:click=move |_| {
                                                 // Switch worlds but STAY in the orbit
@@ -1009,7 +1006,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                             <span class="sk-orbit-far-name">{gd.name.clone()}</span>
                                         </button>
                                     }
-                                }).collect_view()
+                                }).collect::<Vec<_>>();
+                            (!others.is_empty()).then(move || view! {
+                                <div class="sk-orbit-far-rail">{others}</div>
+                            })
                         }}
                         // Map dock (a-orbit.html #mapDock): the in-map entry to
                         // personas + station — the prototype's home for it,
