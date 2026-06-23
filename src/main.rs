@@ -89,6 +89,10 @@ async fn main() {
             move || shell(leptos_options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler::<AppState, _>(shell))
+        // Stamp `Cache-Control: no-cache` on the `/pkg/*` bundle so a fronting CDN
+        // (Cloudflare) can't serve a stale stable-named JS/WASM/CSS copy for hours
+        // (see `server::pkg_cache_control`). Scoped to `/pkg/`; other paths untouched.
+        .layer(axum::middleware::from_fn(server::pkg_cache_control))
         .with_state(state);
 
     log!("listening on http://{}", &addr);

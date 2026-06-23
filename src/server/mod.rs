@@ -310,6 +310,33 @@ async fn serve_service_worker() -> impl axum::response::IntoResponse {
     )
 }
 
+/// Middleware: stamp `Cache-Control: no-cache` on every `/pkg/*` response (the
+/// Leptos JS/WASM/CSS bundle, served by main.rs's `file_and_error_handler`
+/// fallback, which sets no cache headers). Without it the origin sends only
+/// `Last-Modified`, so a fronting CDN (Cloudflare on the deck/prod) applies its
+/// DEFAULT edge TTL (observed: `max-age=14400`, 4h) to the stable-named bundle
+/// and serves a pre-deploy copy for hours — defeating `public/sw.js`'s
+/// network-first revalidation (the revalidation hits the CDN's still-fresh entry,
+/// never the origin) and risking a stale-glue → dead-hydration mismatch.
+/// `no-cache` (revalidate, not `no-store`) keeps cheap `Last-Modified` 304s and
+/// the SW's offline fallback working. Scoped to `/pkg/` ONLY: `/media/` originals
+/// stay `immutable`, `/fonts/` stay cache-first, navigations stay uncached.
+/// Mirrors the explicit Cache-Control on `GET /sw.js` and the SSE group.
+pub async fn pkg_cache_control(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let is_pkg = req.uri().path().starts_with("/pkg/");
+    let mut resp = next.run(req).await;
+    if is_pkg {
+        resp.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+    }
+    resp
+}
+
 fn api_routes() -> Router<AppState> {
     Router::new()
         // The service worker, served dynamically so its CACHE_VERSION carries the

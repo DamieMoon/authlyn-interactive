@@ -92,7 +92,14 @@ pub fn App() -> impl IntoView {
     });
 
     view! {
-        <Stylesheet id="leptos" href="/pkg/authlyn-interactive.css"/>
+        // Per-build version query (`BUILD_REV` from build.rs, the same rev stamped
+        // into the service worker): the file is stable-named, so a fronting CDN
+        // (Cloudflare) edge-caches it; a new rev makes the freshly-rendered HTML
+        // reference a URL the CDN has never cached → immediate fresh fetch, and
+        // never a stale stylesheet on any future deploy. Pairs with the
+        // `/pkg` `no-cache` header (server::pkg_cache_control); the static handler
+        // ignores the query so the file still resolves.
+        <Stylesheet id="leptos" href=concat!("/pkg/authlyn-interactive.css?v=", env!("BUILD_REV"))/>
         <Title text="authlyn"/>
 
         <Router>
