@@ -706,6 +706,40 @@ pub(crate) fn ChannelPane() -> impl IntoView {
         scrolled_up.set(false);
     };
 
+    // Await a single animation frame (resolve a Promise from rAF) so a
+    // content-visibility row the scroll just revealed materializes and grows
+    // scroll_height before we re-measure. Used by the pin-to-bottom loop below.
+    #[cfg(feature = "hydrate")]
+    async fn next_animation_frame() {
+        let p = js_sys::Promise::new(&mut |res, _| {
+            request_animation_frame(move || {
+                let _ = res.call0(&wasm_bindgen::JsValue::NULL);
+            });
+        });
+        let _ = wasm_bindgen_futures::JsFuture::from(p).await;
+    }
+
+    // A DIRECT channel->channel switch does NOT remount ChannelPane (it is a
+    // single persistent instance in the orbit strip), so last_dist/prev_count
+    // would carry the OUTGOING channel's scroll state into the incoming one —
+    // the pin gate (`last_dist <= threshold`) then sees a stale large distance,
+    // skips the scroll-to-bottom, and the new channel opens at the TOP (owner
+    // deck-finding 2026-06-23). Reset the pane-local scroll state whenever the
+    // selected channel id actually changes (id-guarded, so a same-channel
+    // re-open keeps its position) — a fresh open then always pins to the newest
+    // message, and a stale prev_count can't flash a phantom unread pill.
+    #[cfg(feature = "hydrate")]
+    let last_channel_id = StoredValue::new(None::<String>);
+    #[cfg(feature = "hydrate")]
+    Effect::new(move |_| {
+        let cid = s.sel.sel_channel.get().map(|c| c.id);
+        if last_channel_id.get_value() != cid {
+            last_channel_id.set_value(cid);
+            last_dist.set_value(0.0);
+            prev_count.set_value(None);
+        }
+    });
+
     #[cfg(feature = "hydrate")]
     Effect::new(move |_| {
         let msgs = s.msg.messages.get();
@@ -772,30 +806,46 @@ pub(crate) fn ChannelPane() -> impl IntoView {
             // `anchor_to`, handled by the anchor effect below) or the user has
             // scrolled meaningfully up since (`last_dist` is kept live by the
             // on:scroll handler) — so those paths are never overridden.
-            let pin = move || {
-                if s.msg.anchor_to.get_untracked().is_some() {
-                    return;
-                }
-                if last_dist.get_value() > 4.0 {
-                    return;
-                }
-                if let Some(el) = list_ref.get_untracked() {
-                    el.set_scroll_top(el.scroll_height());
-                }
-            };
+            // Pin to the newest message. content-visibility:auto on the rows
+            // (_content.scss) makes scroll_height a PLACEHOLDER estimate until a
+            // row materializes, so a single set_scroll_top lands ABOVE the true
+            // bottom; the self-hosted faces (JetBrains Mono / Crimson Pro, async)
+            // also reflow rows taller after they load. So chase the growing
+            // height: scroll to the current bottom, yield a frame so the rows the
+            // scroll just revealed materialize, re-measure, repeat until it
+            // stabilizes — bailing the instant a jump anchor (deep-link /
+            // NEW-divider / scroll-restore) or a real user scroll-up takes over.
             leptos::task::spawn_local(async move {
                 use wasm_bindgen::JsCast as _;
-                gloo_timers::future::TimeoutFuture::new(0).await;
-                pin();
-                // Double-rAF: settle past this frame's layout, then pin on the
-                // next painted frame.
-                request_animation_frame(move || {
-                    request_animation_frame(pin);
-                });
-                // …and once the async web fonts finish loading and reflow the
-                // list. `document.fonts.ready` is a Promise<FontFaceSet>;
-                // reach it via Reflect (no web-sys `FontFaceSet` feature
-                // needed) — the same JsFuture pattern as the clipboard path.
+                let mut last_h = -1.0_f64;
+                for _ in 0..20 {
+                    if s.msg.anchor_to.get_untracked().is_some() {
+                        return;
+                    }
+                    if last_dist.get_value() > 4.0 {
+                        return;
+                    }
+                    let Some(el) = list_ref.get_untracked() else {
+                        return;
+                    };
+                    el.set_scroll_top(el.scroll_height());
+                    next_animation_frame().await;
+                    let h = list_ref
+                        .get_untracked()
+                        .map(|el| el.scroll_height() as f64)
+                        .unwrap_or(last_h);
+                    if (h - last_h).abs() < 1.0 {
+                        break;
+                    }
+                    last_h = h;
+                }
+                // One more pin once the async web fonts finish loading and
+                // reflow the list. `document.fonts.ready` is a Promise; reach it
+                // via Reflect (no web-sys `FontFaceSet` feature needed) — the
+                // same JsFuture pattern as the clipboard path.
+                if s.msg.anchor_to.get_untracked().is_some() || last_dist.get_value() > 4.0 {
+                    return;
+                }
                 if let Some(ready) = leptos::web_sys::window()
                     .and_then(|w| w.document())
                     .and_then(|d| {
@@ -808,8 +858,13 @@ pub(crate) fn ChannelPane() -> impl IntoView {
                         ready.dyn_into::<js_sys::Promise>().ok()
                     })
                 {
-                    if wasm_bindgen_futures::JsFuture::from(ready).await.is_ok() {
-                        pin();
+                    if wasm_bindgen_futures::JsFuture::from(ready).await.is_ok()
+                        && s.msg.anchor_to.get_untracked().is_none()
+                        && last_dist.get_value() <= 4.0
+                    {
+                        if let Some(el) = list_ref.get_untracked() {
+                            el.set_scroll_top(el.scroll_height());
+                        }
                     }
                 }
             });
