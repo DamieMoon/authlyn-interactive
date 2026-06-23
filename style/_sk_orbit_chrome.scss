@@ -987,6 +987,13 @@
 	letter-spacing: 1.4px;
 	text-transform: uppercase;
 	color: var(--text-soft);
+	// Clip a long name to the disc's own 64px track (mirrors `.sk-orbit-node-name`):
+	// the label is absolute + centred, so without a bound a long name spills past
+	// the disc and overlaps the next rail entry (gap is only 20px) — owner
+	// deck-finding 2026-06-23. The full name stays reachable via `title=`.
+	max-width: 64px;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	white-space: nowrap;
 	text-shadow: 0 2px 8px #000;
 }
