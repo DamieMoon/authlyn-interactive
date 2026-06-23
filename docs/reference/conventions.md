@@ -169,7 +169,7 @@ in [`../architecture/04-realtime-sse.md`](../architecture/04-realtime-sse.md).
 | **public REST fn** | the doc comment **leads** with `/// VERB /path — intent` | `/// POST /dms — start a 1:1 …` ([`src/server/dms.rs`](../../src/server/dms.rs)) |
 | **dependency rationale** | lives as `#`-comments in `Cargo.toml`, **not** in `//!` headers | see [`Cargo.toml`](../../Cargo.toml) `[dependencies]` |
 
-There are 25 `/// VERB /path — …` intent lines across `src/server/` today; the
+There are 55 `/// VERB /path — …` intent lines across `src/server/` today; the
 table in [`../reference/rest-api.md`](../reference/rest-api.md) is generated from
 these. The `//!` header is near-universal — the only files without one are crate
 roots / entrypoints that are self-evident from their name (`src/lib.rs`,

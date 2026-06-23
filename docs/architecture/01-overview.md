@@ -244,13 +244,13 @@ Step by step, as written in `main.rs`:
 2. **Read Leptos config** via `get_configuration(None)`; extract `site_addr` and
    `leptos_options`.
 3. **Connect to SurrealDB with retries** — `db::connect_with_retries()`
-   (`src/db.rs:56`): 10 attempts, 500 ms backoff, wrapping `db::connect()` which
+   (`src/db.rs:83`): 10 attempts, 500 ms backoff, wrapping `db::connect()` which
    signs in as root and selects ns/db from env (`SURREAL_*`, defaulting
    `authlyn`/`dev`). Failure `expect()`-panics with the start-the-DB hint. The
    retry helper itself is unit-pinned by
    `src/db.rs::tests::retry_succeeds_after_transient_failures` and
    `::retry_returns_last_error_on_exhaustion`.
-4. **Apply the schema** — `db::apply_schema()` (`src/db.rs:29`) runs
+4. **Apply the schema** — `db::apply_schema()` (`src/db.rs:53`) runs
    `storage::SCHEMA` (= `include_str!("schema.surql")`) and `.check()`s it.
    **This is the crash-loop surface:** a non-idempotent migration over a
    populated DB fails here and the boot dies. The schema's idempotency over a
@@ -284,8 +284,8 @@ Step by step, as written in `main.rs`:
    (`state.rs:165`/`176`) — best-effort, never failing the request. See
    [`04-realtime-sse.md`](04-realtime-sse.md).
 8. **Spawn the purge sweep** — `server::spawn_purge_sweep(state.clone())`
-   (`src/server/mod.rs:418`): a detached tokio task running
-   `purge_soft_deleted` (`mod.rs:339`) on a 3600 s interval (first tick is
+   (`src/server/mod.rs:445`): a detached tokio task running
+   `purge_soft_deleted` (`mod.rs:366`) on a 3600 s interval (first tick is
    immediate). It hard-deletes soft-deleted rows past their window — **message
    1h, channel 1d, guild 30d** — cascading a purged channel/guild to its child
    tables (messages, lorebook entries, active-persona, read-state, dm_member,
@@ -297,13 +297,13 @@ Step by step, as written in `main.rs`:
    subqueries instead of `LET` vars to dodge a SurrealDB 3.1.0-beta.3
    composite-index DELETE mis-plan — see the comments in `mod.rs`.)
 9. **Build the merged router.** `server::api_router()` (the app's HTTP API,
-   `mod.rs:331`) is `.leptos_routes(…)`'d with the SSR route list from
+   `mod.rs:358`) is `.leptos_routes(…)`'d with the SSR route list from
    `generate_route_list(App)`, given a `file_and_error_handler` fallback (serves
    the `shell`), and `.with_state(state)`. The app routes are assembled by
    `api_routes()` (`mod.rs`), which `Router::new()` + `.merge(small_body_routes())`
    + `.merge(media_routes())` (media is a separate router so its body-size limit
    differs). Tests drive the same routes via `make_router(state)` →
-   `tower::ServiceExt::oneshot` with **no port bind** (`mod.rs:325`); see
+   `tower::ServiceExt::oneshot` with **no port bind** (`mod.rs:352`); see
    [`09-testing.md`](09-testing.md).
 10. **Bind + serve.** `TcpListener::bind(site_addr)` then `axum::serve`.
 

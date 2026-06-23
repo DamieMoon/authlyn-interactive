@@ -1,6 +1,6 @@
 # Data model
 
-The entire SurrealDB data model is one file, [`src/storage/schema.surql`](../../src/storage/schema.surql) — 21 `SCHEMAFULL` tables, 115 `DEFINE FIELD`, 28 `DEFINE INDEX` (13 `UNIQUE`), and a handful of inline backfills. It is embedded into the binary at compile time as a `&str` and applied verbatim once on boot. There is no migration framework, no version table, and no Rust-side schema logic: the `.surql` *is* the schema and the migration engine, and SurrealDB validates it at apply time. The discipline that keeps that single file idempotent over a populated production DB — `option<>`-or-coalesced-backfill, `DEFINE FIELD OVERWRITE` for widened types — is the subject of half this document.
+The entire SurrealDB data model is one file, [`src/storage/schema.surql`](../../src/storage/schema.surql) — 21 `SCHEMAFULL` tables, 114 `DEFINE FIELD`, 25 `DEFINE INDEX` (13 `UNIQUE`), and a handful of inline backfills. It is embedded into the binary at compile time as a `&str` and applied verbatim once on boot. There is no migration framework, no version table, and no Rust-side schema logic: the `.surql` *is* the schema and the migration engine, and SurrealDB validates it at apply time. The discipline that keeps that single file idempotent over a populated production DB — `option<>`-or-coalesced-backfill, `DEFINE FIELD OVERWRITE` for widened types — is the subject of half this document.
 
 Stack, dependency rationale, and the SurrealDB version pin live in [`Cargo.toml`](../../Cargo.toml) `#`-comments and [`CLAUDE.md`](../../CLAUDE.md); request/auth flow that consumes these tables is in [02-request-lifecycle.md](02-request-lifecycle.md) and [05-auth-privacy.md](05-auth-privacy.md); the realtime layer that emits on every mutation is [04-realtime-sse.md](04-realtime-sse.md).
 
@@ -12,7 +12,7 @@ Stack, dependency rationale, and the SurrealDB version pin live in [`Cargo.toml`
 pub const SCHEMA: &str = include_str!("schema.surql");
 ```
 
-`db::apply_schema` ([`src/db.rs:29-32`](../../src/db.rs)) is the sole consumer:
+`db::apply_schema` ([`src/db.rs:53-56`](../../src/db.rs)) is the sole consumer:
 
 ```rust
 pub async fn apply_schema(db: &Surreal<Client>) -> surrealdb::Result<()> {
@@ -26,11 +26,11 @@ The whole file is sent as **one multi-statement query**, and `.check()` turns an
 Two consequences follow from "one query, applied verbatim":
 
 1. **Statement order is load-bearing.** Within a table block the order is `DEFINE TABLE` → `DEFINE FIELD`s → `DEFINE INDEX`es, then idempotent backfill `UPDATE`s **last**. A backfill that materialises a NONE field must run *before* any later `UPDATE` that re-validates the whole row (see [Migration discipline](#migration-discipline)). The `account` block's security-field purge (`UPDATE … UNSET` + `REMOVE FIELD`) is explicitly ordered *after* the `display_name` backfill for exactly this reason — pinned by `tests/schema_apply.rs::applying_schema_over_account_with_security_fields_purges_them_without_crashing`.
-2. **Re-apply is a no-op for `IF NOT EXISTS` DEFINEs and `WHERE`-guarded UPDATEs.** Every `DEFINE` uses `IF NOT EXISTS` except the four `DEFINE FIELD OVERWRITE` sites, which re-define unconditionally (idempotent, and crucially they do **not** re-validate existing rows — only writes validate).
+2. **Re-apply is a no-op for `IF NOT EXISTS` DEFINEs and `WHERE`-guarded UPDATEs.** Every `DEFINE` uses `IF NOT EXISTS` except the three `DEFINE FIELD OVERWRITE` sites, which re-define unconditionally (idempotent, and crucially they do **not** re-validate existing rows — only writes validate).
 
 At runtime the schema is never read again. Handlers in `src/server/*` issue typed queries against these tables; `record<...>` links are **type annotations only** — SurrealDB does not enforce referential existence — so a dangling link (a since-deleted persona or account) resolves to `NONE` rather than erroring. This is relied on throughout (snapshot fields, `pinged_users`, `reply_to`), and it is why `tests/schema_apply.rs` can seed rows with dangling FK ids and still exercise the migrations.
 
-The connection itself (`db::connect` / `connect_with_retries`, [`src/db.rs:11-58`](../../src/db.rs)) is a WebSocket to `127.0.0.1:8000` by default, `Root` signin, namespace `authlyn` / database `dev` — all env-overridable (`SURREAL_URL/USER/PASS/NS/DB`).
+The connection itself (`db::connect` / `connect_with_retries`, [`src/db.rs:29-85`](../../src/db.rs)) is a WebSocket to `127.0.0.1:8000` by default, `Root` signin, namespace `authlyn` / database `dev` — all env-overridable (`SURREAL_URL/USER/PASS/NS/DB`).
 
 ## The table graph
 
@@ -264,7 +264,7 @@ The 13 **UNIQUE** indexes (note the composite/pair indexes — they enforce one-
 | `channel_read_state_pair` | `channel_read_state` | `account, channel` | one read-state per (account, channel) |
 | `user_guild_order_pair` | `user_guild_order` | `account, guild` | one rail-order per (account, guild) |
 
-The 15 **non-unique** indexes are lookup accelerators: `session_account`, `persona_owner`, `persona_share_key`, `persona_image_persona`, `channel_guild`, `guild_member_account`, `dm_member_account`, `channel_guest_account`, `message_channel_sent` (`channel, sent_at` — the message cursor), `lorebook_entry_channel`, `feedback_created`, `push_subscription_account`. The three `*_account` indexes (`guild_member_account`, `dm_member_account`, `channel_guest_account`) are the M-37 hot-path additions for `access::visible_channels`; each is built over already-populated rows at apply time (no backfill hazard for indexes), pinned by the three `new_*_account_index_applies_over_populated_rows` tests.
+The 12 **non-unique** indexes are lookup accelerators: `session_account`, `persona_owner`, `persona_share_key`, `persona_image_persona`, `channel_guild`, `guild_member_account`, `dm_member_account`, `channel_guest_account`, `message_channel_sent` (`channel, sent_at` — the message cursor), `lorebook_entry_channel`, `feedback_created`, `push_subscription_account`. The three `*_account` indexes (`guild_member_account`, `dm_member_account`, `channel_guest_account`) are the M-37 hot-path additions for `access::visible_channels`; each is built over already-populated rows at apply time (no backfill hazard for indexes), pinned by the three `new_*_account_index_applies_over_populated_rows` tests.
 
 ## Enum / format ASSERT registry
 
@@ -324,7 +324,7 @@ A separate per-field backfill cannot work: the first write to a legacy row re-va
 
 ### Widening an enum or a record-link type — use `DEFINE FIELD OVERWRITE`
 
-`DEFINE FIELD IF NOT EXISTS` is a **no-op over a field that already exists** — on a populated prod DB the old, narrower definition silently survives and rejects the new value. Widening therefore requires `DEFINE FIELD OVERWRITE`, which re-defines unconditionally. Re-defining is idempotent and does **not** re-validate existing rows (only writes validate), so it never touches the backfill hazard. The four OVERWRITE sites:
+`DEFINE FIELD IF NOT EXISTS` is a **no-op over a field that already exists** — on a populated prod DB the old, narrower definition silently survives and rejects the new value. Widening therefore requires `DEFINE FIELD OVERWRITE`, which re-defines unconditionally. Re-defining is idempotent and does **not** re-validate existing rows (only writes validate), so it never touches the backfill hazard. The three OVERWRITE sites:
 
 | Site | Widening | Pin |
 |---|---|---|
@@ -332,7 +332,7 @@ A separate per-field backfill cannot work: the first write to a legacy row re-va
 | `channel.kind` ([`schema.surql:146`](../../src/storage/schema.surql)) | enum `+ 'dm'` | same test |
 | `message.kind` ([`schema.surql:281`](../../src/storage/schema.surql)) | enum `['user','system'] → + 'roll'` | `widened_kind_assert_reaches_a_db_where_kind_already_exists` |
 
-(The map's "4 OVERWRITE" counts the two `channel` widenings as the pair they are applied as; `grep -c "DEFINE FIELD OVERWRITE"` returns 4 because `message.kind`'s OVERWRITE plus the three above — re-verify against the file if the count matters.) The widened-enum test seeds a DB whose `kind` field *already exists* with the old two-value ASSERT — exactly prod's state at deploy — and proves a `'roll'`/`'dm'` insert is accepted only because the definition was re-applied.
+(There are **three** `DEFINE FIELD OVERWRITE` statements — `channel.guild` (`schema.surql:141`), `channel.kind` (`:146`), `message.kind` (`:281`); a bare `grep -c "DEFINE FIELD OVERWRITE"` returns 4 only because the `--` comment at `schema.surql:130` also contains the literal phrase.) The widened-enum test seeds a DB whose `kind` field *already exists* with the old two-value ASSERT — exactly prod's state at deploy — and proves a `'roll'`/`'dm'` insert is accepted only because the definition was re-applied.
 
 > One `SCHEMAFULL` subtlety the tests lean on: an undefined field is **silently stripped** on write, not rejected (`SCHEMAFULL` drops unknown fields). So a migration is only proven by a *persisted read-back* — writing a value and reading it back NONE means the field was never actually defined. The over-populated guards (`effect`, `accent_color`) all do this round-trip.
 
@@ -342,7 +342,7 @@ Soft-delete is uniform across the three deletable tables — `guild`, `channel`,
 
 ### Purge windows
 
-`purge_soft_deleted` ([`src/server/mod.rs:339-415`](../../src/server/mod.rs)) hard-deletes rows past their rollback window:
+`purge_soft_deleted` ([`src/server/mod.rs:366-442`](../../src/server/mod.rs)) hard-deletes rows past their rollback window:
 
 | Table | Window |
 |---|---|
@@ -350,7 +350,7 @@ Soft-delete is uniform across the three deletable tables — `guild`, `channel`,
 | `channel` | 1 day |
 | `guild` | 30 days |
 
-It is spawned by `spawn_purge_sweep` ([`src/server/mod.rs:418-428`](../../src/server/mod.rs)) on a `tokio::time::interval(3600s)` — once shortly after boot, then **hourly**. The window pins live in `tests/soft_delete.rs`, not `schema_apply.rs` (the windows are server logic, not schema): `purge_hard_deletes_message_past_window_only` (backdates one message past 1h, leaves another fresh) verifies the 1h boundary; the cascade tests verify 1d/30d.
+It is spawned by `spawn_purge_sweep` ([`src/server/mod.rs:445-455`](../../src/server/mod.rs)) on a `tokio::time::interval(3600s)` — once shortly after boot, then **hourly**. The window pins live in `tests/soft_delete.rs`, not `schema_apply.rs` (the windows are server logic, not schema): `purge_hard_deletes_message_past_window_only` (backdates one message past 1h, leaves another fresh) verifies the 1h boundary; the cascade tests verify 1d/30d.
 
 ### Cascades
 
@@ -374,7 +374,7 @@ DELETE guild_member WHERE guild IN (SELECT VALUE id FROM guild
     WHERE deleted_at != NONE AND deleted_at < time::now() - 30d);
 ```
 
-The same dodge is applied to every other composite-index-leading-column delete: `dm_member` (`channel, account`), `dm_pair` (uses `channel`), `channel_guest` (`channel, account`), `custom_emoji` (`guild, name`), `user_guild_order` (matched the same way for consistency). The non-composite-leading deletes (`message WHERE channel IN …`, `channel WHERE guild IN $g`, `guild WHERE id IN $g`) safely keep the `$g` `LET` var. This is the single most expensive-to-rediscover purge bug; the regression is pinned by `tests/soft_delete.rs::purge_should_cascade_guild_member_rows` (which previously *failed*) and `::purge_should_cascade_dm_member_rows`. See the dense rationale in [`src/server/mod.rs:342-346`](../../src/server/mod.rs).
+The same dodge is applied to every other composite-index-leading-column delete: `dm_member` (`channel, account`), `dm_pair` (uses `channel`), `channel_guest` (`channel, account`), `custom_emoji` (`guild, name`), `user_guild_order` (matched the same way for consistency). The non-composite-leading deletes (`message WHERE channel IN …`, `channel WHERE guild IN $g`, `guild WHERE id IN $g`) safely keep the `$g` `LET` var. This is the single most expensive-to-rediscover purge bug; the regression is pinned by `tests/soft_delete.rs::purge_should_cascade_guild_member_rows` (which previously *failed*) and `::purge_should_cascade_dm_member_rows`. See the dense rationale in [`src/server/mod.rs:369-373`](../../src/server/mod.rs).
 
 ## SurrealDB version coupling
 
@@ -388,10 +388,10 @@ The schema is SurrealQL *executed by the database*, not Rust — schema correctn
 
 Key files:
 
-- [`src/storage/schema.surql`](../../src/storage/schema.surql) — the entire data model: 21 `SCHEMAFULL` tables, 115 fields, 28 indexes (13 UNIQUE), 5 enum/format ASSERTs, 4 `DEFINE FIELD OVERWRITE`, the coalesced backfills, and the `nova_dot` seed. Dense `--` comments carry the migration-hazard rationale per field; statement order is load-bearing.
+- [`src/storage/schema.surql`](../../src/storage/schema.surql) — the entire data model: 21 `SCHEMAFULL` tables, 114 fields, 25 indexes (13 UNIQUE), 5 enum/format ASSERTs, 3 `DEFINE FIELD OVERWRITE`, the coalesced backfills, and the `nova_dot` seed. Dense `--` comments carry the migration-hazard rationale per field; statement order is load-bearing.
 - [`src/storage/mod.rs`](../../src/storage/mod.rs) — one line: `pub const SCHEMA: &str = include_str!("schema.surql")`.
-- [`src/db.rs`](../../src/db.rs) — `apply_schema` (`:29-32`, the whole `.surql` as one `query().check()`), `connect`/`connect_with_retries` (`:11-58`). The only consumer of `SCHEMA`.
-- [`src/server/mod.rs`](../../src/server/mod.rs) — `purge_soft_deleted` (`:339-415`, windowed hard-delete + cascade + the beta.3 inline-subquery dodge), `spawn_purge_sweep` (`:418-428`, the hourly sweep).
+- [`src/db.rs`](../../src/db.rs) — `apply_schema` (`:53-56`, the whole `.surql` as one `query().check()`), `connect`/`connect_with_retries` (`:29-85`). The only consumer of `SCHEMA`.
+- [`src/server/mod.rs`](../../src/server/mod.rs) — `purge_soft_deleted` (`:366-442`, windowed hard-delete + cascade + the beta.3 inline-subquery dodge), `spawn_purge_sweep` (`:445-455`, the hourly sweep).
 
 Tests that pin the claims:
 

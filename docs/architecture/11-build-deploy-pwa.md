@@ -169,7 +169,7 @@ push never rebuilds prod) and on `workflow_dispatch`. `concurrency: deploy-novah
 a **self-hosted runner that lives on novahome** (label `novahome`, user `damien`) — no SSH keys
 or stored secrets. Steps:
 
-1. `actions/checkout@v4` (target/ stays warm across runs).
+1. `actions/checkout@v7` (target/ stays warm across runs).
 2. `cargo leptos build --release` — build failure stops here; no backup, no deploy.
 3. Back up the prod DB: `surreal export … --ns authlyn --db prod` to `/data/prod_backups`,
    abort if the export is empty (`test -s`), gzip it, then prune to the newest 15
@@ -272,7 +272,7 @@ PWA `<link>`/meta tags are emitted by `shell()` ([01-overview](01-overview.md)).
 `Cache-Control: no-cache` (so the browser's periodic SW update check always reads fresh bytes),
 `Service-Worker-Allowed: /`.
 
-`/sw.js` is a **sibling** route in `api_routes()` (`src/server/mod.rs:313`), merged *alongside*
+`/sw.js` is a **sibling** route in `api_routes()` (`src/server/mod.rs:345`), merged *alongside*
 `small_body_routes()` and `media_routes()` — it is **not** in the small-body (JSON) group, so
 the `no-store` layer never touches it; it carries its own `no-cache` per-response.
 
@@ -394,7 +394,7 @@ see the realtime + push subsystems.)
   single-reload `controllerchange` guard, `authlynCheckForUpdate`.
 - `public/manifest.webmanifest`, `public/offline.html` — PWA shell + offline fallback.
 - `src/server/mod.rs:285` — `serve_service_worker` (`__BUILD_REV__` substitution, `no-cache` +
-  `Service-Worker-Allowed: /`); `:313` — `/sw.js` is a sibling of the JSON group (not no-store).
+  `Service-Worker-Allowed: /`); `:345` — `/sw.js` is a sibling of the JSON group (not no-store).
 - `src/server/dev_reload.rs`, `src/server/events.rs:124` (`RELOAD_EVENT_NAME`),
   `src/ui/shell/act/sync.rs` — the deck dev-reload nudge.
 

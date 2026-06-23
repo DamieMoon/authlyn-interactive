@@ -2,7 +2,7 @@
 //! Inline: bold -> `<strong>`, italic -> `<em>`, color -> `<span
 //! class="mk-NAME">`, inline code -> `<code>`. Block: headings -> `<h1>`/`<h2>`
 //! /`<h3>`, subtext -> `<small class="mk-subtext">`, fenced code -> `<pre><code>`
-//! (the markup CSS lives in style/main.scss). Compiles for both targets.
+//! (the markup CSS is split across style/_markup.scss + _wave_b.scss). Compiles for both targets.
 
 use leptos::prelude::*;
 

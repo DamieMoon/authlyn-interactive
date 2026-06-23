@@ -1,5 +1,7 @@
 # Mendicant Bias M3: Shell & Navigation Implementation Plan
 
+> **Archived (pre-v27):** historical milestone plan — its gate/graph references, including the retired `freya` native graph, reflect the state at authoring time, not the current build. The live feature graphs are ssr/hydrate/nova (no freya); see `CLAUDE.md` and `docs/architecture/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Replace the mobile edge-swipe drawer with the hybrid navigation (bottom tab bar Chat/Servers/Friends/Personas + a glass channel-switch bottom-sheet), reskin the desktop 3-column shell into Void Station chrome (glass topbar, mono timestamps, uppercase persona names), and add directional message bubbles (the viewer's own messages align right). Desktop keeps its efficient 3-column grid; mobile becomes thumb-first.
