@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 30         # x86_64 Ryzen builds are fast; headroom for a cold target/
     steps:
       - name: Checkout the pushed commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build release
         run: |
