@@ -25,6 +25,10 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(jq:*)"
+    ],
+    "deny": [
+      "Bash(ctx:*)",
+      "Bash(/opt/homebrew/bin/ctx:*)"
     ]
   },
   "hooks": {
