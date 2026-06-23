@@ -135,8 +135,8 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
         // The X close button reads as the prototype's back-arrow disc (#soClose)
         // under orbit purely via SCSS; the "swipe → close" grip is drawn there too.
         <Modal class="account-modal" swipe_close=true
-            close=move || { open.set(false); act::show_orbit_map(s); }>
-                <ModalHead title="Account" on_close=move || { open.set(false); act::show_orbit_map(s); }/>
+            close=move || { open.set(false); act::modal_back(s); }>
+                <ModalHead title="Account" on_close=move || { open.set(false); act::modal_back(s); }/>
 
                 // ---- Profile (M6): display name + account avatar ----
                 <section class="account-section">

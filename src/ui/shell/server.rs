@@ -79,9 +79,9 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
 
     view! {
         <Modal class="server-modal" swipe_close=true
-            close=move || { s.composer.status.set(String::new()); open.set(false); act::show_orbit_map(s); }>
+            close=move || { s.composer.status.set(String::new()); open.set(false); act::modal_back(s); }>
             <ModalHead title="Server"
-                on_close=move || { s.composer.status.set(String::new()); open.set(false); act::show_orbit_map(s); }/>
+                on_close=move || { s.composer.status.set(String::new()); open.set(false); act::modal_back(s); }/>
 
             // ---- Server icon ----
             // Upload a guild icon (owner/admin); the server re-derives the

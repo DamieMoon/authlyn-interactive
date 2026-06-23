@@ -416,7 +416,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
     // orbit-map DOCK (✦ Personas / ⚙ Station, a-orbit.html #mapDock) — the
     // floating ☰ was removed (1:1: the prototype has no such button; station
     // lives in the map). The single OPEN detent means only on_close dismisses it.
-    let station_open = RwSignal::new(false);
+    // Promoted to shared state (state.rs) so the root-mounted Account/Server/
+    // Wardrobe modals can REOPEN it on dismiss (`act::modal_back`); same rationale
+    // as `map_open` above. Copy semantics keep every in-shell use-site unchanged.
+    let station_open = s.sync.station_open;
     // Gesture-help overlay (a-orbit.html #helpBtn / #hints) — the bottom-left "?"
     // opens a one-card legend of the orbit's gestures.
     let help_open = RwSignal::new(false);
@@ -561,7 +564,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // Reset any prior dive so the enter-warp scales from centre.
                         dive_origin.set("center".to_string());
                         diving.set(false);
-                        map_open.set(true);
+                        // Route through show_orbit_map (not a bare map_open flip) so the
+                        // Bug-3 one-step-back breadcrumb resets: reaching the map home by
+                        // ANY path leaves pane_origin == OrbitMap.
+                        act::show_orbit_map(s);
                     }>
                     <span class="sk-orbit-pill-hash" aria-hidden="true">{channel_sigil}</span>
                     <span class="sk-orbit-pill-name">{channel_name}</span>
@@ -691,11 +697,11 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         #[cfg(not(feature = "hydrate"))] let _ = &ev;
                     }
                     on:pointerup=move |ev| {
-                        #[cfg(feature = "hydrate")] { if ps_up.up(&ev) { act::show_orbit_map(s); } }
+                        #[cfg(feature = "hydrate")] { if ps_up.up(&ev) { act::pane_back(s); } }
                         #[cfg(not(feature = "hydrate"))] let _ = &ev;
                     }
                     on:pointercancel=move |ev| {
-                        #[cfg(feature = "hydrate")] { if ps_cancel.up(&ev) { act::show_orbit_map(s); } }
+                        #[cfg(feature = "hydrate")] { if ps_cancel.up(&ev) { act::pane_back(s); } }
                         #[cfg(not(feature = "hydrate"))] let _ = &ev;
                     }>
                     // Wardrobe-paradigm pane head (owner deck-finding 2026-06-22):
@@ -703,8 +709,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                     // wardrobe/account/server slide-overs use — it OWNS the top
                     // safe-area inset (the gated-off pill used to), and carries the
                     // title + a back-arrow (`.row-edit` -> "<-" via _modal.scss) +
-                    // the "swipe -> close" hint. DMs/Cameos pop to Friends (their
-                    // parent); the rest pop to the orbit map.
+                    // the "swipe -> close" hint. Back/swipe pop ONE STEP BACK to the
+                    // pane's origin (`act::pane_back`, Bug 3): a Friends sub-pane
+                    // (DMs/Cameos) -> Friends; a Station-opened pane -> Station; a
+                    // map/home-opened pane -> the orbit map.
                     <header class="account-head">
                         <h2>{move || match s.sync.pane.get() {
                             Pane::Friends => "Friends",
@@ -716,10 +724,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             Pane::Channel => "",
                         }}</h2>
                         <button class="row-edit" type="button" aria-label="Back"
-                            on:click=move |_| match s.sync.pane.get_untracked() {
-                                Pane::DirectMessages | Pane::Cameos => { s.sync.pane.set(Pane::Friends); }
-                                _ => { act::show_orbit_map(s); }
-                            }><IconBack/></button>
+                            on:click=move |_| act::pane_back(s)><IconBack/></button>
                     </header>
                     {move || match s.sync.pane.get() {
                         Pane::Friends => view! { <FriendsPane/> }.into_any(),
@@ -960,24 +965,21 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             }
                         }}
                         {move || {
-                            // Other servers docked in the top corners.
-                            let (vw, vh) = viewport_dims();
-                            let g = map_geom(vw, vh);
+                            // Other servers the user can hop to — a horizontal,
+                            // scrollable rail across the top of the map. Was a
+                            // 2-slot left/right corner dock that stacked the 4th+
+                            // guild pixel-identically, leaving only the topmost
+                            // tappable (owner deck-finding 2026-06-23). The rail
+                            // scales to ANY guild count: each disc stays a 64px
+                            // (>=44px) target and the rail scrolls when the discs
+                            // overflow the viewport width.
                             let cur = s.sel.sel_server.get();
-                            s.sel.guilds.get().into_iter()
+                            let others = s.sel.guilds.get().into_iter()
                                 .filter(|gd| Some(&gd.id) != cur.as_ref())
-                                .enumerate()
-                                .map(|(i, gd)| {
+                                .map(|gd| {
                                     let gid = gd.id.clone();
-                                    // Alternate left/right docks so multiple far
-                                    // servers stay on-screen.
-                                    let side = if i % 2 == 0 { 1.0 } else { -1.0 };
                                     view! {
                                         <button class="sk-orbit-far"
-                                            style:transform=format!(
-                                                "translate(calc(50vw + {}px), calc(50vh + {}px)) translate(-50%, -50%)",
-                                                g.far_x * side, g.far_y
-                                            )
                                             title=gd.name.clone()
                                             on:click=move |_| {
                                                 // Switch worlds but STAY in the orbit
@@ -1009,7 +1011,10 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                                             <span class="sk-orbit-far-name">{gd.name.clone()}</span>
                                         </button>
                                     }
-                                }).collect_view()
+                                }).collect::<Vec<_>>();
+                            (!others.is_empty()).then(move || view! {
+                                <div class="sk-orbit-far-rail">{others}</div>
+                            })
                         }}
                         // Map dock (a-orbit.html #mapDock): the in-map entry to
                         // personas + station — the prototype's home for it,
@@ -1491,7 +1496,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // delete personas) opens the shared wardrobe Modal
                         // (shell/mod.rs); the station grid above only wears/switches.
                         <button class="sk-orbit-account-btn" type="button"
-                            on:click=move |_| { close_station(); act::show_wardrobe(s); }>
+                            on:click=move |_| { close_station(); act::mark_station_origin(s); act::show_wardrobe(s); }>
                             <IconPersonas/>" Manage personas"
                         </button>
                         // Parity wiring (M5): the Friends / Members / Emoji panes
@@ -1503,7 +1508,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // global. Close the station first so the pane shows unscrimmed.
                         <h2>"Go to"</h2>
                         <button class="sk-orbit-account-btn" type="button"
-                            on:click=move |_| { close_station(); act::show_friends(s); }>
+                            on:click=move |_| { close_station(); act::mark_station_origin(s); act::show_friends(s); }>
                             <IconFriends/>" Friends"
                         </button>
                         // B3 (owner deck-finding 2026-06-20): DMs were reachable
@@ -1511,15 +1516,15 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         // A direct station entry mirrors the Friends/Members/Emoji
                         // pattern (`act::show_dms` = the show_friends sibling).
                         <button class="sk-orbit-account-btn" type="button"
-                            on:click=move |_| { close_station(); act::show_dms(s); }>
+                            on:click=move |_| { close_station(); act::mark_station_origin(s); act::show_dms(s); }>
                             <IconChat/>" Direct messages"
                         </button>
                         <button class="sk-orbit-account-btn" type="button"
-                            on:click=move |_| { close_station(); act::show_members(s); }>
+                            on:click=move |_| { close_station(); act::mark_station_origin(s); act::show_members(s); }>
                             <IconMembers/>" Members"
                         </button>
                         <button class="sk-orbit-account-btn" type="button"
-                            on:click=move |_| { close_station(); act::show_emoji_manager(s); }>
+                            on:click=move |_| { close_station(); act::mark_station_origin(s); act::show_emoji_manager(s); }>
                             <IconEmoji/>" Custom emoji"
                         </button>
                         // Parity wiring (M5): owner-only server management lives in
@@ -1532,6 +1537,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                             <button class="sk-orbit-account-btn" type="button"
                                 on:click=move |_| {
                                     close_station();
+                                    act::mark_station_origin(s);
                                     // Clear the per-action `composer.status` so a
                                     // transient from another surface (e.g. a cameo
                                     // invite error) doesn't bleed into the Server
@@ -1556,6 +1562,7 @@ pub fn SkOrbitShell(account_open: RwSignal<bool>, server_open: RwSignal<bool>) -
                         <button class="sk-orbit-account-btn" type="button"
                             on:click=move |_| {
                                 close_station();
+                                act::mark_station_origin(s);
                                 s.composer.status.set(String::new());
                                 account_open.set(true);
                             }>

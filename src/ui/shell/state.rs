@@ -29,7 +29,7 @@ use crate::protocol::{
     TypingDraftEntry,
 };
 
-use super::{Pane, PendingDelete};
+use super::{NavOrigin, Pane, PendingDelete};
 
 /// Server + channel selection, plus the lists they live in.
 #[derive(Clone, Copy)]
@@ -248,6 +248,23 @@ pub(crate) struct SyncState {
     /// shell-local signal — can return the user to the map on dismiss via
     /// `act::show_orbit_map`. Only the hydrate orbit shell ever reads/writes it.
     pub(crate) map_open: RwSignal<bool>,
+    /// Whether the Station slide-over is open. Promoted from a `SkOrbitShell`-local
+    /// signal (same rationale as `map_open`) so the root-mounted Account/Server/
+    /// Wardrobe modals can REOPEN Station on dismiss when that's where they were
+    /// opened from (Bug 3 one-step-back). The orbit shell aliases it back to a
+    /// local `station_open` binding so its in-shell use-sites are unchanged.
+    pub(crate) station_open: RwSignal<bool>,
+    /// Origin of the current dispatch pane / management modal — where its back /
+    /// dismiss pops to (`act::pane_back` / `act::modal_back`). Stamped by each
+    /// opener (`act::mark_station_origin` for Station-launched surfaces); reset to
+    /// `OrbitMap` by `show_orbit_map` and `open_channel_at` so it self-heals on
+    /// any return home or channel descent. Default `OrbitMap` (boot lands here).
+    pub(crate) pane_origin: RwSignal<NavOrigin>,
+    /// True iff the current pane is a Friends SUB-pane (DMs/Cameos opened from a
+    /// Friends in-pane link): back pops to Friends first, which then backs to its
+    /// own `pane_origin`. Lets the two-state `pane_origin` express the one nesting
+    /// point in the tree without a full history stack.
+    pub(crate) pane_via_friends: RwSignal<bool>,
     /// Set during a channel switch to play the warp transition (M4/T3):
     /// `act::open_channel_at` flips it true on entry and a detached ~180ms
     /// timer clears it, driving the `.channel-view.fx-switching` class (rebased

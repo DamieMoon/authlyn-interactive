@@ -33,6 +33,53 @@ pub fn open_channel(s: Shell, ch: ChannelSummary) {
 #[cfg(feature = "hydrate")]
 pub fn show_orbit_map(s: Shell) {
     s.sync.map_open.set(true);
+    // Returning home clears the one-step-back breadcrumb (Bug 3 self-heal): any
+    // desynced origin is reset the next time the user reaches the map.
+    s.sync.pane_origin.set(super::super::NavOrigin::OrbitMap);
+    s.sync.pane_via_friends.set(false);
+}
+
+/// Stamp the current overlay's origin as the Station slide-over (Bug 3): its
+/// back / dismiss reopens Station rather than jumping to the orbit map. Called
+/// by every Station "Go to X" / Server / Account / Wardrobe opener; also clears
+/// `pane_via_friends` (a Station-launched pane is never a Friends sub-pane).
+#[cfg(feature = "hydrate")]
+pub fn mark_station_origin(s: Shell) {
+    s.sync.pane_origin.set(super::super::NavOrigin::Station);
+    s.sync.pane_via_friends.set(false);
+}
+
+/// Back-arrow / swipe-close of a dispatch pane: pop ONE STEP BACK to the pane's
+/// origin (Bug 3) instead of always returning to the orbit map. A Friends
+/// sub-pane (DMs/Cameos opened from a Friends in-pane link) pops to Friends
+/// first; otherwise the recorded `pane_origin` decides Station-vs-map.
+#[cfg(feature = "hydrate")]
+pub fn pane_back(s: Shell) {
+    use super::super::{NavOrigin, Pane};
+    if s.sync.pane_via_friends.get_untracked() {
+        s.sync.pane.set(Pane::Friends);
+        s.sync.pane_via_friends.set(false);
+    } else {
+        match s.sync.pane_origin.get_untracked() {
+            // Reveal the channel base, then reopen Station over it.
+            NavOrigin::Station => {
+                s.sync.pane.set(Pane::Channel);
+                s.sync.station_open.set(true);
+            }
+            NavOrigin::OrbitMap => show_orbit_map(s),
+        }
+    }
+}
+
+/// Dismiss of a root-mounted management modal (Account/Server/Wardrobe): reopen
+/// the surface it was launched from (Bug 3) — Station, else the orbit map. The
+/// caller still flips its own `open` / `wardrobe_open` signal false first.
+#[cfg(feature = "hydrate")]
+pub fn modal_back(s: Shell) {
+    match s.sync.pane_origin.get_untracked() {
+        super::super::NavOrigin::Station => s.sync.station_open.set(true),
+        super::super::NavOrigin::OrbitMap => show_orbit_map(s),
+    }
 }
 
 /// Load the persisted per-channel drafts (channel id -> text) from
@@ -166,6 +213,10 @@ pub fn open_channel_at(s: Shell, ch: ChannelSummary, anchor: Option<String>) {
     // Opening a channel auto-dismisses the wardrobe popup (F-2): navigating to
     // a channel should leave nothing overlaying it.
     s.sync.wardrobe_open.set(false);
+    // Descending into a channel is a fresh nav context — clear the one-step-back
+    // breadcrumb (Bug 3 self-heal), mirroring `show_orbit_map`.
+    s.sync.pane_origin.set(super::super::NavOrigin::OrbitMap);
+    s.sync.pane_via_friends.set(false);
     let _ = LocalStorage::set(KEY_CHANNEL, &cid);
     s.sel.sel_channel.set(Some(ch));
     if kind == "lorebook" {
@@ -608,6 +659,15 @@ pub fn restore_channel(s: Shell, gid: String, cid: String) {
 pub fn open_channel(_s: Shell, _ch: ChannelSummary) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn show_orbit_map(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn mark_station_origin(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn pane_back(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn modal_back(_s: Shell) {}
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
 pub fn load_drafts() -> std::collections::HashMap<String, String> {

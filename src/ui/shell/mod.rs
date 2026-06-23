@@ -85,6 +85,22 @@ pub(crate) enum Pane {
     Cameos,
 }
 
+/// Where a dispatch pane / management modal was opened FROM, so its back-arrow /
+/// swipe-close / modal dismiss pops ONE STEP BACK to that surface instead of
+/// jumping all the way home to the orbit map (Bug 3, owner ruling 2026-06-23).
+/// The orbit overlay tree is shallow with a single nesting point (Friends →
+/// DMs/Cameos), so this two-state origin plus `SyncState::pane_via_friends`
+/// models every back-chain exactly — no general nav-history stack needed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+pub(crate) enum NavOrigin {
+    /// Opened from the orbit map (home), or the boot landing — back returns to
+    /// the map. The default for any freshly-mounted shell.
+    OrbitMap,
+    /// Opened from the Station slide-over — back reopens Station.
+    Station,
+}
+
 /// A destructive action awaiting confirmation. Stored in `Shell::pending_delete`
 /// (with a human prompt in `confirm_prompt`); the top-level confirm modal in
 /// `AppShell` dispatches the matching `act::` fn when the user confirms. Storing
@@ -178,6 +194,9 @@ fn AppShell() -> impl IntoView {
         pane: RwSignal::new(Pane::Friends),
         wardrobe_open: RwSignal::new(false),
         map_open: RwSignal::new(false),
+        station_open: RwSignal::new(false),
+        pane_origin: RwSignal::new(NavOrigin::OrbitMap),
+        pane_via_friends: RwSignal::new(false),
         switching: RwSignal::new(false),
     };
     provide_context(sync);
@@ -406,9 +425,9 @@ fn AppShell() -> impl IntoView {
             {move || s.sync.wardrobe_open.get().then(|| {
                 view! {
                     <Modal class="wardrobe-modal" swipe_close=true
-                        close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }>
+                        close=move || { s.sync.wardrobe_open.set(false); act::modal_back(s); }>
                         <ModalHead title="Wardrobe"
-                            on_close=move || { s.sync.wardrobe_open.set(false); act::show_orbit_map(s); }/>
+                            on_close=move || { s.sync.wardrobe_open.set(false); act::modal_back(s); }/>
                         <WardrobePane/>
                     </Modal>
                 }

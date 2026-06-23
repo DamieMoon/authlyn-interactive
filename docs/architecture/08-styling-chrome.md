@@ -252,7 +252,7 @@ iOS-sticky invariants baked into `_modal.scss:506-624`:
 
 **Compact orbit dialogs** (`.confirm-modal` / `.accent-modal` / `.persona-info`) are *re-centered* (`:has()`-keyed backdrop) and re-skinned to the void glass — without their own orbit rule they fell through to the base centered `.modal` while the shared backdrop had already dropped its centering flex, rendering as an orphaned top-left card (a real owner-reported iPhone bug).
 
-> **Pinning:** modal *styling* is largely **(unpinned)** by `style_lint`. The *behaviors* are pinned: leaving a management surface returns to the orbit map — **`tests/style_lint.rs::management_modal_dismiss_returns_to_orbit_map`** (exactly 3 `swipe_close=true` modals, each calling `act::show_orbit_map` in both `close=` and `<ModalHead on_close=…>`); the swipe engines bail pointer-capture on controls — **`::swipe_engines_bail_pointer_capture_on_controls`** (incl. `src/ui/modal.rs`); each pref toggle renders once — **`::each_pref_toggle_is_rendered_exactly_once`**.
+> **Pinning:** modal *styling* is largely **(unpinned)** by `style_lint`. The *behaviors* are pinned: leaving a management surface pops one step back to its origin (Station or the map) and never into a channel — **`tests/style_lint.rs::management_modal_dismiss_returns_to_origin`** (exactly 3 `swipe_close=true` modals, each routing both `close=` and `<ModalHead on_close=…>` through `act::modal_back`, with an explicit no-channel-entry scan); the swipe engines bail pointer-capture on controls — **`::swipe_engines_bail_pointer_capture_on_controls`** (incl. `src/ui/modal.rs`); each pref toggle renders once — **`::each_pref_toggle_is_rendered_exactly_once`**.
 
 ---
 
@@ -318,7 +318,7 @@ One defect class kept slipping through: orbit chrome shipped compile/clippy/ssr/
 | `no_html5_drag_and_drop_in_ui` | iOS-dead reorder | `bacbcf4^` | no `on:drag*`; `draggable` only literal `"false"` (reorder uses the pointer-capture grip) |
 | `swipe_engines_bail_pointer_capture_on_controls` | desktop dead buttons | `569be68^` | `drag.rs`/`holopanel.rs`/`modal.rs` bail before `set_pointer_capture` on interactive controls |
 | `each_pref_toggle_is_rendered_exactly_once` | duplicate toggle | `66f5e84^` | `dialogue_style`/`ghost_quill`/`haptic_vibrate` each one checkbox |
-| `management_modal_dismiss_returns_to_orbit_map` | settings-exit into a channel | `66f5e84^` | exactly 3 `swipe_close=true` modals return to the map |
+| `management_modal_dismiss_returns_to_origin` | settings-exit into a channel | `66f5e84^` | exactly 3 `swipe_close=true` modals dismiss via `act::modal_back` (origin-aware), none entering a channel |
 
 **`fx-max` is rendered unconditionally** (`class="app fx-max"`, `src/ui/shell/mod.rs:372`) — it is the *appearance/eye-candy tier*, present on every session, so any `:not(.fx-max)` fallback is dead and any opaque scrim on a non-modal catcher is a permanent blackout. This single fact underlies `no_dead_fx_max_negation` and `scrim_only_on_modal_backdrops`.
 
@@ -378,7 +378,7 @@ State classes the SCSS keys on (per-component naming contracts): `.composing` / 
 - WebKit Liquid Glass: `backdrop_filter_always_has_webkit_sibling`, `glass_holo_is_liquid_glass_not_frost_noise`, `glass_holo_consumers_let_the_mixin_own_the_background`.
 - Material inheritance: `orbit_chrome_controls_inherit_glass_material`, `dispatch_pane_controls_inherit_glass_material`.
 - iOS/WebKit footguns: `sk_orbit_content_clips_both_axes_no_paint_containment`, `orbit_map_overlay_blocks_touch_scroll`, `scrim_only_on_modal_backdrops`, `no_dead_fx_max_negation`, `no_html5_drag_and_drop_in_ui`, `swipe_engines_bail_pointer_capture_on_controls`.
-- Modal/pref behavior: `management_modal_dismiss_returns_to_orbit_map`, `each_pref_toggle_is_rendered_exactly_once`.
+- Modal/pref behavior: `management_modal_dismiss_returns_to_origin`, `each_pref_toggle_is_rendered_exactly_once`.
 - Touch floor: `registered_interactive_controls_declare_44px_touch_floor` (23-entry registry).
 
 **Cross-links:** [01-overview.md](./01-overview.md) (graph split) · [07-ui-shell.md](./07-ui-shell.md) (component side) · [09-testing.md](./09-testing.md) (style_lint vs pre-commit vs /check) · [11-build-deploy-pwa.md](./11-build-deploy-pwa.md) (SCSS→CSS build, SW font cache) · CLAUDE.md → "UI fidelity" (the canonical touch-floor + deck-pass statement).

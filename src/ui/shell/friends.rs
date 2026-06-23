@@ -11,10 +11,13 @@ pub(crate) fn FriendsPane() -> impl IntoView {
     view! {
         <div class="pane">
             <div class="add-row">
-                <button on:click=move |_| s.sync.pane.set(super::Pane::DirectMessages)>
+                // Bug 3: these in-pane links make DMs/Cameos a Friends SUB-pane —
+                // mark it so their back-arrow pops to Friends (which then backs to
+                // Friends' own origin), not straight to the orbit map.
+                <button on:click=move |_| { s.sync.pane_via_friends.set(true); s.sync.pane.set(super::Pane::DirectMessages); }>
                     "Direct messages →"
                 </button>
-                <button on:click=move |_| s.sync.pane.set(super::Pane::Cameos)>
+                <button on:click=move |_| { s.sync.pane_via_friends.set(true); s.sync.pane.set(super::Pane::Cameos); }>
                     "Cameos →"
                 </button>
             </div>

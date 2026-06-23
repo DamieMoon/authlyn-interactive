@@ -909,14 +909,40 @@
 	white-space: nowrap;
 	pointer-events: none;
 }
-// Far server — a docked-in-the-corner MINI nucleus (a-orbit.html `.srv.far
-// .core`, line 179): the same luminous core disc as the active star but 64px,
-// dimmer (opacity .75) with a softer glow, the monogram emblem centred and the
-// name labelled below. (Was a flat glass name-pill.)
-.sk-orbit-far {
+// The far-server RAIL: a horizontal, scrollable strip across the top of the map
+// holding every OTHER guild as a mini-nucleus disc. Was a 2-slot corner dock
+// (`far_x * ±1`) that stacked the 4th+ guild pixel-identically, leaving only the
+// topmost tappable (owner deck-finding 2026-06-23) — a flex rail scales to any
+// count, scrolling when the discs overflow the width. `touch-action: pan-x` +
+// `overscroll-behavior: contain` carve a horizontal scroll out of the map's
+// `touch-action: none` root without chaining to the page (cf. `.sk-orbit-hints-rows`).
+.sk-orbit-far-rail {
 	position: absolute;
-	top: 0;
+	top: calc(env(safe-area-inset-top, 0px) + 12px);
 	left: 0;
+	right: 0;
+	z-index: 2;
+	display: flex;
+	gap: 20px;
+	align-items: flex-start;
+	justify-content: safe center;
+	padding: 0 20px 24px;
+	overflow-x: auto;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+	touch-action: pan-x;
+	scrollbar-width: none;
+}
+.sk-orbit-far-rail::-webkit-scrollbar {
+	display: none;
+}
+// Far server — a MINI nucleus disc in the rail (a-orbit.html `.srv.far .core`,
+// line 179): the same luminous core disc as the active star but 64px, dimmer
+// (opacity .75) with a softer glow, the monogram emblem centred and the name
+// labelled below. (Was a flat glass name-pill; was an absolute corner dock.)
+.sk-orbit-far {
+	position: relative;
+	flex: 0 0 auto;
 	z-index: 2;
 	width: 64px;
 	height: 64px;
@@ -961,6 +987,13 @@
 	letter-spacing: 1.4px;
 	text-transform: uppercase;
 	color: var(--text-soft);
+	// Clip a long name to the disc's own 64px track (mirrors `.sk-orbit-node-name`):
+	// the label is absolute + centred, so without a bound a long name spills past
+	// the disc and overlaps the next rail entry (gap is only 20px) — owner
+	// deck-finding 2026-06-23. The full name stays reachable via `title=`.
+	max-width: 64px;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	white-space: nowrap;
 	text-shadow: 0 2px 8px #000;
 }
