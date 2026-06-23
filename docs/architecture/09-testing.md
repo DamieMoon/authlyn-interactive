@@ -217,7 +217,7 @@ Deck-bug-class regression guards (M5 → M7) — each validated to turn **red** 
 | `no_html5_drag_and_drop_in_ui` | no HTML5 DnD handlers (iOS WebKit has none); `draggable=` only the literal `"false"` |
 | `swipe_engines_bail_pointer_capture_on_controls` | the three pointer-gesture engines (`drag.rs`/`holopanel.rs`/`modal.rs`) bail before `set_pointer_capture` on interactive controls (else desktop click-dead) |
 | `each_pref_toggle_is_rendered_exactly_once` | each bool pref toggle has exactly one checkbox render site (the Ghost-Quill dup class) |
-| `management_modal_dismiss_returns_to_orbit_map` | each of the **3** `swipe_close=true` management modals calls `act::show_orbit_map` in both its `close=` and its `<ModalHead>` dismiss |
+| `management_modal_dismiss_returns_to_origin` | each of the **3** `swipe_close=true` management modals routes both its `close=` and its `<ModalHead>` dismiss through `act::modal_back` (origin-aware one-step-back, Bug 3) and never enters a channel |
 | `orbit_chrome_controls_inherit_glass_material` | every `MATERIAL_CONTROLS` member includes `glass-holo`/`glass-live` in some rule (B2 flat-chrome) |
 | `dispatch_pane_controls_inherit_glass_material` | the `PANE_CONTROLS` (wave-b / wardrobe / server-icon) include the glass material at their base (B2) |
 | `glass_holo_consumers_let_the_mixin_own_the_background` | a glass consumer must **not** restate a top-level `background:` after the include (dead on backdrop-filter engines) |

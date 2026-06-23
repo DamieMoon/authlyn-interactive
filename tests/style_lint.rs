@@ -581,19 +581,29 @@ fn each_pref_toggle_is_rendered_exactly_once() {
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
-/// Leaving a root-mounted management surface returns to the orbit MAP, not the
-/// channel underneath. Each `swipe_close=true` management modal (Account, Server,
-/// Wardrobe) must call `act::show_orbit_map` in BOTH its `close=` and its
-/// `<ModalHead on_close=...>` dismiss closures. Keying on `swipe_close=true`
-/// selects exactly those three and excludes the deferred channel-manager and the
-/// data-mutating sub-modals. RED at 66f5e84^ (settings-exit dropped into a channel).
+/// Leaving a root-mounted management surface returns to its ORIGIN — Station if
+/// that's where it was opened from, else the orbit MAP — but NEVER into the
+/// channel underneath (Bug 3 one-step-back, owner ruling 2026-06-23). Each
+/// `swipe_close=true` management modal (Account, Server, Wardrobe) routes BOTH
+/// its `close=` and its `<ModalHead on_close=...>` through `act::modal_back` —
+/// the single origin-aware dismiss helper, which only ever reopens Station or the
+/// map — and neither dismiss closure may enter a channel directly. Keying on
+/// `swipe_close=true` selects exactly those three and excludes the deferred
+/// channel-manager and the data-mutating sub-modals. The channel-entry scan is
+/// the explicit form of the RED state at 66f5e84^ (settings-exit dropped into a
+/// channel): previously implied by "must call show_orbit_map", now asserted.
 #[test]
-fn management_modal_dismiss_returns_to_orbit_map() {
+fn management_modal_dismiss_returns_to_origin() {
     const FILES: &[&str] = &[
         "src/ui/shell/account.rs",
         "src/ui/shell/server.rs",
         "src/ui/shell/mod.rs",
     ];
+    // A management-modal dismiss must never navigate INTO a channel — the RED
+    // state this guard pins. `act::modal_back` provably routes only to Station or
+    // the map, so the closures delegate to it; a future hand-rolled dismiss that
+    // calls one of these channel-entry actions trips the guard.
+    const CHANNEL_ENTRY: &[&str] = &["open_channel", "open_deep_link", "Pane::Channel"];
     let mut count = 0usize;
     let mut violations = Vec::new();
     for rel in FILES {
@@ -609,12 +619,20 @@ fn management_modal_dismiss_returns_to_orbit_map() {
                 .unwrap_or(src.len());
             let region = &src[start..end];
             count += 1;
-            let occ = region.matches("act::show_orbit_map").count();
+            let occ = region.matches("act::modal_back").count();
             if occ < 2 {
                 violations.push(format!(
-                    "{rel} — a swipe_close management modal calls act::show_orbit_map {occ}× \
+                    "{rel} — a swipe_close management modal calls act::modal_back {occ}× \
                      in its dismiss region (need both close= and ModalHead on_close=)"
                 ));
+            }
+            for bad in CHANNEL_ENTRY {
+                if region.contains(*bad) {
+                    violations.push(format!(
+                        "{rel} — a swipe_close management modal's dismiss region enters a \
+                         channel via `{bad}` (a settings-exit must never drop into a channel)"
+                    ));
+                }
             }
             from = end;
         }
@@ -622,7 +640,7 @@ fn management_modal_dismiss_returns_to_orbit_map() {
     assert_eq!(
         count, 3,
         "expected exactly 3 swipe_close management modals (Account/Server/Wardrobe), found {count} \
-         — a new one must also return to the orbit map on dismiss"
+         — a new one must also dismiss via act::modal_back (origin-aware, never into a channel)"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }

@@ -554,9 +554,9 @@ Two more shell-wide UI rules surface here and are statically pinned:
   `tests/style_lint.rs::registered_interactive_controls_declare_44px_touch_floor`
   (and the *UI fidelity* rule in `CLAUDE.md`).
 - **The three `swipe_close=true` management modals** (Account/Server/Wardrobe)
-  must call `act::show_orbit_map` in both `close=` and `ModalHead`'s `on_close=`
-  so leaving returns to the orbit map. Pinned by
-  `tests/style_lint.rs::management_modal_dismiss_returns_to_orbit_map`.
+  must route both `close=` and `ModalHead`'s `on_close=` through `act::modal_back`
+  (origin-aware one-step-back, Bug 3) and never enter a channel on dismiss. Pinned
+  by `tests/style_lint.rs::management_modal_dismiss_returns_to_origin`.
 
 ---
 
@@ -631,7 +631,7 @@ Tests that pin this doc's claims:
 - `tests/style_lint.rs` — `swipe_engines_bail_pointer_capture_on_controls`,
   `no_html5_drag_and_drop_in_ui`,
   `registered_interactive_controls_declare_44px_touch_floor`,
-  `management_modal_dismiss_returns_to_orbit_map` (§8, §9; static scans, see
+  `management_modal_dismiss_returns_to_origin` (§8, §9; static scans, see
   [08 — styling & chrome](./08-styling-chrome.md) and [09 — testing](./09-testing.md)).
 
 **Code-pinned only (no `tests/*.rs`)**, verified by clippy across all three
