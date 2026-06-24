@@ -33,6 +33,44 @@ pub(super) fn emit_personas_changed(state: &AppState, accounts: Vec<String>) {
     state.emit_for(accounts, crate::protocol::SyncEvent::PersonasChanged);
 }
 
+/// Content propagation (review A/B): resolve every account whose `GET /personas`
+/// shows persona `pid` — the owner PLUS every redeemed editor — and nudge them
+/// all. Used when a SHARED persona's grid-projected CONTENT changes
+/// (`patch_persona` name/description/color, `set_avatar`), so a co-viewer's
+/// mounted wardrobe + orbit grid refetches instead of showing a stale card.
+/// Best-effort: the mutation already committed, so a lookup failure is logged,
+/// not surfaced. For a solo persona the set is just the owner — a harmless
+/// self-nudge that keeps their other devices consistent.
+pub(super) async fn emit_personas_changed_for_persona(state: &AppState, pid: &str) {
+    let lookup = state
+        .db
+        .query(
+            "SELECT VALUE meta::id(owner) FROM persona WHERE id = type::record('persona', $pid);
+             SELECT VALUE meta::id(account) FROM persona_editor
+                WHERE persona = type::record('persona', $pid);",
+        )
+        .bind(("pid", pid.to_string()))
+        .await;
+    let mut accounts: Vec<String> = Vec::new();
+    match lookup {
+        Ok(mut r) => {
+            if let Ok(owner) = r.take::<Vec<String>>(0) {
+                accounts.extend(owner);
+            }
+            if let Ok(editors) = r.take::<Vec<String>>(1) {
+                accounts.extend(editors);
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "emit_personas_changed_for_persona lookup failed");
+            return;
+        }
+    }
+    if !accounts.is_empty() {
+        emit_personas_changed(state, accounts);
+    }
+}
+
 // Route-table handlers keep their `crate::server::personas::<fn>` paths via
 // these re-exports.
 pub use self::core::{

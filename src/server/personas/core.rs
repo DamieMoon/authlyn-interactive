@@ -374,6 +374,7 @@ pub async fn patch_persona(
         "UPDATE type::record('persona', $pid) SET {};",
         sets.join(", ")
     );
+    let pid_emit = pid.clone();
     let mut q = state.db.query(&sql).bind(("pid", pid));
     if let Some(raw) = req.name {
         q = q.bind(("name", raw.trim().to_string()));
@@ -388,7 +389,13 @@ pub async fn patch_persona(
         q = q.bind(("position", pos));
     }
     match q.await.and_then(|r| r.check()) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // A (review): name/description/color/position are in the GET
+            // /personas grid projection, so a change to a SHARED persona must
+            // reach every co-viewer's grid — nudge the owner + all editors.
+            super::emit_personas_changed_for_persona(&state, &pid_emit).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "patch_persona failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

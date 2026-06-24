@@ -618,6 +618,143 @@ async fn persona_editor_changes_reach_owner_and_editor_over_sse() {
     assert_eq!(ev["type"], "message_created");
 }
 
+/// A/B (review, content propagation): editing a SHARED persona's grid-projected
+/// content — name (patch_persona) or avatar (set_avatar) — reaches every
+/// co-viewer (owner + editors) as `personas_changed`, so their mounted grid
+/// refetches the new name/avatar instead of going stale. The editor set is
+/// unchanged here; this is the content twin of the membership test above. A
+/// third account stays silent.
+#[tokio::test]
+async fn editing_a_shared_persona_reaches_co_viewers_over_sse() {
+    let a = common::arena().await;
+    let alice = common::register_account(&a.router, "EditAlice", "password123").await;
+    let (st, _, me) = common::send(&a.router, Method::GET, "/auth/me", Some(&alice), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let alice_id = me["account_id"].as_str().unwrap().to_string();
+    let bob = common::register_account(&a.router, "EditBob", "password123").await;
+    let (st, _, me) = common::send(&a.router, Method::GET, "/auth/me", Some(&bob), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let bob_id = me["account_id"].as_str().unwrap().to_string();
+    let (carol, _gid, carol_cid) = owner_with_channel(&a.router, "EditCarol").await;
+
+    // Friend + share Bob as an editor — all BEFORE the streams open, so neither
+    // the friends_changed nor the share personas_changed frames pollute the
+    // content assertions below.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        "/friends",
+        Some(&alice),
+        Some(&json!({ "username": "EditBob" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/friends/{alice_id}/accept"),
+        Some(&bob),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _, body) = common::send(
+        &a.router,
+        Method::POST,
+        "/personas",
+        Some(&alice),
+        Some(&json!({ "name": "Original", "description": "" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let pid = body["id"].as_str().unwrap().to_string();
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/personas/{pid}/editors/{bob_id}"),
+        Some(&alice),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // A media blob for the avatar step (set_avatar only checks media existence).
+    let avatar_media: String =
+        a.db.query(
+            "CREATE media_blob SET uploader = type::record('account', $owner), \
+             mime = 'image/png', size_bytes = 1, storage_path = 'x' \
+             RETURN VALUE meta::id(id);",
+        )
+        .bind(("owner", alice_id.clone()))
+        .await
+        .and_then(|mut r| r.take::<Vec<String>>(0))
+        .expect("create media + take id")
+        .into_iter()
+        .next()
+        .expect("one media id");
+
+    let (st, _h, mut alice_body) = common::open_sse(&a.router, "/events", Some(&alice)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _h, mut bob_body) = common::open_sse(&a.router, "/events", Some(&bob)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _h, mut carol_body) = common::open_sse(&a.router, "/events", Some(&carol)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    async fn expect_personas_changed(body: &mut axum::body::Body, who: &str) {
+        match common::next_sse_data(body, Duration::from_secs(3)).await {
+            common::SseRead::Data(v) => assert_eq!(v["type"], "personas_changed", "{who}"),
+            other => panic!("{who} should receive personas_changed, got {other:?}"),
+        }
+    }
+
+    // A — rename the shared persona: both viewers' grids must refetch.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PATCH,
+        &format!("/personas/{pid}"),
+        Some(&alice),
+        Some(&json!({ "name": "Renamed" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    expect_personas_changed(&mut alice_body, "alice (rename)").await;
+    expect_personas_changed(&mut bob_body, "bob (rename)").await;
+
+    // B — change the shared persona's avatar: same.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::PUT,
+        &format!("/personas/{pid}/avatar"),
+        Some(&alice),
+        Some(&json!({ "media_id": avatar_media })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    expect_personas_changed(&mut alice_body, "alice (avatar)").await;
+    expect_personas_changed(&mut bob_body, "bob (avatar)").await;
+
+    // The bystander saw none of it (Timeout, not Closed)…
+    match common::next_sse_data(&mut carol_body, Duration::from_millis(1200)).await {
+        common::SseRead::Timeout => {}
+        o => panic!("a third account must not see personas_changed, got {o:?}"),
+    }
+    // …and the silence is not a dead stream.
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{carol_cid}/messages"),
+        Some(&carol),
+        Some(&json!({ "body": "proof of life" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let ev = match common::next_sse_data(&mut carol_body, Duration::from_secs(3)).await {
+        common::SseRead::Data(v) => v,
+        o => panic!("aliveness event should arrive, got {o:?}"),
+    };
+    assert_eq!(ev["type"], "message_created");
+}
+
 /// M1.5: reordering YOUR guild rail is a per-user preference — the actor's
 /// own (other) devices get `lists_changed`, every other connection gets
 /// nothing (this used to broadcast globally: N×M amplification).

@@ -51,6 +51,7 @@ pub async fn set_avatar(
     {
         return resp;
     }
+    let pid_emit = pid.clone();
     match state
         .db
         .query(
@@ -61,7 +62,13 @@ pub async fn set_avatar(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // B (review): avatar_id is in the GET /personas grid projection, so
+            // changing a SHARED persona's avatar must reach every co-viewer's
+            // grid — nudge the owner + all editors.
+            super::emit_personas_changed_for_persona(&state, &pid_emit).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "set_avatar failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
