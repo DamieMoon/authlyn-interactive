@@ -1,8 +1,10 @@
 -- authlyn-interactive — SurrealDB schema (Discord-style roleplay platform)
 --
--- Loaded on startup by `db::apply_schema`. All DEFINEs use `IF NOT EXISTS`
--- so re-applying on every boot is a no-op — except `message.kind`, which uses
--- OVERWRITE because its enum ASSERT was widened after shipping (see its block).
+-- Loaded on startup by `db::apply_schema`. Most DEFINEs use `IF NOT EXISTS`
+-- so re-applying on every boot is a no-op — except the fields whose definition
+-- was widened after shipping and must re-apply over an existing field:
+-- `channel.guild`, `channel.kind`, `message.kind`, and `guild_member.role`,
+-- which use OVERWRITE (each documented at its block).
 --
 -- Server-trusted model: the server stores plaintext content directly.
 -- `record<...>` links are type annotations only (SurrealDB does not enforce
@@ -159,7 +161,13 @@ DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 DEFINE TABLE IF NOT EXISTS guild_member SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS guild          ON guild_member TYPE record<guild>;
 DEFINE FIELD IF NOT EXISTS account        ON guild_member TYPE record<account>;
-DEFINE FIELD IF NOT EXISTS role           ON guild_member TYPE string DEFAULT 'member' ASSERT $value IN ['owner', 'admin', 'member'];
+-- M7: `'admin'` added (review C1, bug hunt 019ef87b). OVERWRITE (not IF NOT
+-- EXISTS) — widening an enum ASSERT needs OVERWRITE or the old narrow ASSERT
+-- (`['owner','member']`) silently survives on a migrated DB and rejects 'admin'
+-- (a 500 in set_member_role; the same trap as channel.kind/message.kind).
+-- Re-defining is idempotent and does NOT re-validate existing rows. DEFAULT
+-- 'member' unchanged; old 'owner'/'member' rows are a subset of the wider set.
+DEFINE FIELD OVERWRITE     role           ON guild_member TYPE string DEFAULT 'member' ASSERT $value IN ['owner', 'admin', 'member'];
 DEFINE FIELD IF NOT EXISTS active_persona ON guild_member TYPE option<record<persona>>;
 DEFINE FIELD IF NOT EXISTS joined_at      ON guild_member TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS guild_member_pair ON guild_member FIELDS guild, account UNIQUE;
