@@ -1,5 +1,7 @@
 # Mendicant Bias M1: Realtime Backbone Implementation Plan
 
+> **Archived (pre-v27):** historical milestone plan — its gate/graph references, including the retired `freya` native graph, reflect the state at authoring time, not the current build. The live feature graphs are ssr/hydrate/nova (no freya); see `CLAUDE.md` and `docs/architecture/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the 1.5s client polling with an SSE event bus (`GET /events`), add a batched `GET /unread` endpoint, and land the M1 perf fixes (media cache headers, MIME folded into the message projection, lazy guild-channel loading) — dropping idle traffic from ~150–200 req/min to keep-alives only.

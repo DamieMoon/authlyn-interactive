@@ -98,7 +98,7 @@ Editing those strings changes Nova's behavior; treat them as code.
   `nova` — confirmed in [`.claude/commands/check.md`](../../.claude/commands/check.md)
   ("the nova bridge is a separate manual check") and
   [`.githooks/pre-commit`](../../.githooks/pre-commit) (no nova step). CLAUDE.md
-  states the rule directly ("nova is NOT in `/check`", L18). **You must build it
+  states the rule directly ("nova is NOT in `/check`", L19). **You must build it
   by hand** when you touch it.
 
 ### Build
@@ -107,9 +107,8 @@ Editing those strings changes Nova's behavior; treat them as code.
 cargo build --release --bin nova-mcp --features nova
 ```
 
-This exact command is the only allowlisted nova build in
-[`.claude/settings.json`](../../.claude/settings.json) (L15) and is the one given
-in `CLAUDE.md` (L18) and the bin's `//!` header (L10). There is no
+This exact command is the one given in `CLAUDE.md` (L19) and the bin's `//!`
+header (L10). There is no
 `cargo leptos` path and no CI step for it.
 
 The `nova` feature (`Cargo.toml:218–230`) pulls `rmcp`, `reqwest`, `anyhow`,
@@ -320,7 +319,7 @@ i.e. the *other* Nova). Its guarantees are **compile-gated**, not runtime-pinned
 |---|---|
 | `nova` is a disjoint graph (no `crate::`/leptos/surrealdb) | `src/bin/nova-mcp.rs:23–33` (imports); `cargo build --features nova` compiles, the bin holds no `crate::` refs |
 | nova never enters the default / cargo-leptos build | `Cargo.toml:16–19` (`required-features = ["nova"]`), `:259,296` (bin = `authlyn-interactive`, ssr) |
-| nova excluded from `/check` + pre-commit | `.claude/commands/check.md`; `.githooks/pre-commit` (no nova step); `CLAUDE.md:18` |
+| nova excluded from `/check` + pre-commit | `.claude/commands/check.md`; `.githooks/pre-commit` (no nova step); `CLAUDE.md:19` |
 | Consumed REST routes exist | `src/server/mod.rs:74,90,99,151,215` |
 | `read_messages` keyset (`since`/`after_id`) is real server behavior | `src/server/messages/reading.rs:32–33,252–264`; `tests/messages.rs::cursor_paginates_past_100_in_order`, `::cursor_tie_break_with_equal_sent_at_is_strict_in_both_directions`, `::malformed_cursor_is_400_not_500` |
 | `author_display` live / `persona_name` frozen | `tests/messages.rs::account_identity_resolves_live_while_persona_name_stays_frozen` (`src/protocol.rs:341–356`) |
@@ -344,8 +343,6 @@ tool surface manually against a running authlyn.
 - [`Cargo.toml`](../../Cargo.toml) — `[[bin]] nova-mcp` `required-features` (L16–19);
   `[features] nova` (L218–230); `rmcp`/`reqwest`(no-TLS)/`anyhow` deps +
   `#`-comments (L132–139). Authoritative for deps/graph constraints.
-- [`.claude/settings.json`](../../.claude/settings.json) — the allowlisted nova
-  build command (L15).
 - [`.env.example`](../../.env.example) — server config template; contains **no**
   `NOVA_*` (nova config is the env table above).
 - [`src/server/mod.rs`](../../src/server/mod.rs) — the router; the REST routes

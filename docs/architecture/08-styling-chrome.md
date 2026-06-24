@@ -112,7 +112,7 @@ The single hardest rule in the visual system, machine-enforced.
 
 ### The "pre-rendered glow" house technique
 
-A glow **pulse** must never animate `box-shadow` (a paint prop). Instead: carry the **MAX** glow as a *static* `box-shadow` on a `::before`/`::after`, and pulse only its **opacity** via a transform/opacity keyframe. Reference consumers: `fx-glow-pulse` + `.composer .send.sent::after` (`_content.scss:1170`), `.sk-orbit-orb::before/::after` (`_sk_orbit_chrome.scss:1179,1202`), `.msg.effect-spell .text::before`. This is why the glow survives reduced-motion (it is *state*, not motion) while the breathing stops.
+A glow **pulse** must never animate `box-shadow` (a paint prop). Instead: carry the **MAX** glow as a *static* `box-shadow` on a `::before`/`::after`, and pulse only its **opacity** via a transform/opacity keyframe. Reference consumers: `fx-glow-pulse` + `.composer .send.sent::after` (`_content.scss:1170`), `.sk-orbit-orb::before/::after` (`_sk_orbit_chrome.scss:1212,1235`), `.msg.effect-spell .text::before`. This is why the glow survives reduced-motion (it is *state*, not motion) while the breathing stops.
 
 ### `backdrop-filter` is permitted outside keyframes
 
@@ -192,13 +192,13 @@ Two soft nebula ellipses (blue top-right `--aurora-1`, teal bottom-left `--auror
 
 ---
 
-## 6. The `sk-orbit` cosmic chrome (`style/_sk_orbit_chrome.scss`, ~1530 lines)
+## 6. The `sk-orbit` cosmic chrome (`style/_sk_orbit_chrome.scss`, ~1565 lines)
 
 The largest partial: the `.app.sk-orbit` shell built **1:1 against the `a-orbit.html` prototype** (the visual oracle, §10). **Every rule is `.app.sk-orbit`-prefixed** so it can never match a deck/hud session or the retained base scaffolding — **except** the body-portal overlays (`.sk-orbit-map`, `.sk-orbit-hints`), which are `<Portal>`'d to `document.body` as siblings of `.app` and so are *unprefixed* (their `sk-orbit-*` class names are self-scoping — only `SkOrbitShell` emits them). The shell loads after the base partials so equal-specificity rules win.
 
 ### Shell shape — `svh` and clip-both-axes
 
-- `.app.sk-orbit` is `min-height: 100svh` (**not** `dvh`): on the iOS 26.5 standalone PWA `100dvh` resolves to the *visual* viewport (taller than the document's layout/client height), producing a thin phantom vertical scroll. `svh` matches the layout viewport exactly; the fixed bottom chrme leaves no gap.
+- `.app.sk-orbit` is `min-height: 100svh` (**not** `dvh`): on the iOS 26.5 standalone PWA `100dvh` resolves to the *visual* viewport (taller than the document's layout/client height), producing a thin phantom vertical scroll. `svh` matches the layout viewport exactly; the fixed bottom chrome leaves no gap.
 - `.app.sk-orbit` sets `-webkit-user-select: none` + `-webkit-touch-callout: none` so iOS WebKit doesn't hijack the long-press radial menu into a full-screen blue selection (the textarea/inputs opt selection back **in**).
 - `.content.sk-orbit-content` is the `100svh` flex column and must `overflow: clip` **both axes** — never a per-axis split. `clip` (not `hidden`) forbids scrolling and creates **no** scroll container, so the sticky pill and per-pane `.messages` auto-scroll are untouched. The split (`overflow-x: clip` + implicit `overflow-y: visible`) was the iOS-hardware-only phantom side/vertical scroll (both the sim and pw-webkit reported green). `contain: paint` is also forbidden — it traps the fixed orb/help/composer.
 
@@ -314,13 +314,13 @@ One defect class kept slipping through: orbit chrome shipped compile/clippy/ssr/
 | `orbit_chrome_controls_inherit_glass_material` | **B2** flat chrome | `6c90d20^` | 9 orbit controls `@include glass-holo`/`glass-live` |
 | `dispatch_pane_controls_inherit_glass_material` | **B2** flat dispatch | round-4 deck | 8 dispatch controls carry the material at base |
 | `glass_holo_consumers_let_the_mixin_own_the_background` | dead background on WebKit | — | no top-level `background:` after the include |
-| `no_dead_fx_max_negation` | permanently-dead CSS | (purged) | no `:not(.fx-max)` (fx-max is unconditional, `mod.rs:372`) |
+| `no_dead_fx_max_negation` | permanently-dead CSS | (purged) | no `:not(.fx-max)` (fx-max is unconditional, `mod.rs:391`) |
 | `no_html5_drag_and_drop_in_ui` | iOS-dead reorder | `bacbcf4^` | no `on:drag*`; `draggable` only literal `"false"` (reorder uses the pointer-capture grip) |
 | `swipe_engines_bail_pointer_capture_on_controls` | desktop dead buttons | `569be68^` | `drag.rs`/`holopanel.rs`/`modal.rs` bail before `set_pointer_capture` on interactive controls |
 | `each_pref_toggle_is_rendered_exactly_once` | duplicate toggle | `66f5e84^` | `dialogue_style`/`ghost_quill`/`haptic_vibrate` each one checkbox |
 | `management_modal_dismiss_returns_to_origin` | settings-exit into a channel | `66f5e84^` | exactly 3 `swipe_close=true` modals dismiss via `act::modal_back` (origin-aware), none entering a channel |
 
-**`fx-max` is rendered unconditionally** (`class="app fx-max"`, `src/ui/shell/mod.rs:372`) — it is the *appearance/eye-candy tier*, present on every session, so any `:not(.fx-max)` fallback is dead and any opaque scrim on a non-modal catcher is a permanent blackout. This single fact underlies `no_dead_fx_max_negation` and `scrim_only_on_modal_backdrops`.
+**`fx-max` is rendered unconditionally** (`class="app fx-max"`, `src/ui/shell/mod.rs:391`) — it is the *appearance/eye-candy tier*, present on every session, so any `:not(.fx-max)` fallback is dead and any opaque scrim on a non-modal catcher is a permanent blackout. This single fact underlies `no_dead_fx_max_negation` and `scrim_only_on_modal_backdrops`.
 
 ---
 
@@ -366,7 +366,7 @@ State classes the SCSS keys on (per-component naming contracts): `.composing` / 
 
 **Components that write the contract**
 - `src/ui/accent.rs` — rebinds `--accent`/`--glow-accent` per guild.
-- `src/ui/shell/mod.rs` — renders `class="app fx-max"` unconditionally (`:372`).
+- `src/ui/shell/mod.rs` — renders `class="app fx-max"` unconditionally (`:391`).
 - `src/ui/shell/channel/mod.rs` — `--composer-h` (ResizeObserver), `--charge`/`--dash`, state classes.
 - `src/ui/shell/sk_orbit/{drag,holopanel,orbit_map}.rs`, `src/ui/modal.rs` — pointer-gesture engines writing `--strip-x`/`--p`/`--drag-x`/`--orbit-*`.
 

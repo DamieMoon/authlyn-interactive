@@ -9,7 +9,6 @@ This doc **references** the canonical sources rather than restating them:
   specifics: [`CLAUDE.md`](../../CLAUDE.md).
 - Every dependency's purpose, the three feature graphs, and the full
   `[package.metadata.leptos]` config: the `#`-comments in [`Cargo.toml`](../../Cargo.toml).
-- The Bash allowlist and hooks: [`.claude/settings.json`](../../.claude/settings.json).
 - Stack, directory layout, dev quickstart, the versioning scheme: [`README.md`](../../README.md).
 
 Siblings: [01-overview](01-overview.md) · [04-realtime-sse](04-realtime-sse.md) (the SSE bus
@@ -96,19 +95,6 @@ So the practical gate ladder is:
 The full test suite needs `--features ssr` **and** a live SurrealDB on `ws://127.0.0.1:8000`
 (see [09-testing](09-testing.md)); `/check` and the hook do not.
 
-### 2.3 The two automatic hooks
-
-[`.claude/settings.json`](../../.claude/settings.json) defines two harness hooks (distinct from
-the git hook above):
-
-- **`PostToolUse` (`Edit|Write`)** — runs `rustfmt --edition 2021` on any `.rs` file the agent
-  writes. Do not hand-run `rustfmt` per file.
-- **`SessionStart`** — prints presence of `cargo` / `cargo-leptos` / `surreal` and whether the
-  dev DB is up on `:8000`.
-
-The same file holds the Bash allowlist, including the exact nova build command and the dev-DB
-start command.
-
 ---
 
 ## 3. Build-time version stamping (`build.rs`)
@@ -169,7 +155,7 @@ push never rebuilds prod) and on `workflow_dispatch`. `concurrency: deploy-novah
 a **self-hosted runner that lives on novahome** (label `novahome`, user `damien`) — no SSH keys
 or stored secrets. Steps:
 
-1. `actions/checkout@v4` (target/ stays warm across runs).
+1. `actions/checkout@v7` (target/ stays warm across runs).
 2. `cargo leptos build --release` — build failure stops here; no backup, no deploy.
 3. Back up the prod DB: `surreal export … --ns authlyn --db prod` to `/data/prod_backups`,
    abort if the export is empty (`test -s`), gzip it, then prune to the newest 15
@@ -272,7 +258,7 @@ PWA `<link>`/meta tags are emitted by `shell()` ([01-overview](01-overview.md)).
 `Cache-Control: no-cache` (so the browser's periodic SW update check always reads fresh bytes),
 `Service-Worker-Allowed: /`.
 
-`/sw.js` is a **sibling** route in `api_routes()` (`src/server/mod.rs:313`), merged *alongside*
+`/sw.js` is a **sibling** route in `api_routes()` (`src/server/mod.rs:345`), merged *alongside*
 `small_body_routes()` and `media_routes()` — it is **not** in the small-body (JSON) group, so
 the `no-store` layer never touches it; it carries its own `no-cache` per-response.
 
@@ -375,7 +361,6 @@ see the realtime + push subsystems.)
 - `.claude/commands/check.md` — the `/check` fmt+clippy(ssr)+clippy(hydrate-wasm) trio.
 - `.githooks/pre-commit` — opt-in: the same trio + an inline `@keyframes` motion-doctrine shell
   scan; **references but does not run** `tests/style_lint.rs`.
-- `.claude/settings.json` — Bash allowlist + `PostToolUse` rustfmt hook + `SessionStart` probe.
 
 **Deploy**
 - `.github/workflows/deploy.yml` — prod CD: push-to-`main` → self-hosted novahome runner →
@@ -394,7 +379,7 @@ see the realtime + push subsystems.)
   single-reload `controllerchange` guard, `authlynCheckForUpdate`.
 - `public/manifest.webmanifest`, `public/offline.html` — PWA shell + offline fallback.
 - `src/server/mod.rs:285` — `serve_service_worker` (`__BUILD_REV__` substitution, `no-cache` +
-  `Service-Worker-Allowed: /`); `:313` — `/sw.js` is a sibling of the JSON group (not no-store).
+  `Service-Worker-Allowed: /`); `:345` — `/sw.js` is a sibling of the JSON group (not no-store).
 - `src/server/dev_reload.rs`, `src/server/events.rs:124` (`RELOAD_EVENT_NAME`),
   `src/ui/shell/act/sync.rs` — the deck dev-reload nudge.
 

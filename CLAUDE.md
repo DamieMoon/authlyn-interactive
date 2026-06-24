@@ -5,11 +5,11 @@ Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guild
 **Lives elsewhere — read there, don't copy here:**
 - **Stack + directory layout:** `README.md`.
 - **Every dependency's purpose + the ssr/hydrate/nova graph constraints + the cargo-leptos config:** the `#` comments in `Cargo.toml` (dense and authoritative).
-- **Toolchain probe, Bash allowlist, hooks:** `.claude/settings.json`.
+- **Bash allowlist:** machine-local Claude Code config (`~/.claude/settings.json`), not tracked in-repo.
 - **Deep architecture + REST reference (the connective narrative):** `docs/` — start at `docs/README.md`. Drift-anchored (every invariant cites its pinning test); the integration tests stay canonical.
 
 ## Toolchain prereqs
-`cargo-leptos` installed, and `rustup target add wasm32-unknown-unknown` (the hydrate clippy step and `cargo leptos build` both need it). The `SessionStart` hook prints cargo / cargo-leptos / surreal presence + dev-DB status each session.
+`cargo-leptos` installed, and `rustup target add wasm32-unknown-unknown` (the hydrate clippy step and `cargo leptos build` both need it).
 
 ## Build / run / test / check (exact invocations)
 - **Dev DB** (required before run *and* tests): `surreal start --user root --pass root --bind 127.0.0.1:8000 memory` — or `/dev-db` (health-checks first). ns `authlyn` / db `dev`.
@@ -18,7 +18,7 @@ Self-hosted, server-trusted roleplay chat platform (Discord + SillyTavern: guild
 - **Quality gate `/check`:** `cargo fmt --all --check` → `cargo clippy --features ssr --no-deps -- -D warnings` → `cargo clippy --features hydrate --target wasm32-unknown-unknown --no-deps -- -D warnings`. This is the fmt+clippy **subset** of `.githooks/pre-commit`, which *also* runs the **`tests/style_lint`** static-scan suite (`cargo test --features ssr --test style_lint`) — the motion-doctrine `@keyframes` scan plus the deck-bug-class regression guards (see *UI fidelity*).
 - **nova is NOT in `/check`** — build it by hand when touched: `cargo build --release --bin nova-mcp --features nova`. For changes to the always-on spine (`protocol.rs`, `markup/`), "compiles under all three graphs" is part of done.
 - **Regenerate `public/emoji.json`:** `cargo run --example gen_emoji_json`.
-- `rustfmt` runs automatically on every `Edit`/`Write` of a `.rs` file (settings.json `PostToolUse` hook) — don't hand-run it per file.
+- Run `cargo fmt --all` to format Rust before committing — enforced by `/check` + the pre-commit githook (`cargo fmt --all --check`).
 
 ## Branch / deploy / pipelines
 - Work happens on branch **`mendicant-bias`**; merge to **`main` only after explicit owner approval** (design spec).

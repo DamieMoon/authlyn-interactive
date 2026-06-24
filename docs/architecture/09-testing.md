@@ -2,7 +2,7 @@
 
 `docs/ARCHITECTURE.md` was deleted because its numbered invariant catalogue rotted into stale, unanchored prose. The surviving source of truth for this crate's behaviour is **the integration tests in `tests/*.rs` and the code they drive**. This document is the *index* to that source of truth — it does not restate the invariants in prose that can drift; it points at the executable pin for each one. When this doc and a test disagree, the test wins. Read the test.
 
-> Cross-links: [request lifecycle](02-request-lifecycle.md) · [data model & schema](03-data-model.md) · [realtime SSE](04-realtime-sse.md) · [auth & privacy](05-auth-privacy.md) · [styling & chrome](08-styling-chrome.md) · [build/deploy/PWA](11-build-deploy-pwa.md) · [REST reference](../reference/rest-api.md) · [conventions](../reference/conventions.md). For the exact toolchain probe, the Bash allowlist, and the `PostToolUse` rustfmt hook, see [`.claude/settings.json`](../../.claude/settings.json); for the dev-DB / run / test invocations, see [`CLAUDE.md`](../../CLAUDE.md) and [`README.md`](../../README.md).
+> Cross-links: [request lifecycle](02-request-lifecycle.md) · [data model & schema](03-data-model.md) · [realtime SSE](04-realtime-sse.md) · [auth & privacy](05-auth-privacy.md) · [styling & chrome](08-styling-chrome.md) · [build/deploy/PWA](11-build-deploy-pwa.md) · [REST reference](../reference/rest-api.md) · [conventions](../reference/conventions.md). For the dev-DB / run / test invocations, see [`CLAUDE.md`](../../CLAUDE.md) and [`README.md`](../../README.md).
 
 ## The test contract
 
@@ -101,7 +101,7 @@ Response bodies are read to bytes with a **1 MiB cap** (`1 << 20`) and parsed to
 | `Timeout` | window elapsed, **stream still open and silent** | …a **privacy filter** (the event was withheld but the connection lives) |
 | `Closed` | the body stream ended (server dropped it) | …**fail-closed kill** (e.g. logout terminates the stream) |
 
-`Timeout` vs `Closed` is the whole point: a privacy test MUST assert `Timeout` — `Closed` would only prove the server dropped the stream, not that an event was withheld (`tests/common/mod.rs:328-337`). Parser assumptions (`tests/common/mod.rs:341-347`): axum's serializer output — one single-line `data:` per event plus `: ` keep-alive comments; per-frame lossy UTF-8 (fine while `SyncEvent` payloads are ASCII ids only; a multi-byte char split across frames would mangle); an unparseable `data:` line **panics** rather than being silently skipped.
+`Timeout` vs `Closed` is the whole point: a privacy test MUST assert `Timeout` — `Closed` would only prove the server dropped the stream, not that an event was withheld (`tests/common/mod.rs:326-337`). Parser assumptions (`tests/common/mod.rs:341-347`): axum's serializer output — one single-line `data:` per event plus `: ` keep-alive comments; per-frame lossy UTF-8 (fine while `SyncEvent` payloads are ASCII ids only; a multi-byte char split across frames would mangle); an unparseable `data:` line **panics** rather than being silently skipped.
 
 ## The 28 suites → what each pins
 
@@ -223,7 +223,7 @@ Deck-bug-class regression guards (M5 → M7) — each validated to turn **red** 
 | `glass_holo_consumers_let_the_mixin_own_the_background` | a glass consumer must **not** restate a top-level `background:` after the include (dead on backdrop-filter engines) |
 | `registered_interactive_controls_declare_44px_touch_floor` | every `FLOOR_CONTROLS` member declares a `≥ 2.75rem` (44px) height floor — the owner 2026-06-17 product-wide tap floor |
 
-**Curated-registry maintenance protocol** (the hard rule): these guards drive **curated allowlists / registries** (`EXEMPT_KEYFRAMES`, `MODAL_SCRIM_ALLOWLIST`, `MATERIAL_CONTROLS`, `PANE_CONTROLS`, `FLOOR_CONTROLS`, the `PREF_TOGGLES`/engine lists). When adding or altering chrome you **extend the registry by hand** — you do **not** disable a guard. A new floored/material control joins its registry as a deliberate edit; the registries are the static encoding of UI doctrine, intentionally not an auto button-scan (which false-positives on image tiles, inline spans, list rows). The detection internals — `brace_body` / `all_bodies` brace-matching, `has_top_level_background` depth-1 detection, `declares_touch_floor` + `len_to_rem` (skips non-absolute units rather than reading them as 0) — live at `tests/style_lint.rs:757-880`.
+**Curated-registry maintenance protocol** (the hard rule): these guards drive **curated allowlists / registries** (`EXEMPT_KEYFRAMES`, `MODAL_SCRIM_ALLOWLIST`, `MATERIAL_CONTROLS`, `PANE_CONTROLS`, `FLOOR_CONTROLS`, the `PREF_TOGGLES`/engine lists). When adding or altering chrome you **extend the registry by hand** — you do **not** disable a guard. A new floored/material control joins its registry as a deliberate edit; the registries are the static encoding of UI doctrine, intentionally not an auto button-scan (which false-positives on image tiles, inline spans, list rows). The detection internals — `brace_body` / `all_bodies` brace-matching, `has_top_level_background` depth-1 detection, `declares_touch_floor` + `len_to_rem` (skips non-absolute units rather than reading them as 0) — live at `tests/style_lint.rs:365-836`.
 
 ## Deliberate non-coverage (do not "fix" these)
 

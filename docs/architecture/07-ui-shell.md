@@ -42,8 +42,8 @@ The mechanism, applied everywhere:
   pair at `src/ui/shell/act/sync.rs:137` (real) / `:755` (stub) is the model.
 - **Pointer/gesture engines** pair a hydrate-real struct (touches `web_sys`)
   with an ssr stub whose methods are no-ops, so the always-on `view!` can bind
-  `on:pointerdown`/etc. ungated. `modal::SwipeClose` (`src/ui/modal.rs:109`
-  real / `:260` stub) and every `sk_orbit` drag engine follow this.
+  `on:pointerdown`/etc. ungated. `modal::SwipeClose` (`src/ui/modal.rs:111`
+  real / `:262` stub) and every `sk_orbit` drag engine follow this.
 - **Pure decision functions** (no DOM) are **un-gated** and compile in all
   three graphs, which is what lets them carry the unit tests — the project has
   no WASM UI-test harness, so gesture/geometry correctness lives in
@@ -67,7 +67,7 @@ test **only** when the logic was extracted into a pure fn. DOM/effect behavior
 `AuthCtx` provided once at the app root:
 
 ```rust
-// src/ui/mod.rs:25
+// src/ui/mod.rs:26
 pub struct AuthCtx {
     pub user: RwSignal<Option<MeResponse>>, // None until /auth/me resolves
     pub loading: RwSignal<bool>,            // gates the first paint
@@ -90,14 +90,14 @@ root mount (see [02 — request lifecycle](./02-request-lifecycle.md)).
 
 ## 3. Global state: the `Shell` aggregate
 
-`Shell` (`src/ui/shell/mod.rs:112`) is a `Clone + Copy` handle bundling **10**
+`Shell` (`src/ui/shell/mod.rs:128`) is a `Clone + Copy` handle bundling **10**
 reactive sub-structs. Every field is an `RwSignal<T>` (itself `Copy`), so the
 whole `Shell` is a cluster of pointer-sized signal IDs — cheap to pass by value
 into every `act::*` call and every component.
 
-`AppShell` (`src/ui/shell/mod.rs:126`) constructs each sub-struct, calls
+`AppShell` (`src/ui/shell/mod.rs:142`) constructs each sub-struct, calls
 `provide_context::<T>(t)` for each, **then** assembles the flat `Shell` and
-`provide_context`s that too (`state.rs:1-20`). The dual provision is deliberate
+`provide_context`s that too (`state.rs:1-19`). The dual provision is deliberate
 (M6/C8): a deep pane component can pull just the slice it needs
 (`use_context::<Selection>()`) while `act::*` keeps taking the full `Shell` so
 action signatures stay short.
@@ -119,7 +119,7 @@ Definitions and per-field invariants are in `src/ui/shell/state.rs` (every
 field carries a `///` rationale). Three patterns recur and matter:
 
 - **Actions described as data, never closures.** `PendingDelete`
-  (`mod.rs:98`) and `ToastAction::UndoMessageDelete` (`state.rs:373`) encode a
+  (`mod.rs:114`) and `ToastAction::UndoMessageDelete` (`state.rs:397`) encode a
   deferred action as an enum, because a closure can't ride a signal. The
   confirm modal and the toast host dispatch by `match` (`act::confirm_delete`,
   `act::run_toast_action`).
@@ -132,7 +132,7 @@ field carries a `///` rationale). Three patterns recur and matter:
   `switching`, `sent`, `UploadStatus`, the whole `Toast` — none are sent or
   persisted; the wire shape the server sees is untouched.
 
-`AppShell`'s mount `Effect` (`src/ui/shell/mod.rs:331-369`) is the boot
+`AppShell`'s mount `Effect` (`src/ui/shell/mod.rs:350-388`) is the boot
 sequence; order is load-bearing: `refresh_guilds` → (deep-link **or**
 `restore_session` **or** `show_friends`) → `start_sync` → `load_muted` →
 `load_last_seen` (localStorage) → `hydrate_last_seen` (server cursors overlay,
@@ -240,7 +240,7 @@ session (the chip reads `● POLLING`). The `/events` server re-checks the
 session every frame and on a keepalive ([04 — realtime SSE](./04-realtime-sse.md)).
 
 **The bus is id-only.** Frames carry a `SyncEvent`
-(`src/protocol.rs:1032-1092`) that is **content-free** — variants hold at most a
+(`src/protocol.rs:1032-1069`) that is **content-free** — variants hold at most a
 `channel_id`. `dispatch` (`src/ui/shell/act/sync.rs:572`) reacts *only* by
 re-fetching through the existing permission-checked endpoints, so the event
 stream is never an authorization surface. In particular, **draft text never
@@ -250,7 +250,7 @@ when the *receiver's* pref is on; the typing ping pre-masks whisper drafts
 before the server ever stores them (`api::post_typing`, `api.rs:363`).
 
 > **Invariant — SSE bus is id-only.** `SyncEvent` has no content fields and
-> `dispatch` is refetch-only. Pinned by `src/protocol.rs:1032-1092` (the enum
+> `dispatch` is refetch-only. Pinned by `src/protocol.rs:1032-1069` (the enum
 > shape) + `tests/sync_events.rs::sync_event_serializes_with_snake_case_type_tags`,
 > `tests/sync_events.rs::targeted_sync_events_pin_their_wire_shape`,
 > `tests/sync_events.rs::reload_sync_event_is_a_bare_global_tag`.
@@ -307,7 +307,7 @@ onto the fresh bundle (the deck runs the compiled binary, no cargo-leptos
 live-reload).
 
 > **Invariant — disposal-safe driver.** Generation-guarded handover + `try_`
-> teardown. Code-pinned at `src/ui/shell/act/sync.rs` (module doc :19-25,
+> teardown. Code-pinned at `src/ui/shell/act/sync.rs` (module doc :20-25,
 > `shutdown` :169-178, the generation/`try_` guards in `connect` :220-237 and
 > `dispatch` :572-579). The reconnect/frozen-PWA failure modes are mobile-only
 > and **(unpinned)** by any `tests/*.rs` — verified by code + deck-pass.
@@ -358,14 +358,14 @@ Key data-flow + behaviors:
   (`mod.rs:306`) gates the emoji-sheet portal: a `position: fixed` bottom sheet
   belongs on the body, the desktop `position: absolute` popover must stay
   anchored to the composer.
-- **Auto-scroll / unread append** (`mod.rs:709-817`) is the trickiest effect:
+- **Auto-scroll / unread append** (`mod.rs:744-872`) is the trickiest effect:
   thresholds (your own message → follow when within 120px of bottom; others' →
   only at ≤4px), `prev_count` diffing to tell genuine appends from the initial
   load and from in-place edits/deletes, and a **triple re-pin**
   (`TimeoutFuture(0)` + double-rAF + `document.fonts.ready`) so a late
   self-hosted-font reflow can't leave the channel opened mid-history. An
   older-history prepend sets `anchor_to` and is handled by a separate anchor
-  effect (`mod.rs:822-847`) that scrolls the previously-top row back into view.
+  effect (`mod.rs:877-902`) that scrolls the previously-top row back into view.
 - **Composer mechanics.** `apply_markup` (`mod.rs:332`) splices wrap markers
   around the textarea selection in UTF-16 space (selection ranges are UTF-16)
   and defers the caret-set a tick so it survives Leptos rewriting
@@ -375,7 +375,7 @@ Key data-flow + behaviors:
   on `<html>` so the toast host and the channel floats anchor to the composer's
   actual top edge (UX evolution #11 placement contract). Both effects wrap
   their non-`Send` cleanup state in `send_wrapper::SendWrapper`.
-- **Whisper veil** (`mod.rs:1021-1219`): the blurred body/media is a real
+- **Whisper veil** (`mod.rs:1019-1295`): the blurred body/media is a real
   disclosure toggle — focusable, `aria-expanded`, Enter/Space operated — that
   while hidden sits outside the a11y tree (`aria-hidden` + `inert`) and on
   reveal *sheds* its `role="button"` (ARIA button is children-presentational
@@ -440,7 +440,7 @@ Load-bearing orbit invariants and their pins:
 
 **Composer choreography.** Under orbit the orb is a *compose trigger*, not a
 send: a tap reveals the composer (`.composing` on the content section) and hides
-the orb; the in-composer send commits. Bridges (`mod.rs:173-207`):
+the orb; the in-composer send commits. Bridges (`mod.rs:173-208`):
 `composing` collapses on the shared `s.composer.sent` pulse `after_send_success`
 fires (so the composer doesn't stay open over your own just-sent message — a
 failed send never pulses, so it stays open to retry); and the **inverse** —
@@ -476,7 +476,7 @@ panel's own pure drag math (`progress_from_delta`, `commits_open`,
 ### Skeleton is forced, the surface is vestigial-but-pinned
 
 `Prefs::skeleton` is forced to `Some("orbit")` unconditionally at shell init
-(`mod.rs:223-228`); the M3 rail/sidebar fallback was retired and there is no
+(`src/ui/shell/mod.rs:242-246`); the M3 rail/sidebar fallback was retired and there is no
 chooser. The `skeleton` signal and the `act::prefs` surface
 (`SKELETON_IDS = ["orbit","deck","hud"]`, `SKELETON_FALLBACK = "orbit"`,
 `is_valid_skeleton`, `set_skeleton`, `skeleton_pref`) are kept so re-enabling a
@@ -493,7 +493,7 @@ chooser when deck/hud land is a known-good surface.
 > `…::ssr_stubs_signal_no_pref_and_no_storage`,
 > `…::set_skeleton_surface_is_pref_only`. The live no-remount guarantee on a
 > real device is a documented Phase-7 gate, **(unpinned)** until a second
-> skeleton ships (`tests/skeleton_switch.rs:63-69`).
+> skeleton ships (`tests/skeleton_switch.rs:63-68`).
 
 ---
 
@@ -506,7 +506,7 @@ the first focusable, and **focus restoration** — the element focused at mount 
 captured and re-focused on cleanup for *every* dismiss path (Esc, backdrop,
 close button, swipe). The captured element is a wasm `HtmlElement`, which is
 `!Send`, so it crosses the `StoredValue`/`on_cleanup` boundary wrapped in
-`send_wrapper::SendWrapper` (`src/ui/modal.rs:343-384`). WASM is
+`send_wrapper::SendWrapper` (`src/ui/modal.rs:343-385`). WASM is
 single-threaded, so the wrapper's same-thread assert always holds.
 
 `PersonaInfo` and `ModalHead` are the two shared sub-components (the read-only
@@ -540,7 +540,7 @@ in-modal buttons go dead (the M6 desktop regression).
 > `tests/style_lint.rs::swipe_engines_bail_pointer_capture_on_controls`.
 
 > **Invariant — focus restoration on every dismiss.** Code-pinned at
-> `src/ui/modal.rs:343-384`; browser-only, **(unpinned)** by any `tests/*.rs`
+> `src/ui/modal.rs:343-385`; browser-only, **(unpinned)** by any `tests/*.rs`
 > (verified by code + deck-pass).
 
 Two more shell-wide UI rules surface here and are statically pinned:
@@ -640,6 +640,6 @@ graphs + the owner deck-pass:
   every `act/` twin pair);
 - disposal safety / review-M-10 `try_*` discipline (`src/ui/shell/act/`);
 - the SSE self-healing reconnect + frozen-PWA machine (`src/ui/shell/act/sync.rs`);
-- `Modal` focus restoration (`src/ui/modal.rs:343-384`);
+- `Modal` focus restoration (`src/ui/modal.rs:343-385`);
 - the channel auto-scroll re-pin + whisper-veil disclosure
   (`src/ui/shell/channel/mod.rs`).

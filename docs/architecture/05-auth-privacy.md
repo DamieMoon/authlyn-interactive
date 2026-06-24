@@ -44,8 +44,8 @@ The token→hash transform (`session_token_hash`) and the hash→account lookup 
 | Primitive | Defined in | Also consumed by |
 | --- | --- | --- |
 | `SESSION_COOKIE = "authlyn_session"` | `session.rs:23` | `server/events.rs:148` |
-| `session_token_hash(token) -> String` | `session.rs:102` | `server/events.rs:183` |
-| `account_for_token_hash(state, hash)` | `session.rs:111` | `server/events.rs:102` |
+| `session_token_hash(token) -> String` | `session.rs:110` | `server/events.rs:183` |
+| `account_for_token_hash(state, hash)` | `session.rs:119` | `server/events.rs:102` |
 
 ## Public surface
 
@@ -84,7 +84,7 @@ The hydrate-side wrappers are `gloo-net` calls in `src/client/api.rs` (`current_
 
 ## Registration & login internals
 
-`create_account` (`registration.rs:293`) is the one non-obvious spot. The `CREATE account` runs against the `account_username_ci UNIQUE` index and is wrapped in `with_write_conflict_retry`: two concurrent registrations of the same username can make the MVCC loser surface a *retryable* write conflict rather than the UNIQUE violation. Retrying against a fresh snapshot then surfaces the clean UNIQUE violation, which the caller maps via `is_unique_violation` to **409** — never a 500. A plain `CREATE` here would 500 under the race.
+`create_account` (`registration.rs:328`) is the one non-obvious spot. The `CREATE account` runs against the `account_username_ci UNIQUE` index and is wrapped in `with_write_conflict_retry`: two concurrent registrations of the same username can make the MVCC loser surface a *retryable* write conflict rather than the UNIQUE violation. Retrying against a fresh snapshot then surfaces the clean UNIQUE violation, which the caller maps via `is_unique_violation` to **409** — never a 500. A plain `CREATE` here would 500 under the race.
 
 - Pinned: `tests/auth.rs::concurrent_register_same_username_never_500s` (multi-thread; asserts exactly one `201` + one `409`, no `500`) and `tests/auth.rs::duplicate_username_is_409_case_insensitive`.
 - The matcher strings inside `is_unique_violation` / `is_write_conflict` are load-bearing and pinned against *real* SurrealDB error text by `tests/retry_canary.rs::is_unique_violation_matches_real_surrealdb_violation` and `tests/retry_canary.rs::is_write_conflict_matches_real_surrealdb_conflict`. SurrealDB SDK/CLI must share the **3.x** major or the texts diverge.
@@ -93,7 +93,7 @@ The hydrate-side wrappers are `gloo-net` calls in `src/client/api.rs` (`current_
 
 ### No username enumeration
 
-Both login failure branches — *no such user* and *wrong password* — return the **identical** `401 {"error":"invalid username or password"}` via the shared `invalid_credentials()` helper (`registration.rs:137`). Login also runs the (unknown-user) lookup and short-circuits before the argon2 verify, so the two paths are not perfectly timing-equal, but the *body and status* are indistinguishable. Do not add a distinct "no such user" message.
+Both login failure branches — *no such user* and *wrong password* — return the **identical** `401 {"error":"invalid username or password"}` via the shared `invalid_credentials()` helper (`registration.rs:158`). Login also runs the (unknown-user) lookup and short-circuits before the argon2 verify, so the two paths are not perfectly timing-equal, but the *body and status* are indistinguishable. Do not add a distinct "no such user" message.
 
 - Pinned: `tests/auth.rs::login_good_and_bad_credentials` asserts `body_pw == body_unknown`.
 
@@ -112,22 +112,22 @@ This CHARS-min / BYTES-max split is deliberate and trivially "simplified" wrong.
 
 - Pinned: `tests/auth.rs::register_rejects_password_under_8_characters_even_when_8_bytes` (`"🔒🔒🔒"` → `400`); change-password length: `tests/auth.rs::change_password_rejects_too_short_new_password`.
 
-**Hashing/verification run on the blocking pool.** `hash_on_blocking_pool` / `verify_on_blocking_pool` (`crypto.rs:43`, `:70`) wrap argon2id in `tokio::task::spawn_blocking` so the tens-of-ms CPU cost never stalls the async runtime. Salt is per-hash (`SaltString::generate(&mut OsRng)`); the stored form is the argon2 PHC string. A *join* failure → `500`; a verify of an **unparseable PHC** returns `false`, i.e. **401, not 500** — this is what makes the seeded `nova_dot` account (`password_hash = '!'`, a non-PHC sentinel) login-impossible by construction rather than crashing.
+**Hashing/verification run on the blocking pool.** `hash_on_blocking_pool` / `verify_on_blocking_pool` (`crypto.rs:50`, `:82`) wrap argon2id in `tokio::task::spawn_blocking` so the tens-of-ms CPU cost never stalls the async runtime. Salt is per-hash (`SaltString::generate(&mut OsRng)`); the stored form is the argon2 PHC string. A *join* failure → `500`; a verify of an **unparseable PHC** returns `false`, i.e. **401, not 500** — this is what makes the seeded `nova_dot` account (`password_hash = '!'`, a non-PHC sentinel) login-impossible by construction rather than crashing.
 
-- The `'!'` sentinel and its login-impossible guarantee are documented at `src/storage/schema.surql` (the `nova_dot` UPSERT block); the parse-fail-→-false behavior that enforces it is `crypto.rs:74-78`. (No dedicated test pins the nova_dot-login-impossible path — code-pinned only.)
+- The `'!'` sentinel and its login-impossible guarantee are documented at `src/storage/schema.surql` (the `nova_dot` UPSERT block); the parse-fail-→-false behavior that enforces it is `crypto.rs:86-90`. (No dedicated test pins the nova_dot-login-impossible path — code-pinned only.)
 
 ## Sessions & the cookie
 
-`issue_session` (`session.rs:73`) → `CREATE session SET account, token_hash, expires_at = time::now() + 30d`. The `session` table (`schema.surql`) has `token_hash UNIQUE` and a `session_account` index. Resolution is the three-hop `account_for_token` → `session_token_hash` → `account_for_token_hash`, the last of which is the shared lookup `SELECT meta::id(account) … WHERE token_hash=$h AND expires_at > time::now()`.
+`issue_session` (`session.rs:76`) → `CREATE session SET account, token_hash, expires_at = time::now() + 30d`. The `session` table (`schema.surql`) has `token_hash UNIQUE` and a `session_account` index. Resolution is the three-hop `account_for_token` → `session_token_hash` → `account_for_token_hash`, the last of which is the shared lookup `SELECT meta::id(account) … WHERE token_hash=$h AND expires_at > time::now()`.
 
 Session teardown:
 
 | Trigger | Function | Scope | Pinned |
 | --- | --- | --- | --- |
-| Logout | inline `DELETE … WHERE token_hash=$th` (`registration.rs:151`) | the one row; best-effort (failure logged, cookie cleared anyway) | `tests/auth.rs::logout_invalidates_the_session` |
-| Admin reset | `delete_sessions_for_account` (`session.rs:134`) | **all** rows for the target account | code-pinned `admin.rs:67`; (no test asserts the post-reset session kill directly) |
+| Logout | inline `DELETE … WHERE token_hash=$th` (`registration.rs:180`) | the one row; best-effort (failure logged, cookie cleared anyway) | `tests/auth.rs::logout_invalidates_the_session` |
+| Admin reset | `delete_sessions_for_account` (`session.rs:142`) | **all** rows for the target account | code-pinned `admin.rs:67`; (no test asserts the post-reset session kill directly) |
 
-`session_cookie` (`session.rs:147`) builds the cookie:
+`session_cookie` (`session.rs:166`) builds the cookie:
 
 ```rust
 Cookie::build((SESSION_COOKIE, token))
@@ -156,8 +156,7 @@ Consumers: `GET /auth/me` (to populate the `is_admin` UI hint), `POST /auth/admi
 
 `POST /auth/admin/reset-password` sets a target's password **without** the current one, then calls `delete_sessions_for_account` so any pre-existing cookie (possibly an attacker's) stops authenticating and the user is forced to a fresh login. It is `is_admin`-gated (`403` otherwise).
 
-The earlier **self-service security-question reset was removed (2026-06-17) as an account-takeover vector**: a logged-in session could set a recovery credential *without* knowing the password, then "recover" through it. The `security_question` / `security_answer_hash` fields are purged and dropped in the schema. Admin reset is now the only recovery path. (Several `//!` headers — `src/server/auth/mod.rs:24`, `src/ui/shell/act/account.rs:1`, `src/ui/shell/act/mod.rs:8` — still mention a "security question / public reset flow"; those comments are **stale**, the routes and fields are gone.)
-
+The earlier **self-service security-question reset was removed (2026-06-17) as an account-takeover vector**: a logged-in session could set a recovery credential *without* knowing the password, then "recover" through it. The `security_question` / `security_answer_hash` fields are purged and dropped in the schema. Admin reset is now the only recovery path.
 - Pinned: the field purge + drop is applied and `.check()`'d by `tests/schema_apply.rs` (the security-question removal test, `schema_apply.rs:~500`, registers the legacy fields on a populated row then asserts they are absent after apply).
 
 ## Profile updates & live identity
@@ -189,20 +188,20 @@ The `account` and `session` tables are `SCHEMAFULL` and applied on every boot (`
 
 | Location | Why it is subtle |
 | --- | --- |
-| `registration.rs:293-324` `create_account` | retry-wrapped `CREATE` vs UNIQUE → clean-violation → `409`; non-obvious why it isn't a plain `CREATE` without the retry_canary context |
-| `crypto.rs:18-25,105-112` `validate_password` | the deliberate CHARS-min / BYTES-max split; one test guards it |
-| `session.rs:91-130` token resolution | three-hop split exists so the extractor and the SSE per-frame re-check share ONE "valid session"; the `pub(crate)` hoist rationale is the tricky part |
-| `session.rs:147-155` `session_cookie` | `secure(true)` — correct for prod, the exact WebKit/localhost `200`-but-`401` trap, not test-pinned |
-| `registration.rs:100-116,137-139` | the equal-401-body no-enumeration contract spans two login branches + the shared helper; easy to break by adding a "no such user" message |
+| `registration.rs:328-359` `create_account` | retry-wrapped `CREATE` vs UNIQUE → clean-violation → `409`; non-obvious why it isn't a plain `CREATE` without the retry_canary context |
+| `crypto.rs:20-27,121-128` `validate_password` | the deliberate CHARS-min / BYTES-max split; one test guards it |
+| `session.rs:94-138` token resolution | three-hop split exists so the extractor and the SSE per-frame re-check share ONE "valid session"; the `pub(crate)` hoist rationale is the tricky part |
+| `session.rs:166-174` `session_cookie` | `secure(true)` — correct for prod, the exact WebKit/localhost `200`-but-`401` trap, not test-pinned |
+| `registration.rs:117-133,158-160` | the equal-401-body no-enumeration contract spans two login branches + the shared helper; easy to break by adding a "no such user" message |
 | `permissions.rs:200-239` `is_admin` | fail-closed empty-set semantics + two-env-var union; a regression silently over/under-grants and handlers only see a `bool` |
 
 ## Source map
 
 Key files:
 
-- `src/server/auth/mod.rs` — module facade; re-exports `AuthAccount` and the route handlers, hoists `SESSION_COOKIE` / `session_token_hash` / `account_for_token_hash` to `pub(crate)` for `server::events`. *(Stale `//!` mention of "security question / public reset" — ignore.)*
+- `src/server/auth/mod.rs` — module facade; re-exports `AuthAccount` and the route handlers, hoists `SESSION_COOKIE` / `session_token_hash` / `account_for_token_hash` to `pub(crate)` for `server::events`.
 - `src/server/auth/registration.rs` — `register` / `login` / `logout` / `me` / `patch_account`; `create_account` (write-conflict-retried `CREATE`), `account_profile`, `media_exists`, `invalid_credentials`.
-- `src/server/auth/password.rs` — `change_password`; shared DB helpers `account_by_username_ci`, `account_password_hash`, `update_password_hash`. *(No reset/security-question flow despite the `//!` header.)*
+- `src/server/auth/password.rs` — `change_password`; shared DB helpers `account_by_username_ci`, `account_password_hash`, `update_password_hash`.
 - `src/server/auth/crypto.rs` — argon2id `hash_on_blocking_pool` / `verify_on_blocking_pool`, `random_token`, `sha256_hex`, `validate_credentials` / `validate_password` (CHARS-min / BYTES-max).
 - `src/server/auth/session.rs` — `AuthAccount` `FromRequestParts` extractor, `issue_session` / `account_for_token{,_hash}` / `delete_sessions_for_account`, `session_token_hash`, `session_cookie` (the `Secure` trap origin).
 - `src/server/auth/admin.rs` — `admin_reset_password` (`is_admin`-gated `403`, target by username, then session invalidation).
@@ -221,5 +220,5 @@ Pinning tests:
 
 **Unpinned / code-pinned only (verified absent from `tests/`):**
 - Session cookie `Secure`/`HttpOnly`/`SameSite`/`Max-Age` attributes — **(unpinned)**; owner-deck oracle only (the WebKit trap).
-- `nova_dot` login-impossible (`'!'` PHC sentinel → verify-false) — code-pinned (`crypto.rs:74-78` + `schema.surql`); no test.
+- `nova_dot` login-impossible (`'!'` PHC sentinel → verify-false) — code-pinned (`crypto.rs:86-90` + `schema.surql`); no test.
 - Admin-reset post-reset session invalidation, and the `403`-for-non-admin branch — code-pinned (`admin.rs:32-39,67`); fail-closed logic at `permissions.rs:200-239`; no auth-suite assertion.

@@ -29,14 +29,13 @@ CLAUDE.local.md
 # so the in-repo path is dev-only and never committed.
 /media/
 
-# Claude Code config — INTENTIONAL whitelist after the config-contamination
-# cleanup: ignore everything under .claude/ (harness agent worktrees, the
-# personal settings.local.json, plugin caches, etc.) and re-include ONLY the
-# shared, committed settings.json. To share another .claude/ file later (a
-# command, agent, or skill), add an explicit `!` negation below. Project
-# slash-commands under .claude/commands/ are shared (whitelisted below).
+# Claude Code config — INTENTIONAL whitelist: ignore everything under .claude/
+# (harness agent worktrees, settings.json + settings.local.json, plugin caches,
+# etc.) and re-include ONLY the shared project slash-commands. settings.json is
+# machine-local (Bash allowlist lives in the global ~/.claude/settings.json) and
+# is NOT tracked. To share another .claude/ file later (a command, agent, or
+# skill), add an explicit `!` negation below.
 /.claude/*
-!/.claude/settings.json
 !/.claude/commands/
 
 # Playwright MCP scratch (snapshots, fixtures, screenshots) — never commit

@@ -107,7 +107,7 @@ Heading and subtext children are **parsed inline**, so a heading can still hold
 bold/color/link/mention (`heading_keeps_inline_markup`). The fence body is
 **not** — it is verbatim.
 
-### The `Node` enum (15 variants)
+### The `Node` enum (14 variants)
 
 `mod.rs:116`. Inline: `Text`, `Bold`, `Italic`, `Color`, `Code`, `Dialogue`,
 `Emoji`, `Image`, `Link`, `Spoiler`, `Mention`. Block (top level only):
@@ -296,7 +296,7 @@ Two non-obvious decisions:
   its own `RwSignal::new(false)` and a `class:revealed` toggle. No `web_sys` —
   so it compiles for ssr too (inert until hydrated). (Unpinned — view layer.)
 - **Emoji resolves via context, non-reactively.** `Node::Emoji(name)` looks up
-  `EmojiResolver` (`use_context`, provided once at `src/ui/shell/mod.rs:279`);
+  `EmojiResolver` (`use_context`, provided once at `src/ui/shell/mod.rs:298`);
   an absent context (ssr / outside a guild) falls back to the literal `:name:`
   (`markup_view.rs:50-52`). `EmojiResolver::resolve` reads the custom-emoji map
   with **`get_untracked`** (`src/ui/emoji/mod.rs:39`) **on purpose** — chat
@@ -452,10 +452,6 @@ class.** Unlike most chrome, the markup classes are **not** in the curated
 
 ## 10. Known doc/source drift
 
-- The header at `src/markup/mod.rs:1` and `src/ui/markup_view.rs:5` both say the
-  markup CSS "lives in `style/main.scss`". **Stale/imprecise** — the CSS is split
-  across `_markup.scss` (block + palette) and `_wave_b.scss` (inline image /
-  spoiler / dialogue), as in §9.
 - The 3-way graph membership (always-on, wasm-safe) is asserted in the module
   headers (`mod.rs:7`, `crest.rs:3-5`) but has **no dedicated cross-graph compile
   test** in `tests/`. It is **process-enforced**, not test-pinned: the `/check`
@@ -488,15 +484,15 @@ Key files:
 - `src/ui/crest.rs` — Leptos `<Crest>` SVG view (single `inner_html`,
   `var(--tint-*)` fills).
 - `src/ui/emoji/mod.rs` — `EmojiResolver` (`resolve`, `get_untracked`);
-  provided at `src/ui/shell/mod.rs:279`.
+  provided at `src/ui/shell/mod.rs:298`.
 - `style/_markup.scss` — palette + block markup CSS (`@use`d at `main.scss:18`).
 - `style/_wave_b.scss` — inline image/spoiler/dialogue CSS (`@use`d at
   `main.scss:31`).
 
 Consumers: `src/server/messages/posting.rs:161` (`collect_mentions` →
 `pinged_users`), `src/ui/shell/act/message.rs:533` (`strip_color_tokens`),
-`src/ui/{modal.rs:499, shell/wardrobe.rs:449, shell/channel/mod.rs:1123/1134/1281}`
-(`render_body`), `src/server/personas/core.rs:554` +
+`src/ui/{modal.rs:499, shell/wardrobe.rs:449, shell/channel/mod.rs:1178/1189/1336}`
+(`render_body`), `src/server/personas/core.rs:597` +
 `src/ui/shell/{wardrobe.rs:17, channel/meta.rs:14, channel/mod.rs:54}`
 (`Color`), `src/protocol.rs:259` (doc reference — `body` may contain markup).
 

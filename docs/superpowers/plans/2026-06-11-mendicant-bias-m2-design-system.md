@@ -1,5 +1,7 @@
 # Mendicant Bias M2: Design System Implementation Plan
 
+> **Archived (pre-v27):** historical milestone plan — its gate/graph references, including the retired `freya` native graph, reflect the state at authoring time, not the current build. The live feature graphs are ssr/hydrate/nova (no freya); see `CLAUDE.md` and `docs/architecture/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Grimoire palette with the Void Station × Liquid Glass design system — semantic tokens, Duo typography (Space Grotesk chrome + Crimson Pro prose), glass/motion/aurora foundations, the `.fx-max` appearance-tier scaffolding, and the inline-SVG icon module — leaving the app fully usable and visually coherent for M3/M4 to build on.

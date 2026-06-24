@@ -1,5 +1,7 @@
 # Mendicant Bias — full redesign + re-architecture (master spec)
 
+> **Archived (pre-v27):** historical master design spec — its gate/graph references, including the retired `freya` native graph, reflect the state at authoring time, not the current build. The live feature graphs are ssr/hydrate/nova (no freya); see `CLAUDE.md` and `docs/architecture/`.
+
 **Date:** 2026-06-10 (catalogue locked same day after four creative passes)
 **Amended:** 2026-06-12 — two owner rulings from the first live M4 device sessions written in as binding design laws (mobile-first, UX-equality; see "Design laws") plus a real-device iOS gate added to every wave's verification requirements (§13). Finding #54.
 **Amended:** 2026-06-12 (2) — the owner's **Skelettvågen ruling** written in: M5 is redefined as the skeleton wave — THREE user-selectable UI skeletons (Omloppsbana, Kortdäck, Holoterminal) replace the M3 shell outright, with an onboarding theme ceremony and no silent default. The roadmap renumbers (Identity → M6, every later wave +1). Finding #48 and the M4 a11y backlog (both previously memory-only) are written in. See §1 Appearance, §2 Navigation, §12 Waves, §13 Verification; prototypes in `assets/2026-06-12-skelettvagen/`.

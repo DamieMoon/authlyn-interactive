@@ -1,5 +1,7 @@
 # Mendicant Bias M4: Chat Experience Implementation Plan
 
+> **Archived (pre-v27):** historical milestone plan — its gate/graph references, including the retired `freya` native graph, reflect the state at authoring time, not the current build. The live feature graphs are ssr/hydrate/nova (no freya); see `CLAUDE.md` and `docs/architecture/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Bring the message flow to life — Standard-tier wow effects that live in the chat (constellation typing indicator, charging send button, warp channel-switch, radial long-press action menu), Message Effects (whisper / shout / spell send-modes), the server-validated Fate Engine (`/roll`), and opt-in Ghost Quill (live co-writer draft preview) — all on the M1 SSE bus + M2/M3 design system, preserving the message-schema, markup-panic-free, and id-only-bus invariants.

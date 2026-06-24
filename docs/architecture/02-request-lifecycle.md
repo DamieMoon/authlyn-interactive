@@ -55,7 +55,7 @@ Every step below cites the source file and, where the behavior is load-bearing, 
 | `small_body_routes()` | **512 KiB** (`REQUEST_BODY_LIMIT_BYTES`) | the entire JSON API (auth, guilds, messages, personas, lorebook, friends, DMs, cameos, push, feedback, admin) |
 | `media_routes()` | **64 MiB** (`MEDIA_BODY_LIMIT_BYTES`) | `POST /media`, `GET /media/{id}` |
 
-`src/server/mod.rs:68` (`small_body_routes`), `:273` (`media_routes`), `:313` (`api_routes`), `:325` (`make_router`).
+`src/server/mod.rs:68` (`small_body_routes`), `:273` (`media_routes`), `:340` (`api_routes`), `:352` (`make_router`).
 
 ### Why two groups, not one layer with two limits
 
@@ -88,7 +88,7 @@ Identity is **server-derived from the session cookie and nothing else** — neve
 `AuthAccount(pub String)` carries the bare account key (`meta::id` form, e.g. `"abc123"`). Its `FromRequestParts` impl (`src/server/auth/session.rs:35`):
 
 1. Reads the `authlyn_session` cookie from the request headers (`SESSION_COOKIE`, `src/server/auth/session.rs:23`). Missing → **401** `{"error":"authentication required"}`.
-2. Resolves the raw token by SHA-256: `account_for_token` → `account_for_token_hash`, a single `SELECT meta::id(account) FROM session WHERE token_hash = $h AND expires_at > time::now()` (`src/server/auth/session.rs:111`). The DB stores **only** the token hash — the raw token never lands in a row.
+2. Resolves the raw token by SHA-256: `account_for_token` → `account_for_token_hash`, a single `SELECT meta::id(account) FROM session WHERE token_hash = $h AND expires_at > time::now()` (`src/server/auth/session.rs:130`). The DB stores **only** the token hash — the raw token never lands in a row.
 3. Maps the outcome: live session → `AuthAccount(account)`; no/expired session → **401**; DB error → **500** `{"error":"storage error"}`.
 
 | Cookie state | Result | Pinned by |
@@ -100,7 +100,7 @@ Identity is **server-derived from the session cookie and nothing else** — neve
 
 ### Cookie attributes (issue side)
 
-`session_cookie(token)` builds `authlyn_session` as `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=30d` (`src/server/auth/session.rs:147`). It is set by `register` and `login` (`src/server/auth/registration.rs:73`, `:128`) and cleared on `logout`.
+`session_cookie(token)` builds `authlyn_session` as `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=30d` (`src/server/auth/session.rs:166`). It is set by `register` and `login` (`src/server/auth/registration.rs:83`, `:145`) and cleared on `logout`.
 
 The `Secure` attribute is the WebKit cookie trap: Safari/WebKit **drops** a `Secure` cookie over `http://localhost` (Chromium accepts it), so a WebKit client "logs in" 200 but every subsequent `AuthAccount` extraction 401s because the cookie was never stored. WebKit/iOS must be tested over HTTPS at the deck's public domain — full rule in `CLAUDE.md` ("WebKit Secure-cookie trap"). Do **not** weaken `secure(true)` to work around it.
 
@@ -120,7 +120,7 @@ Mutating handlers take the body as `Result<Json<…Request>, JsonRejection>` rat
 | `BytesRejection` | `could not read request body` |
 | (other) | `invalid JSON request` |
 
-Example wiring: `src/server/guilds/mod.rs:244`–`248` (`create_guild`). After a successful parse, field-level validation (e.g. `validate_name`) produces its own 400s; see [../reference/conventions.md](../reference/conventions.md) for the DTO/validation conventions.
+Example wiring: `src/server/guilds/mod.rs:267`–`270` (`create_guild`). After a successful parse, field-level validation (e.g. `validate_name`) produces its own 400s; see [../reference/conventions.md](../reference/conventions.md) for the DTO/validation conventions.
 
 ---
 
@@ -149,7 +149,7 @@ A caller who is not a member of a guild gets **`404 {"error":"guild not found"}`
 | non-member | **404** `guild not found` | **404** `guild not found` |
 | (no such guild) | **404** | **404** |
 
-Source: `get_guild` non-member arm `src/server/guilds/mod.rs:342`; `require_manager` arms `src/server/permissions.rs:65`–`67`. Pinned by:
+Source: `get_guild` non-member arm `src/server/guilds/mod.rs:368`; `require_manager` arms `src/server/permissions.rs:65`–`67`. Pinned by:
 
 - `tests/guilds.rs::nonmember_get_guild_is_404` — outsider reading a guild gets 404.
 - `tests/guilds.rs::rename_guild_and_channel_is_manager_gated` — owner 204; **plain member 403** on both guild and channel rename.
@@ -196,7 +196,7 @@ The SDK exposes these as plain `surrealdb::Error` with no typed variant, so both
 
 The three `is_write_conflict` markers cover three observed SurrealDB texts (`=3.1.0-beta.3` SDK, `3.0.4` server, `3.1.3` server). The third marker is matched as the **full** sentence, not a loose `"failed transaction"` substring, so a thrown error merely echoing that phrase can't trip the retry loop (review M-33). The two predicates' substrings are disjoint by inspection, so neither fires on the other's error.
 
-UNIQUE violations are mapped to 409 **outside** `with_write_conflict_retry` — re-issuing the same `CREATE` against the same key tuple just fails identically, so it is not retryable. The handler runs the retry (which absorbs the *transient* MVCC race), then inspects the **residual** error: `is_unique_violation` → 409, anything else → 500. Canonical shape (`src/server/guilds/membership.rs:136`–`164`):
+UNIQUE violations are mapped to 409 **outside** `with_write_conflict_retry` — re-issuing the same `CREATE` against the same key tuple just fails identically, so it is not retryable. The handler runs the retry (which absorbs the *transient* MVCC race), then inspects the **residual** error: `is_unique_violation` → 409, anything else → 500. Canonical shape (`src/server/guilds/membership.rs:146`–`174`):
 
 ```rust
 let result = with_write_conflict_retry(|| async {
@@ -211,7 +211,7 @@ match result {
 }
 ```
 
-Many such handlers also keep a cheap **pre-check** (`caller_role` here, `src/server/guilds/membership.rs:127`) that returns the same 409 body on the common non-racing case; the retry+UNIQUE arm is the race backstop, so the two paths return the identical body.
+Many such handlers also keep a cheap **pre-check** (`caller_role` here, `src/server/guilds/membership.rs:137`) that returns the same 409 body on the common non-racing case; the retry+UNIQUE arm is the race backstop, so the two paths return the identical body.
 
 #### Pinned by
 
