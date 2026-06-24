@@ -18,7 +18,10 @@
 //!   per-user toggle styles it at render time — see [`Node::Dialogue`])
 //! - emoji: `:shortcode:` (a custom per-guild emoji or a standard unicode
 //!   glyph; an unknown/ill-formed shortcode stays literal — see [`Node::Emoji`])
-//! - image: `![alt](url)` (embedded inline image — see [`Node::Image`])
+//! - image: `![alt](url)` (embedded inline image — see [`Node::Image`]); `url`
+//!   is restricted to same-origin (`/media/…` or relative) — an external image
+//!   `src` auto-loads on render and would leak every viewer's IP/presence, so a
+//!   non-same-origin image stays literal text (links may still point anywhere)
 //! - link: `[text](url)` (a hyperlink — see [`Node::Link`]); bare `http://` /
 //!   `https://` runs also autolink. `url` is whitelisted to http/https (or a
 //!   scheme-relative reference) — `javascript:`/`data:`/`file:`/`vbscript:`
@@ -557,6 +560,95 @@ mod tests {
         assert_eq!(parse("![a]"), vec![text("![a]")], "no url");
         assert_eq!(parse("![a](u"), vec![text("![a](u")], "unterminated url");
         assert_eq!(parse("text ! bang"), vec![text("text ! bang")], "lone bang");
+    }
+
+    #[test]
+    fn unsafe_and_external_image_urls_stay_literal() {
+        // C2 (bug hunt 019ef87b): an image `src` auto-loads on every viewer's
+        // render, so a non-same-origin url is kept literal — never an <img> (no
+        // un-consented cross-origin GET) and never re-materialised as a link.
+        // Mirrors `javascript_and_other_unsafe_schemes_never_linkify`.
+        assert_eq!(
+            parse("![x](http://evil/beacon)"),
+            vec![text("![x](http://evil/beacon)")],
+            "external http image is literal, not an <img> or a link"
+        );
+        assert_eq!(
+            parse("![x](https://evil/beacon)"),
+            vec![text("![x](https://evil/beacon)")],
+            "external https image is literal"
+        );
+        assert_eq!(
+            parse("![x](//evil/beacon)"),
+            vec![text("![x](//evil/beacon)")],
+            "protocol-relative image is literal"
+        );
+        assert_eq!(
+            parse("![x](javascript:alert(1))"),
+            vec![text("![x](javascript:alert(1))")],
+            "javascript: image is literal"
+        );
+        assert_eq!(
+            parse("![x](data:text/html,foo)"),
+            vec![text("![x](data:text/html,foo)")],
+            "data: image is literal"
+        );
+        assert_eq!(
+            parse("![x](file:///etc)"),
+            vec![text("![x](file:///etc)")],
+            "file: image is literal"
+        );
+        assert_eq!(
+            parse("![x]( http://evil)"),
+            vec![text("![x]( http://evil)")],
+            "leading-space url (browser-stripped to an absolute scheme) stays literal"
+        );
+        // Backslash authority (browsers fold '\' to '/' for http/https, so these
+        // resolve cross-origin) — found by adversarial review, was a live bypass.
+        assert_eq!(
+            parse(r"![x](\\evil.com)"),
+            vec![text(r"![x](\\evil.com)")],
+            r"double-backslash authority \\host stays literal"
+        );
+        assert_eq!(
+            parse(r"![x](/\evil.com)"),
+            vec![text(r"![x](/\evil.com)")],
+            r"slash-backslash authority /\host stays literal"
+        );
+        assert_eq!(
+            parse(r"![x](\\evil.com:8080/p)"),
+            vec![text(r"![x](\\evil.com:8080/p)")],
+            "backslash authority with port stays literal"
+        );
+        // Same-origin references still render as images.
+        assert_eq!(
+            parse("![a cat](/media/abc.png)"),
+            vec![Node::Image(
+                "a cat".to_string(),
+                "/media/abc.png".to_string()
+            )],
+            "absolute-path same-origin image renders"
+        );
+        assert_eq!(
+            parse("![a cat](rel.png)"),
+            vec![Node::Image("a cat".to_string(), "rel.png".to_string())],
+            "relative image renders"
+        );
+    }
+
+    #[test]
+    fn strip_color_tokens_keeps_a_now_literal_external_image_intact() {
+        // C2 lockstep: after the same-origin gate an external `![red](url)`
+        // renders as literal text; the copy-as-markdown strip pass must keep
+        // that exact source verbatim (skip via image_run_len), NOT drop the
+        // `[red]` inside as a color tag and mangle the round-tripped source.
+        assert_eq!(
+            strip_color_tokens("![red](http://evil/x)"),
+            "![red](http://evil/x)",
+            "external image source survives the color strip verbatim"
+        );
+        // A genuine color tag outside an image is still stripped.
+        assert_eq!(strip_color_tokens("[red]hi[/red]"), "hi");
     }
 
     #[test]

@@ -163,11 +163,22 @@ fn parse_color_tag(rest: &str) -> Option<(Tok, usize)> {
     }
 }
 
-/// If `rest` (starting with `![`) opens a well-formed `![alt](url)` image,
-/// return the [`Tok::Image`] and the byte length consumed (through the closing
-/// `)`). Any malformation (missing `]`, missing `(`, missing `)`) returns
-/// `None`, so the leading `!` falls through to literal text. `alt` runs to the
-/// first `]`; `url` runs to the first `)`.
+/// If `rest` (starting with `![`) opens a well-formed `![alt](url)` image whose
+/// `url` is a same-origin reference, return the [`Tok::Image`] and the byte
+/// length consumed (through the closing `)`). Any malformation (missing `]`,
+/// `(`, `)`) returns `None`, so the leading `!` falls through to literal text.
+///
+/// A well-formed image with a NON-same-origin `url` (any explicit scheme — even
+/// http/https — or a protocol-relative `//host`) is emitted as a literal-text
+/// token for the WHOLE `![alt](url)` run, NOT rendered (review C2, bug hunt
+/// 019ef87b): an image `src` auto-loads on every co-member's render, so an
+/// external URL fires an un-consented cross-origin GET that leaks their IP +
+/// online presence. Images load ONLY from this server's own media. Returning a
+/// `Tok::Text` (rather than `None`) is deliberate — `None` would let the inner
+/// `[alt](url)` fall through to the link parser, which accepts http(s) and would
+/// re-materialise the external host as a clickable link. (Links stay permissive
+/// — a link is click-gated, an image is not.) `alt` runs to the first `]`;
+/// `url` to the first `)`.
 fn parse_image(rest: &str) -> Option<(Tok, usize)> {
     let after_bang = &rest[1..]; // "[alt](url)…"
     let close_br = after_bang.find(']')?;
@@ -178,6 +189,9 @@ fn parse_image(rest: &str) -> Option<(Tok, usize)> {
     let url = &rest_paren[..close_par];
     // '!' + '[' + alt + ']' + '(' + url + ')'
     let consumed = 1 + 1 + alt.len() + 1 + 1 + url.len() + 1;
+    if !is_same_origin_ref(url) {
+        return Some((Tok::Text(rest[..consumed].to_string()), consumed));
+    }
     Some((Tok::Image(alt.to_string(), url.to_string()), consumed))
 }
 
@@ -272,6 +286,47 @@ fn is_safe_url_scheme(url: &str) -> bool {
             scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
         }
     }
+}
+
+/// Whether `url` is a same-origin reference safe to AUTO-LOAD as an image `src`:
+/// a relative or absolute-path reference (`/media/…`, `rel.png`) with NO
+/// explicit scheme and NO protocol-relative `//host` authority. Stricter than
+/// [`is_safe_url_scheme`], which also permits absolute http/https: those are
+/// fine for a click-gated link but not for an image, whose `src` issues an
+/// un-consented cross-origin GET on every viewer's render (IP + presence leak),
+/// so images load only from this server (review C2).
+fn is_same_origin_ref(url: &str) -> bool {
+    // Browsers strip leading C0 controls + spaces from an attribute URL before
+    // parsing, so a leading-space `" http://evil"` would smuggle an absolute
+    // scheme past the scan below — reject any control/space byte outright. A
+    // legitimate same-origin ref has none (RFC 3986 has no raw whitespace; an
+    // encoded `%20` survives, being the bytes `% 2 0`).
+    if url.bytes().any(|b| b <= 0x20) {
+        return false;
+    }
+    // Browsers treat '\' as '/' for http/https special schemes, so `\\host`,
+    // `/\host`, `\/host` all resolve to a CROSS-ORIGIN authority just like
+    // `//host` (WHATWG URL special-scheme rule). Reject any two leading
+    // slash-or-backslash. (Found by adversarial review of the naive `//`-only
+    // guard: a leading `\` slipped past it and resolved to an external host.)
+    let is_slash = |c: char| c == '/' || c == '\\';
+    let mut head = url.chars();
+    if head.next().is_some_and(is_slash) && head.next().is_some_and(is_slash) {
+        return false;
+    }
+    // Any explicit `scheme:` makes the URL absolute → reject. A reference whose
+    // scheme region ends at a non-scheme char (slash, '?', '#', '\', or EOF)
+    // with no ':' is relative to this origin and safe. (RFC 3986 scheme charset.)
+    for ch in url.chars() {
+        if ch == ':' {
+            return false;
+        }
+        if ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.') {
+            continue;
+        }
+        break;
+    }
+    true
 }
 
 /// If `rest` (starting with `:`) opens a well-formed `:shortcode:` — one or more
