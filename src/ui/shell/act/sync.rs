@@ -594,6 +594,10 @@ fn dispatch(s: Shell, event: SyncEvent) {
         // M1.5: the friends/requests list changed for this account.
         // refresh_lists refetches friends (cheap, and keeps one entry point).
         SyncEvent::FriendsChanged => message::refresh_lists(s),
+        // C3: a persona's editor set changed (share/revoke/redeem/leave) — the
+        // caller's library may have gained/lost an entry. Refetch ONLY personas
+        // (the cheapest sufficient refresh; the orbit grid + wardrobe read it).
+        SyncEvent::PersonasChanged => message::refresh_personas(s),
         // Channel-scoped events: a change in the OPEN channel reconciles the
         // message pane; anywhere else only the batched unread summary moves.
         _ => {

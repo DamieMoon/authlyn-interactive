@@ -866,19 +866,28 @@ pub fn show_friends(s: Shell) {
     reload_friends(s);
 }
 
+/// Refetch the caller's persona library into `s.social.personas`. Shared by
+/// `show_wardrobe` (open the wardrobe with a fresh list) and the SSE
+/// `PersonasChanged` dispatch — a share / revoke / redeem / leave changed who
+/// can see the persona, so an already-mounted wardrobe + orbit-station grid
+/// must refetch instead of going stale (review C3, bug hunt 019ef87b).
+#[cfg(feature = "hydrate")]
+pub(super) fn refresh_personas(s: Shell) {
+    spawn_local(async move {
+        if let Ok(r) = api::list_personas().await {
+            // `try_` (review M-10): post-await — the fetch may outlive the shell.
+            let _ = s.social.personas.try_set(r.personas);
+        }
+    });
+}
+
 /// Open the wardrobe as a dismissible modal popup (F-2) and refresh the
 /// persona list. The wardrobe is no longer a full pane — it overlays the
 /// current view via `wardrobe_open` and closes on backdrop click / Esc / X.
 #[cfg(feature = "hydrate")]
 pub fn show_wardrobe(s: Shell) {
     s.sync.wardrobe_open.set(true);
-    spawn_local(async move {
-        if let Ok(r) = api::list_personas().await {
-            // `try_` (review M-10): post-await — the fetch may outlive the
-            // shell.
-            let _ = s.social.personas.try_set(r.personas);
-        }
-    });
+    refresh_personas(s);
 }
 
 /// Open the per-guild custom-emoji manager. The list is already kept fresh

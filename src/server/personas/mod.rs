@@ -20,6 +20,19 @@ mod editors;
 mod gallery;
 mod wear;
 
+use crate::server::state::AppState;
+
+/// Persona realtime (review C3, bug hunt 019ef87b): nudge the affected accounts
+/// over the SSE bus when a persona's editor set changes (share / revoke /
+/// redeem / leave), so an already-mounted recipient/owner session refetches
+/// `GET /personas` instead of showing a stale wardrobe + orbit-station grid.
+/// Account-targeted (never broadcast), id-only like every `SyncEvent` — the
+/// persona twin of `friends::emit_friends_changed`. `accounts` is the affected
+/// set (owner + editor for a grant/revoke; just the caller for a self-leave).
+pub(super) fn emit_personas_changed(state: &AppState, accounts: Vec<String>) {
+    state.emit_for(accounts, crate::protocol::SyncEvent::PersonasChanged);
+}
+
 // Route-table handlers keep their `crate::server::personas::<fn>` paths via
 // these re-exports.
 pub use self::core::{
