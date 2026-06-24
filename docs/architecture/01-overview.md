@@ -15,7 +15,6 @@ they live where they are authoritative:
 - Stack + directory tree: [`../../README.md`](../../README.md).
 - Every dependency's purpose + the per-graph feature wiring: the `#`-comments in
   [`../../Cargo.toml`](../../Cargo.toml) (dense and canonical).
-- Toolchain probe, Bash allowlist, hooks: [`../../.claude/settings.json`](../../.claude/settings.json).
 - Build / run / test / deploy invariants + footguns: [`../../CLAUDE.md`](../../CLAUDE.md).
 
 This document covers only the cross-cutting shape: **the three feature graphs**,

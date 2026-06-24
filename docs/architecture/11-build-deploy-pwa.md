@@ -9,7 +9,6 @@ This doc **references** the canonical sources rather than restating them:
   specifics: [`CLAUDE.md`](../../CLAUDE.md).
 - Every dependency's purpose, the three feature graphs, and the full
   `[package.metadata.leptos]` config: the `#`-comments in [`Cargo.toml`](../../Cargo.toml).
-- The Bash allowlist and hooks: [`.claude/settings.json`](../../.claude/settings.json).
 - Stack, directory layout, dev quickstart, the versioning scheme: [`README.md`](../../README.md).
 
 Siblings: [01-overview](01-overview.md) · [04-realtime-sse](04-realtime-sse.md) (the SSE bus
@@ -95,19 +94,6 @@ So the practical gate ladder is:
 
 The full test suite needs `--features ssr` **and** a live SurrealDB on `ws://127.0.0.1:8000`
 (see [09-testing](09-testing.md)); `/check` and the hook do not.
-
-### 2.3 The two automatic hooks
-
-[`.claude/settings.json`](../../.claude/settings.json) defines two harness hooks (distinct from
-the git hook above):
-
-- **`PostToolUse` (`Edit|Write`)** — runs `rustfmt --edition 2021` on any `.rs` file the agent
-  writes. Do not hand-run `rustfmt` per file.
-- **`SessionStart`** — prints presence of `cargo` / `cargo-leptos` / `surreal` and whether the
-  dev DB is up on `:8000`.
-
-The same file holds the Bash allowlist, including the exact nova build command and the dev-DB
-start command.
 
 ---
 
@@ -375,7 +361,6 @@ see the realtime + push subsystems.)
 - `.claude/commands/check.md` — the `/check` fmt+clippy(ssr)+clippy(hydrate-wasm) trio.
 - `.githooks/pre-commit` — opt-in: the same trio + an inline `@keyframes` motion-doctrine shell
   scan; **references but does not run** `tests/style_lint.rs`.
-- `.claude/settings.json` — Bash allowlist + `PostToolUse` rustfmt hook + `SessionStart` probe.
 
 **Deploy**
 - `.github/workflows/deploy.yml` — prod CD: push-to-`main` → self-hosted novahome runner →

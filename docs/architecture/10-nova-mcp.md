@@ -107,9 +107,8 @@ Editing those strings changes Nova's behavior; treat them as code.
 cargo build --release --bin nova-mcp --features nova
 ```
 
-This exact command is the only allowlisted nova build in
-[`.claude/settings.json`](../../.claude/settings.json) (L15) and is the one given
-in `CLAUDE.md` (L19) and the bin's `//!` header (L10). There is no
+This exact command is the one given in `CLAUDE.md` (L19) and the bin's `//!`
+header (L10). There is no
 `cargo leptos` path and no CI step for it.
 
 The `nova` feature (`Cargo.toml:218–230`) pulls `rmcp`, `reqwest`, `anyhow`,
@@ -344,8 +343,6 @@ tool surface manually against a running authlyn.
 - [`Cargo.toml`](../../Cargo.toml) — `[[bin]] nova-mcp` `required-features` (L16–19);
   `[features] nova` (L218–230); `rmcp`/`reqwest`(no-TLS)/`anyhow` deps +
   `#`-comments (L132–139). Authoritative for deps/graph constraints.
-- [`.claude/settings.json`](../../.claude/settings.json) — the allowlisted nova
-  build command (L15).
 - [`.env.example`](../../.env.example) — server config template; contains **no**
   `NOVA_*` (nova config is the env table above).
 - [`src/server/mod.rs`](../../src/server/mod.rs) — the router; the REST routes

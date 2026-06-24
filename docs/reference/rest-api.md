@@ -458,5 +458,5 @@ Tests that pin the route groups (each cited inline above):
 - `src/protocol.rs::tests::message_envelope_deserializes_without_persona_description_or_color` — the `#[serde(default)]` post-ship wire-compat rule.
 
 For stack / dependency / toolchain / convention detail, see `README.md`, `Cargo.toml` (its
-`#`-comments), `.claude/settings.json`, `CLAUDE.md`, and [conventions.md](conventions.md) — not
+`#`-comments), `CLAUDE.md`, and [conventions.md](conventions.md) — not
 duplicated here.

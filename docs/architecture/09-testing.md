@@ -2,7 +2,7 @@
 
 `docs/ARCHITECTURE.md` was deleted because its numbered invariant catalogue rotted into stale, unanchored prose. The surviving source of truth for this crate's behaviour is **the integration tests in `tests/*.rs` and the code they drive**. This document is the *index* to that source of truth — it does not restate the invariants in prose that can drift; it points at the executable pin for each one. When this doc and a test disagree, the test wins. Read the test.
 
-> Cross-links: [request lifecycle](02-request-lifecycle.md) · [data model & schema](03-data-model.md) · [realtime SSE](04-realtime-sse.md) · [auth & privacy](05-auth-privacy.md) · [styling & chrome](08-styling-chrome.md) · [build/deploy/PWA](11-build-deploy-pwa.md) · [REST reference](../reference/rest-api.md) · [conventions](../reference/conventions.md). For the exact toolchain probe, the Bash allowlist, and the `PostToolUse` rustfmt hook, see [`.claude/settings.json`](../../.claude/settings.json); for the dev-DB / run / test invocations, see [`CLAUDE.md`](../../CLAUDE.md) and [`README.md`](../../README.md).
+> Cross-links: [request lifecycle](02-request-lifecycle.md) · [data model & schema](03-data-model.md) · [realtime SSE](04-realtime-sse.md) · [auth & privacy](05-auth-privacy.md) · [styling & chrome](08-styling-chrome.md) · [build/deploy/PWA](11-build-deploy-pwa.md) · [REST reference](../reference/rest-api.md) · [conventions](../reference/conventions.md). For the dev-DB / run / test invocations, see [`CLAUDE.md`](../../CLAUDE.md) and [`README.md`](../../README.md).
 
 ## The test contract
 

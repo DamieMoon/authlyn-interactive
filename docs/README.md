@@ -5,7 +5,7 @@
 ## Conventions used throughout these docs
 
 - **Drift-anchoring (hard rule).** This tree replaces a prior `docs/ARCHITECTURE.md` that was deleted for rotting into stale, unanchored claims. Therefore **every behavioral invariant cites its pinning test** as `tests/<file>.rs::<test_name>` (or `src/<file>.rs:<line>` when only code-pins it). An invariant with no real pin is marked `(unpinned)` — citations are never invented. The tests are canonical: when a doc and a test disagree, **the test wins** — read the test, then fix the doc.
-- **Reference, don't duplicate.** Stack, dependencies, toolchain, build/run/test commands, commit/handler/DTO conventions, and deploy posture live in [`../README.md`](../README.md), [`../Cargo.toml`](../Cargo.toml), [`../.claude/settings.json`](../.claude/settings.json), and [`../CLAUDE.md`](../CLAUDE.md). Docs link to those; they do not copy them.
+- **Reference, don't duplicate.** Stack, dependencies, toolchain, build/run/test commands, commit/handler/DTO conventions, and deploy posture live in [`../README.md`](../README.md), [`../Cargo.toml`](../Cargo.toml), and [`../CLAUDE.md`](../CLAUDE.md). Docs link to those; they do not copy them.
 - **Three disjoint feature graphs**, mutually exclusive at the binary level and **never cross-imported**: `ssr` (server runtime, never WASM), `hydrate` (browser/WASM, never the server runtime), `nova` (`src/bin/nova-mcp.rs`, `--features nova` — the MCP bridge, imports zero ssr/hydrate). Only `src/protocol.rs` (wire DTOs) and `src/markup/` are always-on and must compile to `wasm32-unknown-unknown` (serde-only). Each doc states which graph it concerns.
 
 ## Reading order
@@ -56,6 +56,5 @@ The WebKit `Secure`-cookie trap (Safari drops the `Secure` session cookie over `
 - [`../README.md`](../README.md) — stack, directory layout, dev/run commands (canonical; not duplicated here).
 - [`../CLAUDE.md`](../CLAUDE.md) — day-to-day operating manual: build/test/check invocations, deploy posture, the load-bearing invariants + footguns.
 - [`../Cargo.toml`](../Cargo.toml) — feature graphs and every dependency's purpose in `#`-comments; SemVer version + codename.
-- [`../.claude/settings.json`](../.claude/settings.json) — toolchain probe, Bash allowlist, the `rustfmt`-on-write and `SessionStart` hooks.
 - `tests/*.rs` — 28 integration suites; canonical for every behavioral invariant cited across this tree. Each doc's own "Source map" lists the tests pinning its claims.
 - `tests/common/mod.rs` — shared harness: per-worker isolated namespace + media tempdir; drives the axum router via `tower::ServiceExt::oneshot`.
