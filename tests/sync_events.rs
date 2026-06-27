@@ -67,6 +67,16 @@ async fn targeted_sync_events_pin_their_wire_shape() {
     let back: SyncEvent = serde_json::from_str(&json).unwrap();
     assert_eq!(back, ev);
     assert_eq!(ev.channel_id(), None);
+
+    // personas_changed (C3): a bare account-targeted tag like friends_changed —
+    // a NEW type on an already-shipped wire (stale clients decode it through the
+    // Unknown catch-all), and not channel-visibility-scoped.
+    let ev = SyncEvent::PersonasChanged;
+    let json = serde_json::to_string(&ev).unwrap();
+    assert_eq!(json, r#"{"type":"personas_changed"}"#);
+    let back: SyncEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, ev);
+    assert_eq!(ev.channel_id(), None);
 }
 
 /// Dev hot-reload: `Reload` is a bare-tag, content-free variant (the test-deck

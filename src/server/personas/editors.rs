@@ -91,6 +91,8 @@ pub async fn remove_editor(
               AND account = type::record("account", $aid);
         COMMIT TRANSACTION;
     "#;
+    // C3 nudge targets — clone before `aid` is moved into the bind below.
+    let affected = vec![account.0.clone(), aid.clone()];
     match state
         .db
         .query(sql)
@@ -99,7 +101,12 @@ pub async fn remove_editor(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // C3: the revoked editor's library just lost the persona — nudge
+            // both so an already-mounted session refetches GET /personas.
+            super::emit_personas_changed(&state, affected);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "remove_editor failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -158,8 +165,14 @@ pub async fn add_editor(
     })
     .await;
     match result {
-        // Already shared is success — the checkbox is just confirming the state.
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // C3: live-nudge the owner + the new editor so an already-mounted
+            // session refetches GET /personas (the editor's library gained it).
+            super::emit_personas_changed(&state, vec![account.0.clone(), aid.clone()]);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        // Already shared is success — the checkbox is just confirming the state
+        // (the editor set didn't change, so no nudge is needed).
         Err(e) if is_unique_violation(&e) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             tracing::error!(error = %e, "add_editor write failed");

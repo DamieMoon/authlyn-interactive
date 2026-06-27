@@ -374,6 +374,7 @@ pub async fn patch_persona(
         "UPDATE type::record('persona', $pid) SET {};",
         sets.join(", ")
     );
+    let pid_emit = pid.clone();
     let mut q = state.db.query(&sql).bind(("pid", pid));
     if let Some(raw) = req.name {
         q = q.bind(("name", raw.trim().to_string()));
@@ -388,7 +389,13 @@ pub async fn patch_persona(
         q = q.bind(("position", pos));
     }
     match q.await.and_then(|r| r.check()) {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // A (review): name/description/color/position are in the GET
+            // /personas grid projection, so a change to a SHARED persona must
+            // reach every co-viewer's grid — nudge the owner + all editors.
+            super::emit_personas_changed_for_persona(&state, &pid_emit).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "patch_persona failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -421,6 +428,26 @@ pub async fn delete_persona(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
         }
     }
+    // C3 (bug hunt 019ef87b): capture the editors BEFORE the cascade deletes
+    // their persona_editor rows — owner-deleting a SHARED persona drops it from
+    // every editor's GET /personas, the same membership change as remove_editor,
+    // so each editor's mounted grid must be nudged to refetch.
+    let editors: Vec<String> = match state
+        .db
+        .query(
+            "SELECT VALUE meta::id(account) FROM persona_editor
+                WHERE persona = type::record('persona', $pid);",
+        )
+        .bind(("pid", pid.clone()))
+        .await
+        .and_then(|mut r| r.take::<Vec<String>>(0))
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "delete_persona editor lookup failed");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        }
+    };
     // Drop gallery rows and clear any "worn" references along with the persona.
     let sql = r#"
         BEGIN TRANSACTION;
@@ -439,7 +466,14 @@ pub async fn delete_persona(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // Nudge the owner + every (now-former) editor so a mounted wardrobe
+            // / orbit-station grid refetches and drops the dead card.
+            let mut affected = editors;
+            affected.push(account.0.clone());
+            super::emit_personas_changed(&state, affected);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "delete_persona failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")
@@ -520,7 +554,12 @@ pub async fn redeem_persona_key(
     })
     .await;
     match result {
-        Ok(()) => StatusCode::CREATED.into_response(),
+        Ok(()) => {
+            // C3: the caller's library just gained the shared persona — nudge
+            // them (other devices) + the owner so a mounted session refetches.
+            super::emit_personas_changed(&state, vec![persona.owner_id.clone(), caller.clone()]);
+            StatusCode::CREATED.into_response()
+        }
         Err(e) if is_unique_violation(&e) => {
             error_response(StatusCode::CONFLICT, "already an editor")
         }
@@ -571,6 +610,8 @@ pub async fn leave_persona(
               AND account = type::record("account", $account);
         COMMIT TRANSACTION;
     "#;
+    // C3 nudge target — clone before `account.0` is moved into the bind below.
+    let leaver = account.0.clone();
     match state
         .db
         .query(sql)
@@ -579,7 +620,12 @@ pub async fn leave_persona(
         .await
         .and_then(|r| r.check())
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            // C3: the leaver's library just lost the shared persona — nudge
+            // their other devices so a mounted session refetches GET /personas.
+            super::emit_personas_changed(&state, vec![leaver]);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!(error = %e, "leave_persona failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "storage error")

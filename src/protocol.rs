@@ -1053,6 +1053,11 @@ pub enum SyncEvent {
     /// The friends/requests list changed for this account (targeted to the
     /// two accounts of the friendship edge).
     FriendsChanged,
+    /// A persona's editor set changed (share / revoke / redeem / leave), so the
+    /// caller's persona library (`GET /personas`, owner-OR-editor) may have
+    /// gained or lost an entry — refetch it. Targeted to the affected accounts
+    /// (owner + the granted/revoked editor), never broadcast. (review C3.)
+    PersonasChanged,
     /// Dev hot-reload: a new build was deployed to the test deck (which runs
     /// the compiled binary, so there is no cargo-leptos live-reload). A global,
     /// content-free nudge telling every connected client to `location.reload()`
@@ -1088,6 +1093,7 @@ impl SyncEvent {
             SyncEvent::ListsChanged
             | SyncEvent::ReadStateChanged { .. }
             | SyncEvent::FriendsChanged
+            | SyncEvent::PersonasChanged
             | SyncEvent::Reload
             | SyncEvent::Unknown => None,
         }

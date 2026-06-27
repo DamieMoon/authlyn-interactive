@@ -240,6 +240,64 @@ async fn widened_kind_assert_reaches_a_db_where_kind_already_exists() {
     assert_eq!(row.kind, "user", "legacy kind backfill still lands");
 }
 
+/// C1 (review, bug hunt 019ef87b): the widened `guild_member.role` enum
+/// (`'admin'` added) must reach a database whose `role` field ALREADY EXISTS
+/// with the old two-value ASSERT (`['owner','member']`) — exactly a pre-admin
+/// prod DB at deploy time. A `DEFINE FIELD IF NOT EXISTS` is a no-op there (the
+/// field exists, so the old ASSERT silently survives and every promote-to-admin
+/// UPDATE dies on it → a 500 in `set_member_role`); the definition must be
+/// re-applied (OVERWRITE) for the widening to land. This applies the real
+/// `storage::SCHEMA` over an old-ASSERT populated table and proves a
+/// `role='admin'` UPDATE is then accepted (and the legacy row survives).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn widened_role_assert_reaches_a_db_where_role_already_exists() {
+    let db = common::raw_db().await;
+
+    // The pre-admin guild_member schema: `role` already defined with the OLD
+    // two-value ASSERT.
+    db.query(
+        "DEFINE TABLE guild_member SCHEMAFULL;\
+         DEFINE FIELD guild ON guild_member TYPE record<guild>;\
+         DEFINE FIELD account ON guild_member TYPE record<account>;\
+         DEFINE FIELD role ON guild_member TYPE string DEFAULT 'member' \
+             ASSERT $value IN ['owner', 'member'];\
+         DEFINE FIELD active_persona ON guild_member TYPE option<record<persona>>;\
+         DEFINE FIELD joined_at ON guild_member TYPE datetime DEFAULT time::now();",
+    )
+    .await
+    .expect("old schema transport")
+    .check()
+    .expect("old schema apply");
+
+    // A populated legacy membership row (role defaults to 'member').
+    db.query("CREATE guild_member:legacy SET guild = guild:g, account = account:a;")
+        .await
+        .expect("seed legacy transport")
+        .check()
+        .expect("seed legacy row");
+
+    // Apply the REAL schema over the already-defined narrow field.
+    db.query(authlyn_interactive::storage::SCHEMA)
+        .await
+        .expect("apply real schema transport")
+        .check()
+        .expect("apply real schema");
+
+    // The widened enum must now hold: 'admin' accepted AND persisted.
+    let mut resp = db
+        .query(
+            "UPDATE guild_member:legacy SET role = 'admin';\
+             SELECT VALUE role FROM guild_member:legacy;",
+        )
+        .await
+        .expect("promote transport")
+        .check()
+        .expect("role='admin' must be accepted after the re-apply");
+    let roles: Vec<String> = resp.take(1).expect("take role");
+    assert_eq!(roles, vec!["admin".to_string()], "admin role persists");
+}
+
 /// M4/T5 (message effects): adding the `option<string>` `effect` field to the
 /// POPULATED `message` table must need NO backfill — NONE is a valid value for
 /// an `option<>` field, so the existing first backfill stays untouched and a
