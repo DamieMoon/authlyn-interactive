@@ -2,7 +2,7 @@
 
 Self-hosted, server-trusted roleplay chat platform — Discord + SillyTavern style: guilds → channels, personas, lorebooks, friends. Single Rust crate.
 
-Work in progress. Private / internal use.
+Work in progress. Dual-licensed: AGPL-3.0-or-later, with a commercial license available — see [Licensing](#license).
 
 ## Stack
 
@@ -63,3 +63,17 @@ src/
   ui/                    Leptos UI: auth + shell/ (Discord-style app shell)
   bin/nova-mcp.rs        standalone MCP bridge (optional `nova` feature)
 ```
+
+## License
+
+`authlyn-interactive` is **dual-licensed**:
+
+- **AGPL-3.0-or-later** by default — network copyleft. See [`LICENSE`](LICENSE).
+- A **commercial license** is available from the sole copyright holder for use that
+  cannot comply with the AGPL.
+
+The names "authlyn" and "Mendicant Bias" are trademarks of the copyright holder and
+are not licensed under the AGPL. Commercial terms, inbound-contribution licensing,
+and trademark details are in [`LICENSING.md`](LICENSING.md).
+
+Copyright (C) 2026 Damien Oscar Olsen.

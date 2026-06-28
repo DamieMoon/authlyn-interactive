@@ -3,6 +3,10 @@ name = "authlyn-interactive"
 # SemVer from v27 (retired CalVer YYYY.M.D at the v27 release; see the design spec). codename in [package.metadata.release].
 version = "27.0.1"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+# Repository URL doubles as the AGPL §13 "corresponding source" pointer for network users.
+repository = "https://github.com/damiemoon/authlyn-interactive"
+description = "Self-hosted, server-trusted roleplay chat platform (guilds, channels, personas, lorebooks, friends). Single Rust crate: axum + Leptos + SurrealDB."
 
 [package.metadata.release]
 # Suggested codename for this build. Pick a fresh two-word name manually and set it here.
