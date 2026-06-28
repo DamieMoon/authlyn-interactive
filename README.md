@@ -72,8 +72,10 @@ src/
 - A **commercial license** is available from the sole copyright holder for use that
   cannot comply with the AGPL.
 
-The names "authlyn" and "Mendicant Bias" are trademarks of the copyright holder and
-are not licensed under the AGPL. Commercial terms, inbound-contribution licensing,
-and trademark details are in [`LICENSING.md`](LICENSING.md).
+The names "authlyn" and "Mendicant Bias" are claimed as trademarks of the copyright
+holder and are not licensed under the AGPL (the AGPL covers the code, not the name).
+Full details — commercial terms, inbound-contribution licensing, and trademarks — are
+in [`LICENSING.md`](LICENSING.md); contributors should also read
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 Copyright (C) 2026 Damien Oscar Olsen.
