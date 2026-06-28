@@ -1,15 +1,13 @@
 name: Deploy to novahome
 
-# Autodeploy on every push to main, plus a manual trigger. Runs on the
-# self-hosted runner that lives ON novahome (the mendicant-bias prod host,
-# x86_64). The runner checks out the pushed commit into its workspace (target/
-# stays warm across runs), builds the release, backs up the prod DB, then calls
-# the root-owned deploy bridge — no SSH keys or stored secrets are involved.
-#
-# Requires a self-hosted runner registered on novahome with the `novahome`
-# label, running as user `damien` (so ~/.cargo is on PATH and the scoped
-# NOPASSWD sudoers entry for /opt/authlyn-prod/deploy.sh applies). See
-# .claude/commands/deploy.md for the one-time runner-registration runbook.
+# Autodeploy on every push to main, plus a manual trigger. Builds run on the
+# ISOLATED self-hosted runner inside the ci-runner KVM VM (label `novahome`,
+# egress-filtered: GitHub + registries only, no LAN/host reach). The runner
+# builds the release, then streams the built artifacts over a command-restricted
+# ssh channel to the host-side deploy bridge (ci-deploy@10.111.0.1), which backs
+# up the prod DB host-side and invokes the root-owned deploy.sh (swap +
+# health-check :8083 + auto-rollback). The runner holds no host root and no DB
+# credentials. See sysops ctx 019f1083 for the bridge design.
 on:
   push:
     branches: [main]
@@ -26,7 +24,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, novahome]
-    timeout-minutes: 30         # x86_64 Ryzen builds are fast; headroom for a cold target/
+    timeout-minutes: 45         # headroom for a cold target/ on the fresh VM
     steps:
       - name: Checkout the pushed commit
         uses: actions/checkout@v7
@@ -35,21 +33,11 @@ jobs:
         run: |
           set -euo pipefail
           . "$HOME/.cargo/env"
-          cargo leptos build --release            # build failure stops here: no backup, no deploy
+          cargo leptos build --release            # build failure stops here: no deploy
 
-      - name: Backup prod DB before deploy
+      - name: Deploy via host bridge (DB backup + swap happen host-side)
         run: |
           set -euo pipefail
-          ts=$(date -u +%Y%m%dT%H%M%SZ)
-          dir=/data/prod_backups
-          mkdir -p "$dir"
-          tmp="$dir/prod_backup_${ts}.surql"
-          surreal export --endpoint http://127.0.0.1:8000 \
-            --user root --pass root --ns authlyn --db prod "$tmp"
-          test -s "$tmp" || { echo "::error::prod DB backup is empty — aborting deploy"; exit 1; }
-          gzip -f "$tmp"
-          echo "backup: ${tmp}.gz ($(du -h "${tmp}.gz" | cut -f1))"
-          ls -1t "$dir"/prod_backup_*.surql.gz | tail -n +16 | xargs -r rm -f   # keep newest 15
-
-      - name: Deploy (scoped sudo bridge — health-check + auto-rollback)
-        run: sudo -n /opt/authlyn-prod/deploy.sh "$GITHUB_WORKSPACE"
+          tar -C target -czf - release/authlyn-interactive site \
+            | ssh -i ~/.ssh/ci-deploy -o StrictHostKeyChecking=accept-new \
+                ci-deploy@10.111.0.1 deploy-prod
