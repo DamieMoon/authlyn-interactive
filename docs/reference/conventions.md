@@ -256,7 +256,7 @@ owned by [`README.md`](../../README.md) + [`Cargo.toml`](../../Cargo.toml).
 
 | | Scheme | Value |
 | --- | --- | --- |
-| current | SemVer (from v27) | `version = "27.0.1"` ([`Cargo.toml`](../../Cargo.toml) line 4) |
+| current | SemVer (from v27) | `version = "27.0.2"` ([`Cargo.toml`](../../Cargo.toml) line 4) |
 | codename | manual two-word | `mendicant-bias` ([`Cargo.toml`](../../Cargo.toml) line 9, `[package.metadata.release]`) |
 | retired | CalVer `YYYY.M.D` | last CalVer build was `2026.6.1` / `saffron-tide` |
 

@@ -115,7 +115,7 @@ local non-served build, which never serves `/sw.js` anyway).
 `BUILD_REV` is the engine of the per-release cache bust in §6. The codename scan is line-based
 and brittle to a multiline/array reformat of that TOML table (`build.rs`, codename block).
 
-> **Versioning: SemVer from v27.** `Cargo.toml` is on `version = "27.0.1"`,
+> **Versioning: SemVer from v27.** `Cargo.toml` is on `version = "27.0.2"`,
 > `codename = "mendicant-bias"` — the CalVer→SemVer flip shipped at the v27 release
 > (2026-06-22), retiring the old `2026.6.1` / `saffron-tide` scheme. The account modal
 > prints `CARGO_PKG_VERSION` + `APP_CODENAME` + `BUILD_REV` ([07-ui-shell](07-ui-shell.md)).
