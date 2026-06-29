@@ -5,7 +5,7 @@ version = "27.0.2"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 # Repository URL doubles as the AGPL §13 "corresponding source" pointer for network users.
-repository = "https://github.com/damiemoon/authlyn-interactive"
+repository = "https://github.com/DamieMoon/authlyn-interactive"
 description = "Self-hosted, server-trusted roleplay chat platform (guilds, channels, personas, lorebooks, friends). Single Rust crate: axum + Leptos + SurrealDB."
 
 [package.metadata.release]
