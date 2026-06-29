@@ -1,0 +1,100 @@
+name: DCO
+
+# Enforce the inbound contribution sign-off required by LICENSING.md section 3 /
+# CONTRIBUTING.md: every non-merge commit in a pull request must carry a
+# Signed-off-by trailer matching its author — the contributor's acceptance of
+# the dual-license inbound grant. An unsigned PR must not be merged.
+#
+# SECURITY MODEL — why pull_request_target + NO checkout:
+#   * `pull_request_target` runs this workflow from the BASE branch (main), so a
+#     contributor CANNOT edit this check inside their own PR to neuter it. (A
+#     plain `pull_request` workflow runs the PR's *own* copy of this file and is
+#     therefore trivially bypassable — `exit 0` while keeping the check name.)
+#   * The job NEVER checks out or executes any PR-supplied code; it only reads
+#     commit METADATA via the REST API, so the elevated `pull_request_target`
+#     token is never exposed to untrusted code. Commit data is treated as
+#     untrusted: base64-decoded, matched with fixed strings, never evaluated.
+#   * Runs on a GitHub-hosted runner — never the isolated self-hosted novahome
+#     runner.
+#
+# Accepted limitation (matches the Linux / GitHub DCO convention): merge commits
+# are exempt; a contributor's own authored commits are what carry the grant.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# Least privilege: read-only, just enough to list the PR's commits.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  signoff:
+    name: Verify Signed-off-by
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every non-merge commit must be Signed-off-by its author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # PR commits via the API — no checkout, no PR code executes. Per commit:
+          # sha, parent-count (>1 => merge), author email, full message base64'd
+          # (so newlines survive the TSV). gh streams the jq filter per page.
+          rows="$(gh api --paginate "repos/${REPO}/pulls/${PR}/commits" \
+            --jq '.[] | [.sha, (.parents | length | tostring), .commit.author.email, (.commit.message | @base64)] | @tsv')"
+
+          fail=0
+          n=0
+          while IFS=$'\t' read -r sha nparents author_email msg_b64; do
+            [ -n "${sha}" ] || continue
+            if [ "${nparents}" -gt 1 ]; then continue; fi   # skip merge commits
+            n=$((n + 1))
+            short="${sha:0:12}"
+            msg="$(printf '%s' "${msg_b64}" | base64 -d)"
+            subject="${msg%%$'\n'*}"
+
+            # Signed-off-by trailers on this commit (case-insensitive key; must
+            # carry a name and an <email>).
+            signoffs="$(printf '%s\n' "${msg}" \
+              | grep -iE '^Signed-off-by:[[:space:]]+.+[[:space:]]+<[^<>@[:space:]]+@[^<>[:space:]]+>[[:space:]]*$' || true)"
+
+            if [ -z "${signoffs}" ]; then
+              echo "::error::${short} \"${subject}\" — missing Signed-off-by."
+              fail=1
+              continue
+            fi
+            # DCO: at least one sign-off must match the commit author's email.
+            if ! printf '%s\n' "${signoffs}" | grep -qiF "<${author_email}>"; then
+              echo "::error::${short} \"${subject}\" — no Signed-off-by matches the author <${author_email}>."
+              printf '         found: %s\n' "${signoffs}"
+              fail=1
+            fi
+          done <<< "${rows}"
+
+          if [ "${fail}" -ne 0 ]; then
+            echo ""
+            echo "DCO check failed. Each commit must end with a Signed-off-by line"
+            echo "matching its author — this certifies your acceptance of the inbound"
+            echo "license terms in LICENSING.md section 3 (see CONTRIBUTING.md)."
+            echo ""
+            echo "  new commits:       git commit -s"
+            echo "  existing commits:  git rebase --signoff <base>"
+            echo "then force-push your PR branch."
+            exit 1
+          fi
+
+          if [ "${n}" -eq 0 ]; then
+            echo "No non-merge commits to check."
+          else
+            echo "All ${n} commit(s) carry a matching Signed-off-by. OK"
+          fi
