@@ -174,6 +174,10 @@ enum Backend {
     /// and **sticky on the last** — so a script ending in `Text` terminates the
     /// loop and one ending in `ToolCalls` exercises the iteration cap.
     Script(Mutex<VecDeque<NovaTurn>>),
+    /// Test backend: sleeps `delay`, then returns `reply` as `Text` — lets a test
+    /// deterministically trip the reply-budget timeout. The other stubs return
+    /// synchronously, so a zero budget never elapses against a ready future.
+    SlowStub { delay: Duration, reply: String },
 }
 
 impl NovaLlm {
@@ -233,6 +237,17 @@ impl NovaLlm {
         )))))
     }
 
+    /// A no-network backend that sleeps `delay` before returning `reply` as `Text`
+    /// — lets a test deterministically trip the wall-clock reply budget (every other
+    /// stub returns synchronously, so `timeout(0)` sees a ready future and never
+    /// elapses). Tests inject this via `AppState::with_nova_llm`.
+    pub fn stub_slow(delay: Duration, reply: impl Into<String>) -> Arc<NovaLlm> {
+        Arc::new(NovaLlm::test(Backend::SlowStub {
+            delay,
+            reply: reply.into(),
+        }))
+    }
+
     /// Shared test-backend constructor (defaults for every knob).
     fn test(backend: Backend) -> NovaLlm {
         NovaLlm {
@@ -264,6 +279,10 @@ impl NovaLlm {
             Backend::Script(turns) => Ok(pop_sticky(
                 &mut turns.lock().expect("nova script mutex poisoned"),
             )),
+            Backend::SlowStub { delay, reply } => {
+                tokio::time::sleep(*delay).await;
+                Ok(NovaTurn::Text(reply.clone()))
+            }
             Backend::Http {
                 client,
                 url,

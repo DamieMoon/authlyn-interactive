@@ -16,7 +16,7 @@ use authlyn_interactive::server::ctx::CtxClient;
 #[cfg(feature = "ssr")]
 use authlyn_interactive::server::messages::{
     build_chat_messages, effective_system_prompt, get_nova_prompt_core, post_nova_say_core,
-    run_nova_reply, set_nova_prompt_core, NovaContextRow, NovaError,
+    reply_or_unavailable, run_nova_reply, set_nova_prompt_core, NovaContextRow, NovaError,
 };
 #[cfg(feature = "ssr")]
 use authlyn_interactive::server::nova_llm::{FunctionCall, NovaLlm, NovaTurn, ToolCall};
@@ -812,4 +812,363 @@ async fn nova_reply_degrades_when_model_requests_tools_but_ctx_is_unconfigured()
             .expect("check");
     let rows: Vec<Row> = resp.take(0).expect("take");
     assert_eq!(rows[0].body, "Plain reply, no tools.");
+}
+
+// ---------------------------------------------------------------------------
+// /nova reply — failure-degradation + write paths (the branches a green happy
+// path leaves unproven: blown budget, the squeeze's success branch, the
+// kill-switch, the store write, and the persisted-row cap)
+// ---------------------------------------------------------------------------
+
+/// A blown wall-clock reply budget surfaces as `Err` (M14 parity) and writes nothing —
+/// turning that `Err` into a visible "unavailable" line is the caller's job (next test).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_errors_when_the_reply_budget_is_blown() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    // A backend that pends (sleeps) so a zero-second budget deterministically elapses —
+    // every other stub returns synchronously and would beat the timeout.
+    let mut llm = NovaLlm::stub_slow(std::time::Duration::from_secs(30), "too late");
+    std::sync::Arc::get_mut(&mut llm)
+        .expect("freshly built, unique Arc")
+        .reply_budget_secs = 0;
+    let nova_state = a.state.clone().with_nova_llm(llm);
+
+    let r = run_nova_reply(&nova_state, &cid).await;
+    assert!(
+        r.is_err(),
+        "a blown reply budget surfaces as Err, got {r:?}"
+    );
+
+    #[derive(SurrealValue)]
+    struct IdRow {
+        id_key: String,
+    }
+    let mut resp =
+        a.db.query("SELECT meta::id(id) AS id_key FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<IdRow> = resp.take(0).expect("take");
+    assert!(rows.is_empty(), "a blown budget posts no Nova DOT reply");
+}
+
+/// `reply_or_unavailable` turns a generation failure (here a blown budget) into a
+/// visible Nova DOT "unavailable" line — the admin never gets silence. This is the
+/// exact body `nova_ask` spawns.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn reply_or_unavailable_posts_the_unavailable_line_on_failure() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let mut llm = NovaLlm::stub_slow(std::time::Duration::from_secs(30), "too late");
+    std::sync::Arc::get_mut(&mut llm)
+        .expect("freshly built, unique Arc")
+        .reply_budget_secs = 0;
+    let nova_state = a.state.clone().with_nova_llm(llm);
+
+    reply_or_unavailable(nova_state.clone(), cid.clone()).await;
+
+    #[derive(SurrealValue)]
+    struct Row {
+        kind: String,
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT kind, body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows.len(), 1, "exactly the one unavailable line");
+    assert_eq!(rows[0].kind, "system");
+    assert_eq!(
+        rows[0].body, "⚠️ Nova is unavailable right now.",
+        "the exact user-facing unavailable copy"
+    );
+}
+
+/// After the iteration cap, the tools-disabled "squeeze" can still produce final TEXT
+/// (a capped-out model that answers once tools are stripped) — that text is posted.
+/// Complements `…only_ever_requests_tools`, which drives the squeeze's EMPTY branch.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_squeeze_posts_final_text_after_the_iteration_cap() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let max = NovaLlm::stub("x").max_tool_iters;
+    // `max` tool-only rounds drive the loop to its cap; then the squeeze answers.
+    let mut turns: Vec<NovaTurn> = (0..max)
+        .map(|_| NovaTurn::ToolCalls(vec![tool_call("c1", "query", "{}")]))
+        .collect();
+    turns.push(NovaTurn::Text("Squeezed reply.".into()));
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(turns))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    assert_eq!(
+        ctx.recorded_tool_calls().len(),
+        max,
+        "every capped round dispatched its tool before the squeeze"
+    );
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].body, "Squeezed reply.");
+}
+
+/// `max_tool_iters == 0` is the plain-chat kill-switch: even with ctx configured the
+/// loop is skipped entirely (no tool dispatch) and the squeeze produces the reply.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_with_zero_tool_iters_never_dispatches_a_tool() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let mut llm = NovaLlm::stub_script(vec![NovaTurn::Text("Plain, no tools.".into())]);
+    std::sync::Arc::get_mut(&mut llm)
+        .expect("freshly built, unique Arc")
+        .max_tool_iters = 0;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a.state.clone().with_nova_llm(llm).with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    assert!(
+        ctx.recorded_tool_calls().is_empty(),
+        "with 0 iters the tool loop is skipped — no ctx dispatch"
+    );
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Plain, no tools.");
+}
+
+/// The model's `store` call flows through the loop to ctx WITH the sensitivity default
+/// applied (`internal`) — Nova's only write path, proven end-to-end (not just the unit).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_dispatches_a_store_with_the_internal_sensitivity_default() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call(
+                "c1",
+                "store",
+                r#"{"category":"nova-memory","title":"t","content":"c"}"#,
+            )]),
+            NovaTurn::Text("Saved.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    let calls = ctx.recorded_tool_calls();
+    assert_eq!(calls.len(), 1, "the store call reached ctx");
+    assert_eq!(calls[0].0, "store");
+    assert_eq!(
+        calls[0].1["sensitivity"], "internal",
+        "a tagless store defaults to sensitivity=internal through the loop"
+    );
+    assert_eq!(calls[0].1["category"], "nova-memory");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Saved.");
+}
+
+/// A reply longer than the persisted-row cap is truncated to `NOVA_REPLY_MAX_CHARS`
+/// (8000) regardless of the model's token cap.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_truncates_an_over_long_reply_to_the_char_cap() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub("x".repeat(9_000)));
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(
+        rows[0].body.chars().count(),
+        8_000,
+        "the persisted reply is capped at NOVA_REPLY_MAX_CHARS"
+    );
+}
+
+/// A single model turn requesting MULTIPLE tool calls dispatches each, in order.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_dispatches_every_call_in_a_multi_tool_turn() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![
+                tool_call("c1", "query", r#"{"question":"a"}"#),
+                tool_call("c2", "search", r#"{"query":"b"}"#),
+            ]),
+            NovaTurn::Text("Done.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    let calls = ctx.recorded_tool_calls();
+    assert_eq!(calls.len(), 2, "both calls in the batch were dispatched");
+    assert_eq!(calls[0].0, "query");
+    assert_eq!(calls[1].0, "search");
+}
+
+/// An empty argument string is normalized to `{}` and still reaches ctx (not an error).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_normalizes_empty_tool_args_to_an_empty_object() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call("c1", "recent", "")]),
+            NovaTurn::Text("ok".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    let calls = ctx.recorded_tool_calls();
+    assert_eq!(calls.len(), 1, "empty args still dispatch");
+    assert_eq!(calls[0].0, "recent");
+    assert_eq!(
+        calls[0].1,
+        json!({}),
+        "an empty arg string becomes an empty object"
+    );
+}
+
+/// A tool-args value that is valid JSON but NOT an object is rejected before ctx; the
+/// reply degrades to the model's next turn.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_rejects_non_object_tool_args_before_ctx() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call("c1", "query", "42")]),
+            NovaTurn::Text("Plain answer.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    assert!(
+        ctx.recorded_tool_calls().is_empty(),
+        "a non-object args value never reaches ctx"
+    );
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Plain answer.");
 }

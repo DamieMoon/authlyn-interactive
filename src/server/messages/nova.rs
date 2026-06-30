@@ -263,20 +263,24 @@ pub async fn nova_ask(
 
     // Generate + post Nova's reply OFF the request path. The reply lands via the
     // SSE bus when ready; a failure posts a visible "unavailable" line.
-    let task_state = state.clone();
-    let task_cid = cid.clone();
-    tokio::spawn(async move {
-        if let Err(e) = run_nova_reply(&task_state, &task_cid).await {
-            tracing::error!(error = %e, channel = %task_cid, "nova reply generation failed");
-            post_unavailable(&task_state, &task_cid).await;
-        }
-    });
+    tokio::spawn(reply_or_unavailable(state.clone(), cid.clone()));
 
     (
         StatusCode::ACCEPTED,
         Json(SendMessageResponse { id: prompt_id }),
     )
         .into_response()
+}
+
+/// Generate Nova DOT's reply and, on failure (timeout / model down), post a visible
+/// "unavailable" line instead of silently dropping the admin's prompt. This is the
+/// exact body [`nova_ask`] spawns off the request path — exposed so the degradation
+/// wiring (`Err` → "unavailable") is testable against the same code prod runs.
+pub async fn reply_or_unavailable(state: AppState, cid: String) {
+    if let Err(e) = run_nova_reply(&state, &cid).await {
+        tracing::error!(error = %e, channel = %cid, "nova reply generation failed");
+        post_unavailable(&state, &cid).await;
+    }
 }
 
 /// Generate Nova DOT's reply to the latest channel context and post it as a

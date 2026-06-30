@@ -48,8 +48,8 @@ mod unread;
 pub use self::editing::{delete_message, edit_message, list_deleted_messages, restore_message};
 pub use self::nova::{
     build_chat_messages, effective_system_prompt, get_nova_prompt, get_nova_prompt_core, nova_ask,
-    nova_say, post_nova_say_core, run_nova_reply, set_nova_prompt, set_nova_prompt_core,
-    NovaContextRow, NovaError,
+    nova_say, post_nova_say_core, reply_or_unavailable, run_nova_reply, set_nova_prompt,
+    set_nova_prompt_core, NovaContextRow, NovaError,
 };
 pub use self::posting::post_message;
 pub use self::read_state::{mark_read, read_state};
