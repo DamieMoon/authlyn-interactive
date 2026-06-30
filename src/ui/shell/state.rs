@@ -336,6 +336,10 @@ pub(crate) struct Trash {
     pub(crate) deleted_channels: RwSignal<Vec<ChannelSummary>>,
     pub(crate) deleted_messages: RwSignal<Vec<MessageEnvelope>>,
     pub(crate) show_msg_trash: RwSignal<bool>,
+    /// The caller's own soft-deleted guilds (#22), surfaced in the AccountModal
+    /// "Deleted servers" disclosure. Cross-guild (not the open guild) because a
+    /// soft-deleted guild has no ServerModal.
+    pub(crate) deleted_guilds: RwSignal<Vec<GuildSummary>>,
 }
 
 /// The app's toast primitive (UX evolution #11): one transient glass capsule

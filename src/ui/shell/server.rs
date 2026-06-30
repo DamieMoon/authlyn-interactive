@@ -243,8 +243,9 @@ pub(crate) fn ServerModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                                         act::ask_delete(
                                             s,
                                             format!(
-                                                "Delete the server “{}” and all its channels \
-                                                 and messages? This cannot be undone.",
+                                                "Delete the server “{}”? It moves to Trash with \
+                                                 its channels and messages, and can be restored \
+                                                 for 30 days before it's permanently deleted.",
                                                 server_name()
                                             ),
                                             PendingDelete::Server { gid },

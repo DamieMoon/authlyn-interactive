@@ -6,7 +6,7 @@
 use leptos::prelude::*;
 
 use super::{act, Shell};
-use crate::ui::icons::IconClose;
+use crate::ui::icons::{IconClose, IconTrash};
 use crate::ui::modal::{Modal, ModalHead};
 use crate::ui::AuthCtx;
 
@@ -62,6 +62,8 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
     // dialog (replaces the M3-era `window.confirm` blocking call, which was
     // inconsistent with the rest of the app's PendingDelete pattern).
     let pending_archive = RwSignal::new(None::<String>);
+    // ---- "Deleted servers" trash disclosure (#22): cross-guild recycle bin ----
+    let srv_trash_open = RwSignal::new(false);
     Effect::new(move |_| {
         let is_open = open.get();
         #[cfg(feature = "hydrate")]
@@ -408,6 +410,56 @@ pub(crate) fn AccountModal(s: Shell, open: RwSignal<bool>) -> impl IntoView {
                         </section>
                     }
                 })}
+
+                // ---- Deleted servers (#22) ----
+                // Cross-guild recycle bin: the caller's own soft-deleted guilds,
+                // restorable within the 30-day purge window. Lives here (account
+                // scope) rather than the ServerModal because a soft-deleted guild
+                // has no ServerModal. Mirrors the ServerModal "Trashed channels"
+                // disclosure and reuses the already-floored, style_lint-registered
+                // .trash-* classes (no new touch-floor registration).
+                <section class="account-section">
+                    <h3>"Deleted servers"</h3>
+                    <div class="trash-section">
+                        <button class="trash-toggle"
+                            class:active=move || srv_trash_open.get()
+                            on:click=move |_| {
+                                let now_open = !srv_trash_open.get_untracked();
+                                srv_trash_open.set(now_open);
+                                if now_open {
+                                    act::load_deleted_guilds(s);
+                                }
+                            }>
+                            <IconTrash/>" Show deleted servers"
+                        </button>
+                        {move || srv_trash_open.get().then(|| {
+                            let guilds = s.trash.deleted_guilds.get();
+                            if guilds.is_empty() {
+                                view! {
+                                    <p class="muted trash-empty">"No deleted servers."</p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <ul class="trash-list">
+                                        {guilds.into_iter().map(|g| {
+                                            let gid = g.id.clone();
+                                            let name = g.name.clone();
+                                            view! {
+                                                <li class="trash-item">
+                                                    <span class="trash-name">{name}</span>
+                                                    <button class="trash-restore"
+                                                        on:click=move |_| {
+                                                            act::restore_server(s, gid.clone());
+                                                        }>"Restore"</button>
+                                                </li>
+                                            }
+                                        }).collect_view()}
+                                    </ul>
+                                }.into_any()
+                            }
+                        })}
+                    </div>
+                </section>
 
                 // ---- Session ----
                 // The deliberate "Log out" home (mobile finding #50a). It used

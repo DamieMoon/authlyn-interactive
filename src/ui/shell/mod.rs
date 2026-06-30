@@ -232,6 +232,7 @@ fn AppShell() -> impl IntoView {
         deleted_channels: RwSignal::new(Vec::new()),
         deleted_messages: RwSignal::new(Vec::new()),
         show_msg_trash: RwSignal::new(false),
+        deleted_guilds: RwSignal::new(Vec::new()),
     };
     provide_context(trash);
 

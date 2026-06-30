@@ -252,10 +252,52 @@ pub fn delete_server(s: Shell, gid: String) {
     });
 }
 
+/// Load the caller's own soft-deleted guilds into `s.trash.deleted_guilds` — the
+/// AccountModal "Deleted servers" disclosure (#22), the cross-guild recycle bin.
+#[cfg(feature = "hydrate")]
+pub fn load_deleted_guilds(s: Shell) {
+    spawn_local(async move {
+        match api::list_deleted_guilds().await {
+            // `try_` post-await (review M-10): a disposed shell degrades to a no-op.
+            Ok(r) => {
+                let _ = s.trash.deleted_guilds.try_set(r.guilds);
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
+        }
+    });
+}
+
+/// Restore a soft-deleted guild (owner only, #22). On success, refresh the rail so
+/// it reappears and reload the deleted-servers list so it drops out of the trash.
+#[cfg(feature = "hydrate")]
+pub fn restore_server(s: Shell, gid: String) {
+    spawn_local(async move {
+        match api::restore_guild(&gid).await {
+            Ok(()) => {
+                // Disposal proof (review M-10), mirroring `restore_channel`.
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                load_deleted_guilds(s);
+                refresh_guilds(s);
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
+        }
+    });
+}
+
 // ---- ssr stubs ----
 
 #[cfg(not(feature = "hydrate"))]
 pub fn refresh_guilds(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn load_deleted_guilds(_s: Shell) {}
+#[cfg(not(feature = "hydrate"))]
+pub fn restore_server(_s: Shell, _gid: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn swap_guild(_s: Shell, _idx: usize, _up: bool) {}
 #[cfg(not(feature = "hydrate"))]
