@@ -87,6 +87,51 @@ fn remove_member(s: Shell, gid: String, aid: String, members: RwSignal<Vec<Membe
 #[cfg(not(feature = "hydrate"))]
 fn remove_member(_s: Shell, _gid: String, _aid: String, _members: RwSignal<Vec<MemberSummary>>) {}
 
+/// Nova DOT (the `nova-mcp` bridge bot) is a normal account whose username is
+/// "Nova" — so "Nova may talk in this guild" is simply "Nova is a `guild_member`
+/// here". This matches the bridge's `NOVA_USERNAME` default; if you renamed her
+/// there, change it here too.
+const NOVA_USERNAME: &str = "Nova";
+
+/// Add (`join`) or remove Nova from this guild's membership, then reload the
+/// roster so the toggle reflects the new state. Wraps the same owner-gated
+/// invite/remove-member routes a human uses; no Nova-specific server support.
+#[cfg(feature = "hydrate")]
+fn set_nova_membership(
+    s: Shell,
+    gid: String,
+    join: bool,
+    nova_aid: Option<String>,
+    members: RwSignal<Vec<MemberSummary>>,
+) {
+    use crate::client::api;
+    use leptos::task::spawn_local;
+    s.composer.status.set(String::new());
+    spawn_local(async move {
+        let res = if join {
+            api::invite_member(&gid, NOVA_USERNAME).await
+        } else if let Some(aid) = nova_aid {
+            api::remove_member(&gid, &aid).await
+        } else {
+            Ok(())
+        };
+        match res {
+            Ok(()) => load_members(s, gid, members),
+            Err(e) => s.composer.status.set(api::humanize(&e)),
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn set_nova_membership(
+    _s: Shell,
+    _gid: String,
+    _join: bool,
+    _nova_aid: Option<String>,
+    _members: RwSignal<Vec<MemberSummary>>,
+) {
+}
+
 // ---------------------------------------------------------------------------
 // Guest cameos (M7/P2) — host-side, scoped to the OPEN guild text channel.
 // ---------------------------------------------------------------------------
@@ -197,6 +242,37 @@ pub(crate) fn MembersPane() -> impl IntoView {
     view! {
         <div class="pane">
             <div class="member-list">
+                // Owner-only: a per-guild switch for whether Nova DOT takes part
+                // here. "Talks in this guild" == "is a member of it", so this just
+                // toggles Nova's `guild_member` via the same owner-gated invite /
+                // remove routes — a discoverable shortcut over typing her username
+                // into the invite-by-username field. Reuses `.member-role-btn`
+                // (already touch-floored + style_lint-registered).
+                {move || {
+                    if !is_owner() {
+                        return ().into_any();
+                    }
+                    let g = gid();
+                    let nova = members
+                        .get()
+                        .into_iter()
+                        .find(|m| m.username.eq_ignore_ascii_case(NOVA_USERNAME));
+                    let present = nova.is_some();
+                    let nova_aid = nova.map(|m| m.account_id);
+                    let g2 = g.clone();
+                    view! {
+                        <div class="member-row nova-row">
+                            <span class="member-name">"Nova DOT"</span>
+                            <span class="member-actions">
+                                <button class="member-role-btn"
+                                    on:click=move |_| set_nova_membership(
+                                        s, g2.clone(), !present, nova_aid.clone(), members)>
+                                    {if present { "Remove from guild" } else { "Add to guild" }}
+                                </button>
+                            </span>
+                        </div>
+                    }.into_any()
+                }}
                 {move || {
                     let owner_view = is_owner();
                     let g = gid();
