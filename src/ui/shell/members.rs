@@ -87,11 +87,12 @@ fn remove_member(s: Shell, gid: String, aid: String, members: RwSignal<Vec<Membe
 #[cfg(not(feature = "hydrate"))]
 fn remove_member(_s: Shell, _gid: String, _aid: String, _members: RwSignal<Vec<MemberSummary>>) {}
 
-/// Nova DOT (the `nova-mcp` bridge bot) is a normal account whose username is
-/// "Nova" — so "Nova may talk in this guild" is simply "Nova is a `guild_member`
-/// here". This matches the bridge's `NOVA_USERNAME` default; if you renamed her
-/// there, change it here too.
-const NOVA_USERNAME: &str = "Nova";
+/// Nova DOT (the `nova-mcp` bridge bot) is a normal account — so "Nova may talk
+/// in this guild" is simply "Nova is a `guild_member` here". This MUST match the
+/// username the bridge actually logs in as (`NOVA_USERNAME`). The live deck/prod
+/// account is `nova-dot` (display "Nova DOT") — not the bridge *source* default
+/// "Nova" (`nova-mcp.rs:302`), an unused fallback the deployment overrides.
+const NOVA_USERNAME: &str = "nova-dot";
 
 /// Add (`join`) or remove Nova from this guild's membership, then reload the
 /// roster so the toggle reflects the new state. Wraps the same owner-gated
