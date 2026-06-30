@@ -507,6 +507,33 @@ pub fn rename_channel(s: Shell, gid: String, cid: String, name: String) {
     });
 }
 
+/// Set or clear (`None`) this channel's per-channel Nova DOT system-prompt
+/// addendum (the settings-UI path; the `/novaprompt` composer command is the
+/// twin). Both share `api::set_nova_prompt`; admin-gated server-side.
+#[cfg(feature = "hydrate")]
+pub fn set_channel_nova_prompt(s: Shell, cid: String, prompt: Option<String>) {
+    let cleared = prompt.is_none();
+    spawn_local(async move {
+        match api::set_nova_prompt(&cid, prompt).await {
+            Ok(()) => {
+                // Disposal proof before the toast (review M-10).
+                if s.sync.polling.try_get_untracked().is_none() {
+                    return;
+                }
+                let msg = if cleared {
+                    "Nova prompt cleared"
+                } else {
+                    "Nova prompt saved"
+                };
+                super::toast::show_success_toast(s, msg.to_string());
+            }
+            Err(e) => {
+                let _ = s.composer.status.try_set(api::humanize(&e));
+            }
+        }
+    });
+}
+
 /// Delete a channel (owner only). On success, clear the selection if it was
 /// the open channel and reload the server so the sidebar drops the dead row.
 #[cfg(feature = "hydrate")]
@@ -689,6 +716,9 @@ pub fn restore_session(_s: Shell) -> bool {
 pub fn create_channel(_s: Shell, _name: String, _kind: String) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn rename_channel(_s: Shell, _gid: String, _cid: String, _name: String) {}
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub fn set_channel_nova_prompt(_s: Shell, _cid: String, _prompt: Option<String>) {}
 #[cfg(not(feature = "hydrate"))]
 pub fn delete_channel(_s: Shell, _gid: String, _cid: String) {}
 #[cfg(not(feature = "hydrate"))]

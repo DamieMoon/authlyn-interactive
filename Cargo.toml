@@ -138,6 +138,11 @@ web-push           = { version = "0.11", optional = true }
 # authlyn HTTP API as the "Nova" account and exposes it over MCP. rmcp is the
 # official Rust MCP SDK; reqwest is the HTTP client (cookie jar for the session;
 # no TLS — the target is loopback http).
+#
+# `reqwest` is ALSO pulled by the `ssr` feature: Nova DOT's `/nova` command
+# (src/server/nova_llm.rs) uses it as an OpenAI-compatible client to the local
+# Qwen model (loopback http, no TLS — `default-features = false` keeps the WASM
+# graph clean and pulls no TLS stack). rmcp/anyhow stay nova-only.
 rmcp     = { version = "0.8", features = ["server", "macros", "transport-streamable-http-server"], optional = true }
 reqwest  = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart"], optional = true }
 anyhow   = { version = "1", optional = true }
@@ -211,6 +216,11 @@ ssr = [
     "dep:time",
     "dep:image",
     "dep:web-push",
+    # Nova DOT's LLM backend (`/nova`, src/server/nova_llm.rs): an
+    # OpenAI-compatible HTTP client to the local Qwen "llama-chat" model. Shared
+    # with the `nova` bridge's declaration below; ssr-only here (never wasm —
+    # `/check`'s hydrate-wasm clippy guards that it stays out of the WASM graph).
+    "dep:reqwest",
     "dep:futures-util",
     "leptos/ssr",
     "leptos_meta/ssr",

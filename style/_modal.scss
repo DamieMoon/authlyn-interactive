@@ -1004,3 +1004,35 @@
 		}
 	}
 }
+
+// Per-channel Nova system-prompt editor (admin-only) — channel/manager.rs.
+// Lives in the channel-manager list; the row is flex-wrap so this panel drops
+// to a full-width second line below the row content. Save/Clear reuse the
+// already-floored .account-save / .row-edit controls (no new touch-floor entry).
+.channel-manager {
+	.manager-row {
+		flex-wrap: wrap;
+	}
+
+	.manager-nova {
+		flex: 1 0 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin-top: 0.4rem;
+		padding-top: 0.4rem;
+		border-top: 1px dashed var(--line);
+
+		.manager-nova-input {
+			width: 100%;
+			min-height: 4rem;
+			resize: vertical;
+			font: inherit;
+		}
+
+		.manager-nova-actions {
+			display: flex;
+			gap: 0.4rem;
+		}
+	}
+}

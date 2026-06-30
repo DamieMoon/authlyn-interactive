@@ -71,7 +71,15 @@ async fn main() {
     } else {
         log!("Web Push disabled (set VAPID_PRIVATE_KEY + VAPID_PUBLIC_KEY to enable)");
     }
-    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir, push);
+    // Nova DOT's LLM backend (#nova): build from env. `None` = `/nova` disabled
+    // (the handler 503s); `/novasay` works either way.
+    let nova_llm = server::nova_llm::NovaLlm::from_env();
+    if nova_llm.is_some() {
+        log!("Nova LLM enabled (/nova → Qwen)");
+    } else {
+        log!("Nova LLM disabled (set NOVA_LLM_URL to enable /nova; /novasay still works)");
+    }
+    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir, push, nova_llm);
 
     // Background sweep that hard-deletes soft-deleted rows past their rollback
     // window (#22: message 1h, channel 1d, guild 30d). Runs once at boot, hourly after.

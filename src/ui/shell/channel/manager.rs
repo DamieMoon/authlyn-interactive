@@ -47,6 +47,10 @@ pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
     let editing = RwSignal::new(None::<String>);
     let new_name = RwSignal::new(String::new());
     let new_kind = RwSignal::new("text".to_string());
+    // Per-channel Nova system-prompt editor (admin-only): which channel's prompt
+    // panel is open + the textarea buffer (loaded from the server on open).
+    let nova_editing = RwSignal::new(None::<String>);
+    let nova_buffer = RwSignal::new(String::new());
     // Drag-to-reorder state, shared across rows: `drag_from` is the index of the
     // row being dragged (set on the grip's `pointerdown`); `drag_over` is the
     // index the finger is currently over (the live drop target). `None` between
@@ -61,7 +65,8 @@ pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
                 chans.into_iter().enumerate().map(|(idx, c)| {
                     view! {
                         <ManagerRow s=s ch=c idx=idx
-                            editing=editing drag_from=drag_from drag_over=drag_over/>
+                            editing=editing drag_from=drag_from drag_over=drag_over
+                            nova_editing=nova_editing nova_buffer=nova_buffer/>
                     }
                 }).collect_view()
             }}
@@ -103,6 +108,34 @@ pub(crate) fn ChannelManagerBody(s: Shell) -> impl IntoView {
     }
 }
 
+/// Open (loading the current value from the server) or close the per-channel
+/// Nova prompt panel. Hydrate-only network; an ssr no-op stub keeps the view
+/// compiling under ssr (the click never fires there).
+#[cfg(feature = "hydrate")]
+fn toggle_nova(cid: String, nova_editing: RwSignal<Option<String>>, nova_buffer: RwSignal<String>) {
+    // Already open for this channel → close.
+    if nova_editing.get_untracked().as_deref() == Some(cid.as_str()) {
+        nova_editing.set(None);
+        return;
+    }
+    nova_editing.set(Some(cid.clone()));
+    nova_buffer.set(String::new());
+    leptos::task::spawn_local(async move {
+        if let Ok(r) = crate::client::api::get_nova_prompt(&cid).await {
+            // `try_` (review M-10): the fetch can outlive the shell.
+            let _ = nova_buffer.try_set(r.prompt.unwrap_or_default());
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn toggle_nova(
+    _cid: String,
+    _nova_editing: RwSignal<Option<String>>,
+    _nova_buffer: RwSignal<String>,
+) {
+}
+
 /// One row in the manager list: a finger-drag grip (`⠿`) + name (or inline-rename
 /// input), then rename (✎) and delete (🗑). Reorder is a press-drag on the grip
 /// (see the module header); the drag hit-tests the row under the finger by
@@ -115,10 +148,20 @@ fn ManagerRow(
     editing: RwSignal<Option<String>>,
     drag_from: RwSignal<Option<usize>>,
     drag_over: RwSignal<Option<usize>>,
+    nova_editing: RwSignal<Option<String>>,
+    nova_buffer: RwSignal<String>,
 ) -> impl IntoView {
     let cid = ch.id.clone();
     let name0 = ch.name.clone();
     let is_lore = ch.kind == "lorebook";
+    // App-admin gate for the per-channel Nova prompt control — independent of the
+    // surrounding owner-gated Server window (account.rs:45 pattern). The server
+    // re-checks is_admin on the endpoint regardless.
+    let is_admin = move || {
+        use_context::<crate::ui::AuthCtx>()
+            .and_then(|a| a.user.get().map(|u| u.is_admin))
+            .unwrap_or(false)
+    };
 
     // Pointer-drag reorder (hydrate-only — the drag is a no-op on ssr). The grip
     // captures the pointer on `down`, hit-tests the row under the finger on
@@ -257,7 +300,53 @@ fn ManagerRow(
                         }
                     }
                 }><IconTrash/></button>
+                {
+                    let cid = cid.clone();
+                    move || {
+                        (is_admin() && !is_lore).then(|| {
+                            let cid = cid.clone();
+                            view! {
+                                <button class="row-edit" title="Nova prompt" on:click={
+                                    let cid = cid.clone();
+                                    move |_| toggle_nova(cid.clone(), nova_editing, nova_buffer)
+                                }>"✦"</button>
+                            }
+                        })
+                    }
+                }
             </div>
+            {
+                let cid = cid.clone();
+                move || {
+                    (nova_editing.get().as_deref() == Some(cid.as_str())).then(|| {
+                        let save_cid = cid.clone();
+                        let clear_cid = cid.clone();
+                        view! {
+                            <div class="manager-nova">
+                                <textarea class="manager-nova-input"
+                                    prop:value=move || nova_buffer.get()
+                                    on:input=move |ev| nova_buffer.set(event_target_value(&ev))
+                                    placeholder="Nova system prompt for this channel — appended to the global base. Empty = global only."></textarea>
+                                <div class="manager-nova-actions">
+                                    <button class="account-save" on:click=move |_| {
+                                        act::set_channel_nova_prompt(
+                                            s,
+                                            save_cid.clone(),
+                                            Some(nova_buffer.get_untracked()),
+                                        );
+                                        nova_editing.set(None);
+                                    }>"Save"</button>
+                                    <button class="row-edit danger" title="clear nova prompt"
+                                        on:click=move |_| {
+                                            act::set_channel_nova_prompt(s, clear_cid.clone(), None);
+                                            nova_editing.set(None);
+                                        }>"Clear"</button>
+                                </div>
+                            </div>
+                        }
+                    })
+                }
+            }
         </li>
     }
 }

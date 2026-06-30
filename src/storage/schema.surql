@@ -155,6 +155,11 @@ DEFINE FIELD IF NOT EXISTS deleted_at ON channel TYPE option<datetime>;
 -- posting is blocked), cleared on re-friend. New optional field → no backfill.
 -- Only ever set on kind='dm' channels today; guild channels stay NONE.
 DEFINE FIELD IF NOT EXISTS locked_at ON channel TYPE option<datetime>;
+-- Per-channel Nova DOT system-prompt ADDENDUM (admin-set, /nova feature): NONE =
+-- use the global base prompt alone; a string is appended to the global base when
+-- Nova replies in this channel. New optional field → no backfill (NONE on every
+-- existing row). Guild/text channels only in practice; harmless elsewhere.
+DEFINE FIELD IF NOT EXISTS nova_prompt ON channel TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS channel_guild ON channel FIELDS guild;
 
 -- Guild membership (the worn persona lives here, per-guild) -------------

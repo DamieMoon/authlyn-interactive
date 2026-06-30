@@ -316,6 +316,47 @@ pub struct RollRequest {
     pub persona: Option<String>,
 }
 
+/// Body of `POST /channels/{cid}/nova` (admin-only): the admin's prompt to the
+/// LLM-backed Nova DOT assistant. The server posts the prompt as the admin's
+/// OWN message (`kind='user'`, persona-aware), then generates Nova DOT's reply
+/// with the local Qwen model and posts it as a `kind='system'` "Nova DOT"
+/// message in the same channel. `persona` carries the admin's worn persona for
+/// THEIR prompt message — same server-side `can_edit_persona` double-check as
+/// [`SendMessageRequest::persona_id`]. The 202 response carries the PROMPT's id;
+/// Nova's reply arrives over the SSE bus when generation completes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NovaAskRequest {
+    pub prompt: String,
+    #[serde(default)]
+    pub persona: Option<String>,
+}
+
+/// Body of `POST /channels/{cid}/novasay` (admin-only): post `body` verbatim as
+/// a "Nova DOT" `kind='system'` message into THIS channel — the manual
+/// counterpart to [`NovaAskRequest`] (no LLM). A per-channel narrowing of the
+/// app-wide [`SendSystemMessageRequest`] broadcast.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NovaSayRequest {
+    pub body: String,
+}
+
+/// Body of `PUT /channels/{cid}/nova-prompt` (admin-only): set or clear this
+/// channel's Nova DOT system-prompt ADDENDUM. The addendum is appended to the
+/// global base prompt (it does NOT replace it), so Nova keeps her core identity
+/// and the channel adds flavor. `None`/empty clears it (→ the global base alone).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct NovaPromptRequest {
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
+/// Response from `GET /channels/{cid}/nova-prompt` (admin-only): the channel's
+/// stored Nova system-prompt addendum, or `None` when unset.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NovaPromptResponse {
+    pub prompt: Option<String>,
+}
+
 /// Successful response from `POST /channels/{cid}/messages`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SendMessageResponse {

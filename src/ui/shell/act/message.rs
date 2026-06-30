@@ -101,6 +101,70 @@ pub fn send_message(s: Shell) {
         });
         return;
     }
+    // Nova DOT intercept (app-admin only): `/nova <prompt>` asks the LLM-backed
+    // Nova DOT (the server posts the prompt, then Nova's reply); `/novasay
+    // <text>` posts a manual Nova DOT line; `/novaprompt <text>` sets this
+    // channel's Nova system-prompt addendum (bare `/novaprompt` clears it).
+    // Non-admins fall through to a normal send — the affordance is admin-only,
+    // and the server re-checks regardless. Clears compose/draft/reply/effect like
+    // the roll branch; staged attachments stay staged (a Nova command never
+    // carries them).
+    if caller_is_admin() {
+        if let Some(cmd) = nova_command(body.trim()) {
+            s.composer.replying_to.set(None);
+            s.composer.effect_mode.set(None);
+            s.composer.compose.set(String::new());
+            super::channel::save_draft(s, "");
+            s.composer.status.set(String::new());
+            super::notify::request_notify_permission(s);
+            let persona = s.social.active_persona.get_untracked();
+            spawn_local(async move {
+                match cmd {
+                    // Ask/Say post a message → the shared post-send catch-up +
+                    // pulse. A 4xx/503 (not admin server-side, bad input, Nova
+                    // unconfigured) surfaces in the composer status line. `try_`
+                    // (review M-10): post-await — logout may have disposed the
+                    // shell while the POST was in flight.
+                    NovaCmd::Ask(prompt) => match api::nova_ask(&ch.id, &prompt, persona).await {
+                        Ok(_) => after_send_success(s, &ch.id).await,
+                        Err(e) => {
+                            let _ = s.composer.status.try_set(api::humanize(&e));
+                        }
+                    },
+                    NovaCmd::Say(text) => match api::nova_say(&ch.id, &text).await {
+                        Ok(_) => after_send_success(s, &ch.id).await,
+                        Err(e) => {
+                            let _ = s.composer.status.try_set(api::humanize(&e));
+                        }
+                    },
+                    // SetPrompt persists config — no message lands, so confirm
+                    // with a success toast instead of the post-send path.
+                    NovaCmd::SetPrompt(prompt) => {
+                        let cleared = prompt.is_none();
+                        match api::set_nova_prompt(&ch.id, prompt).await {
+                            Ok(()) => {
+                                // Disposal proof before the toast (review M-10):
+                                // `push` writes `toasts.current` plainly.
+                                if s.sync.polling.try_get_untracked().is_none() {
+                                    return;
+                                }
+                                let msg = if cleared {
+                                    "Nova prompt cleared for this channel"
+                                } else {
+                                    "Nova prompt set for this channel"
+                                };
+                                super::toast::show_success_toast(s, msg.to_string());
+                            }
+                            Err(e) => {
+                                let _ = s.composer.status.try_set(api::humanize(&e));
+                            }
+                        }
+                    }
+                }
+            });
+            return;
+        }
+    }
     // The wire SEND request is ids-only; map the staged attachments down,
     // keeping only the ones whose upload has finished (`Ready`) — in-flight or
     // failed slots carry a placeholder id, not a real media id (F-8).
@@ -248,6 +312,55 @@ fn roll_command(trimmed: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// A parsed Nova DOT composer command (admin-only): ask the LLM-backed Nova DOT,
+/// post a manual Nova line, or set this channel's Nova system-prompt addendum.
+/// `None` = a normal send. Like [`roll_command`], this only DETECTS the prefix
+/// and forwards the tail verbatim — the SERVER owns the behavior. The longer
+/// prefixes are checked first (they share the `/nova` stem). A bare `/nova` /
+/// `/novasay` with no argument is NOT a command (nothing to ask/say) → normal
+/// send; a bare `/novaprompt` is the CLEAR command (channel addendum → nothing).
+#[cfg(feature = "hydrate")]
+enum NovaCmd {
+    Ask(String),
+    Say(String),
+    /// `Some` = set the channel's Nova system-prompt addendum; `None` = clear it.
+    SetPrompt(Option<String>),
+}
+
+#[cfg(feature = "hydrate")]
+fn nova_command(trimmed: &str) -> Option<NovaCmd> {
+    // Longer prefixes first — they share the `/nova` stem.
+    if trimmed == "/novaprompt" {
+        return Some(NovaCmd::SetPrompt(None)); // bare → clear
+    }
+    if let Some(rest) = trimmed.strip_prefix("/novaprompt ") {
+        let text = rest.trim();
+        return Some(NovaCmd::SetPrompt(
+            (!text.is_empty()).then(|| text.to_string()),
+        ));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/novasay ") {
+        let text = rest.trim();
+        return (!text.is_empty()).then(|| NovaCmd::Say(text.to_string()));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/nova ") {
+        let prompt = rest.trim();
+        return (!prompt.is_empty()).then(|| NovaCmd::Ask(prompt.to_string()));
+    }
+    None
+}
+
+/// True when the signed-in user is an app admin (`MeResponse.is_admin`), read
+/// untracked from the root `AuthCtx` — `send_message` is an action, not a
+/// reactive computation. Gates the admin-only `/nova` / `/novasay` / `/novaprompt`
+/// composer intercepts; the server re-checks `is_admin` regardless (defense in depth).
+#[cfg(feature = "hydrate")]
+fn caller_is_admin() -> bool {
+    use_context::<crate::ui::AuthCtx>()
+        .map(|a| a.user.get_untracked().map(|u| u.is_admin).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 /// Upload a picked/pasted image or video and stage it as a pending composer

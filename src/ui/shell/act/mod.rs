@@ -66,8 +66,8 @@ pub use admin::send_system_broadcast;
 pub use cameo::{leave_cameo, open_cameo, refresh_cameos};
 pub use channel::{
     create_channel, mark_station_origin, modal_back, move_channel_to_bounds, open_channel,
-    open_deep_link, pane_back, rename_channel, restore_channel, restore_session, show_orbit_map,
-    swap_channel,
+    open_deep_link, pane_back, rename_channel, restore_channel, restore_session,
+    set_channel_nova_prompt, show_orbit_map, swap_channel,
 };
 pub(crate) use compose_colors::{load_color_history, record_color, save_color_history};
 pub use dm::{create_dm_thread, invite_to_dm, leave_dm, open_dm, refresh_dms};

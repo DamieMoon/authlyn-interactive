@@ -16,6 +16,7 @@ use leptos::prelude::LeptosOptions;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
+use crate::server::nova_llm::NovaLlm;
 use crate::server::push::PushSender;
 
 /// The Ghost Quill draft store (M4/T7): `(channel_id, account_id)` →
@@ -75,6 +76,11 @@ pub struct AppState {
     /// Web Push sender (#30), built from VAPID env at startup. `None` = push
     /// disabled (tests, or env unset) — every push path becomes a silent no-op.
     pub push: Option<Arc<PushSender>>,
+    /// Nova DOT's LLM backend (`/nova`, `server::nova_llm`), built from env at
+    /// startup. `None` = `/nova` disabled (the handler 503s; `/novasay` is
+    /// unaffected — it needs no model). Tests inject a stub via
+    /// [`AppState::with_nova_llm`].
+    pub nova_llm: Option<Arc<NovaLlm>>,
     /// Ephemeral "is typing" state (#19), keyed channel_id → account_id →
     /// last-ping `Instant`. Deliberately NOT in the DB: it's transient,
     /// high-churn, and surfaced by piggybacking on the message poll. Guarded by
@@ -130,6 +136,7 @@ impl AppState {
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push: None,
+            nova_llm: None,
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,
@@ -155,6 +162,14 @@ impl AppState {
     /// (`sse_recheck_period` is `Copy`).
     pub fn with_sse_recheck_period(mut self, period: Duration) -> Self {
         self.sse_recheck_period = period;
+        self
+    }
+
+    /// Inject Nova DOT's LLM backend (`/nova`) — test injectability so the flow
+    /// is provable with a [`crate::server::nova_llm::NovaLlm::stub`] instead of a
+    /// network model. Same builder-before-`make_router` contract as the others.
+    pub fn with_nova_llm(mut self, nova: Arc<NovaLlm>) -> Self {
+        self.nova_llm = Some(nova);
         self
     }
 
@@ -187,12 +202,14 @@ impl AppState {
         leptos: LeptosOptions,
         media_dir: PathBuf,
         push: Option<Arc<PushSender>>,
+        nova_llm: Option<Arc<NovaLlm>>,
     ) -> Self {
         Self {
             leptos,
             db: Arc::new(db),
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push,
+            nova_llm,
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,

@@ -20,6 +20,7 @@ pub mod guilds;
 pub mod lorebook;
 pub mod media;
 pub mod messages;
+pub mod nova_llm;
 pub mod personas;
 pub mod push;
 pub mod retry;
@@ -166,6 +167,17 @@ fn small_body_routes() -> Router<AppState> {
         // Fate Engine (M4/T6): server-rolled dice persisted as an immutable
         // kind='roll' message.
         .route("/channels/{cid}/roll", post(messages::roll_message))
+        // Nova DOT in any channel (app-admin only): /nova asks the LLM-backed
+        // Nova DOT (Qwen) and posts its reply; /novasay posts a manual Nova DOT
+        // line. Both author as the reserved nova_dot bot (kind='system').
+        .route("/channels/{cid}/nova", post(messages::nova_ask))
+        .route("/channels/{cid}/novasay", post(messages::nova_say))
+        // Per-channel Nova system-prompt addendum (admin-only): GET to read, PUT
+        // to set/clear. Appended to the global base prompt when Nova replies here.
+        .route(
+            "/channels/{cid}/nova-prompt",
+            get(messages::get_nova_prompt).put(messages::set_nova_prompt),
+        )
         // Ephemeral "is typing" ping (#19): in-memory, surfaced via the poll.
         // M4/T7 Ghost Quill: the ping's optional `draft` body + the
         // permission-checked drafts read (the ONLY way draft text leaves the

@@ -22,7 +22,8 @@ use crate::protocol::{
     ListCameosResponse, ListDmsResponse, ListEmojiResponse, ListFeedbackResponse,
     ListFriendsResponse, ListGuestsResponse, ListGuildsResponse, ListLorebookResponse,
     ListMembersResponse, ListMessagesResponse, ListPersonaEditorsResponse, ListPersonasResponse,
-    LoginRequest, MarkReadRequest, MeResponse, PatchChannelRequest, PatchGuildRequest,
+    LoginRequest, MarkReadRequest, MeResponse, NovaAskRequest, NovaPromptRequest,
+    NovaPromptResponse, NovaSayRequest, PatchChannelRequest, PatchGuildRequest,
     PatchLorebookEntryRequest, PatchPersonaRequest, PersonaDetail, PersonaSummary,
     PushSubscribeRequest, RailOrderRequest, ReadStateResponse, RegisterRequest, RollRequest,
     SendMessageRequest, SendMessageResponse, SendSystemMessageRequest, SetActivePersonaRequest,
@@ -344,6 +345,54 @@ pub async fn roll(
             expr: expr.to_string(),
             persona,
         },
+    )
+    .await
+}
+
+/// POST /channels/{cid}/nova — admin-only: ask the LLM-backed Nova DOT a
+/// `prompt`. The server posts the prompt as the caller's own message, then
+/// generates Nova DOT's reply (Qwen) and posts it as a `kind='system'` message;
+/// the 202 response carries the PROMPT's id (the reply arrives over SSE). A 503
+/// when Nova is unconfigured; a 403 for non-admins.
+pub async fn nova_ask(
+    cid: &str,
+    prompt: &str,
+    persona: Option<String>,
+) -> Result<SendMessageResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/nova"),
+        &NovaAskRequest {
+            prompt: prompt.to_string(),
+            persona,
+        },
+    )
+    .await
+}
+
+/// POST /channels/{cid}/novasay — admin-only: post `body` verbatim as a Nova DOT
+/// `kind='system'` message in this channel (the manual counterpart to /nova).
+pub async fn nova_say(cid: &str, body: &str) -> Result<SendMessageResponse, ApiError> {
+    post_json(
+        &format!("/channels/{cid}/novasay"),
+        &NovaSayRequest {
+            body: body.to_string(),
+        },
+    )
+    .await
+}
+
+/// GET /channels/{cid}/nova-prompt — admin-only: the channel's stored Nova DOT
+/// system-prompt addendum (None when unset), for the settings field.
+pub async fn get_nova_prompt(cid: &str) -> Result<NovaPromptResponse, ApiError> {
+    get(&format!("/channels/{cid}/nova-prompt")).await
+}
+
+/// PUT /channels/{cid}/nova-prompt — admin-only: set (`Some`) or clear (`None`)
+/// this channel's Nova DOT system-prompt addendum (appended to the global base).
+pub async fn set_nova_prompt(cid: &str, prompt: Option<String>) -> Result<(), ApiError> {
+    put_json(
+        &format!("/channels/{cid}/nova-prompt"),
+        &NovaPromptRequest { prompt },
     )
     .await
 }
