@@ -9,7 +9,8 @@
 //!   ([`crate::server::nova_llm`]) and post it as a `kind='system'` "Nova DOT"
 //!   message. The reply is produced in a spawned task and lands over the SSE bus
 //!   like any other message — the POST returns 202 at once so the composer never
-//!   hangs on generation.
+//!   hangs on generation. When Nova's ctx tools are configured
+//!   ([`crate::server::ctx`]), the reply runs a model-driven tool-call loop.
 //!
 //! Both are admin-gated (`is_admin`, fail-closed → 403) and re-derive channel
 //! membership per call (privacy-404, text-only). "Nova DOT" is the reserved
@@ -30,7 +31,7 @@ use crate::protocol::{
 };
 use crate::server::auth::AuthAccount;
 use crate::server::errors::{error_response, json_rejection_response};
-use crate::server::nova_llm::{ChatMessage, NovaResult};
+use crate::server::nova_llm::{ChatMessage, NovaLlm, NovaResult, NovaTurn, ToolCall};
 use crate::server::permissions::is_admin;
 use crate::server::state::AppState;
 use crate::server::system_messages::validate_broadcast_body;
@@ -280,8 +281,14 @@ pub async fn nova_ask(
 
 /// Generate Nova DOT's reply to the latest channel context and post it as a
 /// `kind='system'` message. Auth-free core — exposed for integration tests
-/// (inject a stub `NovaLlm` via `AppState::with_nova_llm`). Returns the reply
-/// message id, or `None` when Nova is unconfigured or the model returns empty.
+/// (inject a stub `NovaLlm` via `AppState::with_nova_llm`, and optionally a stub
+/// `CtxClient` via `AppState::with_ctx`). Returns the reply message id, or `None`
+/// when Nova is unconfigured or the model returns empty; a blown reply budget
+/// surfaces as `Err` so the caller posts the "unavailable" line (M14 parity).
+///
+/// When ctx tools are configured ([`AppState::ctx`] is `Some`), the reply runs a
+/// model-driven tool-call loop ([`run_tool_loop`]); otherwise it is a single
+/// tools-less model call — byte-identical to committed M14.
 pub async fn run_nova_reply(state: &AppState, cid: &str) -> NovaResult<Option<String>> {
     let Some(nova) = state.nova_llm.clone() else {
         return Ok(None);
@@ -290,14 +297,108 @@ pub async fn run_nova_reply(state: &AppState, cid: &str) -> NovaResult<Option<St
     // Effective system prompt = global base + this channel's admin-set addendum.
     let channel_prompt = channel_nova_prompt(state, cid).await?;
     let system_prompt = effective_system_prompt(&nova.system_prompt, channel_prompt.as_deref());
-    let messages = build_chat_messages(&system_prompt, &context);
-    let reply = nova.complete(messages).await?;
+    let mut messages = build_chat_messages(&system_prompt, &context);
+    // ctx tools are offered ONLY when configured — the no-ctx path is a single
+    // tools-less model call (committed-M14 behaviour).
+    let tools = if state.ctx.is_some() {
+        crate::server::ctx::openai_tool_specs()
+    } else {
+        Vec::new()
+    };
+    // Bound the WHOLE reply (the tool loop + every model call) by a wall-clock
+    // budget; a blown budget surfaces as `Err` so the caller posts the visible
+    // "unavailable" line (like any generation failure, M14 parity), never a hang.
+    let reply = match tokio::time::timeout(
+        std::time::Duration::from_secs(nova.reply_budget_secs),
+        run_tool_loop(state, &nova, &mut messages, &tools),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_elapsed) => {
+            tracing::warn!(channel = %cid, "nova reply budget elapsed");
+            return Err("nova reply budget elapsed".into());
+        }
+    };
     let reply: String = reply.trim().chars().take(NOVA_REPLY_MAX_CHARS).collect();
     if reply.is_empty() {
         return Ok(None);
     }
     let id = persist_nova_dot_message(state, cid, &reply).await?;
     Ok(Some(id))
+}
+
+/// Drive the model↔ctx-tool loop: call the model; if it answers with text, that
+/// is the reply; if it requests tools, echo the call, dispatch each to ctx, append
+/// the results as `tool` turns, and call again — up to `max_tool_iters` rounds,
+/// then one tools-disabled "squeeze" so a capped-out model still produces a plain
+/// reply. Each dispatch is TOTAL (always a model-readable string), so a bad tool
+/// call or a ctx outage degrades the answer without failing the reply. When tools
+/// is empty (ctx unconfigured) or `max_tool_iters == 0`, this is a single model call.
+async fn run_tool_loop(
+    state: &AppState,
+    nova: &NovaLlm,
+    messages: &mut Vec<ChatMessage>,
+    tools: &[serde_json::Value],
+) -> NovaResult<String> {
+    for _ in 0..nova.max_tool_iters {
+        match nova.chat(messages, tools).await? {
+            NovaTurn::Text(text) => return Ok(text),
+            NovaTurn::ToolCalls(calls) => {
+                // Echo the assistant's tool-call turn FIRST, then exactly one `tool`
+                // message per call id (the chat template requires the pairing).
+                messages.push(ChatMessage::assistant_tool_calls(calls.clone()));
+                for call in &calls {
+                    let out = dispatch_ctx_tool(state, nova, call).await;
+                    messages.push(ChatMessage::tool_result(
+                        call.id.clone(),
+                        call.function.name.clone(),
+                        out,
+                    ));
+                }
+            }
+        }
+    }
+    // Iteration cap hit while the model is still requesting tools: one final
+    // tools-disabled call so we never post a dangling tool-call turn.
+    match nova.chat(messages, &[]).await? {
+        NovaTurn::Text(text) => Ok(text),
+        NovaTurn::ToolCalls(_) => Ok(String::new()),
+    }
+}
+
+/// Dispatch ONE model-requested tool call to ctx, ALWAYS returning a model-readable
+/// string (never an `Err` into the loop): a non-configured store, malformed /
+/// non-object arguments, an unknown tool name, or a ctx failure all become an
+/// `"error: …"` line the model can read and recover from. The result is truncated
+/// to bound the small model's context.
+async fn dispatch_ctx_tool(state: &AppState, nova: &NovaLlm, call: &ToolCall) -> String {
+    let Some(ctx) = state.ctx.as_ref() else {
+        return "error: knowledge store not configured".to_string();
+    };
+    let raw = call.function.arguments.trim();
+    let args: serde_json::Value = if raw.is_empty() {
+        serde_json::json!({})
+    } else {
+        match serde_json::from_str(raw) {
+            Ok(v @ serde_json::Value::Object(_)) => v,
+            Ok(_) => return "error: tool arguments must be a JSON object".to_string(),
+            Err(e) => {
+                tracing::warn!(error = %e, tool = %call.function.name, "nova tool args parse failed");
+                return format!("error: arguments were not valid JSON: {e}");
+            }
+        }
+    };
+    // Audit every model-driven ctx call (G3).
+    tracing::info!(tool = %call.function.name, args = %args, "nova ctx tool call");
+    match ctx.call_tool(&call.function.name, args).await {
+        Ok(text) if text.trim().is_empty() => "(no results)".to_string(),
+        Ok(text) => text.chars().take(nova.tool_result_max_chars).collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, tool = %call.function.name, "nova ctx tool failed");
+            format!("error: tool '{}' failed: {e}", call.function.name)
+        }
+    }
 }
 
 /// Best-effort "Nova is unavailable" system line, posted when generation fails.
@@ -411,17 +512,20 @@ pub fn build_chat_messages(system_prompt: &str, context: &[NovaContextRow]) -> V
     out.push(ChatMessage {
         role: "system",
         content: system_prompt.to_string(),
+        ..Default::default()
     });
     for row in context {
         if row.author_key == NOVA_DOT_ACCOUNT {
             out.push(ChatMessage {
                 role: "assistant",
                 content: row.body.clone(),
+                ..Default::default()
             });
         } else {
             out.push(ChatMessage {
                 role: "user",
                 content: format!("{}: {}", row.author_display, row.body),
+                ..Default::default()
             });
         }
     }

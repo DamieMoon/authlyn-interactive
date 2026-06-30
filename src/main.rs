@@ -79,7 +79,22 @@ async fn main() {
     } else {
         log!("Nova LLM disabled (set NOVA_LLM_URL to enable /nova; /novasay still works)");
     }
-    let state = AppState::with_leptos(surreal, leptos_options.clone(), media_dir, push, nova_llm);
+    // Nova DOT's ctx tool surface (the knowledge-store bridge): build from env.
+    // `None` = tools disabled (the reply path is a single tools-less model call).
+    let ctx = server::ctx::CtxClient::from_env();
+    if ctx.is_some() {
+        log!("Nova ctx tools enabled (query/search/get/recent/store via ctx)");
+    } else {
+        log!("Nova ctx tools disabled (set CTX_NOVA_MEMORY_KEY to enable)");
+    }
+    let state = AppState::with_leptos(
+        surreal,
+        leptos_options.clone(),
+        media_dir,
+        push,
+        nova_llm,
+        ctx,
+    );
 
     // Background sweep that hard-deletes soft-deleted rows past their rollback
     // window (#22: message 1h, channel 1d, guild 30d). Runs once at boot, hourly after.

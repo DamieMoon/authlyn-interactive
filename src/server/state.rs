@@ -16,6 +16,7 @@ use leptos::prelude::LeptosOptions;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
+use crate::server::ctx::CtxClient;
 use crate::server::nova_llm::NovaLlm;
 use crate::server::push::PushSender;
 
@@ -81,6 +82,11 @@ pub struct AppState {
     /// unaffected — it needs no model). Tests inject a stub via
     /// [`AppState::with_nova_llm`].
     pub nova_llm: Option<Arc<NovaLlm>>,
+    /// Nova DOT's ctx tool backend (`server::ctx`, the knowledge-store bridge),
+    /// built from env at startup. `None` = tools disabled (env unset, or tests) —
+    /// Nova's reply is a single tools-less model call. Tests inject a stub via
+    /// [`AppState::with_ctx`].
+    pub ctx: Option<Arc<CtxClient>>,
     /// Ephemeral "is typing" state (#19), keyed channel_id → account_id →
     /// last-ping `Instant`. Deliberately NOT in the DB: it's transient,
     /// high-churn, and surfaced by piggybacking on the message poll. Guarded by
@@ -137,6 +143,7 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push: None,
             nova_llm: None,
+            ctx: None,
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,
@@ -173,6 +180,15 @@ impl AppState {
         self
     }
 
+    /// Inject Nova DOT's ctx tool backend (`server::ctx`) — test injectability so
+    /// the tool-call flow is provable with a
+    /// [`crate::server::ctx::CtxClient::stub`] instead of a live ctx server. Same
+    /// builder-before-`make_router` contract as the others.
+    pub fn with_ctx(mut self, ctx: Arc<CtxClient>) -> Self {
+        self.ctx = Some(ctx);
+        self
+    }
+
     /// Best-effort bus emission: never fails the request. `send()` errs only
     /// when no subscriber exists (the idle case) — see the `events` field doc
     /// for the capacity/lag rationale. `targets: None` = the visibility-filtered
@@ -203,6 +219,7 @@ impl AppState {
         media_dir: PathBuf,
         push: Option<Arc<PushSender>>,
         nova_llm: Option<Arc<NovaLlm>>,
+        ctx: Option<Arc<CtxClient>>,
     ) -> Self {
         Self {
             leptos,
@@ -210,6 +227,7 @@ impl AppState {
             media_dir: Arc::new(canonicalize_or_panic(media_dir)),
             push,
             nova_llm,
+            ctx,
             typing: Arc::new(Mutex::new(HashMap::new())),
             typing_drafts: Arc::new(Mutex::new(HashMap::new())),
             draft_ttl: DEFAULT_DRAFT_TTL,

@@ -12,12 +12,14 @@ mod common;
 #[cfg(feature = "ssr")]
 use authlyn_interactive::protocol::SyncEvent;
 #[cfg(feature = "ssr")]
+use authlyn_interactive::server::ctx::CtxClient;
+#[cfg(feature = "ssr")]
 use authlyn_interactive::server::messages::{
     build_chat_messages, effective_system_prompt, get_nova_prompt_core, post_nova_say_core,
     run_nova_reply, set_nova_prompt_core, NovaContextRow, NovaError,
 };
 #[cfg(feature = "ssr")]
-use authlyn_interactive::server::nova_llm::NovaLlm;
+use authlyn_interactive::server::nova_llm::{FunctionCall, NovaLlm, NovaTurn, ToolCall};
 #[cfg(feature = "ssr")]
 use axum::http::{Method, StatusCode};
 #[cfg(feature = "ssr")]
@@ -557,4 +559,257 @@ async fn nova_prompt_endpoints_are_403_for_a_non_admin() {
     )
     .await;
     assert_eq!(st, StatusCode::FORBIDDEN, "GET nova-prompt is admin-gated");
+}
+
+// ---------------------------------------------------------------------------
+// /nova reply — model-driven ctx tool-calling loop (stubbed model + ctx)
+// ---------------------------------------------------------------------------
+
+/// Build one model-requested tool call.
+#[cfg(feature = "ssr")]
+fn tool_call(id: &str, name: &str, args: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        kind: "function".to_string(),
+        function: FunctionCall {
+            name: name.to_string(),
+            arguments: args.to_string(),
+        },
+    }
+}
+
+/// The model requests one ctx tool, the server dispatches it, and the model's
+/// FINAL text (not the tool output) is posted as Nova DOT.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_dispatches_a_ctx_tool_then_posts_the_models_final_text() {
+    let a = common::arena().await;
+    let (owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+    let (st, _, _) = common::send(
+        &a.router,
+        Method::POST,
+        &format!("/channels/{cid}/messages"),
+        Some(&owner),
+        Some(&json!({ "body": "Nova, what do you remember?" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+
+    let ctx = CtxClient::stub_with_responses(&[("query", "CANNED ANSWER")]);
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call(
+                "c1",
+                "query",
+                r#"{"question":"what do you remember?"}"#,
+            )]),
+            NovaTurn::Text("Here is what I found.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    let calls = ctx.recorded_tool_calls();
+    assert_eq!(calls.len(), 1, "the model's one tool call reached ctx");
+    assert_eq!(calls[0].0, "query");
+    assert_eq!(calls[0].1["question"], "what do you remember?");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows.len(), 1, "exactly one Nova DOT reply");
+    assert_eq!(
+        rows[0].body, "Here is what I found.",
+        "the model's FINAL text is posted, not the tool output"
+    );
+}
+
+/// Malformed tool-call arguments are caught BEFORE ctx is touched; the reply
+/// still completes from the model's next turn.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_handles_a_malformed_tool_call_without_failing() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call("c1", "query", "{ not json")]),
+            NovaTurn::Text("Falling back to a plain answer.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    assert!(
+        ctx.recorded_tool_calls().is_empty(),
+        "malformed args never reach ctx"
+    );
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Falling back to a plain answer.");
+}
+
+/// An unknown/hallucinated tool name is rejected by the `call_tool` guard (never
+/// recorded), and the reply degrades to the model's next turn.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_with_an_unknown_tool_name_degrades() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub();
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call("c1", "delete", "{}")]),
+            NovaTurn::Text("I can't do that, but here's a reply.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    let id = run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply");
+    assert!(id.is_some());
+    assert!(
+        ctx.recorded_tool_calls().is_empty(),
+        "an unknown tool name is rejected before any backend call"
+    );
+}
+
+/// A failing ctx tool becomes a model-readable error string; the reply continues
+/// to the model's next turn.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_continues_when_a_ctx_tool_errors() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let ctx = CtxClient::stub_failing(&["query"]);
+    let nova_state = a
+        .state
+        .clone()
+        .with_nova_llm(NovaLlm::stub_script(vec![
+            NovaTurn::ToolCalls(vec![tool_call("c1", "query", r#"{"question":"x"}"#)]),
+            NovaTurn::Text("Answering despite the tool error.".into()),
+        ]))
+        .with_ctx(ctx.clone());
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    assert_eq!(
+        ctx.recorded_tool_calls().len(),
+        1,
+        "the failing tool WAS attempted"
+    );
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Answering despite the tool error.");
+}
+
+/// A model that ONLY ever requests tools (sticky script) must still terminate:
+/// the iteration cap bounds the dispatches and the reply ends (here, with nothing
+/// posted because the model never produced final text).
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_terminates_when_the_model_only_ever_requests_tools() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let llm = NovaLlm::stub_script(vec![NovaTurn::ToolCalls(vec![tool_call(
+        "c1", "query", "{}",
+    )])]);
+    let max = llm.max_tool_iters;
+    let ctx = CtxClient::stub();
+    let nova_state = a.state.clone().with_nova_llm(llm).with_ctx(ctx.clone());
+
+    let result = run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply");
+    assert!(
+        result.is_none(),
+        "a model that only calls tools yields no final text → nothing posted"
+    );
+    let n = ctx.recorded_tool_calls().len();
+    assert!(n >= 1, "tools were actually dispatched");
+    assert!(
+        n <= max,
+        "dispatch is bounded by max_tool_iters ({max}), got {n}"
+    );
+}
+
+/// With ctx unconfigured no tools are offered; even if the (stub) model still
+/// emits a tool call, dispatch degrades to a "not configured" result and the
+/// reply completes.
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn nova_reply_degrades_when_model_requests_tools_but_ctx_is_unconfigured() {
+    let a = common::arena().await;
+    let (_owner, _owner_id, cid) = owner_guild_channel(&a.router).await;
+
+    let nova_state = a.state.clone().with_nova_llm(NovaLlm::stub_script(vec![
+        NovaTurn::ToolCalls(vec![tool_call("c1", "query", "{}")]),
+        NovaTurn::Text("Plain reply, no tools.".into()),
+    ]));
+
+    run_nova_reply(&nova_state, &cid)
+        .await
+        .expect("run_nova_reply")
+        .expect("a reply id");
+
+    #[derive(SurrealValue)]
+    struct Row {
+        body: String,
+    }
+    let mut resp =
+        a.db.query("SELECT body FROM message WHERE author = account:nova_dot;")
+            .await
+            .expect("query")
+            .check()
+            .expect("check");
+    let rows: Vec<Row> = resp.take(0).expect("take");
+    assert_eq!(rows[0].body, "Plain reply, no tools.");
 }
